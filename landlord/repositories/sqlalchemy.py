@@ -80,6 +80,31 @@ class SQLAlchemyBillingRepository(BillingRepository):
                 billings.append(billing)
         return billings
 
+    def update(self, billing: Billing) -> Billing:
+        self.conn.execute(
+            text(
+                "UPDATE billings SET name = :name, description = :description, "
+                "pix_key = :pix_key WHERE id = :id"
+            ),
+            {"name": billing.name, "description": billing.description,
+             "pix_key": billing.pix_key, "id": billing.id},
+        )
+        self.conn.execute(
+            text("DELETE FROM billing_items WHERE billing_id = :billing_id"),
+            {"billing_id": billing.id},
+        )
+        for i, item in enumerate(billing.items):
+            self.conn.execute(
+                text(
+                    "INSERT INTO billing_items (billing_id, description, amount, item_type, sort_order) "
+                    "VALUES (:billing_id, :description, :amount, :item_type, :sort_order)"
+                ),
+                {"billing_id": billing.id, "description": item.description,
+                 "amount": item.amount, "item_type": item.item_type.value, "sort_order": i},
+            )
+        self.conn.commit()
+        return self.get_by_id(billing.id)  # type: ignore[return-value]
+
     def delete(self, billing_id: int) -> None:
         self.conn.execute(
             text("UPDATE billings SET deleted_at = CURRENT_TIMESTAMP WHERE id = :id"),

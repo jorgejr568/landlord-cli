@@ -155,6 +155,7 @@ def _billing_detail_menu(
             choices=[
                 "Gerar Nova Fatura",
                 "Ver Faturas Anteriores",
+                "Editar Cobrança",
                 "Excluir Cobrança",
                 "Voltar",
             ],
@@ -166,6 +167,8 @@ def _billing_detail_menu(
             generate_bill_menu(billing, bill_service)
         elif choice == "Ver Faturas Anteriores":
             list_bills_menu(billing, bill_service)
+        elif choice == "Editar Cobrança":
+            billing = _edit_billing_menu(billing, billing_service)
         elif choice == "Excluir Cobrança":
             confirm = questionary.confirm(
                 f"Tem certeza que deseja excluir '{billing.name}'?", default=False
@@ -174,3 +177,160 @@ def _billing_detail_menu(
                 billing_service.delete_billing(billing.id)
                 console.print("[green]Cobrança excluída.[/green]")
                 break
+
+
+def _edit_billing_menu(billing, billing_service: BillingService):
+    """Sub-menu for editing a billing's PIX key and items."""
+    while True:
+        choice = questionary.select(
+            "Editar Cobrança:",
+            choices=[
+                "Editar Chave PIX",
+                "Editar Item",
+                "Adicionar Item",
+                "Remover Item",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            break
+        elif choice == "Editar Chave PIX":
+            billing = _edit_pix_key(billing, billing_service)
+        elif choice == "Editar Item":
+            billing = _edit_item(billing, billing_service)
+        elif choice == "Adicionar Item":
+            billing = _add_item(billing, billing_service)
+        elif choice == "Remover Item":
+            billing = _remove_item(billing, billing_service)
+
+    return billing
+
+
+def _edit_pix_key(billing, billing_service: BillingService):
+    current = billing.pix_key or "(nenhuma)"
+    console.print(f"  Chave PIX atual: [bold]{current}[/bold]")
+    new_key = questionary.text("  Nova chave PIX:", default=billing.pix_key).ask()
+    if new_key is None:
+        return billing
+    billing.pix_key = new_key
+    billing = billing_service.update_billing(billing)
+    console.print("[green]Chave PIX atualizada.[/green]")
+    return billing
+
+
+def _edit_item(billing, billing_service: BillingService):
+    if not billing.items:
+        console.print("[yellow]Nenhum item para editar.[/yellow]")
+        return billing
+
+    choices = [
+        f"{item.description} ({format_brl(item.amount) if item.item_type == ItemType.FIXED else 'Variável'})"
+        for item in billing.items
+    ] + ["Voltar"]
+
+    choice = questionary.select("Selecione o item:", choices=choices).ask()
+    if choice is None or choice == "Voltar":
+        return billing
+
+    idx = choices.index(choice)
+    item = billing.items[idx]
+
+    new_desc = questionary.text("  Descrição:", default=item.description).ask()
+    if new_desc is None:
+        return billing
+    item.description = new_desc
+
+    item_type_str = questionary.select(
+        "  Tipo:",
+        choices=["Fixo", "Variável"],
+        default="Fixo" if item.item_type == ItemType.FIXED else "Variável",
+    ).ask()
+    if item_type_str is None:
+        return billing
+    item.item_type = ItemType.FIXED if item_type_str == "Fixo" else ItemType.VARIABLE
+
+    if item.item_type == ItemType.FIXED:
+        while True:
+            default_val = f"{item.amount / 100:.2f}" if item.amount else ""
+            amount_str = questionary.text("  Valor (ex: 2850.00):", default=default_val).ask()
+            if amount_str is None:
+                return billing
+            parsed = _parse_amount(amount_str)
+            if parsed is not None and parsed > 0:
+                item.amount = parsed
+                break
+            console.print("[red]Valor inválido. Tente novamente.[/red]")
+    else:
+        item.amount = 0
+
+    billing = billing_service.update_billing(billing)
+    console.print(f"[green]Item '{item.description}' atualizado.[/green]")
+    return billing
+
+
+def _add_item(billing, billing_service: BillingService):
+    desc = questionary.text("  Descrição do item:").ask()
+    if not desc:
+        console.print("[yellow]Operação cancelada.[/yellow]")
+        return billing
+
+    item_type_str = questionary.select(
+        "  Tipo:", choices=["Fixo", "Variável"]
+    ).ask()
+    if item_type_str is None:
+        return billing
+    item_type = ItemType.FIXED if item_type_str == "Fixo" else ItemType.VARIABLE
+
+    amount = 0
+    if item_type == ItemType.FIXED:
+        while True:
+            amount_str = questionary.text("  Valor (ex: 2850.00):").ask()
+            if amount_str is None:
+                return billing
+            parsed = _parse_amount(amount_str or "")
+            if parsed is not None and parsed > 0:
+                amount = parsed
+                break
+            console.print("[red]Valor inválido. Tente novamente.[/red]")
+
+    billing.items.append(
+        BillingItem(description=desc, amount=amount, item_type=item_type)
+    )
+    billing = billing_service.update_billing(billing)
+    console.print(f"[green]Item '{desc}' adicionado.[/green]")
+    return billing
+
+
+def _remove_item(billing, billing_service: BillingService):
+    if not billing.items:
+        console.print("[yellow]Nenhum item para remover.[/yellow]")
+        return billing
+
+    choices = [
+        f"{item.description} ({format_brl(item.amount) if item.item_type == ItemType.FIXED else 'Variável'})"
+        for item in billing.items
+    ] + ["Voltar"]
+
+    choice = questionary.select("Selecione o item para remover:", choices=choices).ask()
+    if choice is None or choice == "Voltar":
+        return billing
+
+    idx = choices.index(choice)
+    removed = billing.items.pop(idx)
+
+    if not billing.items:
+        console.print("[red]Não é possível remover todos os itens. A cobrança precisa de pelo menos um item.[/red]")
+        billing.items.insert(idx, removed)
+        return billing
+
+    confirm = questionary.confirm(
+        f"Remover '{removed.description}'?", default=False
+    ).ask()
+    if not confirm:
+        billing.items.insert(idx, removed)
+        return billing
+
+    billing = billing_service.update_billing(billing)
+    console.print(f"[green]Item '{removed.description}' removido.[/green]")
+    return billing

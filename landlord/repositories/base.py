@@ -15,6 +15,9 @@ class BillingRepository(ABC):
     def list_all(self) -> list[Billing]: ...
 
     @abstractmethod
+    def update(self, billing: Billing) -> Billing: ...
+
+    @abstractmethod
     def delete(self, billing_id: int) -> None: ...
 
 
