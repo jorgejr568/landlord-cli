@@ -31,16 +31,17 @@ TYPE_LABELS = {
     "extra": "Extra",
 }
 
-# Color palette — derived from joy-purple / joy-teal / joy-teal-dark
-PURPLE = (138, 76, 148)
-PURPLE_LIGHT = (238, 228, 241)
-TEAL = (110, 175, 174)
-TEAL_DARK = (53, 123, 124)
+# Color palette — black & gold
+BLACK = (25, 25, 25)
+BLACK_SOFT = (45, 45, 45)
+GOLD = (255, 200, 50)
+GOLD_DARK = (200, 155, 20)
+GOLD_LIGHT = (255, 245, 215)
 WHITE = (255, 255, 255)
-DARK_TEXT = (40, 40, 48)
-MUTED_TEXT = (108, 108, 120)
-ROW_ALT = (244, 240, 246)
-BORDER_COLOR = (210, 200, 215)
+DARK_TEXT = (30, 30, 30)
+MUTED_TEXT = (100, 100, 100)
+ROW_ALT = (248, 248, 245)
+BORDER_COLOR = (210, 210, 200)
 
 
 def _format_month(ref: str) -> str:
@@ -92,18 +93,21 @@ class InvoicePDF:
         x = pdf.l_margin
         y = pdf.get_y()
 
-        # Header banner — purple
-        pdf.set_fill_color(*PURPLE)
+        # Header banner — black
+        pdf.set_fill_color(*BLACK)
         pdf.rect(x, y, page_w, 40, "F")
+        # Gold accent line at bottom of banner
+        pdf.set_fill_color(*GOLD)
+        pdf.rect(x, y + 37, page_w, 3, "F")
 
         # Title
         pdf.set_y(y + 10)
-        pdf.set_text_color(*WHITE)
+        pdf.set_text_color(*GOLD)
         pdf.set_font("Montserrat", "B", 28)
         pdf.cell(0, 14, "FATURA", align="C", new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Montserrat", "", 9)
-        pdf.set_text_color(210, 195, 215)
+        pdf.set_text_color(180, 180, 180)
         pdf.cell(
             0, 8, "Documento de cobran\u00e7a", align="C",
             new_x="LMARGIN", new_y="NEXT",
@@ -118,10 +122,10 @@ class InvoicePDF:
         card_y = pdf.get_y()
 
         # Left card — billing name
-        pdf.set_fill_color(*PURPLE_LIGHT)
+        pdf.set_fill_color(*GOLD_LIGHT)
         pdf.rect(x, card_y, card_w, card_h, "F")
         # Left accent strip
-        pdf.set_fill_color(*TEAL_DARK)
+        pdf.set_fill_color(*GOLD_DARK)
         pdf.rect(x, card_y, 3, card_h, "F")
 
         pdf.set_xy(x + 10, card_y + 3)
@@ -135,9 +139,9 @@ class InvoicePDF:
 
         # Right card — reference month
         right_x = x + card_w + 6
-        pdf.set_fill_color(*PURPLE_LIGHT)
+        pdf.set_fill_color(*GOLD_LIGHT)
         pdf.rect(right_x, card_y, card_w, card_h, "F")
-        pdf.set_fill_color(*TEAL_DARK)
+        pdf.set_fill_color(*GOLD_DARK)
         pdf.rect(right_x, card_y, 3, card_h, "F")
 
         pdf.set_xy(right_x + 10, card_y + 3)
@@ -159,20 +163,20 @@ class InvoicePDF:
 
         # Section label
         pdf.set_font("Montserrat", "B", 11)
-        pdf.set_text_color(*PURPLE)
+        pdf.set_text_color(*BLACK)
         pdf.cell(0, 8, "ITENS DA FATURA", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
 
         # Accent underline
-        pdf.set_draw_color(*TEAL)
+        pdf.set_draw_color(*GOLD)
         pdf.set_line_width(0.8)
         y = pdf.get_y()
         pdf.line(pdf.l_margin, y, pdf.l_margin + 30, y)
         pdf.ln(6)
 
         # Table header
-        pdf.set_fill_color(*PURPLE)
-        pdf.set_text_color(*WHITE)
+        pdf.set_fill_color(*BLACK)
+        pdf.set_text_color(*GOLD)
         pdf.set_font("MontserratSB", "", 9)
 
         pdf.cell(col_desc, line_h, "  Descri\u00e7\u00e3o", border=0, fill=True)
@@ -218,9 +222,9 @@ class InvoicePDF:
         col_amount = page_w * 0.28
         total_h = 14
 
-        # Total bar — teal dark
-        pdf.set_fill_color(*TEAL_DARK)
-        pdf.set_text_color(*WHITE)
+        # Total bar — black with gold text
+        pdf.set_fill_color(*BLACK)
+        pdf.set_text_color(*GOLD)
         pdf.set_font("MontserratSB", "", 12)
         pdf.cell(col_label, total_h, "TOTAL  ", border=0, fill=True, align="R")
         pdf.set_font("Montserrat", "B", 14)
@@ -242,10 +246,10 @@ class InvoicePDF:
         y = pdf.get_y()
 
         # Left accent bar
-        pdf.set_fill_color(*TEAL)
+        pdf.set_fill_color(*GOLD_DARK)
         pdf.rect(x, y, 3, 20, "F")
         # Background
-        pdf.set_fill_color(*PURPLE_LIGHT)
+        pdf.set_fill_color(*GOLD_LIGHT)
         pdf.rect(x + 3, y, page_w - 3, 20, "F")
         # Text
         pdf.set_xy(x + 12, y + 6)
@@ -264,13 +268,15 @@ class InvoicePDF:
     ) -> None:
         x = pdf.l_margin
 
-        # Header banner — purple (same style as page 1)
+        # Header banner — black (same style as page 1)
         y = pdf.get_y()
-        pdf.set_fill_color(*PURPLE)
+        pdf.set_fill_color(*BLACK)
         pdf.rect(x, y, page_w, 30, "F")
+        pdf.set_fill_color(*GOLD)
+        pdf.rect(x, y + 27, page_w, 3, "F")
 
         pdf.set_y(y + 8)
-        pdf.set_text_color(*WHITE)
+        pdf.set_text_color(*GOLD)
         pdf.set_font("Montserrat", "B", 22)
         pdf.cell(0, 12, "PAGAMENTO VIA PIX", align="C", new_x="LMARGIN", new_y="NEXT")
 
@@ -296,16 +302,16 @@ class InvoicePDF:
         # Amount card
         card_h = 22
         card_y = pdf.get_y()
-        pdf.set_fill_color(*TEAL_DARK)
+        pdf.set_fill_color(*BLACK)
         pdf.rect(x, card_y, page_w, card_h, "F")
 
         pdf.set_xy(x + 10, card_y + 3)
         pdf.set_font("MontserratSB", "", 8)
-        pdf.set_text_color(180, 220, 220)
+        pdf.set_text_color(180, 180, 160)
         pdf.cell(0, 5, "VALOR A PAGAR")
         pdf.set_xy(x + 10, card_y + 10)
         pdf.set_font("Montserrat", "B", 18)
-        pdf.set_text_color(*WHITE)
+        pdf.set_text_color(*GOLD)
         pdf.cell(0, 10, format_brl(total_amount))
 
         pdf.set_y(card_y + card_h + 12)
@@ -319,9 +325,9 @@ class InvoicePDF:
 
             key_y = pdf.get_y()
             key_h = 14
-            pdf.set_fill_color(*PURPLE_LIGHT)
+            pdf.set_fill_color(*GOLD_LIGHT)
             pdf.rect(x, key_y, page_w, key_h, "F")
-            pdf.set_fill_color(*TEAL_DARK)
+            pdf.set_fill_color(*GOLD_DARK)
             pdf.rect(x, key_y, 3, key_h, "F")
 
             pdf.set_xy(x + 10, key_y + 3)
