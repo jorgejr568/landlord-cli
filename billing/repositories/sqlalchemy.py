@@ -38,7 +38,7 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     def get_by_id(self, billing_id: int) -> Billing | None:
         row = self.conn.execute(
-            text("SELECT * FROM billings WHERE id = :id"),
+            text("SELECT * FROM billings WHERE id = :id AND deleted_at IS NULL"),
             {"id": billing_id},
         ).mappings().fetchone()
         if row is None:
@@ -66,11 +66,12 @@ class SQLAlchemyBillingRepository(BillingRepository):
             ],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            deleted_at=row["deleted_at"],
         )
 
     def list_all(self) -> list[Billing]:
         rows = self.conn.execute(
-            text("SELECT id FROM billings ORDER BY created_at DESC")
+            text("SELECT id FROM billings WHERE deleted_at IS NULL ORDER BY created_at DESC")
         ).mappings().fetchall()
         billings = []
         for row in rows:
@@ -81,11 +82,7 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     def delete(self, billing_id: int) -> None:
         self.conn.execute(
-            text("DELETE FROM billing_items WHERE billing_id = :billing_id"),
-            {"billing_id": billing_id},
-        )
-        self.conn.execute(
-            text("DELETE FROM billings WHERE id = :id"),
+            text("UPDATE billings SET deleted_at = CURRENT_TIMESTAMP WHERE id = :id"),
             {"id": billing_id},
         )
         self.conn.commit()

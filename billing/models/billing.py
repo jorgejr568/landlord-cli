@@ -29,3 +29,4 @@ class Billing(BaseModel):
     items: list[BillingItem] = []
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
