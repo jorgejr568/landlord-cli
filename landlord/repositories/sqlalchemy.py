@@ -4,9 +4,9 @@ from uuid import uuid4
 
 from sqlalchemy import Connection, text
 
-from billing.models.bill import Bill, BillLineItem
-from billing.models.billing import Billing, BillingItem, ItemType
-from billing.repositories.base import BillingRepository, BillRepository
+from landlord.models.bill import Bill, BillLineItem
+from landlord.models.billing import Billing, BillingItem, ItemType
+from landlord.repositories.base import BillingRepository, BillRepository
 
 
 class SQLAlchemyBillingRepository(BillingRepository):

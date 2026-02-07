@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
-from billing.models.billing import Billing
-from billing.models.bill import Bill
+from landlord.models.billing import Billing
+from landlord.models.bill import Bill
 
 
 class BillingRepository(ABC):

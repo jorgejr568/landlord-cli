@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["billing*"]
+include = ["landlord*"]
 
 [project.scripts]
-billing = "billing.__main__:main"
+landlord = "landlord.__main__:main"

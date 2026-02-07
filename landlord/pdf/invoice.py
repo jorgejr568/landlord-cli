@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from billing.models import format_brl
-from billing.models.bill import Bill
+from landlord.models import format_brl
+from landlord.models.bill import Bill
 
 FONTS_DIR = Path(__file__).parent / "fonts"
 

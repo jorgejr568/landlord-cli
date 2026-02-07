@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from billing.models.billing import Billing, BillingItem
-from billing.repositories.base import BillingRepository
+from landlord.models.billing import Billing, BillingItem
+from landlord.repositories.base import BillingRepository
 
 
 class BillingService:

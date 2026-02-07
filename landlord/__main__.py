@@ -1,5 +1,5 @@
-from billing.cli.app import main_menu
-from billing.db import initialize_db
+from landlord.cli.app import main_menu
+from landlord.db import initialize_db
 
 
 def main() -> None:

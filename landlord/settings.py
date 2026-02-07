@@ -2,10 +2,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="BILLING_")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="LANDLORD_")
 
     db_backend: str = "sqlite"
-    db_path: str = "billing.db"
+    db_path: str = "landlord.db"
     db_url: str = ""
 
     storage_backend: str = "local"

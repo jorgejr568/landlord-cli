@@ -1,8 +1,8 @@
 """List all invoices and regenerate their PDFs with the current template.
 
 Usage:
-    python -m billing.scripts.regenerate_pdfs
-    python -m billing.scripts.regenerate_pdfs --dry-run
+    python -m landlord.scripts.regenerate_pdfs
+    python -m landlord.scripts.regenerate_pdfs --dry-run
 """
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from billing.db import initialize_db
-from billing.models import format_brl
-from billing.models.billing import Billing
-from billing.pdf.invoice import InvoicePDF
-from billing.pix import generate_pix_payload, generate_pix_qrcode_png
-from billing.repositories.factory import get_bill_repository, get_billing_repository
-from billing.settings import settings
-from billing.storage.factory import get_storage
+from landlord.db import initialize_db
+from landlord.models import format_brl
+from landlord.models.billing import Billing
+from landlord.pdf.invoice import InvoicePDF
+from landlord.pix import generate_pix_payload, generate_pix_qrcode_png
+from landlord.repositories.factory import get_bill_repository, get_billing_repository
+from landlord.settings import settings
+from landlord.storage.factory import get_storage
 
 console = Console()
 

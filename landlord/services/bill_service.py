@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from billing.models.bill import Bill, BillLineItem
-from billing.models.billing import Billing, ItemType
-from billing.pdf.invoice import InvoicePDF
-from billing.pix import generate_pix_payload, generate_pix_qrcode_png
-from billing.repositories.base import BillRepository
-from billing.settings import settings
-from billing.storage.base import StorageBackend
+from landlord.models.bill import Bill, BillLineItem
+from landlord.models.billing import Billing, ItemType
+from landlord.pdf.invoice import InvoicePDF
+from landlord.pix import generate_pix_payload, generate_pix_qrcode_png
+from landlord.repositories.base import BillRepository
+from landlord.settings import settings
+from landlord.storage.base import StorageBackend
 
 
 class BillService:

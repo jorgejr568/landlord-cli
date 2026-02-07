@@ -13,12 +13,12 @@ target_metadata = None
 
 
 def _get_url() -> str:
-    """Resolve database URL from billing settings (BILLING_* env vars).
+    """Resolve database URL from landlord settings (LANDLORD_* env vars).
 
-    Falls back to sqlite:///billing.db if settings can't be loaded.
+    Falls back to sqlite:///landlord.db if settings can't be loaded.
     """
     try:
-        from billing.settings import settings
+        from landlord.settings import settings
 
         if settings.db_url:
             return settings.db_url
@@ -26,7 +26,7 @@ def _get_url() -> str:
             return f"sqlite:///{os.path.abspath(settings.db_path)}"
     except Exception:
         pass
-    return "sqlite:///billing.db"
+    return "sqlite:///landlord.db"
 
 
 def run_migrations_offline() -> None:

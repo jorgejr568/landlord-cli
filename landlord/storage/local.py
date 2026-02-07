@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from billing.storage.base import StorageBackend
+from landlord.storage.base import StorageBackend
 
 
 class LocalStorage(StorageBackend):

@@ -1,15 +1,15 @@
-from billing.settings import settings
-from billing.storage.base import StorageBackend
+from landlord.settings import settings
+from landlord.storage.base import StorageBackend
 
 
 def get_storage() -> StorageBackend:
     if settings.storage_backend == "local":
-        from billing.storage.local import LocalStorage
+        from landlord.storage.local import LocalStorage
 
         return LocalStorage(settings.storage_local_path)
 
     if settings.storage_backend == "s3":
-        from billing.storage.s3 import S3Storage
+        from landlord.storage.s3 import S3Storage
 
         return S3Storage(
             bucket=settings.s3_bucket,

@@ -5,7 +5,7 @@ from alembic.config import Config
 from sqlalchemy import Connection, create_engine, event
 from sqlalchemy.engine import Engine
 
-from billing.settings import settings
+from landlord.settings import settings
 
 _engine: Engine | None = None
 _connection: Connection | None = None

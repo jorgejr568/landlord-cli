@@ -2,6 +2,6 @@
 __pycache__
 *.pyc
 .env
-billing.db
+landlord.db
 invoices/
 .git

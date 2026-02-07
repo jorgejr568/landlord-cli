@@ -25,41 +25,41 @@ make run                  # start the interactive CLI
 ```bash
 make build                # build image
 make up                   # start container
-make billing              # run the CLI inside the container
+make landlord             # run the CLI inside the container
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env`. All variables use the `BILLING_` prefix.
+Copy `.env.example` to `.env`. All variables use the `LANDLORD_` prefix.
 
 ### Database
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BILLING_DB_BACKEND` | `sqlite` | Database backend (`sqlite` or `mariadb`) |
-| `BILLING_DB_PATH` | `billing.db` | Path to SQLite file (SQLite only) |
-| `BILLING_DB_URL` | | Full SQLAlchemy URL — overrides `DB_BACKEND` + `DB_PATH` |
+| `LANDLORD_DB_BACKEND` | `sqlite` | Database backend (`sqlite` or `mariadb`) |
+| `LANDLORD_DB_PATH` | `landlord.db` | Path to SQLite file (SQLite only) |
+| `LANDLORD_DB_URL` | | Full SQLAlchemy URL — overrides `DB_BACKEND` + `DB_PATH` |
 
 ### Storage
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BILLING_STORAGE_BACKEND` | `local` | `local` or `s3` |
-| `BILLING_STORAGE_LOCAL_PATH` | `./invoices` | Local directory for PDFs |
-| `BILLING_S3_BUCKET` | | S3 bucket name |
-| `BILLING_S3_REGION` | | AWS region |
-| `BILLING_S3_ACCESS_KEY_ID` | | AWS access key |
-| `BILLING_S3_SECRET_ACCESS_KEY` | | AWS secret key |
-| `BILLING_S3_ENDPOINT_URL` | | Custom S3 endpoint (MinIO, etc.) |
-| `BILLING_S3_PRESIGNED_EXPIRY` | `604800` | Presigned URL expiry in seconds (default 7 days) |
+| `LANDLORD_STORAGE_BACKEND` | `local` | `local` or `s3` |
+| `LANDLORD_STORAGE_LOCAL_PATH` | `./invoices` | Local directory for PDFs |
+| `LANDLORD_S3_BUCKET` | | S3 bucket name |
+| `LANDLORD_S3_REGION` | | AWS region |
+| `LANDLORD_S3_ACCESS_KEY_ID` | | AWS access key |
+| `LANDLORD_S3_SECRET_ACCESS_KEY` | | AWS secret key |
+| `LANDLORD_S3_ENDPOINT_URL` | | Custom S3 endpoint (MinIO, etc.) |
+| `LANDLORD_S3_PRESIGNED_EXPIRY` | `604800` | Presigned URL expiry in seconds (default 7 days) |
 
 ### PIX
 
 | Variable | Description |
 |----------|-------------|
-| `BILLING_PIX_KEY` | PIX key (CPF, email, phone, or random) |
-| `BILLING_PIX_MERCHANT_NAME` | Merchant name for QR code |
-| `BILLING_PIX_MERCHANT_CITY` | Merchant city for QR code |
+| `LANDLORD_PIX_KEY` | PIX key (CPF, email, phone, or random) |
+| `LANDLORD_PIX_MERCHANT_NAME` | Merchant name for QR code |
+| `LANDLORD_PIX_MERCHANT_CITY` | Merchant city for QR code |
 
 ## Makefile Reference
 
@@ -68,7 +68,7 @@ Copy `.env.example` to `.env`. All variables use the `BILLING_` prefix.
 | Command | Description |
 |---------|-------------|
 | `make install` | Create virtualenv and install dependencies |
-| `make run` | Run the billing CLI |
+| `make run` | Run the CLI |
 | `make migrate` | Run pending Alembic migrations |
 | `make regenerate-pdfs` | Regenerate all invoice PDFs |
 | `make regenerate-pdfs-dry` | Preview regeneration (dry run) |
@@ -79,7 +79,7 @@ Copy `.env.example` to `.env`. All variables use the `BILLING_` prefix.
 |---------|-------------|
 | `make build` | Build the Docker image |
 | `make up` / `make down` | Start / stop the container |
-| `make billing` | Run the CLI in the container |
+| `make landlord` | Run the CLI in the container |
 | `make shell` | Open a bash shell in the container |
 | `make docker-migrate` | Run migrations in the container |
 | `make docker-regenerate` | Regenerate PDFs in the container |
@@ -91,15 +91,15 @@ Copy `.env.example` to `.env`. All variables use the `BILLING_` prefix.
 | Command | Description |
 |---------|-------------|
 | `make compose-up` / `compose-down` | Start / stop with Compose |
-| `make compose-billing` | Run the CLI via Compose |
+| `make compose-landlord` | Run the CLI via Compose |
 | `make compose-shell` | Shell into the container |
 | `make compose-migrate` | Run migrations via Compose |
 
 ## Architecture
 
 ```
-billing/
-  settings.py          # Pydantic Settings (env prefix BILLING_)
+landlord/
+  settings.py          # Pydantic Settings (env prefix LANDLORD_)
   db.py                # SQLAlchemy engine + connection
   models/              # Pydantic models (Billing, Bill, BillLineItem)
   repositories/        # Abstract base + SQLAlchemy Core implementation

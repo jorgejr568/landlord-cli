@@ -1,11 +1,11 @@
 import questionary
 from rich.console import Console
 
-from billing.cli.billing_menu import create_billing_menu, list_billings_menu
-from billing.repositories.factory import get_bill_repository, get_billing_repository
-from billing.services.bill_service import BillService
-from billing.services.billing_service import BillingService
-from billing.storage.factory import get_storage
+from landlord.cli.billing_menu import create_billing_menu, list_billings_menu
+from landlord.repositories.factory import get_bill_repository, get_billing_repository
+from landlord.services.bill_service import BillService
+from landlord.services.billing_service import BillingService
+from landlord.storage.factory import get_storage
 
 console = Console()
 

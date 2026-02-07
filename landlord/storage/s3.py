@@ -3,7 +3,7 @@ from __future__ import annotations
 import boto3
 from botocore.exceptions import ClientError
 
-from billing.storage.base import StorageBackend
+from landlord.storage.base import StorageBackend
 
 
 class S3Storage(StorageBackend):

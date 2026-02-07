@@ -4,11 +4,11 @@ import questionary
 from rich.console import Console
 from rich.table import Table
 
-from billing.cli.bill_menu import generate_bill_menu, list_bills_menu
-from billing.models import format_brl
-from billing.models.billing import BillingItem, ItemType
-from billing.services.bill_service import BillService
-from billing.services.billing_service import BillingService
+from landlord.cli.bill_menu import generate_bill_menu, list_bills_menu
+from landlord.models import format_brl
+from landlord.models.billing import BillingItem, ItemType
+from landlord.services.bill_service import BillService
+from landlord.services.billing_service import BillingService
 
 console = Console()
 
@@ -71,7 +71,7 @@ def create_billing_menu(billing_service: BillingService) -> None:
         return
 
     # Optional PIX key override for this billing
-    from billing.settings import settings as app_settings
+    from landlord.settings import settings as app_settings
 
     pix_key = ""
     if app_settings.pix_key:

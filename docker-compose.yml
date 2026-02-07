@@ -1,5 +1,5 @@
 services:
-  billing:
+  landlord:
     build: .
     env_file: .env
     ports:

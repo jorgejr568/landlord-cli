@@ -4,10 +4,10 @@ import questionary
 from rich.console import Console
 from rich.table import Table
 
-from billing.models import format_brl
-from billing.models.bill import Bill, BillLineItem
-from billing.models.billing import Billing, ItemType
-from billing.services.bill_service import BillService
+from landlord.models import format_brl
+from landlord.models.bill import Bill, BillLineItem
+from landlord.models.billing import Billing, ItemType
+from landlord.services.bill_service import BillService
 
 console = Console()
 

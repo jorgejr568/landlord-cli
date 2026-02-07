@@ -1,5 +1,5 @@
 IMAGE_NAME   := landlord-cli
-CONTAINER    := billing
+CONTAINER    := landlord
 
 # --- Local development ---
 
@@ -10,19 +10,19 @@ install:
 
 .PHONY: run
 run:
-	.venv/bin/python -m billing
+	.venv/bin/python -m landlord
 
 .PHONY: migrate
 migrate:
-	.venv/bin/python -c "from billing.db import initialize_db; initialize_db()"
+	.venv/bin/python -c "from landlord.db import initialize_db; initialize_db()"
 
 .PHONY: regenerate-pdfs
 regenerate-pdfs:
-	.venv/bin/python -m billing.scripts.regenerate_pdfs
+	.venv/bin/python -m landlord.scripts.regenerate_pdfs
 
 .PHONY: regenerate-pdfs-dry
 regenerate-pdfs-dry:
-	.venv/bin/python -m billing.scripts.regenerate_pdfs --dry-run
+	.venv/bin/python -m landlord.scripts.regenerate_pdfs --dry-run
 
 # --- Docker (standalone) ---
 
@@ -48,17 +48,17 @@ restart: down up
 shell:
 	docker exec -it $(CONTAINER) bash
 
-.PHONY: billing
-billing:
-	docker exec -it $(CONTAINER) python -m billing
+.PHONY: landlord
+landlord:
+	docker exec -it $(CONTAINER) python -m landlord
 
 .PHONY: docker-migrate
 docker-migrate:
-	docker exec $(CONTAINER) python -c "from billing.db import initialize_db; initialize_db()"
+	docker exec $(CONTAINER) python -c "from landlord.db import initialize_db; initialize_db()"
 
 .PHONY: docker-regenerate
 docker-regenerate:
-	docker exec $(CONTAINER) python -m billing.scripts.regenerate_pdfs
+	docker exec $(CONTAINER) python -m landlord.scripts.regenerate_pdfs
 
 .PHONY: logs
 logs:
@@ -85,19 +85,19 @@ compose-restart:
 
 .PHONY: compose-shell
 compose-shell:
-	docker compose exec billing bash
+	docker compose exec landlord bash
 
-.PHONY: compose-billing
-compose-billing:
-	docker compose exec billing python -m billing
+.PHONY: compose-landlord
+compose-landlord:
+	docker compose exec landlord python -m landlord
 
 .PHONY: compose-migrate
 compose-migrate:
-	docker compose exec billing python -c "from billing.db import initialize_db; initialize_db()"
+	docker compose exec landlord python -c "from landlord.db import initialize_db; initialize_db()"
 
 .PHONY: compose-regenerate
 compose-regenerate:
-	docker compose exec billing python -m billing.scripts.regenerate_pdfs
+	docker compose exec landlord python -m landlord.scripts.regenerate_pdfs
 
 .PHONY: compose-logs
 compose-logs:
