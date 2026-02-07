@@ -1,4 +1,4 @@
-# Billing Generator
+# Landlord CLI
 
 Apartment billing management CLI app with PDF invoice generation.
 
@@ -38,8 +38,8 @@ make health      # curl the health endpoint
 ## Architecture
 
 - **Settings**: `billing/settings.py` — Pydantic Settings, env prefix `BILLING_`, reads `.env`
-- **Database**: `billing/db.py` — SQLite via `sqlite3` stdlib. Schema managed by Alembic. Configurable backend via `BILLING_DB_BACKEND`
-- **Repositories**: `billing/repositories/` — Abstract base classes in `base.py`, SQLite impl in `sqlite.py`, factory in `factory.py`. Add new backends by implementing the ABCs
+- **Database**: `billing/db.py` — SQLAlchemy engine + connection. Schema managed by Alembic. Configurable backend via `BILLING_DB_URL`
+- **Repositories**: `billing/repositories/` — Abstract base classes in `base.py`, SQLAlchemy Core impl in `sqlalchemy.py`, factory in `factory.py`
 - **Storage**: `billing/storage/` — Same pattern. `LocalStorage` writes to `./invoices/`, `S3Storage` uploads to a private bucket with presigned URLs. Configurable via `BILLING_STORAGE_BACKEND`
 - **PDF**: `billing/pdf/invoice.py` — fpdf2-based invoice with navy/green color palette
 - **Services**: `billing/services/` — Business logic layer wiring repos + storage + PDF

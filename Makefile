@@ -1,4 +1,4 @@
-IMAGE_NAME   := billing-generator
+IMAGE_NAME   := landlord-cli
 CONTAINER    := billing
 
 # --- Local development ---
