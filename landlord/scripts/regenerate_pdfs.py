@@ -23,25 +23,22 @@ from landlord.storage.factory import get_storage
 console = Console()
 
 
-def _get_pix_data(billing: Billing, total_centavos: int, bill_uuid: str) -> tuple[bytes | None, str, str]:
+def _get_pix_data(billing: Billing, total_centavos: int) -> tuple[bytes | None, str, str]:
     pix_key = billing.pix_key or settings.pix_key
     if not pix_key or not settings.pix_merchant_name or not settings.pix_merchant_city:
         return None, "", ""
     amount = total_centavos / 100
-    txid = bill_uuid.replace("-", "")
     payload = generate_pix_payload(
         pix_key=pix_key,
         merchant_name=settings.pix_merchant_name,
         merchant_city=settings.pix_merchant_city,
         amount=amount,
-        txid=txid,
     )
     png = generate_pix_qrcode_png(
         pix_key=pix_key,
         merchant_name=settings.pix_merchant_name,
         merchant_city=settings.pix_merchant_city,
         amount=amount,
-        txid=txid,
     )
     return png, pix_key, payload
 
@@ -99,7 +96,7 @@ def main() -> None:
     console.print("\n[cyan]Regenerando PDFs...[/cyan]\n")
 
     for billing, bill in all_bills:
-        pix_png, pix_key, pix_payload = _get_pix_data(billing, bill.total_amount, bill.uuid)
+        pix_png, pix_key, pix_payload = _get_pix_data(billing, bill.total_amount)
         pdf_bytes = pdf_generator.generate(
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,

@@ -16,7 +16,7 @@ class BillService:
         self.pdf_generator = InvoicePDF()
 
     def _get_pix_data(
-        self, billing: Billing, total_centavos: int, bill_uuid: str
+        self, billing: Billing, total_centavos: int
     ) -> tuple[bytes | None, str, str]:
         """Resolve PIX config and return (qrcode_png, pix_key, pix_payload)."""
         pix_key = billing.pix_key or settings.pix_key
@@ -29,20 +29,17 @@ class BillService:
             return None, "", ""
 
         amount = total_centavos / 100
-        txid = bill_uuid.replace("-", "")
         payload = generate_pix_payload(
             pix_key=pix_key,
             merchant_name=merchant_name,
             merchant_city=merchant_city,
             amount=amount,
-            txid=txid,
         )
         png = generate_pix_qrcode_png(
             pix_key=pix_key,
             merchant_name=merchant_name,
             merchant_city=merchant_city,
             amount=amount,
-            txid=txid,
         )
         return png, pix_key, payload
 
@@ -94,7 +91,7 @@ class BillService:
         )
         bill = self.bill_repo.create(bill)
 
-        pix_png, pix_key, pix_payload = self._get_pix_data(billing, total, bill.uuid)
+        pix_png, pix_key, pix_payload = self._get_pix_data(billing, total)
         pdf_bytes = self.pdf_generator.generate(
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
@@ -120,7 +117,7 @@ class BillService:
 
         bill = self.bill_repo.update(bill)
 
-        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount, bill.uuid)
+        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
         pdf_bytes = self.pdf_generator.generate(
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
