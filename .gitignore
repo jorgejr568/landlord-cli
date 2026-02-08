@@ -6,4 +6,6 @@ dist/
 build/
 .env
 landlord.db
+landlord.db-shm
+landlord.db-wal
 invoices/
