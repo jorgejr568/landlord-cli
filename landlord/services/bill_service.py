@@ -169,3 +169,9 @@ class BillService:
 
     def get_bill(self, bill_id: int) -> Bill | None:
         return self.bill_repo.get_by_id(bill_id)
+
+    def get_bill_by_uuid(self, uuid: str) -> Bill | None:
+        return self.bill_repo.get_by_uuid(uuid)
+
+    def delete_bill(self, bill_id: int) -> None:
+        self.bill_repo.delete(bill_id)

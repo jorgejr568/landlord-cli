@@ -29,6 +29,7 @@ class Bill(BaseModel):
     due_date: str | None = None
     paid_at: datetime | None = None
     created_at: datetime | None = None
+    deleted_at: datetime | None = None
 
     @property
     def is_overdue(self) -> bool:

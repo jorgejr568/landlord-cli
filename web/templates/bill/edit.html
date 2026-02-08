@@ -9,7 +9,7 @@
     Referência: <strong>{{ format_month(bill.reference_month) }}</strong>
 </p>
 
-<form method="post" action="/bills/{{ bill.id }}/edit">
+<form method="post" action="/bills/{{ bill.uuid }}/edit">
     <div class="card mb-4">
         <div class="card-header">
             <h5 class="mb-0">Itens</h5>
@@ -106,7 +106,7 @@
 
     <div class="d-flex gap-2">
         <button type="submit" class="btn btn-primary">Salvar</button>
-        <a href="/bills/{{ bill.id }}" class="btn btn-outline-secondary">Cancelar</a>
+        <a href="/bills/{{ bill.uuid }}" class="btn btn-outline-secondary">Cancelar</a>
     </div>
 </form>
 {% endblock %}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse
 
 from landlord.models.bill import BillLineItem
 from landlord.models.billing import ItemType
@@ -14,22 +14,22 @@ from web.forms import parse_brl, parse_formset
 router = APIRouter(prefix="/bills")
 
 
-@router.get("/{billing_id}/generate")
-async def bill_generate_form(request: Request, billing_id: int):
+@router.get("/{billing_uuid}/generate")
+async def bill_generate_form(request: Request, billing_uuid: str):
     billing_service = get_billing_service(request)
-    billing = billing_service.get_billing(billing_id)
+    billing = billing_service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
     return render(request, "bill/generate.html", {"billing": billing})
 
 
-@router.post("/{billing_id}/generate")
-async def bill_generate(request: Request, billing_id: int):
+@router.post("/{billing_uuid}/generate")
+async def bill_generate(request: Request, billing_uuid: str):
     billing_service = get_billing_service(request)
     bill_service = get_bill_service(request)
 
-    billing = billing_service.get_billing(billing_id)
+    billing = billing_service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -41,7 +41,7 @@ async def bill_generate(request: Request, billing_id: int):
 
     if not reference_month:
         flash(request, "Mês de referência é obrigatório.", "danger")
-        return RedirectResponse(f"/bills/{billing_id}/generate", status_code=302)
+        return RedirectResponse(f"/bills/{billing_uuid}/generate", status_code=302)
 
     # Parse variable amounts
     variable_amounts: dict[int, int] = {}
@@ -68,15 +68,15 @@ async def bill_generate(request: Request, billing_id: int):
         due_date=due_date,
     )
     flash(request, "Fatura gerada com sucesso!", "success")
-    return RedirectResponse(f"/bills/{bill.id}", status_code=302)
+    return RedirectResponse(f"/bills/{bill.uuid}", status_code=302)
 
 
-@router.get("/{bill_id}")
-async def bill_detail(request: Request, bill_id: int):
+@router.get("/{bill_uuid}")
+async def bill_detail(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
     billing_service = get_billing_service(request)
 
-    bill = bill_service.get_bill(bill_id)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill:
         flash(request, "Fatura não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -88,12 +88,12 @@ async def bill_detail(request: Request, bill_id: int):
     })
 
 
-@router.get("/{bill_id}/edit")
-async def bill_edit_form(request: Request, bill_id: int):
+@router.get("/{bill_uuid}/edit")
+async def bill_edit_form(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
     billing_service = get_billing_service(request)
 
-    bill = bill_service.get_bill(bill_id)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill:
         flash(request, "Fatura não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -102,12 +102,12 @@ async def bill_edit_form(request: Request, bill_id: int):
     return render(request, "bill/edit.html", {"bill": bill, "billing": billing})
 
 
-@router.post("/{bill_id}/edit")
-async def bill_edit(request: Request, bill_id: int):
+@router.post("/{bill_uuid}/edit")
+async def bill_edit(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
     billing_service = get_billing_service(request)
 
-    bill = bill_service.get_bill(bill_id)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill:
         flash(request, "Fatura não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -161,15 +161,15 @@ async def bill_edit(request: Request, bill_id: int):
         due_date=due_date,
     )
     flash(request, "Fatura atualizada com sucesso!", "success")
-    return RedirectResponse(f"/bills/{bill.id}", status_code=302)
+    return RedirectResponse(f"/bills/{bill.uuid}", status_code=302)
 
 
-@router.post("/{bill_id}/regenerate-pdf")
-async def bill_regenerate_pdf(request: Request, bill_id: int):
+@router.post("/{bill_uuid}/regenerate-pdf")
+async def bill_regenerate_pdf(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
     billing_service = get_billing_service(request)
 
-    bill = bill_service.get_bill(bill_id)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill:
         flash(request, "Fatura não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -181,13 +181,13 @@ async def bill_regenerate_pdf(request: Request, bill_id: int):
 
     bill_service.regenerate_pdf(bill, billing)
     flash(request, "PDF regenerado com sucesso!", "success")
-    return RedirectResponse(f"/bills/{bill.id}", status_code=302)
+    return RedirectResponse(f"/bills/{bill.uuid}", status_code=302)
 
 
-@router.post("/{bill_id}/toggle-paid")
-async def bill_toggle_paid(request: Request, bill_id: int):
+@router.post("/{bill_uuid}/toggle-paid")
+async def bill_toggle_paid(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
-    bill = bill_service.get_bill(bill_id)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill:
         flash(request, "Fatura não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -197,13 +197,31 @@ async def bill_toggle_paid(request: Request, bill_id: int):
         flash(request, "Fatura marcada como paga!", "success")
     else:
         flash(request, "Pagamento desmarcado.", "info")
-    return RedirectResponse(f"/bills/{bill.id}", status_code=302)
+    return RedirectResponse(f"/bills/{bill.uuid}", status_code=302)
 
 
-@router.get("/{bill_id}/invoice")
-async def bill_invoice(request: Request, bill_id: int):
+@router.post("/{bill_uuid}/delete")
+async def bill_delete(request: Request, bill_uuid: str):
     bill_service = get_bill_service(request)
-    bill = bill_service.get_bill(bill_id)
+    billing_service = get_billing_service(request)
+
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
+    if not bill:
+        flash(request, "Fatura não encontrada.", "danger")
+        return RedirectResponse("/", status_code=302)
+
+    billing = billing_service.get_billing(bill.billing_id)
+    bill_service.delete_bill(bill.id)  # type: ignore[arg-type]
+    flash(request, "Fatura excluída.", "success")
+    if billing:
+        return RedirectResponse(f"/billings/{billing.uuid}", status_code=302)
+    return RedirectResponse("/", status_code=302)
+
+
+@router.get("/{bill_uuid}/invoice")
+async def bill_invoice(request: Request, bill_uuid: str):
+    bill_service = get_bill_service(request)
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
     if not bill or not bill.pdf_path:
         flash(request, "Fatura sem PDF.", "danger")
         return RedirectResponse("/", status_code=302)

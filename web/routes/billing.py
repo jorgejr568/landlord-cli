@@ -53,37 +53,37 @@ async def billing_create(request: Request):
     service = get_billing_service(request)
     billing = service.create_billing(name, description, items, pix_key=pix_key)
     flash(request, f"Cobrança '{billing.name}' criada com sucesso!", "success")
-    return RedirectResponse(f"/billings/{billing.id}", status_code=302)
+    return RedirectResponse(f"/billings/{billing.uuid}", status_code=302)
 
 
-@router.get("/{billing_id}")
-async def billing_detail(request: Request, billing_id: int):
+@router.get("/{billing_uuid}")
+async def billing_detail(request: Request, billing_uuid: str):
     billing_service = get_billing_service(request)
     bill_service = get_bill_service(request)
 
-    billing = billing_service.get_billing(billing_id)
+    billing = billing_service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
 
-    bills = bill_service.list_bills(billing_id)
+    bills = bill_service.list_bills(billing.id)  # type: ignore[arg-type]
     return render(request, "billing/detail.html", {"billing": billing, "bills": bills})
 
 
-@router.get("/{billing_id}/edit")
-async def billing_edit_form(request: Request, billing_id: int):
+@router.get("/{billing_uuid}/edit")
+async def billing_edit_form(request: Request, billing_uuid: str):
     service = get_billing_service(request)
-    billing = service.get_billing(billing_id)
+    billing = service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
     return render(request, "billing/edit.html", {"billing": billing})
 
 
-@router.post("/{billing_id}/edit")
-async def billing_edit(request: Request, billing_id: int):
+@router.post("/{billing_uuid}/edit")
+async def billing_edit(request: Request, billing_uuid: str):
     service = get_billing_service(request)
-    billing = service.get_billing(billing_id)
+    billing = service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
@@ -107,22 +107,22 @@ async def billing_edit(request: Request, billing_id: int):
 
     if not items:
         flash(request, "A cobrança precisa de pelo menos um item.", "danger")
-        return RedirectResponse(f"/billings/{billing_id}/edit", status_code=302)
+        return RedirectResponse(f"/billings/{billing_uuid}/edit", status_code=302)
 
     billing.items = items
     service.update_billing(billing)
     flash(request, "Cobrança atualizada com sucesso!", "success")
-    return RedirectResponse(f"/billings/{billing_id}", status_code=302)
+    return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
 
 
-@router.post("/{billing_id}/delete")
-async def billing_delete(request: Request, billing_id: int):
+@router.post("/{billing_uuid}/delete")
+async def billing_delete(request: Request, billing_uuid: str):
     service = get_billing_service(request)
-    billing = service.get_billing(billing_id)
+    billing = service.get_billing_by_uuid(billing_uuid)
     if not billing:
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
 
-    service.delete_billing(billing_id)
+    service.delete_billing(billing.id)  # type: ignore[arg-type]
     flash(request, f"Cobrança '{billing.name}' excluída.", "success")
     return RedirectResponse("/", status_code=302)

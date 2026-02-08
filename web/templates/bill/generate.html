@@ -6,7 +6,7 @@
 <h2 class="mb-4">Gerar Fatura</h2>
 <p class="text-muted">Cobrança: <strong>{{ billing.name }}</strong></p>
 
-<form method="post" action="/bills/{{ billing.id }}/generate">
+<form method="post" action="/bills/{{ billing.uuid }}/generate">
     <div class="card mb-4">
         <div class="card-body">
             <div class="row">
@@ -100,7 +100,7 @@
 
     <div class="d-flex gap-2">
         <button type="submit" class="btn btn-primary">Gerar Fatura</button>
-        <a href="/billings/{{ billing.id }}" class="btn btn-outline-secondary">Cancelar</a>
+        <a href="/billings/{{ billing.uuid }}" class="btn btn-outline-secondary">Cancelar</a>
     </div>
 </form>
 {% endblock %}

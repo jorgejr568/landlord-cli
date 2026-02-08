@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import uuid4
+from ulid import ULID
 from zoneinfo import ZoneInfo
 
 SP_TZ = ZoneInfo("America/Sao_Paulo")
@@ -23,7 +23,7 @@ class SQLAlchemyBillingRepository(BillingRepository):
         self.conn = conn
 
     def create(self, billing: Billing) -> Billing:
-        billing_uuid = str(uuid4())
+        billing_uuid = str(ULID())
         now = _now()
         result = self.conn.execute(
             text(
@@ -47,16 +47,10 @@ class SQLAlchemyBillingRepository(BillingRepository):
         self.conn.commit()
         return self.get_by_id(billing_id)  # type: ignore[return-value]
 
-    def get_by_id(self, billing_id: int) -> Billing | None:
-        row = self.conn.execute(
-            text("SELECT * FROM billings WHERE id = :id AND deleted_at IS NULL"),
-            {"id": billing_id},
-        ).mappings().fetchone()
-        if row is None:
-            return None
+    def _row_to_billing(self, row) -> Billing:
         items = self.conn.execute(
             text("SELECT * FROM billing_items WHERE billing_id = :billing_id ORDER BY sort_order"),
-            {"billing_id": billing_id},
+            {"billing_id": row["id"]},
         ).mappings().fetchall()
         return Billing(
             id=row["id"],
@@ -79,6 +73,24 @@ class SQLAlchemyBillingRepository(BillingRepository):
             updated_at=row["updated_at"],
             deleted_at=row["deleted_at"],
         )
+
+    def get_by_id(self, billing_id: int) -> Billing | None:
+        row = self.conn.execute(
+            text("SELECT * FROM billings WHERE id = :id AND deleted_at IS NULL"),
+            {"id": billing_id},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_billing(row)
+
+    def get_by_uuid(self, uuid: str) -> Billing | None:
+        row = self.conn.execute(
+            text("SELECT * FROM billings WHERE uuid = :uuid AND deleted_at IS NULL"),
+            {"uuid": uuid},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_billing(row)
 
     def list_all(self) -> list[Billing]:
         rows = self.conn.execute(
@@ -129,7 +141,7 @@ class SQLAlchemyBillRepository(BillRepository):
         self.conn = conn
 
     def create(self, bill: Bill) -> Bill:
-        bill_uuid = str(uuid4())
+        bill_uuid = str(ULID())
         result = self.conn.execute(
             text(
                 "INSERT INTO bills (billing_id, reference_month, total_amount, pdf_path, notes, uuid, due_date, created_at) "
@@ -153,16 +165,10 @@ class SQLAlchemyBillRepository(BillRepository):
         self.conn.commit()
         return self.get_by_id(bill_id)  # type: ignore[return-value]
 
-    def get_by_id(self, bill_id: int) -> Bill | None:
-        row = self.conn.execute(
-            text("SELECT * FROM bills WHERE id = :id"),
-            {"id": bill_id},
-        ).mappings().fetchone()
-        if row is None:
-            return None
+    def _row_to_bill(self, row) -> Bill:
         items = self.conn.execute(
             text("SELECT * FROM bill_line_items WHERE bill_id = :bill_id ORDER BY sort_order"),
-            {"bill_id": bill_id},
+            {"bill_id": row["id"]},
         ).mappings().fetchall()
         return Bill(
             id=row["id"],
@@ -186,11 +192,30 @@ class SQLAlchemyBillRepository(BillRepository):
             due_date=row["due_date"],
             paid_at=row["paid_at"],
             created_at=row["created_at"],
+            deleted_at=row["deleted_at"],
         )
+
+    def get_by_id(self, bill_id: int) -> Bill | None:
+        row = self.conn.execute(
+            text("SELECT * FROM bills WHERE id = :id AND deleted_at IS NULL"),
+            {"id": bill_id},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_bill(row)
+
+    def get_by_uuid(self, uuid: str) -> Bill | None:
+        row = self.conn.execute(
+            text("SELECT * FROM bills WHERE uuid = :uuid AND deleted_at IS NULL"),
+            {"uuid": uuid},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_bill(row)
 
     def list_by_billing(self, billing_id: int) -> list[Bill]:
         rows = self.conn.execute(
-            text("SELECT id FROM bills WHERE billing_id = :billing_id ORDER BY reference_month DESC"),
+            text("SELECT id FROM bills WHERE billing_id = :billing_id AND deleted_at IS NULL ORDER BY reference_month DESC"),
             {"billing_id": billing_id},
         ).mappings().fetchall()
         bills = []
@@ -236,6 +261,13 @@ class SQLAlchemyBillRepository(BillRepository):
         self.conn.execute(
             text("UPDATE bills SET paid_at = :paid_at WHERE id = :id"),
             {"paid_at": paid_at, "id": bill_id},
+        )
+        self.conn.commit()
+
+    def delete(self, bill_id: int) -> None:
+        self.conn.execute(
+            text("UPDATE bills SET deleted_at = :deleted_at WHERE id = :id"),
+            {"deleted_at": _now(), "id": bill_id},
         )
         self.conn.commit()
 

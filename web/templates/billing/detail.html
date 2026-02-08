@@ -11,8 +11,8 @@
         {% endif %}
     </div>
     <div>
-        <a href="/bills/{{ billing.id }}/generate" class="btn btn-primary">Gerar Fatura</a>
-        <a href="/billings/{{ billing.id }}/edit" class="btn btn-outline-secondary">Editar</a>
+        <a href="/bills/{{ billing.uuid }}/generate" class="btn btn-primary">Gerar Fatura</a>
+        <a href="/billings/{{ billing.uuid }}/edit" class="btn btn-outline-secondary">Editar</a>
     </div>
 </div>
 
@@ -90,7 +90,7 @@
                         {% endif %}
                     </td>
                     <td class="text-end">
-                        <a href="/bills/{{ bill.id }}" class="btn btn-sm btn-outline-secondary">Ver</a>
+                        <a href="/bills/{{ bill.uuid }}" class="btn btn-sm btn-outline-secondary">Ver</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -105,7 +105,7 @@
 </div>
 
 <div class="mt-3">
-    <form method="post" action="/billings/{{ billing.id }}/delete"
+    <form method="post" action="/billings/{{ billing.uuid }}/delete"
           onsubmit="return confirm('Tem certeza que deseja excluir esta cobrança?')">
         <button type="submit" class="btn btn-sm btn-outline-danger">Excluir Cobrança</button>
     </form>

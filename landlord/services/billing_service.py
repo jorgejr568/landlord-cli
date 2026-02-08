@@ -20,6 +20,9 @@ class BillingService:
     def get_billing(self, billing_id: int) -> Billing | None:
         return self.repo.get_by_id(billing_id)
 
+    def get_billing_by_uuid(self, uuid: str) -> Billing | None:
+        return self.repo.get_by_uuid(uuid)
+
     def update_billing(self, billing: Billing) -> Billing:
         return self.repo.update(billing)
 

@@ -14,6 +14,9 @@ class BillingRepository(ABC):
     def get_by_id(self, billing_id: int) -> Billing | None: ...
 
     @abstractmethod
+    def get_by_uuid(self, uuid: str) -> Billing | None: ...
+
+    @abstractmethod
     def list_all(self) -> list[Billing]: ...
 
     @abstractmethod
@@ -31,6 +34,9 @@ class BillRepository(ABC):
     def get_by_id(self, bill_id: int) -> Bill | None: ...
 
     @abstractmethod
+    def get_by_uuid(self, uuid: str) -> Bill | None: ...
+
+    @abstractmethod
     def list_by_billing(self, billing_id: int) -> list[Bill]: ...
 
     @abstractmethod
@@ -41,6 +47,9 @@ class BillRepository(ABC):
 
     @abstractmethod
     def update_paid_at(self, bill_id: int, paid_at: datetime | None) -> None: ...
+
+    @abstractmethod
+    def delete(self, bill_id: int) -> None: ...
 
 
 class UserRepository(ABC):

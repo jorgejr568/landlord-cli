@@ -23,11 +23,11 @@
             <tbody>
                 {% for billing in billings %}
                 <tr>
-                    <td><a href="/billings/{{ billing.id }}">{{ billing.name }}</a></td>
+                    <td><a href="/billings/{{ billing.uuid }}">{{ billing.name }}</a></td>
                     <td class="text-muted">{{ billing.description }}</td>
                     <td class="text-center">{{ billing.items | length }}</td>
                     <td class="text-end">
-                        <a href="/billings/{{ billing.id }}" class="btn btn-sm btn-outline-secondary">Ver</a>
+                        <a href="/billings/{{ billing.uuid }}" class="btn btn-sm btn-outline-secondary">Ver</a>
                     </td>
                 </tr>
                 {% endfor %}

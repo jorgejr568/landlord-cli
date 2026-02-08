@@ -19,19 +19,19 @@
     </div>
     <div>
         {% if bill.pdf_path %}
-        <a href="/bills/{{ bill.id }}/invoice" target="_blank" class="btn btn-primary">Ver PDF</a>
+        <a href="/bills/{{ bill.uuid }}/invoice" target="_blank" class="btn btn-primary">Ver PDF</a>
         {% endif %}
-        <form method="post" action="/bills/{{ bill.id }}/regenerate-pdf" class="d-inline">
+        <form method="post" action="/bills/{{ bill.uuid }}/regenerate-pdf" class="d-inline">
             <button type="submit" class="btn btn-outline-primary">Regenerar PDF</button>
         </form>
-        <form method="post" action="/bills/{{ bill.id }}/toggle-paid" class="d-inline">
+        <form method="post" action="/bills/{{ bill.uuid }}/toggle-paid" class="d-inline">
             {% if bill.paid_at %}
             <button type="submit" class="btn btn-outline-secondary">Desmarcar Pagamento</button>
             {% else %}
             <button type="submit" class="btn btn-outline-primary">Marcar como Pago</button>
             {% endif %}
         </form>
-        <a href="/bills/{{ bill.id }}/edit" class="btn btn-outline-secondary">Editar</a>
+        <a href="/bills/{{ bill.uuid }}/edit" class="btn btn-outline-secondary">Editar</a>
     </div>
 </div>
 
@@ -87,5 +87,11 @@
 </div>
 {% endif %}
 
-<a href="/billings/{{ billing.id }}" class="btn btn-outline-secondary">Voltar</a>
+<div class="d-flex gap-2">
+    <a href="/billings/{{ billing.uuid }}" class="btn btn-outline-secondary">Voltar</a>
+    <form method="post" action="/bills/{{ bill.uuid }}/delete"
+          onsubmit="return confirm('Tem certeza que deseja excluir esta fatura?')">
+        <button type="submit" class="btn btn-outline-danger">Excluir Fatura</button>
+    </form>
+</div>
 {% endblock %}
