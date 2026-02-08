@@ -134,6 +134,20 @@ class BillService:
 
         return bill
 
+    def regenerate_pdf(self, bill: Bill, billing: Billing) -> Bill:
+        """Regenerate the PDF using current billing info (PIX key, etc.)."""
+        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
+        pdf_bytes = self.pdf_generator.generate(
+            bill, billing.name,
+            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
+        )
+        key = f"{billing.uuid}/{bill.uuid}.pdf"
+        path = self.storage.save(key, pdf_bytes)
+
+        self.bill_repo.update_pdf_path(bill.id, path)  # type: ignore[arg-type]
+        bill.pdf_path = path
+        return bill
+
     def get_invoice_url(self, pdf_path: str | None) -> str:
         if not pdf_path:
             return ""

@@ -12,6 +12,9 @@
         {% if bill.pdf_path %}
         <a href="/bills/{{ bill.id }}/invoice" target="_blank" class="btn btn-primary">Ver PDF</a>
         {% endif %}
+        <form method="post" action="/bills/{{ bill.id }}/regenerate-pdf" class="d-inline">
+            <button type="submit" class="btn btn-outline-primary">Regenerar PDF</button>
+        </form>
         <a href="/bills/{{ bill.id }}/edit" class="btn btn-outline-secondary">Editar</a>
     </div>
 </div>
