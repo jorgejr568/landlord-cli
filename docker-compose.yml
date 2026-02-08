@@ -1,8 +1,28 @@
 services:
   landlord:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - db-data:/app/data
+      - invoices:/app/invoices
+
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile.cli
     env_file: .env
     ports:
       - "2019:2019"
     stdin_open: true
     tty: true
+    volumes:
+      - db-data:/app/data
+      - invoices:/app/invoices
+
+volumes:
+  db-data:
+  invoices:

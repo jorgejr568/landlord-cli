@@ -10,11 +10,11 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e . gunicorn
 
-EXPOSE 2019
+EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:2019/')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"
 
-CMD ["python", "healthcheck.py"]
+CMD ["sh", "-c", "cd web && python manage.py migrate --no-input && gunicorn landlord_web.wsgi:application --bind 0.0.0.0:8000"]

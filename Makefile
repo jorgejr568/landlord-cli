@@ -1,5 +1,7 @@
-IMAGE_NAME   := landlord-cli
-CONTAINER    := landlord
+IMAGE_NAME     := landlord-web
+IMAGE_NAME_CLI := landlord-cli
+CONTAINER      := landlord
+CONTAINER_CLI  := landlord-cli
 
 # --- Local development ---
 
@@ -24,7 +26,21 @@ regenerate-pdfs:
 regenerate-pdfs-dry:
 	.venv/bin/python -m landlord.scripts.regenerate_pdfs --dry-run
 
-# --- Docker (standalone) ---
+# --- Django Web (local) ---
+
+.PHONY: web-run
+web-run:
+	cd web && ../.venv/bin/python manage.py runserver
+
+.PHONY: web-migrate
+web-migrate:
+	cd web && ../.venv/bin/python manage.py migrate
+
+.PHONY: web-createsuperuser
+web-createsuperuser:
+	cd web && ../.venv/bin/python manage.py createsuperuser
+
+# --- Docker: Web (standalone) ---
 
 .PHONY: build
 build:
@@ -34,7 +50,7 @@ build:
 up:
 	docker run -d --name $(CONTAINER) \
 		--env-file .env \
-		-p 2019:2019 \
+		-p 8000:8000 \
 		$(IMAGE_NAME)
 
 .PHONY: down
@@ -48,25 +64,50 @@ restart: down up
 shell:
 	docker exec -it $(CONTAINER) bash
 
-.PHONY: landlord
-landlord:
-	docker exec -it $(CONTAINER) python -m landlord
-
-.PHONY: docker-migrate
-docker-migrate:
-	docker exec $(CONTAINER) python -c "from landlord.db import initialize_db; initialize_db()"
-
-.PHONY: docker-regenerate
-docker-regenerate:
-	docker exec $(CONTAINER) python -m landlord.scripts.regenerate_pdfs
-
 .PHONY: logs
 logs:
 	docker logs -f $(CONTAINER)
 
 .PHONY: health
 health:
-	curl -s -o /dev/null -w '%{http_code}' http://localhost:2019/
+	curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/
+
+.PHONY: docker-migrate
+docker-migrate:
+	docker exec $(CONTAINER) sh -c "cd web && python manage.py migrate --no-input"
+
+.PHONY: docker-createsuperuser
+docker-createsuperuser:
+	docker exec -it $(CONTAINER) sh -c "cd web && python manage.py createsuperuser"
+
+.PHONY: docker-regenerate
+docker-regenerate:
+	docker exec $(CONTAINER) python -m landlord.scripts.regenerate_pdfs
+
+# --- Docker: CLI (standalone) ---
+
+.PHONY: build-cli
+build-cli:
+	docker build -f Dockerfile.cli -t $(IMAGE_NAME_CLI) .
+
+.PHONY: up-cli
+up-cli:
+	docker run -d --name $(CONTAINER_CLI) \
+		--env-file .env \
+		-p 2019:2019 \
+		$(IMAGE_NAME_CLI)
+
+.PHONY: down-cli
+down-cli:
+	docker rm -f $(CONTAINER_CLI) 2>/dev/null || true
+
+.PHONY: landlord
+landlord:
+	docker exec -it $(CONTAINER_CLI) python -m landlord
+
+.PHONY: shell-cli
+shell-cli:
+	docker exec -it $(CONTAINER_CLI) bash
 
 # --- Docker Compose ---
 
@@ -87,17 +128,25 @@ compose-restart:
 compose-shell:
 	docker compose exec landlord bash
 
+.PHONY: compose-shell-cli
+compose-shell-cli:
+	docker compose exec cli bash
+
 .PHONY: compose-landlord
 compose-landlord:
-	docker compose exec landlord python -m landlord
+	docker compose exec cli python -m landlord
 
 .PHONY: compose-migrate
 compose-migrate:
-	docker compose exec landlord python -c "from landlord.db import initialize_db; initialize_db()"
+	docker compose exec landlord sh -c "cd web && python manage.py migrate --no-input"
+
+.PHONY: compose-createsuperuser
+compose-createsuperuser:
+	docker compose exec landlord sh -c "cd web && python manage.py createsuperuser"
 
 .PHONY: compose-regenerate
 compose-regenerate:
-	docker compose exec landlord python -m landlord.scripts.regenerate_pdfs
+	docker compose exec cli python -m landlord.scripts.regenerate_pdfs
 
 .PHONY: compose-logs
 compose-logs:
