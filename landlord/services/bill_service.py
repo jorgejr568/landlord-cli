@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
-from landlord.models.bill import Bill, BillLineItem
+from landlord.models.bill import SP_TZ, Bill, BillLineItem
 from landlord.models.billing import Billing, ItemType
 from landlord.pdf.invoice import InvoicePDF
 from landlord.pix import generate_pix_payload, generate_pix_qrcode_png
@@ -161,7 +160,7 @@ class BillService:
 
     def toggle_paid(self, bill: Bill) -> Bill:
         if bill.paid_at is None:
-            paid_at = datetime.now(ZoneInfo("America/Sao_Paulo"))
+            paid_at = datetime.now(SP_TZ)
         else:
             paid_at = None
         self.bill_repo.update_paid_at(bill.id, paid_at)  # type: ignore[arg-type]

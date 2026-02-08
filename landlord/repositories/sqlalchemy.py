@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from uuid import uuid4
+from zoneinfo import ZoneInfo
+
+SP_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _now() -> datetime:
+    return datetime.now(SP_TZ)
 
 from sqlalchemy import Connection, text
 
@@ -17,13 +24,15 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     def create(self, billing: Billing) -> Billing:
         billing_uuid = str(uuid4())
+        now = _now()
         result = self.conn.execute(
             text(
-                "INSERT INTO billings (name, description, pix_key, uuid) "
-                "VALUES (:name, :description, :pix_key, :uuid)"
+                "INSERT INTO billings (name, description, pix_key, uuid, created_at, updated_at) "
+                "VALUES (:name, :description, :pix_key, :uuid, :created_at, :updated_at)"
             ),
             {"name": billing.name, "description": billing.description,
-             "pix_key": billing.pix_key, "uuid": billing_uuid},
+             "pix_key": billing.pix_key, "uuid": billing_uuid,
+             "created_at": now, "updated_at": now},
         )
         billing_id = result.lastrowid
         for i, item in enumerate(billing.items):
@@ -86,10 +95,10 @@ class SQLAlchemyBillingRepository(BillingRepository):
         self.conn.execute(
             text(
                 "UPDATE billings SET name = :name, description = :description, "
-                "pix_key = :pix_key WHERE id = :id"
+                "pix_key = :pix_key, updated_at = :updated_at WHERE id = :id"
             ),
             {"name": billing.name, "description": billing.description,
-             "pix_key": billing.pix_key, "id": billing.id},
+             "pix_key": billing.pix_key, "updated_at": _now(), "id": billing.id},
         )
         self.conn.execute(
             text("DELETE FROM billing_items WHERE billing_id = :billing_id"),
@@ -109,8 +118,8 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     def delete(self, billing_id: int) -> None:
         self.conn.execute(
-            text("UPDATE billings SET deleted_at = CURRENT_TIMESTAMP WHERE id = :id"),
-            {"id": billing_id},
+            text("UPDATE billings SET deleted_at = :deleted_at WHERE id = :id"),
+            {"deleted_at": _now(), "id": billing_id},
         )
         self.conn.commit()
 
@@ -123,12 +132,13 @@ class SQLAlchemyBillRepository(BillRepository):
         bill_uuid = str(uuid4())
         result = self.conn.execute(
             text(
-                "INSERT INTO bills (billing_id, reference_month, total_amount, pdf_path, notes, uuid, due_date) "
-                "VALUES (:billing_id, :reference_month, :total_amount, :pdf_path, :notes, :uuid, :due_date)"
+                "INSERT INTO bills (billing_id, reference_month, total_amount, pdf_path, notes, uuid, due_date, created_at) "
+                "VALUES (:billing_id, :reference_month, :total_amount, :pdf_path, :notes, :uuid, :due_date, :created_at)"
             ),
             {"billing_id": bill.billing_id, "reference_month": bill.reference_month,
              "total_amount": bill.total_amount, "pdf_path": bill.pdf_path,
-             "notes": bill.notes, "uuid": bill_uuid, "due_date": bill.due_date},
+             "notes": bill.notes, "uuid": bill_uuid, "due_date": bill.due_date,
+             "created_at": _now()},
         )
         bill_id = result.lastrowid
         for i, item in enumerate(bill.line_items):
@@ -237,10 +247,11 @@ class SQLAlchemyUserRepository(UserRepository):
     def create(self, user: User) -> User:
         result = self.conn.execute(
             text(
-                "INSERT INTO users (username, password_hash) "
-                "VALUES (:username, :password_hash)"
+                "INSERT INTO users (username, password_hash, created_at) "
+                "VALUES (:username, :password_hash, :created_at)"
             ),
-            {"username": user.username, "password_hash": user.password_hash},
+            {"username": user.username, "password_hash": user.password_hash,
+             "created_at": _now()},
         )
         self.conn.commit()
         return self.get_by_username(user.username)  # type: ignore[return-value]
