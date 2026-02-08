@@ -48,3 +48,6 @@ class UserRepository(ABC):
 
     @abstractmethod
     def list_all(self) -> list[User]: ...
+
+    @abstractmethod
+    def update_password_hash(self, username: str, password_hash: str) -> None: ...

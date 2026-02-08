@@ -15,6 +15,7 @@ def user_management_menu(user_service: UserService) -> None:
             "Gerenciar Usuários",
             choices=[
                 "Criar Usuário",
+                "Alterar Senha",
                 "Listar Usuários",
                 "Voltar",
             ],
@@ -24,6 +25,8 @@ def user_management_menu(user_service: UserService) -> None:
             break
         elif choice == "Criar Usuário":
             _create_user(user_service)
+        elif choice == "Alterar Senha":
+            _change_password(user_service)
         elif choice == "Listar Usuários":
             _list_users(user_service)
 
@@ -52,6 +55,34 @@ def _create_user(user_service: UserService) -> None:
         console.print(f"[green bold]Usuário '{user.username}' criado com sucesso![/green bold]")
     except Exception as e:
         console.print(f"[red]Erro ao criar usuário: {e}[/red]")
+
+
+def _change_password(user_service: UserService) -> None:
+    console.print()
+    console.print("[bold]Alterar Senha[/bold]", style="cyan")
+
+    users = user_service.list_users()
+    if not users:
+        console.print("[yellow]Nenhum usuário cadastrado.[/yellow]")
+        return
+
+    choices = [u.username for u in users] + ["Voltar"]
+    username = questionary.select("Selecione o usuário:", choices=choices).ask()
+    if username is None or username == "Voltar":
+        return
+
+    password = questionary.password("Nova senha:").ask()
+    if not password:
+        console.print("[yellow]Operação cancelada.[/yellow]")
+        return
+
+    confirm = questionary.password("Confirmar nova senha:").ask()
+    if password != confirm:
+        console.print("[red]As senhas não coincidem.[/red]")
+        return
+
+    user_service.change_password(username, password)
+    console.print(f"[green bold]Senha do usuário '{username}' alterada com sucesso![/green bold]")
 
 
 def _list_users(user_service: UserService) -> None:

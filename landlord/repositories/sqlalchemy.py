@@ -263,3 +263,10 @@ class SQLAlchemyUserRepository(UserRepository):
             )
             for row in rows
         ]
+
+    def update_password_hash(self, username: str, password_hash: str) -> None:
+        self.conn.execute(
+            text("UPDATE users SET password_hash = :password_hash WHERE username = :username"),
+            {"password_hash": password_hash, "username": username},
+        )
+        self.conn.commit()

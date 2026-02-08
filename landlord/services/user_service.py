@@ -23,5 +23,9 @@ class UserService:
             return user
         return None
 
+    def change_password(self, username: str, new_password: str) -> None:
+        password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+        self.repo.update_password_hash(username, password_hash)
+
     def list_users(self) -> list[User]:
         return self.repo.list_all()

@@ -32,6 +32,36 @@ async def login(request: Request):
     return RedirectResponse("/", status_code=302)
 
 
+@router.get("/change-password")
+async def change_password_page(request: Request):
+    return render(request, "change_password.html")
+
+
+@router.post("/change-password")
+async def change_password(request: Request):
+    form = await request.form()
+    current_password = str(form.get("current_password", ""))
+    new_password = str(form.get("new_password", ""))
+    confirm_password = str(form.get("confirm_password", ""))
+
+    if not current_password or not new_password:
+        return render(request, "change_password.html", {"error": "Preencha todos os campos."})
+
+    if new_password != confirm_password:
+        return render(request, "change_password.html", {"error": "As senhas não coincidem."})
+
+    user_service = get_user_service()
+    username = request.session.get("user", "")
+    user = user_service.authenticate(username, current_password)
+
+    if user is None:
+        return render(request, "change_password.html", {"error": "Senha atual incorreta."})
+
+    user_service.change_password(username, new_password)
+    flash(request, "Senha alterada com sucesso!", "success")
+    return RedirectResponse("/", status_code=302)
+
+
 @router.get("/logout")
 async def logout(request: Request):
     request.session.clear()
