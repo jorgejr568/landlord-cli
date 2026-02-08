@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     storage_backend: str = "local"
     storage_local_path: str = "./invoices"
+    storage_prefix: str = "bills"
 
     s3_bucket: str = ""
     s3_region: str = ""

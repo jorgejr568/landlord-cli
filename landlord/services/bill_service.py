@@ -11,6 +11,13 @@ from landlord.settings import settings
 from landlord.storage.base import StorageBackend
 
 
+def _storage_key(billing_uuid: str, bill_uuid: str) -> str:
+    prefix = settings.storage_prefix
+    if prefix:
+        return f"{prefix}/{billing_uuid}/{bill_uuid}.pdf"
+    return f"{billing_uuid}/{bill_uuid}.pdf"
+
+
 class BillService:
     def __init__(self, bill_repo: BillRepository, storage: StorageBackend) -> None:
         self.bill_repo = bill_repo
@@ -100,7 +107,7 @@ class BillService:
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
         )
-        key = f"{billing.uuid}/{bill.uuid}.pdf"
+        key = _storage_key(billing.uuid, bill.uuid)
         path = self.storage.save(key, pdf_bytes)
 
         self.bill_repo.update_pdf_path(bill.id, path)  # type: ignore[arg-type]
@@ -128,7 +135,7 @@ class BillService:
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
         )
-        key = f"{billing.uuid}/{bill.uuid}.pdf"
+        key = _storage_key(billing.uuid, bill.uuid)
         path = self.storage.save(key, pdf_bytes)
 
         self.bill_repo.update_pdf_path(bill.id, path)  # type: ignore[arg-type]
@@ -143,7 +150,7 @@ class BillService:
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
         )
-        key = f"{billing.uuid}/{bill.uuid}.pdf"
+        key = _storage_key(billing.uuid, bill.uuid)
         path = self.storage.save(key, pdf_bytes)
 
         self.bill_repo.update_pdf_path(bill.id, path)  # type: ignore[arg-type]

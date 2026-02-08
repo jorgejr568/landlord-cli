@@ -17,6 +17,7 @@ from landlord.models.billing import Billing
 from landlord.pdf.invoice import InvoicePDF
 from landlord.pix import generate_pix_payload, generate_pix_qrcode_png
 from landlord.repositories.factory import get_bill_repository, get_billing_repository
+from landlord.services.bill_service import _storage_key
 from landlord.settings import settings
 from landlord.storage.factory import get_storage
 
@@ -101,7 +102,7 @@ def main() -> None:
             bill, billing.name,
             pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
         )
-        key = f"{billing.uuid}/{bill.uuid}.pdf"
+        key = _storage_key(billing.uuid, bill.uuid)
         path = storage.save(key, pdf_bytes)
         bill_repo.update_pdf_path(bill.id, path)  # type: ignore[arg-type]
         url = storage.get_presigned_url(path)
