@@ -117,6 +117,7 @@ make web-run             # start uvicorn at http://localhost:8000
 | `/bills/<id>/invoice` | Download/view PDF |
 | `/login` | Login page |
 | `/logout` | Logout |
+| `/change-password` | Change password |
 
 ## Key Rules
 
