@@ -110,7 +110,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='core/js/formset.js') }}"></script>
+<script src="{{ url_for('static', path='core/js/formset.js') }}?v={{ asset_version }}"></script>
 <script>
 function toggleAmount(select, index, prefix) {
     const input = document.querySelector(`[name="${prefix}-${index}-amount"]`);
