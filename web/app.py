@@ -24,7 +24,8 @@ from web.deps import AuthMiddleware, DBConnectionMiddleware
 from web.routes.bill import router as bill_router
 from web.routes.billing import router as billing_router
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
@@ -45,6 +46,9 @@ ASSET_VERSION = _build_asset_version()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     initialize_db()
+    # Re-apply logging config — Alembic's fileConfig may have overridden it
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
+    logger.info("Application started")
     yield
 
 
