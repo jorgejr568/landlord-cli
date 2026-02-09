@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     default-mysql-client \
     libmariadb-dev \
     gcc \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
