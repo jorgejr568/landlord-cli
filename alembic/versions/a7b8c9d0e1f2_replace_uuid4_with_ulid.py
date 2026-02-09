@@ -69,18 +69,12 @@ def upgrade() -> None:
         )
 
     # Step 5: Resize uuid columns from 36 to 26 chars
-    with op.batch_alter_table("billings") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.String(36), type_=sa.String(26))
-
-    with op.batch_alter_table("bills") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.String(36), type_=sa.String(26))
+    op.alter_column("billings", "uuid", existing_type=sa.String(36), type_=sa.String(26))
+    op.alter_column("bills", "uuid", existing_type=sa.String(36), type_=sa.String(26))
 
 
 def downgrade() -> None:
     # Resize columns back to 36 to accommodate UUID4 format.
     # Original UUID4 values cannot be restored.
-    with op.batch_alter_table("billings") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.String(26), type_=sa.String(36))
-
-    with op.batch_alter_table("bills") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.String(26), type_=sa.String(36))
+    op.alter_column("billings", "uuid", existing_type=sa.String(26), type_=sa.String(36))
+    op.alter_column("bills", "uuid", existing_type=sa.String(26), type_=sa.String(36))

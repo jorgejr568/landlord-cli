@@ -9,7 +9,7 @@ Apartment billing management with PDF invoice generation — **CLI + Web UI**. B
 - **Web UI** (FastAPI) for browser-based management, or **interactive CLI**
 - User management with bcrypt password hashing
 - Store invoices locally or on S3 with presigned URLs
-- SQLite or MariaDB as the database backend (via SQLAlchemy)
+- MariaDB as the database backend (via SQLAlchemy)
 - Schema migrations with Alembic
 - Docker-ready with health check endpoint
 
@@ -18,6 +18,7 @@ Apartment billing management with PDF invoice generation — **CLI + Web UI**. B
 ```bash
 make install              # create venv + install deps
 cp .env.example .env      # configure settings
+docker compose up -d db   # start MariaDB
 make migrate              # run database migrations
 make run                  # start the interactive CLI
 ```
@@ -25,17 +26,17 @@ make run                  # start the interactive CLI
 ### Web UI
 
 ```bash
+docker compose up -d db   # start MariaDB (if not running)
 make migrate              # run database migrations (first time)
 make web-createuser       # create a login user
 make web-run              # start web UI at http://localhost:8000
 ```
 
-### Docker
+### Docker Compose
 
 ```bash
-make build                # build web image
-make up                   # start web container (port 8000)
-make docker-createuser    # create a login user
+make compose-up           # start MariaDB + web + CLI
+make compose-createuser   # create a login user
 ```
 
 ## Configuration
@@ -46,9 +47,7 @@ Copy `.env.example` to `.env`. All variables use the `LANDLORD_` prefix.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LANDLORD_DB_BACKEND` | `sqlite` | Database backend (`sqlite` or `mariadb`) |
-| `LANDLORD_DB_PATH` | `landlord.db` | Path to SQLite file (SQLite only) |
-| `LANDLORD_DB_URL` | | Full SQLAlchemy URL — overrides `DB_BACKEND` + `DB_PATH` |
+| `LANDLORD_DB_URL` | `mysql://landlord:landlord@db:3306/landlord` | SQLAlchemy database URL (MariaDB) |
 
 ### Storage
 

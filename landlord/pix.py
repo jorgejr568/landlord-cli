@@ -100,19 +100,24 @@ def generate_pix_qrcode_png(
     txid: str = "***",
     box_size: int = 10,
     border: int = 2,
+    payload: str = "",
 ) -> bytes:
     """Generate a PIX QR code as PNG bytes.
+
+    Args:
+        payload: Pre-computed payload string. If empty, generates one from the other args.
 
     Returns:
         PNG image bytes ready to be saved or embedded in a PDF.
     """
-    payload = generate_pix_payload(
-        pix_key=pix_key,
-        merchant_name=merchant_name,
-        merchant_city=merchant_city,
-        amount=amount,
-        txid=txid,
-    )
+    if not payload:
+        payload = generate_pix_payload(
+            pix_key=pix_key,
+            merchant_name=merchant_name,
+            merchant_city=merchant_city,
+            amount=amount,
+            txid=txid,
+        )
 
     qr = qrcode.QRCode(
         version=None,

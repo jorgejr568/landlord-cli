@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
-from landlord.models.bill import SP_TZ, Bill, BillLineItem
+from landlord.constants import SP_TZ
+from landlord.models.bill import Bill, BillLineItem
 from landlord.models.billing import Billing, ItemType
 from landlord.pdf.invoice import InvoicePDF
 from landlord.pix import generate_pix_payload, generate_pix_qrcode_png
 from landlord.repositories.base import BillRepository
 from landlord.settings import settings
 from landlord.storage.base import StorageBackend
+
+
+logger = logging.getLogger(__name__)
 
 
 def _storage_key(billing_uuid: str, bill_uuid: str) -> str:
@@ -50,8 +55,26 @@ class BillService:
             merchant_name=merchant_name,
             merchant_city=merchant_city,
             amount=amount,
+            payload=payload,
         )
         return png, pix_key, payload
+
+    def _generate_and_store_pdf(self, bill: Bill, billing: Billing) -> str:
+        """Generate PDF, save to storage, and update bill's pdf_path. Returns the storage path."""
+        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
+        pdf_bytes = self.pdf_generator.generate(
+            bill, billing.name,
+            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
+        )
+        key = _storage_key(billing.uuid, bill.uuid)
+        path = self.storage.save(key, pdf_bytes)
+        logger.info("PDF stored at %s for bill %s", key, bill.uuid)
+
+        if bill.id is None:
+            raise ValueError("Cannot update pdf_path for bill without an id")
+        self.bill_repo.update_pdf_path(bill.id, path)
+        bill.pdf_path = path
+        return path
 
     def generate_bill(
         self,
@@ -69,7 +92,8 @@ class BillService:
             if item.item_type == ItemType.FIXED:
                 amount = item.amount
             else:
-                assert item.id is not None
+                if item.id is None:
+                    raise ValueError("Variable billing item must have an id")
                 amount = variable_amounts.get(item.id, 0)
             line_items.append(
                 BillLineItem(
@@ -94,7 +118,8 @@ class BillService:
 
         total = sum(li.amount for li in line_items)
 
-        assert billing.id is not None
+        if billing.id is None:
+            raise ValueError("Cannot generate bill for billing without an id")
         bill = Bill(
             billing_id=billing.id,
             reference_month=reference_month,
@@ -104,18 +129,12 @@ class BillService:
             due_date=due_date or None,
         )
         bill = self.bill_repo.create(bill)
-
-        pix_png, pix_key, pix_payload = self._get_pix_data(billing, total)
-        pdf_bytes = self.pdf_generator.generate(
-            bill, billing.name,
-            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
+        logger.info(
+            "Bill created: id=%s, billing=%s, month=%s, total=%d",
+            bill.id, billing.name, reference_month, total,
         )
-        key = _storage_key(billing.uuid, bill.uuid)
-        path = self.storage.save(key, pdf_bytes)
 
-        assert bill.id is not None
-        self.bill_repo.update_pdf_path(bill.id, path)
-        bill.pdf_path = path
+        self._generate_and_store_pdf(bill, billing)
 
         return bill
 
@@ -133,34 +152,15 @@ class BillService:
         bill.due_date = due_date or None
 
         bill = self.bill_repo.update(bill)
+        logger.info("Bill updated: id=%s, total=%d", bill.id, bill.total_amount)
 
-        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
-        pdf_bytes = self.pdf_generator.generate(
-            bill, billing.name,
-            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
-        )
-        key = _storage_key(billing.uuid, bill.uuid)
-        path = self.storage.save(key, pdf_bytes)
-
-        assert bill.id is not None
-        self.bill_repo.update_pdf_path(bill.id, path)
-        bill.pdf_path = path
+        self._generate_and_store_pdf(bill, billing)
 
         return bill
 
     def regenerate_pdf(self, bill: Bill, billing: Billing) -> Bill:
         """Regenerate the PDF using current billing info (PIX key, etc.)."""
-        pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
-        pdf_bytes = self.pdf_generator.generate(
-            bill, billing.name,
-            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
-        )
-        key = _storage_key(billing.uuid, bill.uuid)
-        path = self.storage.save(key, pdf_bytes)
-
-        assert bill.id is not None
-        self.bill_repo.update_pdf_path(bill.id, path)
-        bill.pdf_path = path
+        self._generate_and_store_pdf(bill, billing)
         return bill
 
     def get_invoice_url(self, pdf_path: str | None) -> str:
@@ -176,9 +176,11 @@ class BillService:
             paid_at = datetime.now(SP_TZ)
         else:
             paid_at = None
-        assert bill.id is not None
+        if bill.id is None:
+            raise ValueError("Cannot toggle paid for bill without an id")
         self.bill_repo.update_paid_at(bill.id, paid_at)
         bill.paid_at = paid_at
+        logger.info("Bill %s marked as %s", bill.id, "paid" if paid_at else "unpaid")
         return bill
 
     def get_bill(self, bill_id: int) -> Bill | None:
@@ -189,3 +191,4 @@ class BillService:
 
     def delete_bill(self, bill_id: int) -> None:
         self.bill_repo.delete(bill_id)
+        logger.info("Bill %s soft-deleted", bill_id)

@@ -61,6 +61,25 @@ class InvoicePDF:
 
         return pdf.output()
 
+    @staticmethod
+    def _draw_info_card(
+        pdf: FPDF, x: float, y: float, w: float, h: float, label: str, value: str,
+    ) -> None:
+        """Draw a single info card with accent bar, label, and value."""
+        pdf.set_fill_color(*PURPLE_LIGHT)
+        pdf.rect(x, y, w, h, "F")
+        pdf.set_fill_color(*TEAL_DARK)
+        pdf.rect(x, y, 3, h, "F")
+
+        pdf.set_xy(x + 10, y + 3)
+        pdf.set_font("MontserratSB", "", 7)
+        pdf.set_text_color(*MUTED_TEXT)
+        pdf.cell(w - 14, 5, label, new_x="LEFT", new_y="NEXT")
+        pdf.set_x(x + 10)
+        pdf.set_font("Montserrat", "B", 13)
+        pdf.set_text_color(*DARK_TEXT)
+        pdf.cell(w - 14, 9, value)
+
     def _draw_header(
         self, pdf: FPDF, page_w: float, billing_name: str, reference_month: str,
         due_date: str | None = None,
@@ -93,81 +112,19 @@ class InvoicePDF:
         card_y = pdf.get_y()
 
         if due_date:
-            # 2-row layout: full-width billing name on top,
-            # reference + due date side by side below
-            # Row 1 — full-width COBRAN\u00c7A card
-            pdf.set_fill_color(*PURPLE_LIGHT)
-            pdf.rect(x, card_y, page_w, card_h, "F")
-            pdf.set_fill_color(*TEAL_DARK)
-            pdf.rect(x, card_y, 3, card_h, "F")
+            # Row 1 — full-width COBRANÇA card
+            self._draw_info_card(pdf, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name)
 
-            pdf.set_xy(x + 10, card_y + 3)
-            pdf.set_font("MontserratSB", "", 7)
-            pdf.set_text_color(*MUTED_TEXT)
-            pdf.cell(page_w - 14, 5, "COBRAN\u00c7A", new_x="LEFT", new_y="NEXT")
-            pdf.set_x(x + 10)
-            pdf.set_font("Montserrat", "B", 13)
-            pdf.set_text_color(*DARK_TEXT)
-            pdf.cell(page_w - 14, 9, billing_name)
-
-            # Row 2 — REFER\u00caNCIA (left) + VENCIMENTO (right)
+            # Row 2 — REFERÊNCIA (left) + VENCIMENTO (right)
             row2_y = card_y + card_h + 6
             card_w = page_w / 2 - 3
-
-            for i, (label, value) in enumerate([
-                ("REFER\u00caNCIA", format_month(reference_month)),
-                ("VENCIMENTO", due_date),
-            ]):
-                card_x = x + i * (card_w + 6)
-                pdf.set_fill_color(*PURPLE_LIGHT)
-                pdf.rect(card_x, row2_y, card_w, card_h, "F")
-                pdf.set_fill_color(*TEAL_DARK)
-                pdf.rect(card_x, row2_y, 3, card_h, "F")
-
-                pdf.set_xy(card_x + 10, row2_y + 3)
-                pdf.set_font("MontserratSB", "", 7)
-                pdf.set_text_color(*MUTED_TEXT)
-                pdf.cell(card_w - 14, 5, label, new_x="LEFT", new_y="NEXT")
-                pdf.set_x(card_x + 10)
-                pdf.set_font("Montserrat", "B", 13)
-                pdf.set_text_color(*DARK_TEXT)
-                pdf.cell(card_w - 14, 9, value)
-
+            self._draw_info_card(pdf, x, row2_y, card_w, card_h, "REFER\u00caNCIA", format_month(reference_month))
+            self._draw_info_card(pdf, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date)
             card_y = row2_y
         else:
-            # 2-card layout (original)
             card_w = page_w / 2 - 3
-
-            # Left card — billing name
-            pdf.set_fill_color(*PURPLE_LIGHT)
-            pdf.rect(x, card_y, card_w, card_h, "F")
-            pdf.set_fill_color(*TEAL_DARK)
-            pdf.rect(x, card_y, 3, card_h, "F")
-
-            pdf.set_xy(x + 10, card_y + 3)
-            pdf.set_font("MontserratSB", "", 7)
-            pdf.set_text_color(*MUTED_TEXT)
-            pdf.cell(card_w - 14, 5, "COBRAN\u00c7A", new_x="LEFT", new_y="NEXT")
-            pdf.set_x(x + 10)
-            pdf.set_font("Montserrat", "B", 13)
-            pdf.set_text_color(*DARK_TEXT)
-            pdf.cell(card_w - 14, 9, billing_name)
-
-            # Right card — reference month
-            right_x = x + card_w + 6
-            pdf.set_fill_color(*PURPLE_LIGHT)
-            pdf.rect(right_x, card_y, card_w, card_h, "F")
-            pdf.set_fill_color(*TEAL_DARK)
-            pdf.rect(right_x, card_y, 3, card_h, "F")
-
-            pdf.set_xy(right_x + 10, card_y + 3)
-            pdf.set_font("MontserratSB", "", 7)
-            pdf.set_text_color(*MUTED_TEXT)
-            pdf.cell(card_w - 14, 5, "REFER\u00caNCIA", new_x="LEFT", new_y="NEXT")
-            pdf.set_x(right_x + 10)
-            pdf.set_font("Montserrat", "B", 13)
-            pdf.set_text_color(*DARK_TEXT)
-            pdf.cell(card_w - 14, 9, format_month(reference_month))
+            self._draw_info_card(pdf, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name)
+            self._draw_info_card(pdf, x + card_w + 6, card_y, card_w, card_h, "REFER\u00caNCIA", format_month(reference_month))
 
         pdf.set_y(card_y + card_h + 14)
 
@@ -359,30 +316,28 @@ class InvoicePDF:
             pdf.ln(2)
 
             payload_y = pdf.get_y()
-            pdf.set_fill_color(*ROW_ALT)
-            pdf.set_draw_color(*BORDER_COLOR)
-
-            pdf.set_xy(x + 6, payload_y + 4)
-            pdf.set_font("Montserrat", "", 7)
-            pdf.set_text_color(*DARK_TEXT)
             payload_cell_w = page_w - 12
-            pdf.multi_cell(payload_cell_w, 4, pix_payload)
 
-            payload_end_y = pdf.get_y() + 4
-            payload_h = payload_end_y - payload_y
-            # Draw background behind text (draw rect then rewrite text)
+            # Measure text height with dry_run
+            pdf.set_font("Montserrat", "", 7)
+            result = pdf.multi_cell(payload_cell_w, 4, pix_payload, dry_run=True, output="LINES")
+            text_h = len(result) * 4
+            payload_h = text_h + 8  # 4px padding top + bottom
+
+            # Draw background and border
             pdf.set_fill_color(*ROW_ALT)
             pdf.rect(x, payload_y, page_w, payload_h, "F")
             pdf.set_draw_color(*BORDER_COLOR)
             pdf.set_line_width(0.3)
             pdf.rect(x, payload_y, page_w, payload_h, "D")
 
+            # Draw text on top
             pdf.set_xy(x + 6, payload_y + 4)
             pdf.set_font("Montserrat", "", 7)
             pdf.set_text_color(*DARK_TEXT)
             pdf.multi_cell(payload_cell_w, 4, pix_payload)
 
-            pdf.set_y(payload_end_y + 4)
+            pdf.set_y(payload_y + payload_h + 4)
 
     def _draw_footer(self, pdf: FPDF, page_w: float) -> None:
         pdf.set_y(-30)

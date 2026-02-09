@@ -40,7 +40,10 @@ async def billing_create(request: Request):
         desc = row.get("description", "").strip()
         if not desc:
             continue
-        item_type = ItemType(row.get("item_type", "fixed"))
+        try:
+            item_type = ItemType(row.get("item_type", "fixed"))
+        except ValueError:
+            item_type = ItemType.FIXED
         amount = 0
         if item_type == ItemType.FIXED:
             amount = parse_brl(row.get("amount", "")) or 0
@@ -66,7 +69,9 @@ async def billing_detail(request: Request, billing_uuid: str):
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
 
-    assert billing.id is not None
+    if billing.id is None:
+        flash(request, "Cobrança inválida.", "danger")
+        return RedirectResponse("/", status_code=302)
     bills = bill_service.list_bills(billing.id)
     return render(request, "billing/detail.html", {"billing": billing, "bills": bills})
 
@@ -100,7 +105,10 @@ async def billing_edit(request: Request, billing_uuid: str):
         desc = row.get("description", "").strip()
         if not desc:
             continue
-        item_type = ItemType(row.get("item_type", "fixed"))
+        try:
+            item_type = ItemType(row.get("item_type", "fixed"))
+        except ValueError:
+            item_type = ItemType.FIXED
         amount = 0
         if item_type == ItemType.FIXED:
             amount = parse_brl(row.get("amount", "")) or 0
@@ -124,7 +132,9 @@ async def billing_delete(request: Request, billing_uuid: str):
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
 
-    assert billing.id is not None
+    if billing.id is None:
+        flash(request, "Cobrança inválida.", "danger")
+        return RedirectResponse("/", status_code=302)
     service.delete_billing(billing.id)
     flash(request, f"Cobrança '{billing.name}' excluída.", "success")
     return RedirectResponse("/", status_code=302)

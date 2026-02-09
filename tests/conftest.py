@@ -9,7 +9,7 @@ from landlord.models.bill import Bill, BillLineItem
 from landlord.models.billing import Billing, BillingItem, ItemType
 
 
-# Matches Alembic head: e5f6a7b8c9d0 (add paid_at to bills)
+# Matches Alembic head: a7b8c9d0e1f2 (replace UUID4 with ULID)
 SCHEMA_DDL = """
 CREATE TABLE billings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

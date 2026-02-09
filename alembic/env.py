@@ -1,4 +1,3 @@
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -13,20 +12,9 @@ target_metadata = None
 
 
 def _get_url() -> str:
-    """Resolve database URL from landlord settings (LANDLORD_* env vars).
+    from landlord.settings import settings
 
-    Falls back to sqlite:///landlord.db if settings can't be loaded.
-    """
-    try:
-        from landlord.settings import settings
-
-        if settings.db_url:
-            return settings.db_url
-        if settings.db_backend == "sqlite":
-            return f"sqlite:///{os.path.abspath(settings.db_path)}"
-    except Exception:
-        pass
-    return "sqlite:///landlord.db"
+    return settings.db_url
 
 
 def run_migrations_offline() -> None:
@@ -47,7 +35,6 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            render_as_batch=True,
         )
         with context.begin_transaction():
             context.run_migrations()

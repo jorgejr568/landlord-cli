@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, text
 from sqlalchemy.engine import RowMapping
 from ulid import ULID
 
+from landlord.constants import SP_TZ
 from landlord.models.bill import Bill, BillLineItem
 from landlord.models.billing import Billing, BillingItem, ItemType
 from landlord.models.user import User
 from landlord.repositories.base import BillingRepository, BillRepository, UserRepository
-
-SP_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def _now() -> datetime:
@@ -47,7 +45,8 @@ class SQLAlchemyBillingRepository(BillingRepository):
             )
         self.conn.commit()
         result = self.get_by_id(billing_id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError(f"Failed to retrieve billing after create (id={billing_id})")
         return result
 
     @staticmethod
@@ -143,9 +142,11 @@ class SQLAlchemyBillingRepository(BillingRepository):
                  "amount": item.amount, "item_type": item.item_type.value, "sort_order": i},
             )
         self.conn.commit()
-        assert billing.id is not None
+        if billing.id is None:
+            raise ValueError("Cannot update billing without an id")
         result = self.get_by_id(billing.id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError(f"Failed to retrieve billing after update (id={billing.id})")
         return result
 
     def delete(self, billing_id: int) -> None:
@@ -184,7 +185,8 @@ class SQLAlchemyBillRepository(BillRepository):
             )
         self.conn.commit()
         result = self.get_by_id(bill_id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError(f"Failed to retrieve bill after create (id={bill_id})")
         return result
 
     @staticmethod
@@ -284,9 +286,11 @@ class SQLAlchemyBillRepository(BillRepository):
                  "amount": item.amount, "item_type": item.item_type.value, "sort_order": i},
             )
         self.conn.commit()
-        assert bill.id is not None
+        if bill.id is None:
+            raise ValueError("Cannot update bill without an id")
         result = self.get_by_id(bill.id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError(f"Failed to retrieve bill after update (id={bill.id})")
         return result
 
     def update_pdf_path(self, bill_id: int, pdf_path: str) -> None:
@@ -326,7 +330,8 @@ class SQLAlchemyUserRepository(UserRepository):
         )
         self.conn.commit()
         result = self.get_by_username(user.username)
-        assert result is not None
+        if result is None:
+            raise RuntimeError(f"Failed to retrieve user after create (username={user.username})")
         return result
 
     def get_by_username(self, username: str) -> User | None:

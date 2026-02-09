@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
+from landlord.constants import SP_TZ
 from landlord.models.billing import ItemType
-
-SP_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 class BillLineItem(BaseModel):

@@ -1,33 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import landlord.db as db_module
-
-
-class TestGetUrl:
-    def test_explicit_db_url(self):
-        with patch.object(db_module, "settings") as mock_settings:
-            mock_settings.db_url = "sqlite:///custom.db"
-            mock_settings.db_backend = "sqlite"
-            result = db_module._get_url()
-            assert result == "sqlite:///custom.db"
-
-    def test_sqlite_default(self):
-        with patch.object(db_module, "settings") as mock_settings:
-            mock_settings.db_url = ""
-            mock_settings.db_backend = "sqlite"
-            mock_settings.db_path = "landlord.db"
-            result = db_module._get_url()
-            assert result.startswith("sqlite:///")
-            assert result.endswith("landlord.db")
-
-    def test_unsupported_backend(self):
-        with patch.object(db_module, "settings") as mock_settings:
-            mock_settings.db_url = ""
-            mock_settings.db_backend = "postgres"
-            with pytest.raises(ValueError, match="Unsupported DB backend"):
-                db_module._get_url()
 
 
 class TestGetEngine:
@@ -35,7 +8,6 @@ class TestGetEngine:
         monkeypatch.setattr(db_module, "_engine", None)
         with patch.object(db_module, "settings") as mock_settings:
             mock_settings.db_url = "sqlite:///:memory:"
-            mock_settings.db_backend = "sqlite"
             engine = db_module.get_engine()
             assert engine is not None
             assert db_module._engine is engine

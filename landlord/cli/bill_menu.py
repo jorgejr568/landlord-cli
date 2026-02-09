@@ -76,7 +76,8 @@ def generate_bill_menu(billing: Billing, bill_service: BillService) -> None:
                 ).ask()
                 parsed = parse_brl(val or "")
                 if parsed is not None and parsed >= 0:
-                    assert item.id is not None
+                    if item.id is None:
+                        raise ValueError("Variable billing item must have an id")
                     variable_amounts[item.id] = parsed
                     break
                 console.print("[red]Valor inv\u00e1lido. Tente novamente.[/red]")
@@ -265,7 +266,9 @@ def edit_bill_menu(
 
 
 def list_bills_menu(billing: Billing, bill_service: BillService) -> None:
-    assert billing.id is not None
+    if billing.id is None:
+        console.print("[red]Cobrança inválida.[/red]")
+        return
     bills = bill_service.list_bills(billing.id)
 
     if not bills:
@@ -290,16 +293,17 @@ def list_bills_menu(billing: Billing, bill_service: BillService) -> None:
     console.print()
     console.print(table)
 
-    choices = [
-        f"{b.id} - {format_month(b.reference_month)}" for b in bills
-    ] + ["Voltar"]
+    bill_choices = {
+        f"{b.id} - {format_month(b.reference_month)}": b for b in bills
+    }
+    choices = list(bill_choices.keys()) + ["Voltar"]
     choice = questionary.select("Selecione uma fatura:", choices=choices).ask()
 
     if choice is None or choice == "Voltar":
         return
 
-    bill_id = int(choice.split(" - ")[0])
-    bill = bill_service.get_bill(bill_id)
+    selected = bill_choices[choice]
+    bill = bill_service.get_bill(selected.id)
     if not bill:
         console.print("[red]Fatura n\u00e3o encontrada.[/red]")
         return
@@ -352,7 +356,9 @@ def _bill_detail_menu(
                 "Tem certeza que deseja excluir esta fatura?", default=False
             ).ask()
             if confirm:
-                assert bill.id is not None
+                if bill.id is None:
+                    console.print("[red]Fatura inválida.[/red]")
+                    break
                 bill_service.delete_bill(bill.id)
                 console.print("[green]Fatura exclu\u00edda.[/green]")
                 break

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-import boto3
+import logging
+
+try:
+    import boto3
+except ImportError:
+    boto3 = None  # type: ignore[assignment]
 
 from landlord.storage.base import StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 class S3Storage(StorageBackend):
@@ -27,6 +34,11 @@ class S3Storage(StorageBackend):
         if endpoint_url:
             client_kwargs["endpoint_url"] = endpoint_url
 
+        if boto3 is None:
+            raise ImportError(
+                "boto3 is required for S3 storage. "
+                "Install it with: pip install landlord-cli[s3]"
+            )
         self.client = boto3.client(**client_kwargs)
 
     def save(self, key: str, data: bytes) -> str:
@@ -36,11 +48,14 @@ class S3Storage(StorageBackend):
             Body=data,
             ContentType="application/pdf",
         )
+        logger.info("Uploaded %s to s3://%s/%s (%d bytes)", key, self.bucket, key, len(data))
         return key
 
     def get_url(self, key: str) -> str:
-        return self.client.generate_presigned_url(
+        url = self.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=self.presigned_expiry,
         )
+        logger.debug("Generated presigned URL for %s", key)
+        return url

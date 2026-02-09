@@ -1,4 +1,3 @@
-from http.server import HTTPServer
 from io import BytesIO
 from unittest.mock import MagicMock
 
@@ -27,12 +26,20 @@ class TestHandler:
         handler.send_response.assert_called_once_with(200)
         handler.end_headers.assert_called_once()
 
-    def test_do_post_aliases_get(self):
-        assert Handler.do_POST is Handler.do_GET
-        assert Handler.do_PUT is Handler.do_GET
-        assert Handler.do_DELETE is Handler.do_GET
+    def test_do_head_aliases_get(self):
         assert Handler.do_HEAD is Handler.do_GET
-        assert Handler.do_PATCH is Handler.do_GET
+
+    def test_no_post_handler(self):
+        assert not hasattr(Handler, "do_POST")
+
+    def test_no_put_handler(self):
+        assert not hasattr(Handler, "do_PUT")
+
+    def test_no_delete_handler(self):
+        assert not hasattr(Handler, "do_DELETE")
+
+    def test_no_patch_handler(self):
+        assert not hasattr(Handler, "do_PATCH")
 
     def test_log_message_suppressed(self):
         handler = Handler.__new__(Handler)

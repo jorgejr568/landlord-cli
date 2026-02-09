@@ -20,5 +20,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("bills") as batch_op:
-        batch_op.drop_column("paid_at")
+    op.drop_column("bills", "paid_at")

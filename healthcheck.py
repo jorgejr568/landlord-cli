@@ -6,7 +6,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-    do_HEAD = do_POST = do_PUT = do_DELETE = do_PATCH = do_GET
+    do_HEAD = do_GET
 
     def log_message(self, format, *args):
         pass

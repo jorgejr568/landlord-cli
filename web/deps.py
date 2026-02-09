@@ -69,9 +69,11 @@ def get_user_service(request: Request) -> UserService:
 
 def render(request: Request, template_name: str, context: dict | None = None) -> Response:
     from web.app import templates
+    from web.csrf import get_csrf_token
 
     ctx = context or {}
     ctx["request"] = request
     ctx["user"] = request.session.get("user")
     ctx["messages"] = get_flashed_messages(request)
+    ctx["csrf_token"] = get_csrf_token(request)
     return templates.TemplateResponse(request, template_name, ctx)

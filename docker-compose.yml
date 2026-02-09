@@ -1,4 +1,17 @@
 services:
+  db:
+    image: mariadb:11
+    env_file: .env
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   landlord:
     build:
       context: .
@@ -7,8 +20,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - db-data:/app/data
       - invoices:/app/invoices
+    depends_on:
+      db:
+        condition: service_healthy
 
   cli:
     build:
@@ -20,9 +35,11 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      - db-data:/app/data
       - invoices:/app/invoices
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
-  db-data:
+  mysql-data:
   invoices:

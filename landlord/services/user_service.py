@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import bcrypt
 
 from landlord.models.user import User
 from landlord.repositories.base import UserRepository
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -13,7 +17,9 @@ class UserService:
     def create_user(self, username: str, password: str) -> User:
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         user = User(username=username, password_hash=password_hash)
-        return self.repo.create(user)
+        result = self.repo.create(user)
+        logger.info("User created: %s", username)
+        return result
 
     def authenticate(self, username: str, password: str) -> User | None:
         user = self.repo.get_by_username(username)
@@ -26,6 +32,7 @@ class UserService:
     def change_password(self, username: str, new_password: str) -> None:
         password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
         self.repo.update_password_hash(username, password_hash)
+        logger.info("Password changed for user: %s", username)
 
     def list_users(self) -> list[User]:
         return self.repo.list_all()

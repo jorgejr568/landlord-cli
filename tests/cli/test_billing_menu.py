@@ -163,16 +163,6 @@ class TestListBillingsMenu:
         ]
         list_billings_menu(mock_billing_svc, MagicMock())
 
-    @patch("landlord.cli.billing_menu.questionary")
-    def test_select_billing_not_found(self, mock_q):
-        from landlord.cli.billing_menu import list_billings_menu
-
-        billing = Billing(id=1, name="Apt 101", items=[])
-        mock_billing_svc = MagicMock()
-        mock_billing_svc.list_billings.return_value = [billing]
-        mock_billing_svc.get_billing.return_value = None
-        mock_q.select.return_value.ask.return_value = "1 - Apt 101"
-        list_billings_menu(mock_billing_svc, MagicMock())
 
 
 class TestBillingDetailMenu:

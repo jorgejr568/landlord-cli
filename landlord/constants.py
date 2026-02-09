@@ -1,3 +1,9 @@
+from zoneinfo import ZoneInfo
+
+from landlord.models.billing import ItemType
+
+SP_TZ = ZoneInfo("America/Sao_Paulo")
+
 MONTHS_PT = {
     "01": "Janeiro",
     "02": "Fevereiro",
@@ -13,7 +19,7 @@ MONTHS_PT = {
     "12": "Dezembro",
 }
 
-TYPE_LABELS = {"fixed": "Fixo", "variable": "Variável", "extra": "Extra"}
+TYPE_LABELS = {ItemType.FIXED: "Fixo", ItemType.VARIABLE: "Variável", ItemType.EXTRA: "Extra"}
 
 
 def format_month(ref: str) -> str:

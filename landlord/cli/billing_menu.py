@@ -104,14 +104,14 @@ def list_billings_menu(
     console.print(table)
     console.print()
 
-    choices = [f"{b.id} - {b.name}" for b in billings] + ["Voltar"]
+    billing_choices = {f"{b.id} - {b.name}": b for b in billings}
+    choices = list(billing_choices.keys()) + ["Voltar"]
     choice = questionary.select("Selecione uma cobrança:", choices=choices).ask()
 
     if choice is None or choice == "Voltar":
         return
 
-    billing_id = int(choice.split(" - ")[0])
-    billing = billing_service.get_billing(billing_id)
+    billing = billing_choices[choice]
     if not billing:
         console.print("[red]Cobrança não encontrada.[/red]")
         return

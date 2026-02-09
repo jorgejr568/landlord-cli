@@ -17,18 +17,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column("bills", sa.Column("deleted_at", sa.DateTime, nullable=True))
-
-    with op.batch_alter_table("billings") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.Text, type_=sa.String(36))
-
-    with op.batch_alter_table("bills") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.Text, type_=sa.String(36))
+    op.alter_column("billings", "uuid", existing_type=sa.Text, type_=sa.String(36))
+    op.alter_column("bills", "uuid", existing_type=sa.Text, type_=sa.String(36))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("bills") as batch_op:
-        batch_op.drop_column("deleted_at")
-        batch_op.alter_column("uuid", existing_type=sa.String(36), type_=sa.Text)
-
-    with op.batch_alter_table("billings") as batch_op:
-        batch_op.alter_column("uuid", existing_type=sa.String(36), type_=sa.Text)
+    op.drop_column("bills", "deleted_at")
+    op.alter_column("bills", "uuid", existing_type=sa.String(36), type_=sa.Text)
+    op.alter_column("billings", "uuid", existing_type=sa.String(36), type_=sa.Text)

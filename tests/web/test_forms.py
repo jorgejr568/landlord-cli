@@ -37,3 +37,13 @@ class TestParseFormset:
         }
         rows = parse_formset(form_data, "items")
         assert len(rows) == 1
+
+    def test_non_numeric_total_forms(self):
+        form_data = {"items-TOTAL_FORMS": "abc"}
+        rows = parse_formset(form_data, "items")
+        assert rows == []
+
+    def test_none_total_forms(self):
+        form_data = {"items-TOTAL_FORMS": None}
+        rows = parse_formset(form_data, "items")
+        assert rows == []

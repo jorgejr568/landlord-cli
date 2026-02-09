@@ -1,18 +1,19 @@
-FROM python:3.10
+FROM python:3.10-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     default-mysql-client \
     libmariadb-dev \
-    sqlite3 \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY pyproject.toml .
 RUN mkdir -p landlord web && touch landlord/__init__.py web/__init__.py
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
 COPY . .
+RUN pip install --no-cache-dir .
 
 EXPOSE 2019
 

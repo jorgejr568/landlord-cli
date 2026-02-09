@@ -1,12 +1,19 @@
+import logging
+import secrets
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+_INSECURE_DEFAULT_KEY = "change-me-in-production"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="LANDLORD_")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="LANDLORD_", extra="ignore"
+    )
 
-    db_backend: str = "sqlite"
-    db_path: str = "landlord.db"
-    db_url: str = ""
+    db_url: str = "mysql://landlord:landlord@db:3306/landlord"
 
     storage_backend: str = "local"
     storage_local_path: str = "./invoices"
@@ -23,7 +30,17 @@ class Settings(BaseSettings):
     pix_merchant_name: str = ""
     pix_merchant_city: str = ""
 
-    secret_key: str = "change-me-in-production"
+    secret_key: str = _INSECURE_DEFAULT_KEY
+
+    def get_secret_key(self) -> str:
+        if self.secret_key == _INSECURE_DEFAULT_KEY:
+            logger.warning(
+                "LANDLORD_SECRET_KEY is not set — using a random key. "
+                "Sessions will not survive restarts. "
+                "Set LANDLORD_SECRET_KEY in your environment or .env file."
+            )
+            self.secret_key = secrets.token_urlsafe(32)
+        return self.secret_key
 
 
 settings = Settings()

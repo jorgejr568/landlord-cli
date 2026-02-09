@@ -5,6 +5,9 @@ Apartment billing management with PDF invoice generation — CLI + FastAPI web U
 ## Running
 
 ```bash
+# Start MariaDB (required)
+docker compose up -d db
+
 # CLI (local)
 make run
 
@@ -57,7 +60,7 @@ make compose-createuser    # create web user
 ## Architecture
 
 - **Settings**: `landlord/settings.py` — Pydantic Settings, env prefix `LANDLORD_`, reads `.env`
-- **Database**: `landlord/db.py` — SQLAlchemy engine + connection. Schema managed by Alembic. Configurable backend via `LANDLORD_DB_URL`
+- **Database**: `landlord/db.py` — SQLAlchemy engine + connection to MariaDB. Schema managed by Alembic. Configured via `LANDLORD_DB_URL`
 - **Repositories**: `landlord/repositories/` — Abstract base classes in `base.py`, SQLAlchemy Core impl in `sqlalchemy.py`, factory in `factory.py`
 - **Storage**: `landlord/storage/` — Same pattern. `LocalStorage` writes to `./invoices/`, `S3Storage` uploads to a private bucket with presigned URLs. Configurable via `LANDLORD_STORAGE_BACKEND`
 - **PDF**: `landlord/pdf/invoice.py` — fpdf2-based invoice with navy/green color palette
@@ -121,6 +124,6 @@ make web-run             # start uvicorn at http://localhost:8000
 
 ## Key Rules
 
-- **NEVER delete `landlord.db` or `invoices/`** without explicit user confirmation
+- **NEVER delete `invoices/`** without explicit user confirmation
 - Do not use floats for monetary values — always centavos (int)
-- Keep repository and storage abstractions — they exist so backends can be swapped (MariaDB, S3)
+- Keep repository and storage abstractions — they exist so backends can be swapped (S3, etc.)

@@ -32,10 +32,18 @@ class TestLoginPage:
 
 
 class TestLogout:
-    def test_logout_redirects(self, auth_client):
-        response = auth_client.get("/logout", follow_redirects=False)
+    def test_logout_redirects(self, auth_client, csrf_token):
+        response = auth_client.post(
+            "/logout",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
         assert response.status_code == 302
         assert "/login" in response.headers["location"]
+
+    def test_logout_get_not_allowed(self, auth_client):
+        response = auth_client.get("/logout", follow_redirects=False)
+        assert response.status_code == 405
 
 
 class TestChangePassword:
@@ -43,10 +51,11 @@ class TestChangePassword:
         response = auth_client.get("/change-password")
         assert response.status_code == 200
 
-    def test_change_password_success(self, auth_client):
+    def test_change_password_success(self, auth_client, csrf_token):
         response = auth_client.post(
             "/change-password",
             data={
+                "csrf_token": csrf_token,
                 "current_password": "testpass",
                 "new_password": "newpass",
                 "confirm_password": "newpass",
@@ -55,10 +64,11 @@ class TestChangePassword:
         )
         assert response.status_code == 302
 
-    def test_change_password_mismatch(self, auth_client):
+    def test_change_password_mismatch(self, auth_client, csrf_token):
         response = auth_client.post(
             "/change-password",
             data={
+                "csrf_token": csrf_token,
                 "current_password": "testpass",
                 "new_password": "new1",
                 "confirm_password": "new2",
@@ -66,10 +76,11 @@ class TestChangePassword:
         )
         assert response.status_code == 200
 
-    def test_change_password_wrong_current(self, auth_client):
+    def test_change_password_wrong_current(self, auth_client, csrf_token):
         response = auth_client.post(
             "/change-password",
             data={
+                "csrf_token": csrf_token,
                 "current_password": "wrongpass",
                 "new_password": "newpass",
                 "confirm_password": "newpass",
@@ -77,10 +88,11 @@ class TestChangePassword:
         )
         assert response.status_code == 200
 
-    def test_change_password_empty_fields(self, auth_client):
+    def test_change_password_empty_fields(self, auth_client, csrf_token):
         response = auth_client.post(
             "/change-password",
             data={
+                "csrf_token": csrf_token,
                 "current_password": "",
                 "new_password": "",
                 "confirm_password": "",

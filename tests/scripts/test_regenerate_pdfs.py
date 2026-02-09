@@ -67,7 +67,9 @@ class TestRegeneratePdfs:
 
     @patch("landlord.scripts.regenerate_pdfs.initialize_db")
     @patch("landlord.scripts.regenerate_pdfs.get_billing_repository")
-    def test_no_billings(self, mock_billing_repo, mock_init_db):
+    @patch("landlord.scripts.regenerate_pdfs.get_bill_repository")
+    @patch("landlord.scripts.regenerate_pdfs.get_storage")
+    def test_no_billings(self, mock_storage, mock_bill_repo, mock_billing_repo, mock_init_db):
         from landlord.scripts.regenerate_pdfs import main
 
         mock_billing_repo.return_value.list_all.return_value = []

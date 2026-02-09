@@ -48,8 +48,8 @@ async def bill_generate(request: Request, billing_uuid: str):
     for item in billing.items:
         if item.item_type == ItemType.VARIABLE:
             val = str(form.get(f"variable_{item.id}", ""))
-            assert item.id is not None
-            variable_amounts[item.id] = parse_brl(val) or 0
+            if item.id is not None:
+                variable_amounts[item.id] = parse_brl(val) or 0
 
     # Parse extras
     extras_data = parse_formset(dict(form), "extras")
@@ -83,6 +83,9 @@ async def bill_detail(request: Request, bill_uuid: str):
         return RedirectResponse("/", status_code=302)
 
     billing = billing_service.get_billing(bill.billing_id)
+    if not billing:
+        flash(request, "Cobrança não encontrada.", "danger")
+        return RedirectResponse("/", status_code=302)
     return render(request, "bill/detail.html", {
         "bill": bill,
         "billing": billing,
@@ -100,6 +103,9 @@ async def bill_edit_form(request: Request, bill_uuid: str):
         return RedirectResponse("/", status_code=302)
 
     billing = billing_service.get_billing(bill.billing_id)
+    if not billing:
+        flash(request, "Cobrança não encontrada.", "danger")
+        return RedirectResponse("/", status_code=302)
     return render(request, "bill/edit.html", {"bill": bill, "billing": billing})
 
 
@@ -129,7 +135,10 @@ async def bill_edit(request: Request, bill_uuid: str):
         if not desc:
             continue
         amount = parse_brl(row.get("amount", "")) or 0
-        item_type = ItemType(row.get("item_type", "fixed"))
+        try:
+            item_type = ItemType(row.get("item_type", "fixed"))
+        except ValueError:
+            item_type = ItemType.FIXED
         line_items.append(
             BillLineItem(
                 description=desc,
@@ -212,7 +221,9 @@ async def bill_delete(request: Request, bill_uuid: str):
         return RedirectResponse("/", status_code=302)
 
     billing = billing_service.get_billing(bill.billing_id)
-    assert bill.id is not None
+    if bill.id is None:
+        flash(request, "Fatura inválida.", "danger")
+        return RedirectResponse("/", status_code=302)
     bill_service.delete_bill(bill.id)
     flash(request, "Fatura excluída.", "success")
     if billing:

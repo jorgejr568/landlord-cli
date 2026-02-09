@@ -11,8 +11,6 @@ dependencies = [
     "pydantic-settings>=2.0,<3",
     "alembic>=1.18,<2",
     "qrcode[pil]>=8.0,<9",
-    "boto3>=1.35,<2",
-    "mysqlclient>=2.2,<3",
     "bcrypt>=4.0,<5",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.34,<1",
@@ -20,17 +18,20 @@ dependencies = [
     "python-multipart>=0.0.18",
     "itsdangerous>=2.2,<3",
     "python-ulid>=3.0,<4",
+    "mysqlclient>=2.2,<3",
 ]
 
 [tool.setuptools.packages.find]
 include = ["landlord*", "web*"]
 
 [project.optional-dependencies]
+s3 = ["boto3>=1.35,<2"]
 test = [
     "pytest>=8.0,<9",
     "pytest-cov>=6.0,<7",
     "httpx>=0.27,<1",
     "freezegun>=1.4,<2",
+    "boto3>=1.35,<2",
 ]
 
 [project.scripts]

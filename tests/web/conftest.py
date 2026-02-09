@@ -1,10 +1,19 @@
 """Web test fixtures — TestClient with shared in-memory SQLite."""
 from __future__ import annotations
 
+import re
+
 import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.pool import StaticPool
 
+from landlord.models.billing import Billing, BillingItem, ItemType
+from landlord.repositories.sqlalchemy import (
+    SQLAlchemyBillingRepository,
+    SQLAlchemyBillRepository,
+)
+from landlord.services.bill_service import BillService
+from landlord.storage.local import LocalStorage
 from tests.conftest import SCHEMA_DDL
 
 
@@ -30,6 +39,50 @@ def _make_test_engine():
         conn.commit()
 
     return engine
+
+
+def create_billing_in_db(engine, **overrides):
+    """Create a billing in the test DB. Shared helper for web route tests."""
+    defaults = dict(
+        name="Apt 101",
+        description="",
+        pix_key="",
+        items=[
+            BillingItem(description="Aluguel", amount=285000, item_type=ItemType.FIXED),
+            BillingItem(description="Água", amount=0, item_type=ItemType.VARIABLE),
+        ],
+    )
+    defaults.update(overrides)
+    with engine.connect() as conn:
+        repo = SQLAlchemyBillingRepository(conn)
+        billing = repo.create(Billing(**defaults))
+    return billing
+
+
+def generate_bill_in_db(engine, billing, tmp_path):
+    """Generate a bill in the test DB. Shared helper for web route tests."""
+    with engine.connect() as conn:
+        bill_repo = SQLAlchemyBillRepository(conn)
+        storage = LocalStorage(str(tmp_path))
+        service = BillService(bill_repo, storage)
+        bill = service.generate_bill(
+            billing=billing,
+            reference_month="2025-03",
+            variable_amounts={},
+            extras=[],
+            notes="note",
+            due_date="10/04/2025",
+        )
+    return bill
+
+
+def get_csrf_token(client) -> str:
+    """Extract the CSRF token from a page that renders a form."""
+    response = client.get("/change-password")
+    match = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+    if match:
+        return match.group(1)
+    return ""
 
 
 @pytest.fixture(autouse=True)
@@ -74,3 +127,9 @@ def auth_client(client, test_engine):
 
     client.post("/login", data={"username": "testuser", "password": "testpass"})
     return client
+
+
+@pytest.fixture()
+def csrf_token(auth_client) -> str:
+    """Get a valid CSRF token for the authenticated client."""
+    return get_csrf_token(auth_client)
