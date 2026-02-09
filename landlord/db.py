@@ -37,6 +37,8 @@ def _get_alembic_config() -> Config:
     """Build Alembic config pointing at the project root alembic.ini."""
     project_root = os.path.dirname(os.path.dirname(__file__))
     ini_path = os.path.join(project_root, "alembic.ini")
+    if not os.path.exists(ini_path):
+        ini_path = os.path.join(os.getcwd(), "alembic.ini")
     cfg = Config(ini_path)
     return cfg
 

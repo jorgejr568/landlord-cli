@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import HTMLResponse
 
 from landlord.constants import format_month
 from landlord.db import initialize_db
@@ -20,6 +23,9 @@ from web.csrf import CSRFMiddleware, get_csrf_token
 from web.deps import AuthMiddleware, DBConnectionMiddleware
 from web.routes.bill import router as bill_router
 from web.routes.billing import router as billing_router
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
 
@@ -59,6 +65,17 @@ templates.env.globals["asset_version"] = ASSET_VERSION
 app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(bill_router)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unhandled exception on %s %s:\n%s",
+        request.method,
+        request.url.path,
+        traceback.format_exc(),
+    )
+    return HTMLResponse("Internal Server Error", status_code=500)
 
 
 @app.get("/")
