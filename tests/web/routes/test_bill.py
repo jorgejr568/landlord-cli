@@ -7,18 +7,18 @@ from tests.web.conftest import create_billing_in_db, generate_bill_in_db
 class TestBillGenerate:
     def test_generate_form(self, auth_client, test_engine):
         billing = create_billing_in_db(test_engine)
-        response = auth_client.get(f"/bills/{billing.uuid}/generate")
+        response = auth_client.get(f"/billings/{billing.uuid}/bills/generate")
         assert response.status_code == 200
 
     def test_generate_form_not_found(self, auth_client):
-        response = auth_client.get("/bills/nonexistent/generate", follow_redirects=False)
+        response = auth_client.get("/billings/nonexistent/bills/generate", follow_redirects=False)
         assert response.status_code == 302
 
     def test_generate_success(self, auth_client, test_engine, tmp_path, csrf_token):
         billing = create_billing_in_db(test_engine)
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             response = auth_client.post(
-                f"/bills/{billing.uuid}/generate",
+                f"/billings/{billing.uuid}/bills/generate",
                 data={
                     "csrf_token": csrf_token,
                     "reference_month": "2025-03",
@@ -33,7 +33,7 @@ class TestBillGenerate:
     def test_generate_no_reference(self, auth_client, test_engine, csrf_token):
         billing = create_billing_in_db(test_engine)
         response = auth_client.post(
-            f"/bills/{billing.uuid}/generate",
+            f"/billings/{billing.uuid}/bills/generate",
             data={
                 "csrf_token": csrf_token,
                 "reference_month": "",
@@ -45,7 +45,7 @@ class TestBillGenerate:
 
     def test_generate_billing_not_found(self, auth_client, csrf_token):
         response = auth_client.post(
-            "/bills/nonexistent/generate",
+            "/billings/nonexistent/bills/generate",
             data={"csrf_token": csrf_token, "reference_month": "2025-03", "extras-TOTAL_FORMS": "0"},
             follow_redirects=False,
         )
@@ -57,11 +57,11 @@ class TestBillDetail:
         billing = create_billing_in_db(test_engine)
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
-            response = auth_client.get(f"/bills/{bill.uuid}")
+            response = auth_client.get(f"/billings/{billing.uuid}/bills/{bill.uuid}")
         assert response.status_code == 200
 
     def test_detail_not_found(self, auth_client):
-        response = auth_client.get("/bills/nonexistent", follow_redirects=False)
+        response = auth_client.get("/billings/x/bills/nonexistent", follow_redirects=False)
         assert response.status_code == 302
 
 
@@ -70,11 +70,11 @@ class TestBillEdit:
         billing = create_billing_in_db(test_engine)
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
-            response = auth_client.get(f"/bills/{bill.uuid}/edit")
+            response = auth_client.get(f"/billings/{billing.uuid}/bills/{bill.uuid}/edit")
         assert response.status_code == 200
 
     def test_edit_form_not_found(self, auth_client):
-        response = auth_client.get("/bills/nonexistent/edit", follow_redirects=False)
+        response = auth_client.get("/billings/x/bills/nonexistent/edit", follow_redirects=False)
         assert response.status_code == 302
 
     def test_edit_submit(self, auth_client, test_engine, tmp_path, csrf_token):
@@ -82,7 +82,7 @@ class TestBillEdit:
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
             response = auth_client.post(
-                f"/bills/{bill.uuid}/edit",
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/edit",
                 data={
                     "csrf_token": csrf_token,
                     "due_date": "15/04/2025",
@@ -99,7 +99,7 @@ class TestBillEdit:
 
     def test_edit_not_found(self, auth_client, csrf_token):
         response = auth_client.post(
-            "/bills/nonexistent/edit",
+            "/billings/x/bills/nonexistent/edit",
             data={"csrf_token": csrf_token, "items-TOTAL_FORMS": "0", "extras-TOTAL_FORMS": "0"},
             follow_redirects=False,
         )
@@ -112,7 +112,7 @@ class TestBillRegeneratePdf:
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
             response = auth_client.post(
-                f"/bills/{bill.uuid}/regenerate-pdf",
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/regenerate-pdf",
                 data={"csrf_token": csrf_token},
                 follow_redirects=False,
             )
@@ -120,7 +120,7 @@ class TestBillRegeneratePdf:
 
     def test_regenerate_not_found(self, auth_client, csrf_token):
         response = auth_client.post(
-            "/bills/nonexistent/regenerate-pdf",
+            "/billings/x/bills/nonexistent/regenerate-pdf",
             data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
@@ -133,7 +133,7 @@ class TestBillTogglePaid:
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
             response = auth_client.post(
-                f"/bills/{bill.uuid}/toggle-paid",
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/toggle-paid",
                 data={"csrf_token": csrf_token},
                 follow_redirects=False,
             )
@@ -141,7 +141,7 @@ class TestBillTogglePaid:
 
     def test_toggle_paid_not_found(self, auth_client, csrf_token):
         response = auth_client.post(
-            "/bills/nonexistent/toggle-paid",
+            "/billings/x/bills/nonexistent/toggle-paid",
             data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
@@ -154,7 +154,7 @@ class TestBillDelete:
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
             response = auth_client.post(
-                f"/bills/{bill.uuid}/delete",
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/delete",
                 data={"csrf_token": csrf_token},
                 follow_redirects=False,
             )
@@ -162,7 +162,7 @@ class TestBillDelete:
 
     def test_delete_not_found(self, auth_client, csrf_token):
         response = auth_client.post(
-            "/bills/nonexistent/delete",
+            "/billings/x/bills/nonexistent/delete",
             data={"csrf_token": csrf_token},
             follow_redirects=False,
         )
@@ -175,7 +175,7 @@ class TestBillInvoice:
         with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
             bill = generate_bill_in_db(test_engine, billing, tmp_path)
             response = auth_client.get(
-                f"/bills/{bill.uuid}/invoice",
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/invoice",
                 follow_redirects=False,
             )
         assert response.status_code == 200
@@ -183,7 +183,7 @@ class TestBillInvoice:
 
     def test_invoice_not_found(self, auth_client):
         response = auth_client.get(
-            "/bills/nonexistent/invoice",
+            "/billings/x/bills/nonexistent/invoice",
             follow_redirects=False,
         )
         assert response.status_code == 302
