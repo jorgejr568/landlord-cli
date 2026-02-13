@@ -33,6 +33,9 @@ def configure_logging() -> None:
     root.handlers.clear()
     root.addHandler(handler)
 
+    # Suppress uvicorn access logs — the app logs requests at the route level.
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
 
 # Alias — used after Alembic migrations may have overridden logging config.
 reconfigure = configure_logging
