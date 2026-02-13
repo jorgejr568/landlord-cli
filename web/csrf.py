@@ -6,6 +6,7 @@ and verified on POST/PUT/DELETE/PATCH requests.
 Uses a pure ASGI middleware (not BaseHTTPMiddleware) to avoid consuming the
 request body — downstream handlers can still read request.form().
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +31,7 @@ def get_csrf_token(request: Request) -> str:
     if not token:
         token = secrets.token_urlsafe(32)
         request.session["_csrf_token"] = token
+        logger.debug("CSRF token generated for session")
     return token
 
 
@@ -68,25 +70,30 @@ class CSRFMiddleware:
             return
 
         content_type = request.headers.get("content-type", "")
-        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
-            body = await request.body()
-            form = await request.form()
-            form_token = str(form.get("csrf_token", ""))
-            await form.close()
+        if (
+            "multipart/form-data" not in content_type
+            and "application/x-www-form-urlencoded" not in content_type
+        ):
+            logger.debug(
+                "CSRF bypass: non-form content type for %s %s", request.method, path
+            )
+            await self.app(scope, receive, send)
+            return
+        body = await request.body()
+        form = await request.form()
+        form_token = str(form.get("csrf_token", ""))
+        await form.close()
 
-            if not _verify_csrf_token(request, form_token):
-                logger.warning("CSRF token mismatch for %s %s", request.method, path)
-                flash(request, "Sessão expirada. Tente novamente.", "danger")
-                referer = request.headers.get("referer", "/")
-                response = RedirectResponse(referer, status_code=302)
-                await response(scope, receive, send)
-                return
-
-            # Replay body so downstream handlers can read request.form()
-            async def replay_receive() -> dict[str, Any]:
-                return {"type": "http.request", "body": body, "more_body": False}
-
-            await self.app(scope, replay_receive, send)
+        if not _verify_csrf_token(request, form_token):
+            logger.warning("CSRF token mismatch for %s %s", request.method, path)
+            flash(request, "Sessão expirada. Tente novamente.", "danger")
+            referer = request.headers.get("referer", "/")
+            response = RedirectResponse(referer, status_code=302)
+            await response(scope, receive, send)
             return
 
-        await self.app(scope, receive, send)
+        # Replay body so downstream handlers can read request.form()
+        async def replay_receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)

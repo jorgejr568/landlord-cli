@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     pix_merchant_name: str = ""
     pix_merchant_city: str = ""
 
+    log_level: str = "INFO"
+    log_json: bool = False
+
     secret_key: str = _INSECURE_DEFAULT_KEY
 
     def get_secret_key(self) -> str:

@@ -15,33 +15,45 @@ router = APIRouter(prefix="/invites")
 
 @router.get("/")
 async def invite_list(request: Request):
+    logger.info("GET /invites/ — listing pending invites")
     user_id = request.session.get("user_id")
     service = get_invite_service(request)
     invites = service.list_pending(user_id)
+    logger.info("Found %d pending invites for user=%s", len(invites), user_id)
     return render(request, "invite/list.html", {"invites": invites})
 
 
 @router.post("/{invite_uuid}/accept")
 async def invite_accept(request: Request, invite_uuid: str):
+    logger.info("POST /invites/%s/accept", invite_uuid)
     user_id = request.session.get("user_id")
     service = get_invite_service(request)
     try:
         service.accept_invite(invite_uuid, user_id)
     except ValueError as e:
+        logger.warning(
+            "Invite accept failed: uuid=%s user=%s error=%s", invite_uuid, user_id, e
+        )
         flash(request, str(e), "danger")
         return RedirectResponse("/invites/", status_code=302)
+    logger.info("Invite accepted: uuid=%s user=%s", invite_uuid, user_id)
     flash(request, "Convite aceito!", "success")
     return RedirectResponse("/invites/", status_code=302)
 
 
 @router.post("/{invite_uuid}/decline")
 async def invite_decline(request: Request, invite_uuid: str):
+    logger.info("POST /invites/%s/decline", invite_uuid)
     user_id = request.session.get("user_id")
     service = get_invite_service(request)
     try:
         service.decline_invite(invite_uuid, user_id)
     except ValueError as e:
+        logger.warning(
+            "Invite decline failed: uuid=%s user=%s error=%s", invite_uuid, user_id, e
+        )
         flash(request, str(e), "danger")
         return RedirectResponse("/invites/", status_code=302)
+    logger.info("Invite declined: uuid=%s user=%s", invite_uuid, user_id)
     flash(request, "Convite recusado.", "info")
     return RedirectResponse("/invites/", status_code=302)

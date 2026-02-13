@@ -12,7 +12,6 @@ from landlord.repositories.base import BillRepository
 from landlord.settings import settings
 from landlord.storage.base import StorageBackend
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -63,8 +62,11 @@ class BillService:
         """Generate PDF, save to storage, and update bill's pdf_path. Returns the storage path."""
         pix_png, pix_key, pix_payload = self._get_pix_data(billing, bill.total_amount)
         pdf_bytes = self.pdf_generator.generate(
-            bill, billing.name,
-            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
+            bill,
+            billing.name,
+            pix_qrcode_png=pix_png,
+            pix_key=pix_key,
+            pix_payload=pix_payload,
         )
         key = _storage_key(billing.uuid, bill.uuid)
         path = self.storage.save(key, pdf_bytes)
@@ -131,7 +133,10 @@ class BillService:
         bill = self.bill_repo.create(bill)
         logger.info(
             "Bill created: id=%s, billing=%s, month=%s, total=%d",
-            bill.id, billing.name, reference_month, total,
+            bill.id,
+            billing.name,
+            reference_month,
+            total,
         )
 
         self._generate_and_store_pdf(bill, billing)
@@ -160,16 +165,20 @@ class BillService:
 
     def regenerate_pdf(self, bill: Bill, billing: Billing) -> Bill:
         """Regenerate the PDF using current billing info (PIX key, etc.)."""
+        logger.info("Regenerating PDF for bill uuid=%s", bill.uuid)
         self._generate_and_store_pdf(bill, billing)
         return bill
 
     def get_invoice_url(self, pdf_path: str | None) -> str:
         if not pdf_path:
             return ""
+        logger.debug("get_invoice_url key=%s", pdf_path)
         return self.storage.get_url(pdf_path)
 
     def list_bills(self, billing_id: int) -> list[Bill]:
-        return self.bill_repo.list_by_billing(billing_id)
+        result = self.bill_repo.list_by_billing(billing_id)
+        logger.debug("Listed %d bills for billing=%s", len(result), billing_id)
+        return result
 
     def toggle_paid(self, bill: Bill) -> Bill:
         if bill.paid_at is None:
@@ -184,10 +193,14 @@ class BillService:
         return bill
 
     def get_bill(self, bill_id: int) -> Bill | None:
-        return self.bill_repo.get_by_id(bill_id)
+        result = self.bill_repo.get_by_id(bill_id)
+        logger.debug("get_bill id=%s found=%s", bill_id, result is not None)
+        return result
 
     def get_bill_by_uuid(self, uuid: str) -> Bill | None:
-        return self.bill_repo.get_by_uuid(uuid)
+        result = self.bill_repo.get_by_uuid(uuid)
+        logger.debug("get_bill_by_uuid uuid=%s found=%s", uuid, result is not None)
+        return result
 
     def delete_bill(self, bill_id: int) -> None:
         self.bill_repo.delete(bill_id)

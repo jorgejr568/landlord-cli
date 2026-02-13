@@ -1,6 +1,9 @@
+import logging
 from pathlib import Path
 
 from landlord.storage.base import StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 class LocalStorage(StorageBackend):
@@ -12,7 +15,11 @@ class LocalStorage(StorageBackend):
         path = self.base_dir / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        return str(path.resolve())
+        resolved = str(path.resolve())
+        logger.debug("Saved %s (%d bytes) to %s", key, len(data), resolved)
+        return resolved
 
     def get_url(self, key: str) -> str:
-        return str((self.base_dir / key).resolve())
+        resolved = str((self.base_dir / key).resolve())
+        logger.debug("Resolved URL for %s: %s", key, resolved)
+        return resolved

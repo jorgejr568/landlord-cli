@@ -1,16 +1,24 @@
+import logging
+
 from landlord.settings import settings
 from landlord.storage.base import StorageBackend
 
+logger = logging.getLogger(__name__)
+
 
 def get_storage() -> StorageBackend:
-    if settings.storage_backend == "local":
+    backend = settings.storage_backend
+
+    if backend == "local":
         from landlord.storage.local import LocalStorage
 
+        logger.info("Using storage backend: local")
         return LocalStorage(settings.storage_local_path)
 
-    if settings.storage_backend == "s3":
+    if backend == "s3":
         from landlord.storage.s3 import S3Storage
 
+        logger.info("Using storage backend: s3 bucket=%s", settings.s3_bucket)
         return S3Storage(
             bucket=settings.s3_bucket,
             region=settings.s3_region,
@@ -20,4 +28,4 @@ def get_storage() -> StorageBackend:
             presigned_expiry=settings.s3_presigned_expiry,
         )
 
-    raise ValueError(f"Unsupported storage backend: {settings.storage_backend}")
+    raise ValueError(f"Unsupported storage backend: {backend}")

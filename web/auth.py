@@ -62,15 +62,18 @@ async def signup(request: Request):
     confirm_password = str(form.get("confirm_password", ""))
 
     if not username or not email or not password:
+        logger.warning("Signup rejected: empty fields")
         return render(request, "signup.html", {"error": "Preencha todos os campos."})
 
     if password != confirm_password:
+        logger.warning("Signup rejected: password mismatch for username=%s", username)
         return render(request, "signup.html", {"error": "As senhas não coincidem."})
 
     user_service = get_user_service(request)
     try:
         user = user_service.register_user(username, email, password)
     except ValueError:
+        logger.warning("Signup rejected: duplicate username=%s", username)
         return render(request, "signup.html", {"error": "Nome de usuário já existe."})
 
     request.session.clear()
@@ -93,9 +96,13 @@ async def login(request: Request):
 
     if _is_rate_limited(client_ip):
         logger.warning("Rate-limited login attempt from %s", client_ip)
-        return render(request, "login.html", {
-            "error": "Muitas tentativas. Aguarde um momento antes de tentar novamente.",
-        })
+        return render(
+            request,
+            "login.html",
+            {
+                "error": "Muitas tentativas. Aguarde um momento antes de tentar novamente.",
+            },
+        )
 
     form = await request.form()
     username = form.get("username", "")
@@ -106,7 +113,9 @@ async def login(request: Request):
 
     if user is None:
         _record_failed_attempt(client_ip)
-        logger.warning("Failed login attempt for username=%s from %s", username, client_ip)
+        logger.warning(
+            "Failed login attempt for username=%s from %s", username, client_ip
+        )
         return render(request, "login.html", {"error": "Usuário ou senha inválidos."})
 
     _clear_attempts(client_ip)
@@ -130,24 +139,44 @@ async def change_password(request: Request):
     confirm_password = str(form.get("confirm_password", ""))
 
     if not current_password or not new_password:
-        return render(request, "change_password.html", {"error": "Preencha todos os campos."})
+        logger.warning(
+            "Change password rejected: empty fields for user=%s",
+            request.session.get("username"),
+        )
+        return render(
+            request, "change_password.html", {"error": "Preencha todos os campos."}
+        )
 
     if new_password != confirm_password:
-        return render(request, "change_password.html", {"error": "As senhas não coincidem."})
+        logger.warning(
+            "Change password rejected: password mismatch for user=%s",
+            request.session.get("username"),
+        )
+        return render(
+            request, "change_password.html", {"error": "As senhas não coincidem."}
+        )
 
     user_service = get_user_service(request)
     username = request.session.get("username", "")
     user = user_service.authenticate(username, current_password)
 
     if user is None:
-        return render(request, "change_password.html", {"error": "Senha atual incorreta."})
+        logger.warning(
+            "Change password failed: incorrect current password for user=%s", username
+        )
+        return render(
+            request, "change_password.html", {"error": "Senha atual incorreta."}
+        )
 
     user_service.change_password(username, new_password)
+    logger.info("Password changed for user=%s", username)
     flash(request, "Senha alterada com sucesso!", "success")
     return RedirectResponse("/", status_code=302)
 
 
 @router.post("/logout")
 async def logout(request: Request):
+    username = request.session.get("username")
     request.session.clear()
+    logger.info("User %s logged out", username)
     return RedirectResponse("/login", status_code=302)

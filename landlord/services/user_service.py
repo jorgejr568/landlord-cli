@@ -32,14 +32,21 @@ class UserService:
         return result
 
     def get_by_id(self, user_id: int) -> User | None:
-        return self.repo.get_by_id(user_id)
+        result = self.repo.get_by_id(user_id)
+        logger.debug("get_by_id user_id=%s found=%s", user_id, result is not None)
+        return result
 
     def authenticate(self, username: str, password: str) -> User | None:
         user = self.repo.get_by_username(username)
         if user is None:
+            logger.warning(
+                "Authentication failed: user not found username=%s", username
+            )
             return None
         if bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+            logger.info("User authenticated: %s", username)
             return user
+        logger.warning("Authentication failed: invalid password username=%s", username)
         return None
 
     def change_password(self, username: str, new_password: str) -> None:
@@ -48,4 +55,6 @@ class UserService:
         logger.info("Password changed for user: %s", username)
 
     def list_users(self) -> list[User]:
-        return self.repo.list_all()
+        result = self.repo.list_all()
+        logger.debug("Listed %d users", len(result))
+        return result

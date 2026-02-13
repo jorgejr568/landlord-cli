@@ -16,6 +16,7 @@ from starlette.responses import HTMLResponse
 
 from landlord.constants import format_month
 from landlord.db import initialize_db
+from landlord.logging import configure_logging, reconfigure
 from landlord.models import format_brl
 from landlord.settings import settings
 from web.auth import router as auth_router
@@ -26,8 +27,7 @@ from web.routes.billing import router as billing_router
 from web.routes.invite import router as invite_router
 from web.routes.organization import router as organization_router
 
-LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
@@ -49,7 +49,7 @@ ASSET_VERSION = _build_asset_version()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     initialize_db()
     # Re-apply logging config — Alembic's fileConfig may have overridden it
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, force=True)
+    reconfigure()
     logger.info("Application started")
     yield
 

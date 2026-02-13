@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from fpdf import FPDF
 from landlord.constants import TYPE_LABELS, format_month
 from landlord.models import format_brl
 from landlord.models.bill import Bill
+
+logger = logging.getLogger(__name__)
 
 FONTS_DIR = Path(__file__).parent / "fonts"
 
@@ -43,7 +46,9 @@ class InvoicePDF:
 
         page_w = pdf.w - pdf.l_margin - pdf.r_margin
 
-        self._draw_header(pdf, page_w, billing_name, bill.reference_month, bill.due_date)
+        self._draw_header(
+            pdf, page_w, billing_name, bill.reference_month, bill.due_date
+        )
         self._draw_table(pdf, page_w, bill)
         self._draw_total(pdf, page_w, bill.total_amount)
 
@@ -59,11 +64,25 @@ class InvoicePDF:
             )
             self._draw_footer(pdf, page_w)
 
-        return pdf.output()
+        output = pdf.output()
+        logger.debug(
+            "PDF generated: billing=%s items=%d pix=%s size=%d bytes",
+            billing_name,
+            len(bill.line_items),
+            bool(pix_qrcode_png),
+            len(output),
+        )
+        return output
 
     @staticmethod
     def _draw_info_card(
-        pdf: FPDF, x: float, y: float, w: float, h: float, label: str, value: str,
+        pdf: FPDF,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        label: str,
+        value: str,
     ) -> None:
         """Draw a single info card with accent bar, label, and value."""
         pdf.set_fill_color(*PURPLE_LIGHT)
@@ -81,7 +100,11 @@ class InvoicePDF:
         pdf.cell(w - 14, 9, value)
 
     def _draw_header(
-        self, pdf: FPDF, page_w: float, billing_name: str, reference_month: str,
+        self,
+        pdf: FPDF,
+        page_w: float,
+        billing_name: str,
+        reference_month: str,
         due_date: str | None = None,
     ) -> None:
         x = pdf.l_margin
@@ -100,8 +123,12 @@ class InvoicePDF:
         pdf.set_font("Montserrat", "", 9)
         pdf.set_text_color(210, 195, 215)
         pdf.cell(
-            0, 8, "Documento de cobran\u00e7a", align="C",
-            new_x="LMARGIN", new_y="NEXT",
+            0,
+            8,
+            "Documento de cobran\u00e7a",
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
         pdf.ln(10)
@@ -113,18 +140,40 @@ class InvoicePDF:
 
         if due_date:
             # Row 1 — full-width COBRANÇA card
-            self._draw_info_card(pdf, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name)
+            self._draw_info_card(
+                pdf, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name
+            )
 
             # Row 2 — REFERÊNCIA (left) + VENCIMENTO (right)
             row2_y = card_y + card_h + 6
             card_w = page_w / 2 - 3
-            self._draw_info_card(pdf, x, row2_y, card_w, card_h, "REFER\u00caNCIA", format_month(reference_month))
-            self._draw_info_card(pdf, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date)
+            self._draw_info_card(
+                pdf,
+                x,
+                row2_y,
+                card_w,
+                card_h,
+                "REFER\u00caNCIA",
+                format_month(reference_month),
+            )
+            self._draw_info_card(
+                pdf, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date
+            )
             card_y = row2_y
         else:
             card_w = page_w / 2 - 3
-            self._draw_info_card(pdf, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name)
-            self._draw_info_card(pdf, x + card_w + 6, card_y, card_w, card_h, "REFER\u00caNCIA", format_month(reference_month))
+            self._draw_info_card(
+                pdf, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name
+            )
+            self._draw_info_card(
+                pdf,
+                x + card_w + 6,
+                card_y,
+                card_w,
+                card_h,
+                "REFER\u00caNCIA",
+                format_month(reference_month),
+            )
 
         pdf.set_y(card_y + card_h + 14)
 
@@ -155,8 +204,14 @@ class InvoicePDF:
         pdf.cell(col_desc, line_h, "  Descri\u00e7\u00e3o", border=0, fill=True)
         pdf.cell(col_type, line_h, "Tipo", border=0, fill=True, align="C")
         pdf.cell(
-            col_amount, line_h, "Valor  ", border=0, fill=True, align="R",
-            new_x="LMARGIN", new_y="NEXT",
+            col_amount,
+            line_h,
+            "Valor  ",
+            border=0,
+            fill=True,
+            align="R",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
         # Table rows
@@ -176,9 +231,14 @@ class InvoicePDF:
             pdf.cell(col_type, line_h, type_label, border=0, fill=True, align="C")
             pdf.set_font("MontserratSB", "", 10)
             pdf.cell(
-                col_amount, line_h, f"{format_brl(item.amount)}  ",
-                border=0, fill=True, align="R",
-                new_x="LMARGIN", new_y="NEXT",
+                col_amount,
+                line_h,
+                f"{format_brl(item.amount)}  ",
+                border=0,
+                fill=True,
+                align="R",
+                new_x="LMARGIN",
+                new_y="NEXT",
             )
             pdf.set_font("Montserrat", "", 10)
 
@@ -202,9 +262,14 @@ class InvoicePDF:
         pdf.cell(col_label, total_h, "TOTAL  ", border=0, fill=True, align="R")
         pdf.set_font("Montserrat", "B", 14)
         pdf.cell(
-            col_amount, total_h, f"{format_brl(total_amount)}  ",
-            border=0, fill=True, align="R",
-            new_x="LMARGIN", new_y="NEXT",
+            col_amount,
+            total_h,
+            f"{format_brl(total_amount)}  ",
+            border=0,
+            fill=True,
+            align="R",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
     def _draw_notes(self, pdf: FPDF, page_w: float, notes: str) -> None:
@@ -265,8 +330,14 @@ class InvoicePDF:
         # Instruction text
         pdf.set_font("Montserrat", "", 10)
         pdf.set_text_color(*MUTED_TEXT)
-        pdf.cell(0, 6, "Escaneie o QR Code ou copie o c\u00f3digo abaixo", align="C",
-                 new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(
+            0,
+            6,
+            "Escaneie o QR Code ou copie o c\u00f3digo abaixo",
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
 
         pdf.ln(10)
 
@@ -320,7 +391,9 @@ class InvoicePDF:
 
             # Measure text height with dry_run
             pdf.set_font("Montserrat", "", 7)
-            result = pdf.multi_cell(payload_cell_w, 4, pix_payload, dry_run=True, output="LINES")
+            result = pdf.multi_cell(
+                payload_cell_w, 4, pix_payload, dry_run=True, output="LINES"
+            )
             text_h = len(result) * 4
             payload_h = text_h + 8  # 4px padding top + bottom
 

@@ -72,12 +72,17 @@ class DBConnectionMiddleware:
             conn = getattr(request.state, "db_conn", None)
             if conn is not None:
                 conn.close()
+                logger.debug(
+                    "DB connection closed for %s %s", request.method, request.url.path
+                )
 
 
 def _get_conn(request: Request):
     """Lazy per-request connection — created on first use, closed by middleware."""
     if request.state.db_conn is None:
-        logger.debug("Creating DB connection for %s %s", request.method, request.url.path)
+        logger.debug(
+            "Creating DB connection for %s %s", request.method, request.url.path
+        )
         request.state.db_conn = get_engine().connect()
     return request.state.db_conn
 
@@ -111,11 +116,13 @@ def get_authorization_service(request: Request) -> AuthorizationService:
     return AuthorizationService(SQLAlchemyOrganizationRepository(_get_conn(request)))
 
 
-def render(request: Request, template_name: str, context: dict | None = None) -> Response:
+def render(
+    request: Request, template_name: str, context: dict | None = None
+) -> Response:
     from web.app import templates
     from web.csrf import get_csrf_token
 
-    logger.info("Rendering template: %s", template_name)
+    logger.debug("Rendering %s", template_name)
     ctx = context or {}
     ctx["request"] = request
     ctx["user"] = request.session.get("username")
@@ -134,6 +141,4 @@ def render(request: Request, template_name: str, context: dict | None = None) ->
     else:
         ctx.setdefault("pending_invite_count", 0)
 
-    response = templates.TemplateResponse(request, template_name, ctx)
-    logger.info("Template rendered successfully: %s", template_name)
-    return response
+    return templates.TemplateResponse(request, template_name, ctx)

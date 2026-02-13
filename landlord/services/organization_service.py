@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from landlord.models.organization import OrgRole, Organization, OrganizationMember
+from landlord.models.organization import Organization, OrganizationMember, OrgRole
 from landlord.repositories.base import OrganizationRepository
 
 logger = logging.getLogger(__name__)
@@ -16,17 +16,28 @@ class OrganizationService:
         org = Organization(name=name, created_by=created_by)
         created = self.repo.create(org)
         self.repo.add_member(created.id, created_by, OrgRole.ADMIN.value)
-        logger.info("Organization created: id=%s name=%s by user=%s", created.id, created.name, created_by)
+        logger.info(
+            "Organization created: id=%s name=%s by user=%s",
+            created.id,
+            created.name,
+            created_by,
+        )
         return created
 
     def get_by_id(self, org_id: int) -> Organization | None:
-        return self.repo.get_by_id(org_id)
+        result = self.repo.get_by_id(org_id)
+        logger.debug("get_by_id org_id=%s found=%s", org_id, result is not None)
+        return result
 
     def get_by_uuid(self, uuid: str) -> Organization | None:
-        return self.repo.get_by_uuid(uuid)
+        result = self.repo.get_by_uuid(uuid)
+        logger.debug("get_by_uuid uuid=%s found=%s", uuid, result is not None)
+        return result
 
     def list_user_organizations(self, user_id: int) -> list[Organization]:
-        return self.repo.list_by_user(user_id)
+        result = self.repo.list_by_user(user_id)
+        logger.debug("Listed %d organizations for user=%s", len(result), user_id)
+        return result
 
     def update_organization(self, org: Organization) -> Organization:
         result = self.repo.update(org)
@@ -38,10 +49,16 @@ class OrganizationService:
         logger.info("Organization %s soft-deleted", org_id)
 
     def get_member(self, org_id: int, user_id: int) -> OrganizationMember | None:
-        return self.repo.get_member(org_id, user_id)
+        result = self.repo.get_member(org_id, user_id)
+        logger.debug(
+            "get_member org=%s user=%s found=%s", org_id, user_id, result is not None
+        )
+        return result
 
     def list_members(self, org_id: int) -> list[OrganizationMember]:
-        return self.repo.list_members(org_id)
+        result = self.repo.list_members(org_id)
+        logger.debug("Listed %d members for org=%s", len(result), org_id)
+        return result
 
     def add_member(self, org_id: int, user_id: int, role: str) -> OrganizationMember:
         return self.repo.add_member(org_id, user_id, role)
