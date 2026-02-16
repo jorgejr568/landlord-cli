@@ -98,6 +98,63 @@
 </div>
 {% endif %}
 
+<div class="panel">
+    <div class="panel-head"><h6>Comprovantes</h6></div>
+    <div class="panel-body">
+        {% if receipts %}
+        <table class="data-table" style="margin-bottom: 1rem;">
+            <thead>
+                <tr>
+                    <th>Arquivo</th>
+                    <th class="text-right">Tamanho</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for receipt in receipts %}
+                <tr>
+                    <td>{{ receipt.filename }}</td>
+                    <td class="text-right">{{ "%.1f" | format(receipt.file_size / 1024) }} KB</td>
+                    <td class="text-right" style="white-space: nowrap;">
+                        <a href="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}/receipts/{{ receipt.uuid }}"
+                           target="_blank" class="btn btn--sm">Ver</a>
+                        {% if role in ("owner", "admin", "manager") %}
+                        <form method="post"
+                              action="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}/receipts/{{ receipt.uuid }}/delete"
+                              style="display:inline"
+                              onsubmit="return confirm('Remover comprovante?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="next" value="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}">
+                            <button type="submit" class="btn btn--sm btn--danger">Remover</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">Nenhum comprovante anexado.</p>
+        {% endif %}
+
+        {% if role in ("owner", "admin", "manager") %}
+        <form method="post"
+              action="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}/receipts/upload"
+              enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next" value="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}">
+            <div class="field">
+                <label for="receipt_file" class="field-label">Anexar comprovante</label>
+                <input type="file" class="field-input" id="receipt_file" name="receipt_file"
+                       accept=".pdf,.jpg,.jpeg,.png">
+                <small class="text-muted">PDF, JPG ou PNG. Maximo 10 MB.</small>
+            </div>
+            <button type="submit" class="btn btn--sm btn--primary">Enviar</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
 <div class="btn-group">
     <a href="/billings/{{ billing.uuid }}" class="btn btn--ghost">Voltar</a>
     {% if role in ("owner", "admin", "manager") %}

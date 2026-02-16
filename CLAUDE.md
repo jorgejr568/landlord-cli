@@ -63,14 +63,15 @@ make compose-createuser    # create web user
 - **Database**: `landlord/db.py` — SQLAlchemy engine + connection to MariaDB. Schema managed by Alembic. Configured via `LANDLORD_DB_URL`
 - **Repositories**: `landlord/repositories/` — Abstract base classes in `base.py`, SQLAlchemy Core impl in `sqlalchemy.py`, factory in `factory.py`
 - **Storage**: `landlord/storage/` — Same pattern. `LocalStorage` writes to `./invoices/`, `S3Storage` uploads to a private bucket with presigned URLs. Configurable via `LANDLORD_STORAGE_BACKEND`
-- **PDF**: `landlord/pdf/invoice.py` — fpdf2-based invoice with navy/green color palette
+- **PDF**: `landlord/pdf/invoice.py` — fpdf2-based invoice with navy/green color palette; `landlord/pdf/merger.py` — merges receipt attachments into invoices using pypdf
 - **Services**: `landlord/services/` — Business logic layer wiring repos + storage + PDF
 - **CLI**: `landlord/cli/` — Interactive menus using `questionary` + `rich`
 - **Health check**: `healthcheck.py` — HTTP server on port 2019, returns 200 for all requests
 
 ## S3 Storage
 
-- S3 key pattern: `{billing_uuid}/{bill_uuid}.pdf`
+- Invoice S3 key pattern: `{billing_uuid}/{bill_uuid}.pdf`
+- Receipt S3 key pattern: `{billing_uuid}/{bill_uuid}/receipts/{receipt_uuid}{ext}`
 - `pdf_path` column stores the S3 key, not a URL
 - Presigned URLs (7-day expiry) are generated on the fly via `get_invoice_url()` / `get_presigned_url()`
 - Set `LANDLORD_STORAGE_BACKEND=s3` and configure `LANDLORD_S3_*` env vars
@@ -101,7 +102,7 @@ make web-run             # start uvicorn at http://localhost:8000
 - **Middleware**: `web/deps.py` — AuthMiddleware (redirects to /login), service factories, render helper
 - **Flash**: `web/flash.py` — session-based flash messages
 - **Forms**: `web/forms.py` — `parse_brl()` and `parse_formset()` helpers
-- **Routes**: `web/routes/billing.py` and `web/routes/bill.py`
+- **Routes**: `web/routes/billing.py`, `web/routes/bill.py` (includes receipt upload/delete)
 - **Templates**: Jinja2 with Bootstrap 5 via CDN, all customer-facing text in PT-BR
 - **Static**: `web/static/core/` — CSS and JS (served via Starlette StaticFiles)
 
@@ -118,9 +119,29 @@ make web-run             # start uvicorn at http://localhost:8000
 | `/billings/<id>/bills/<bill_id>` | Bill detail |
 | `/billings/<id>/bills/<bill_id>/edit` | Edit bill |
 | `/billings/<id>/bills/<bill_id>/invoice` | Download/view PDF |
+| `POST /billings/<id>/bills/<bill_id>/receipts/upload` | Upload receipt attachment |
+| `POST /billings/<id>/bills/<bill_id>/receipts/<receipt_id>/delete` | Delete receipt attachment |
 | `/login` | Login page |
 | `/logout` | Logout |
 | `/change-password` | Change password |
+
+## Receipt Attachments
+
+- Bills can have attached receipt files (PDF, JPEG, PNG, max 10 MB)
+- Receipt storage key pattern: `{billing_uuid}/{bill_uuid}/receipts/{receipt_uuid}{ext}`
+- Receipts are merged into the generated PDF invoice using pypdf (appended after invoice pages, in order of addition)
+- Model: `landlord/models/receipt.py`, Repository: `ReceiptRepository`, Service: integrated into `BillService`
+- Upload/delete via separate forms on the bill edit page
+
+## Audit Logging
+
+- **AuditService** logs all state-changing operations across web and CLI
+- Event types defined in `landlord/models/audit_log.py` (`AuditEventType`)
+- Serializers in `landlord/services/audit_serializers.py` strip sensitive fields (`password_hash`)
+- `safe_log()` swallows exceptions — audit failures never block business operations
+- Web routes: actor context comes from session (`user_id`, `username`)
+- CLI: uses `source="cli"`, `actor_id=None`, `actor_username=""`
+- States stored as JSON TEXT in `previous_state` / `new_state` columns
 
 ## Key Rules
 

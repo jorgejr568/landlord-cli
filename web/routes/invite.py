@@ -5,7 +5,8 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from web.deps import get_invite_service, render
+from landlord.models.audit_log import AuditEventType
+from web.deps import get_audit_service, get_invite_service, render
 from web.flash import flash
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,19 @@ async def invite_accept(request: Request, invite_uuid: str):
         flash(request, str(e), "danger")
         return RedirectResponse("/invites/", status_code=302)
     logger.info("Invite accepted: uuid=%s user=%s", invite_uuid, user_id)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.INVITE_ACCEPT,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="invite",
+        entity_uuid=invite_uuid,
+        previous_state={"status": "pending"},
+        new_state={"status": "accepted"},
+    )
+
     flash(request, "Convite aceito!", "success")
     return RedirectResponse("/invites/", status_code=302)
 
@@ -55,5 +69,18 @@ async def invite_decline(request: Request, invite_uuid: str):
         flash(request, str(e), "danger")
         return RedirectResponse("/invites/", status_code=302)
     logger.info("Invite declined: uuid=%s user=%s", invite_uuid, user_id)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.INVITE_DECLINE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="invite",
+        entity_uuid=invite_uuid,
+        previous_state={"status": "pending"},
+        new_state={"status": "declined"},
+    )
+
     flash(request, "Convite recusado.", "info")
     return RedirectResponse("/invites/", status_code=302)

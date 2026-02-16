@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from landlord.models.audit_log import AuditLog
 from landlord.models.bill import Bill
 from landlord.models.billing import Billing
 from landlord.models.invite import Invite
 from landlord.models.organization import Organization, OrganizationMember
+from landlord.models.receipt import Receipt
 from landlord.models.user import User
 
 
@@ -133,3 +135,34 @@ class InviteRepository(ABC):
 
     @abstractmethod
     def has_pending_invite(self, org_id: int, user_id: int) -> bool: ...
+
+
+class AuditLogRepository(ABC):
+    @abstractmethod
+    def create(self, audit_log: AuditLog) -> AuditLog: ...
+
+    @abstractmethod
+    def list_by_entity(self, entity_type: str, entity_id: int) -> list[AuditLog]: ...
+
+    @abstractmethod
+    def list_by_actor(self, actor_id: int, limit: int = 50) -> list[AuditLog]: ...
+
+    @abstractmethod
+    def list_recent(self, limit: int = 50) -> list[AuditLog]: ...
+
+
+class ReceiptRepository(ABC):
+    @abstractmethod
+    def create(self, receipt: Receipt) -> Receipt: ...
+
+    @abstractmethod
+    def get_by_id(self, receipt_id: int) -> Receipt | None: ...
+
+    @abstractmethod
+    def get_by_uuid(self, uuid: str) -> Receipt | None: ...
+
+    @abstractmethod
+    def list_by_bill(self, bill_id: int) -> list[Receipt]: ...
+
+    @abstractmethod
+    def delete(self, receipt_id: int) -> None: ...

@@ -6,8 +6,11 @@ from rich.table import Table
 
 from landlord.constants import TYPE_LABELS, format_month
 from landlord.models import format_brl, parse_brl
+from landlord.models.audit_log import AuditEventType
 from landlord.models.bill import Bill, BillLineItem
 from landlord.models.billing import Billing, ItemType
+from landlord.services.audit_serializers import serialize_bill
+from landlord.services.audit_service import AuditService
 from landlord.services.bill_service import BillService
 
 console = Console()
@@ -44,7 +47,7 @@ def _show_bill_detail(bill: Bill, bill_service: BillService) -> None:
         console.print(f"  Link: {url}")
 
 
-def generate_bill_menu(billing: Billing, bill_service: BillService) -> None:
+def generate_bill_menu(billing: Billing, bill_service: BillService, audit_service: AuditService) -> None:
     console.print()
     console.print("[bold]Gerar Nova Fatura[/bold]", style="cyan")
 
@@ -119,6 +122,15 @@ def generate_bill_menu(billing: Billing, bill_service: BillService) -> None:
         due_date=due_date,
     )
 
+    audit_service.safe_log(
+        AuditEventType.BILL_CREATE,
+        source="cli",
+        entity_type="bill",
+        entity_id=bill.id,
+        entity_uuid=bill.uuid,
+        new_state=serialize_bill(bill),
+    )
+
     console.print()
     console.print("[green bold]Fatura gerada com sucesso![/green bold]")
     console.print(f"  Total: [bold]{format_brl(bill.total_amount)}[/bold]")
@@ -127,7 +139,7 @@ def generate_bill_menu(billing: Billing, bill_service: BillService) -> None:
 
 
 def edit_bill_menu(
-    bill: Bill, billing: Billing, bill_service: BillService
+    bill: Bill, billing: Billing, bill_service: BillService, audit_service: AuditService
 ) -> Bill:
     console.print()
     console.print("[bold]Editar Fatura[/bold]", style="cyan")
@@ -135,6 +147,8 @@ def edit_bill_menu(
         f"  Refer\u00eancia: {format_month(bill.reference_month)}"
     )
     console.print()
+
+    previous_state = serialize_bill(bill)
 
     new_line_items: list[BillLineItem] = []
     sort = 0
@@ -256,6 +270,16 @@ def edit_bill_menu(
         due_date=due_date,
     )
 
+    audit_service.safe_log(
+        AuditEventType.BILL_UPDATE,
+        source="cli",
+        entity_type="bill",
+        entity_id=updated.id,
+        entity_uuid=updated.uuid,
+        previous_state=previous_state,
+        new_state=serialize_bill(updated),
+    )
+
     console.print()
     console.print("[green bold]Fatura atualizada com sucesso![/green bold]")
     console.print(f"  Total: [bold]{format_brl(updated.total_amount)}[/bold]")
@@ -265,7 +289,7 @@ def edit_bill_menu(
     return updated
 
 
-def list_bills_menu(billing: Billing, bill_service: BillService) -> None:
+def list_bills_menu(billing: Billing, bill_service: BillService, audit_service: AuditService) -> None:
     if billing.id is None:
         console.print("[red]Cobrança inválida.[/red]")
         return
@@ -308,11 +332,11 @@ def list_bills_menu(billing: Billing, bill_service: BillService) -> None:
         console.print("[red]Fatura n\u00e3o encontrada.[/red]")
         return
 
-    _bill_detail_menu(bill, billing, bill_service)
+    _bill_detail_menu(bill, billing, bill_service, audit_service)
 
 
 def _bill_detail_menu(
-    bill: Bill, billing: Billing, bill_service: BillService
+    bill: Bill, billing: Billing, bill_service: BillService, audit_service: AuditService
 ) -> None:
     while True:
         console.print()
@@ -339,15 +363,39 @@ def _bill_detail_menu(
         if action is None or action == "Voltar":
             break
         elif action == "Editar Fatura":
-            bill = edit_bill_menu(bill, billing, bill_service)
+            bill = edit_bill_menu(bill, billing, bill_service, audit_service)
         elif action == paid_label:
+            previous_state = serialize_bill(bill)
             bill = bill_service.toggle_paid(bill)
+
+            audit_service.safe_log(
+                AuditEventType.BILL_TOGGLE_PAID,
+                source="cli",
+                entity_type="bill",
+                entity_id=bill.id,
+                entity_uuid=bill.uuid,
+                previous_state=previous_state,
+                new_state=serialize_bill(bill),
+            )
+
             if bill.paid_at:
                 console.print("[green]Fatura marcada como paga![/green]")
             else:
                 console.print("[yellow]Pagamento desmarcado.[/yellow]")
         elif action == "Regenerar PDF":
+            previous_state = serialize_bill(bill)
             bill = bill_service.regenerate_pdf(bill, billing)
+
+            audit_service.safe_log(
+                AuditEventType.BILL_REGENERATE_PDF,
+                source="cli",
+                entity_type="bill",
+                entity_id=bill.id,
+                entity_uuid=bill.uuid,
+                previous_state=previous_state,
+                new_state=serialize_bill(bill),
+            )
+
             url = bill_service.get_invoice_url(bill.pdf_path)
             console.print(f"[green]PDF regenerado![/green]")
             console.print(f"  Link: {url}")
@@ -359,6 +407,17 @@ def _bill_detail_menu(
                 if bill.id is None:
                     console.print("[red]Fatura inválida.[/red]")
                     break
+                previous_state = serialize_bill(bill)
                 bill_service.delete_bill(bill.id)
+
+                audit_service.safe_log(
+                    AuditEventType.BILL_DELETE,
+                    source="cli",
+                    entity_type="bill",
+                    entity_id=bill.id,
+                    entity_uuid=bill.uuid,
+                    previous_state=previous_state,
+                )
+
                 console.print("[green]Fatura exclu\u00edda.[/green]")
                 break

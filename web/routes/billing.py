@@ -5,8 +5,10 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from landlord.models.audit_log import AuditEventType
 from landlord.models.billing import BillingItem, ItemType
-from web.deps import get_authorization_service, get_bill_service, get_billing_service, get_organization_service, render
+from landlord.services.audit_serializers import serialize_billing
+from web.deps import get_audit_service, get_authorization_service, get_bill_service, get_billing_service, get_organization_service, render
 from web.flash import flash
 from web.forms import parse_brl, parse_formset
 
@@ -78,6 +80,19 @@ async def billing_create(request: Request):
         owner_type=owner_type, owner_id=owner_id,
     )
     logger.info("Billing created: uuid=%s name=%s items=%d", billing.uuid, billing.name, len(items))
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.BILLING_CREATE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        new_state=serialize_billing(billing),
+    )
+
     flash(request, f"Cobrança '{billing.name}' criada com sucesso!", "success")
     return RedirectResponse(f"/billings/{billing.uuid}", status_code=302)
 
@@ -153,6 +168,8 @@ async def billing_edit(request: Request, billing_uuid: str):
         flash(request, "Acesso negado.", "danger")
         return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
 
+    previous_state = serialize_billing(billing)
+
     form = await request.form()
     billing.name = str(form.get("name", "")).strip()
     billing.description = str(form.get("description", "")).strip()
@@ -179,8 +196,22 @@ async def billing_edit(request: Request, billing_uuid: str):
         return RedirectResponse(f"/billings/{billing_uuid}/edit", status_code=302)
 
     billing.items = items
-    service.update_billing(billing)
+    updated = service.update_billing(billing)
     logger.info("Billing updated: uuid=%s name=%s items=%d", billing_uuid, billing.name, len(items))
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.BILLING_UPDATE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="billing",
+        entity_id=updated.id,
+        entity_uuid=updated.uuid,
+        previous_state=previous_state,
+        new_state=serialize_billing(updated),
+    )
+
     flash(request, "Cobrança atualizada com sucesso!", "success")
     return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
 
@@ -203,11 +234,26 @@ async def billing_transfer(request: Request, billing_uuid: str):
     if not org_id:
         flash(request, "Selecione uma organização.", "danger")
         return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
+    previous_owner = {"owner_type": billing.owner_type, "owner_id": billing.owner_id}
     try:
         billing_service.transfer_to_organization(billing.id, int(org_id))
     except ValueError as e:
         flash(request, str(e), "danger")
         return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.BILLING_TRANSFER,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_owner,
+        new_state={"owner_type": "organization", "owner_id": int(org_id)},
+    )
+
     flash(request, "Cobrança transferida com sucesso!", "success")
     return RedirectResponse(f"/billings/{billing_uuid}", status_code=302)
 
@@ -232,7 +278,21 @@ async def billing_delete(request: Request, billing_uuid: str):
         logger.error("Billing has no id: uuid=%s", billing_uuid)
         flash(request, "Cobrança inválida.", "danger")
         return RedirectResponse("/", status_code=302)
+    previous_state = serialize_billing(billing)
     service.delete_billing(billing.id)
     logger.info("Billing deleted: uuid=%s name=%s", billing_uuid, billing.name)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.BILLING_DELETE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_state,
+    )
+
     flash(request, f"Cobrança '{billing.name}' excluída.", "success")
     return RedirectResponse("/", status_code=302)

@@ -4,12 +4,15 @@ import questionary
 from rich.console import Console
 from rich.table import Table
 
+from landlord.models.audit_log import AuditEventType
+from landlord.services.audit_serializers import serialize_user
+from landlord.services.audit_service import AuditService
 from landlord.services.user_service import UserService
 
 console = Console()
 
 
-def user_management_menu(user_service: UserService) -> None:
+def user_management_menu(user_service: UserService, audit_service: AuditService) -> None:
     while True:
         choice = questionary.select(
             "Gerenciar Usuários",
@@ -24,14 +27,14 @@ def user_management_menu(user_service: UserService) -> None:
         if choice is None or choice == "Voltar":
             break
         elif choice == "Criar Usuário":
-            _create_user(user_service)
+            _create_user(user_service, audit_service)
         elif choice == "Alterar Senha":
-            _change_password(user_service)
+            _change_password(user_service, audit_service)
         elif choice == "Listar Usuários":
             _list_users(user_service)
 
 
-def _create_user(user_service: UserService) -> None:
+def _create_user(user_service: UserService, audit_service: AuditService) -> None:
     console.print()
     console.print("[bold]Novo Usuário[/bold]", style="cyan")
 
@@ -52,12 +55,21 @@ def _create_user(user_service: UserService) -> None:
 
     try:
         user = user_service.create_user(username, password)
+
+        audit_service.safe_log(
+            AuditEventType.USER_CREATE,
+            source="cli",
+            entity_type="user",
+            entity_id=user.id,
+            new_state=serialize_user(user),
+        )
+
         console.print(f"[green bold]Usuário '{user.username}' criado com sucesso![/green bold]")
     except Exception as e:
         console.print(f"[red]Erro ao criar usuário: {e}[/red]")
 
 
-def _change_password(user_service: UserService) -> None:
+def _change_password(user_service: UserService, audit_service: AuditService) -> None:
     console.print()
     console.print("[bold]Alterar Senha[/bold]", style="cyan")
 
@@ -81,7 +93,20 @@ def _change_password(user_service: UserService) -> None:
         console.print("[red]As senhas não coincidem.[/red]")
         return
 
+    # Find the user object for audit logging
+    target_user = next((u for u in users if u.username == username), None)
+
     user_service.change_password(username, password)
+
+    if target_user:
+        audit_service.safe_log(
+            AuditEventType.USER_CHANGE_PASSWORD,
+            source="cli",
+            entity_type="user",
+            entity_id=target_user.id,
+            metadata={"username": username},
+        )
+
     console.print(f"[green bold]Senha do usuário '{username}' alterada com sucesso![/green bold]")
 
 

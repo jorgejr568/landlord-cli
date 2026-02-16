@@ -5,8 +5,11 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from landlord.models.audit_log import AuditEventType
 from landlord.models.organization import OrgRole
+from landlord.services.audit_serializers import serialize_invite, serialize_organization
 from web.deps import (
+    get_audit_service,
     get_authorization_service,
     get_billing_service,
     get_invite_service,
@@ -52,6 +55,18 @@ async def organization_create(request: Request):
     logger.info(
         "Organization created: uuid=%s name=%s by user=%s", org.uuid, org.name, user_id
     )
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_CREATE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=org.id,
+        entity_uuid=org.uuid,
+        new_state=serialize_organization(org),
+    )
+
     flash(request, f"Organização '{org.name}' criada com sucesso!", "success")
     return RedirectResponse(f"/organizations/{org.uuid}", status_code=302)
 
@@ -151,6 +166,8 @@ async def organization_edit(request: Request, org_uuid: str):
         flash(request, "Acesso negado.", "danger")
         return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
+    previous_state = serialize_organization(org)
+
     form = await request.form()
     org.name = str(form.get("name", "")).strip()
     if not org.name:
@@ -158,8 +175,22 @@ async def organization_edit(request: Request, org_uuid: str):
         flash(request, "Nome é obrigatório.", "danger")
         return RedirectResponse(f"/organizations/{org_uuid}/edit", status_code=302)
 
-    service.update_organization(org)
+    updated = service.update_organization(org)
     logger.info("Organization updated: uuid=%s name=%s", org_uuid, org.name)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_UPDATE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=updated.id,
+        entity_uuid=updated.uuid,
+        previous_state=previous_state,
+        new_state=serialize_organization(updated),
+    )
+
     flash(request, "Organização atualizada com sucesso!", "success")
     return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
@@ -183,8 +214,22 @@ async def organization_delete(request: Request, org_uuid: str):
         flash(request, "Acesso negado.", "danger")
         return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
+    previous_state = serialize_organization(org)
     service.delete_organization(org.id)
     logger.info("Organization deleted: uuid=%s name=%s", org_uuid, org.name)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_DELETE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=org.id,
+        entity_uuid=org.uuid,
+        previous_state=previous_state,
+    )
+
     flash(request, f"Organização '{org.name}' excluída.", "success")
     return RedirectResponse("/organizations/", status_code=302)
 
@@ -221,6 +266,8 @@ async def member_change_role(request: Request, org_uuid: str, member_user_id: in
         flash(request, "Papel inválido.", "danger")
         return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
+    target_member = service.get_member(org.id, member_user_id)
+    old_role = target_member.role if target_member else ""
     service.update_member_role(org.id, member_user_id, new_role)
     logger.info(
         "Member role changed: org=%s member=%s new_role=%s",
@@ -228,6 +275,20 @@ async def member_change_role(request: Request, org_uuid: str, member_user_id: in
         member_user_id,
         new_role,
     )
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_UPDATE_MEMBER_ROLE,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=org.id,
+        entity_uuid=org.uuid,
+        previous_state={"role": old_role},
+        new_state={"role": new_role},
+    )
+
     flash(request, "Papel atualizado com sucesso!", "success")
     return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
@@ -254,8 +315,23 @@ async def member_remove(request: Request, org_uuid: str, member_user_id: int):
         flash(request, "Você não pode remover a si mesmo.", "danger")
         return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
+    target_member = service.get_member(org.id, member_user_id)
+    old_role = target_member.role if target_member else ""
     service.remove_member(org.id, member_user_id)
     logger.info("Member removed: org=%s member=%s", org_uuid, member_user_id)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_REMOVE_MEMBER,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=org.id,
+        entity_uuid=org.uuid,
+        previous_state={"org_id": org.id, "user_id": member_user_id, "role": old_role},
+    )
+
     flash(request, "Membro removido.", "success")
     return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
@@ -288,7 +364,7 @@ async def organization_invite(request: Request, org_uuid: str):
 
     invite_service = get_invite_service(request)
     try:
-        invite_service.send_invite(org.id, username, role, user_id)
+        invite = invite_service.send_invite(org.id, username, role, user_id)
     except ValueError as e:
         logger.warning(
             "Invite failed: org=%s username=%s error=%s", org_uuid, username, e
@@ -297,6 +373,20 @@ async def organization_invite(request: Request, org_uuid: str):
         return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
     logger.info("Invite sent: org=%s username=%s role=%s", org_uuid, username, role)
+
+    audit = get_audit_service(request)
+    if invite:
+        audit.safe_log(
+            AuditEventType.INVITE_SEND,
+            actor_id=user_id,
+            actor_username=request.session.get("username", ""),
+            source="web",
+            entity_type="invite",
+            entity_id=invite.id,
+            entity_uuid=invite.uuid,
+            new_state=serialize_invite(invite),
+        )
+
     flash(request, f"Convite enviado para '{username}'!", "success")
     return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 

@@ -9,12 +9,15 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from landlord.db import get_engine
 from landlord.repositories.sqlalchemy import (
+    SQLAlchemyAuditLogRepository,
     SQLAlchemyBillingRepository,
     SQLAlchemyBillRepository,
     SQLAlchemyInviteRepository,
     SQLAlchemyOrganizationRepository,
+    SQLAlchemyReceiptRepository,
     SQLAlchemyUserRepository,
 )
+from landlord.services.audit_service import AuditService
 from landlord.services.authorization_service import AuthorizationService
 from landlord.services.bill_service import BillService
 from landlord.services.billing_service import BillingService
@@ -92,7 +95,12 @@ def get_billing_service(request: Request) -> BillingService:
 
 
 def get_bill_service(request: Request) -> BillService:
-    return BillService(SQLAlchemyBillRepository(_get_conn(request)), get_storage())
+    conn = _get_conn(request)
+    return BillService(
+        SQLAlchemyBillRepository(conn),
+        get_storage(),
+        SQLAlchemyReceiptRepository(conn),
+    )
 
 
 def get_user_service(request: Request) -> UserService:
@@ -114,6 +122,10 @@ def get_invite_service(request: Request) -> InviteService:
 
 def get_authorization_service(request: Request) -> AuthorizationService:
     return AuthorizationService(SQLAlchemyOrganizationRepository(_get_conn(request)))
+
+
+def get_audit_service(request: Request) -> AuditService:
+    return AuditService(SQLAlchemyAuditLogRepository(_get_conn(request)))
 
 
 def render(

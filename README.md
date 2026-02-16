@@ -8,6 +8,8 @@ Apartment billing management with PDF invoice generation — **CLI + Web UI**. B
 - Generate professional PDF invoices with PIX QR codes for easy payment
 - **Web UI** (FastAPI) for browser-based management, or **interactive CLI**
 - User management with bcrypt password hashing
+- Attach receipt files (PDF, JPG, PNG) to bills — merged into the invoice PDF
+- Comprehensive audit logging of all operations (create, update, delete, login, etc.)
 - Store invoices locally or on S3 with presigned URLs
 - MariaDB as the database backend (via SQLAlchemy)
 - Schema migrations with Alembic
@@ -130,7 +132,7 @@ landlord/
   repositories/        # Abstract base + SQLAlchemy Core implementation
   services/            # Business logic (billing, bill, user services)
   storage/             # Abstract base + Local / S3 implementations
-  pdf/                 # fpdf2-based invoice generator
+  pdf/                 # fpdf2 invoice generator + pypdf receipt merger
   cli/                 # Interactive menus (questionary + rich)
   scripts/             # Maintenance scripts (PDF regeneration)
 web/

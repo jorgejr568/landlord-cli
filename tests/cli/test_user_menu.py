@@ -10,7 +10,7 @@ class TestUserManagementMenu:
 
         mock_q.select.return_value.ask.return_value = "Voltar"
         mock_service = MagicMock()
-        user_management_menu(mock_service)
+        user_management_menu(mock_service, MagicMock())
 
     @patch("landlord.cli.user_menu.questionary")
     def test_none_exits(self, mock_q):
@@ -18,7 +18,7 @@ class TestUserManagementMenu:
 
         mock_q.select.return_value.ask.return_value = None
         mock_service = MagicMock()
-        user_management_menu(mock_service)
+        user_management_menu(mock_service, MagicMock())
 
     @patch("landlord.cli.user_menu._create_user")
     @patch("landlord.cli.user_menu.questionary")
@@ -28,8 +28,9 @@ class TestUserManagementMenu:
 
         mock_q.select.return_value.ask.side_effect = ["Criar Usuário", "Voltar"]
         mock_service = MagicMock()
-        user_management_menu(mock_service)
-        mock_create.assert_called_once_with(mock_service)
+        mock_audit = MagicMock()
+        user_management_menu(mock_service, mock_audit)
+        mock_create.assert_called_once_with(mock_service, mock_audit)
 
     @patch("landlord.cli.user_menu._change_password")
     @patch("landlord.cli.user_menu.questionary")
@@ -39,8 +40,9 @@ class TestUserManagementMenu:
 
         mock_q.select.return_value.ask.side_effect = ["Alterar Senha", "Voltar"]
         mock_service = MagicMock()
-        user_management_menu(mock_service)
-        mock_change.assert_called_once_with(mock_service)
+        mock_audit = MagicMock()
+        user_management_menu(mock_service, mock_audit)
+        mock_change.assert_called_once_with(mock_service, mock_audit)
 
     @patch("landlord.cli.user_menu._list_users")
     @patch("landlord.cli.user_menu.questionary")
@@ -50,7 +52,7 @@ class TestUserManagementMenu:
 
         mock_q.select.return_value.ask.side_effect = ["Listar Usuários", "Voltar"]
         mock_service = MagicMock()
-        user_management_menu(mock_service)
+        user_management_menu(mock_service, MagicMock())
         mock_list.assert_called_once_with(mock_service)
 
 
@@ -61,7 +63,7 @@ class TestCreateUser:
 
         mock_q.text.return_value.ask.return_value = ""
         mock_service = MagicMock()
-        _create_user(mock_service)
+        _create_user(mock_service, MagicMock())
         mock_service.create_user.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -71,7 +73,7 @@ class TestCreateUser:
         mock_q.text.return_value.ask.return_value = "admin"
         mock_q.password.return_value.ask.return_value = ""
         mock_service = MagicMock()
-        _create_user(mock_service)
+        _create_user(mock_service, MagicMock())
         mock_service.create_user.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -81,7 +83,7 @@ class TestCreateUser:
         mock_q.text.return_value.ask.return_value = "admin"
         mock_q.password.return_value.ask.side_effect = ["pass1", "pass2"]
         mock_service = MagicMock()
-        _create_user(mock_service)
+        _create_user(mock_service, MagicMock())
         mock_service.create_user.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -92,7 +94,7 @@ class TestCreateUser:
         mock_q.password.return_value.ask.side_effect = ["secret", "secret"]
         mock_service = MagicMock()
         mock_service.create_user.return_value = User(username="admin")
-        _create_user(mock_service)
+        _create_user(mock_service, MagicMock())
         mock_service.create_user.assert_called_once_with("admin", "secret")
 
     @patch("landlord.cli.user_menu.questionary")
@@ -103,7 +105,7 @@ class TestCreateUser:
         mock_q.password.return_value.ask.side_effect = ["secret", "secret"]
         mock_service = MagicMock()
         mock_service.create_user.side_effect = Exception("DB error")
-        _create_user(mock_service)
+        _create_user(mock_service, MagicMock())
 
 
 class TestListUsers:
@@ -136,7 +138,7 @@ class TestChangePassword:
 
         mock_service = MagicMock()
         mock_service.list_users.return_value = []
-        _change_password(mock_service)
+        _change_password(mock_service, MagicMock())
         mock_service.change_password.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -146,7 +148,7 @@ class TestChangePassword:
         mock_service = MagicMock()
         mock_service.list_users.return_value = [User(username="admin")]
         mock_q.select.return_value.ask.return_value = "Voltar"
-        _change_password(mock_service)
+        _change_password(mock_service, MagicMock())
         mock_service.change_password.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -157,7 +159,7 @@ class TestChangePassword:
         mock_service.list_users.return_value = [User(username="admin")]
         mock_q.select.return_value.ask.return_value = "admin"
         mock_q.password.return_value.ask.return_value = ""
-        _change_password(mock_service)
+        _change_password(mock_service, MagicMock())
         mock_service.change_password.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -168,7 +170,7 @@ class TestChangePassword:
         mock_service.list_users.return_value = [User(username="admin")]
         mock_q.select.return_value.ask.return_value = "admin"
         mock_q.password.return_value.ask.side_effect = ["new1", "new2"]
-        _change_password(mock_service)
+        _change_password(mock_service, MagicMock())
         mock_service.change_password.assert_not_called()
 
     @patch("landlord.cli.user_menu.questionary")
@@ -179,5 +181,5 @@ class TestChangePassword:
         mock_service.list_users.return_value = [User(username="admin")]
         mock_q.select.return_value.ask.return_value = "admin"
         mock_q.password.return_value.ask.side_effect = ["newpass", "newpass"]
-        _change_password(mock_service)
+        _change_password(mock_service, MagicMock())
         mock_service.change_password.assert_called_once_with("admin", "newpass")

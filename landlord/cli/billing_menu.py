@@ -6,14 +6,17 @@ from rich.table import Table
 
 from landlord.cli.bill_menu import generate_bill_menu, list_bills_menu
 from landlord.models import format_brl, parse_brl
+from landlord.models.audit_log import AuditEventType
 from landlord.models.billing import BillingItem, ItemType
+from landlord.services.audit_serializers import serialize_billing
+from landlord.services.audit_service import AuditService
 from landlord.services.bill_service import BillService
 from landlord.services.billing_service import BillingService
 
 console = Console()
 
 
-def create_billing_menu(billing_service: BillingService) -> None:
+def create_billing_menu(billing_service: BillingService, audit_service: AuditService) -> None:
     console.print()
     console.print("[bold]Nova Cobrança[/bold]", style="cyan")
 
@@ -78,12 +81,22 @@ def create_billing_menu(billing_service: BillingService) -> None:
         ).ask() or ""
 
     billing = billing_service.create_billing(name, description, items, pix_key=pix_key)
+
+    audit_service.safe_log(
+        AuditEventType.BILLING_CREATE,
+        source="cli",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        new_state=serialize_billing(billing),
+    )
+
     console.print()
     console.print(f"[green bold]Cobrança '{billing.name}' criada com sucesso![/green bold]")
 
 
 def list_billings_menu(
-    billing_service: BillingService, bill_service: BillService
+    billing_service: BillingService, bill_service: BillService, audit_service: AuditService
 ) -> None:
     billings = billing_service.list_billings()
 
@@ -116,11 +129,11 @@ def list_billings_menu(
         console.print("[red]Cobrança não encontrada.[/red]")
         return
 
-    _billing_detail_menu(billing, billing_service, bill_service)
+    _billing_detail_menu(billing, billing_service, bill_service, audit_service)
 
 
 def _billing_detail_menu(
-    billing, billing_service: BillingService, bill_service: BillService
+    billing, billing_service: BillingService, bill_service: BillService, audit_service: AuditService
 ) -> None:
     while True:
         console.print()
@@ -155,22 +168,33 @@ def _billing_detail_menu(
         if choice is None or choice == "Voltar":
             break
         elif choice == "Gerar Nova Fatura":
-            generate_bill_menu(billing, bill_service)
+            generate_bill_menu(billing, bill_service, audit_service)
         elif choice == "Ver Faturas Anteriores":
-            list_bills_menu(billing, bill_service)
+            list_bills_menu(billing, bill_service, audit_service)
         elif choice == "Editar Cobrança":
-            billing = _edit_billing_menu(billing, billing_service)
+            billing = _edit_billing_menu(billing, billing_service, audit_service)
         elif choice == "Excluir Cobrança":
             confirm = questionary.confirm(
                 f"Tem certeza que deseja excluir '{billing.name}'?", default=False
             ).ask()
             if confirm:
+                previous_state = serialize_billing(billing)
                 billing_service.delete_billing(billing.id)
+
+                audit_service.safe_log(
+                    AuditEventType.BILLING_DELETE,
+                    source="cli",
+                    entity_type="billing",
+                    entity_id=billing.id,
+                    entity_uuid=billing.uuid,
+                    previous_state=previous_state,
+                )
+
                 console.print("[green]Cobrança excluída.[/green]")
                 break
 
 
-def _edit_billing_menu(billing, billing_service: BillingService):
+def _edit_billing_menu(billing, billing_service: BillingService, audit_service: AuditService):
     """Sub-menu for editing a billing's PIX key and items."""
     while True:
         choice = questionary.select(
@@ -187,30 +211,42 @@ def _edit_billing_menu(billing, billing_service: BillingService):
         if choice is None or choice == "Voltar":
             break
         elif choice == "Editar Chave PIX":
-            billing = _edit_pix_key(billing, billing_service)
+            billing = _edit_pix_key(billing, billing_service, audit_service)
         elif choice == "Editar Item":
-            billing = _edit_item(billing, billing_service)
+            billing = _edit_item(billing, billing_service, audit_service)
         elif choice == "Adicionar Item":
-            billing = _add_item(billing, billing_service)
+            billing = _add_item(billing, billing_service, audit_service)
         elif choice == "Remover Item":
-            billing = _remove_item(billing, billing_service)
+            billing = _remove_item(billing, billing_service, audit_service)
 
     return billing
 
 
-def _edit_pix_key(billing, billing_service: BillingService):
+def _edit_pix_key(billing, billing_service: BillingService, audit_service: AuditService):
     current = billing.pix_key or "(nenhuma)"
     console.print(f"  Chave PIX atual: [bold]{current}[/bold]")
     new_key = questionary.text("  Nova chave PIX:", default=billing.pix_key).ask()
     if new_key is None:
         return billing
+    previous_state = serialize_billing(billing)
     billing.pix_key = new_key
     billing = billing_service.update_billing(billing)
+
+    audit_service.safe_log(
+        AuditEventType.BILLING_UPDATE,
+        source="cli",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_state,
+        new_state=serialize_billing(billing),
+    )
+
     console.print("[green]Chave PIX atualizada.[/green]")
     return billing
 
 
-def _edit_item(billing, billing_service: BillingService):
+def _edit_item(billing, billing_service: BillingService, audit_service: AuditService):
     if not billing.items:
         console.print("[yellow]Nenhum item para editar.[/yellow]")
         return billing
@@ -230,6 +266,7 @@ def _edit_item(billing, billing_service: BillingService):
     new_desc = questionary.text("  Descrição:", default=item.description).ask()
     if new_desc is None:
         return billing
+    previous_state = serialize_billing(billing)
     item.description = new_desc
 
     item_type_str = questionary.select(
@@ -256,11 +293,22 @@ def _edit_item(billing, billing_service: BillingService):
         item.amount = 0
 
     billing = billing_service.update_billing(billing)
+
+    audit_service.safe_log(
+        AuditEventType.BILLING_UPDATE,
+        source="cli",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_state,
+        new_state=serialize_billing(billing),
+    )
+
     console.print(f"[green]Item '{item.description}' atualizado.[/green]")
     return billing
 
 
-def _add_item(billing, billing_service: BillingService):
+def _add_item(billing, billing_service: BillingService, audit_service: AuditService):
     desc = questionary.text("  Descrição do item:").ask()
     if not desc:
         console.print("[yellow]Operação cancelada.[/yellow]")
@@ -285,18 +333,32 @@ def _add_item(billing, billing_service: BillingService):
                 break
             console.print("[red]Valor inválido. Tente novamente.[/red]")
 
+    previous_state = serialize_billing(billing)
     billing.items.append(
         BillingItem(description=desc, amount=amount, item_type=item_type)
     )
     billing = billing_service.update_billing(billing)
+
+    audit_service.safe_log(
+        AuditEventType.BILLING_UPDATE,
+        source="cli",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_state,
+        new_state=serialize_billing(billing),
+    )
+
     console.print(f"[green]Item '{desc}' adicionado.[/green]")
     return billing
 
 
-def _remove_item(billing, billing_service: BillingService):
+def _remove_item(billing, billing_service: BillingService, audit_service: AuditService):
     if not billing.items:
         console.print("[yellow]Nenhum item para remover.[/yellow]")
         return billing
+
+    previous_state = serialize_billing(billing)
 
     choices = [
         f"{item.description} ({format_brl(item.amount) if item.item_type == ItemType.FIXED else 'Variável'})"
@@ -323,5 +385,16 @@ def _remove_item(billing, billing_service: BillingService):
         return billing
 
     billing = billing_service.update_billing(billing)
+
+    audit_service.safe_log(
+        AuditEventType.BILLING_UPDATE,
+        source="cli",
+        entity_type="billing",
+        entity_id=billing.id,
+        entity_uuid=billing.uuid,
+        previous_state=previous_state,
+        new_state=serialize_billing(billing),
+    )
+
     console.print(f"[green]Item '{removed.description}' removido.[/green]")
     return billing

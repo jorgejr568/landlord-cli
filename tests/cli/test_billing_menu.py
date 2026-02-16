@@ -10,7 +10,7 @@ class TestCreateBillingMenu:
 
         mock_q.text.return_value.ask.return_value = ""
         mock_service = MagicMock()
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -19,7 +19,7 @@ class TestCreateBillingMenu:
 
         mock_q.text.return_value.ask.return_value = None
         mock_service = MagicMock()
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -29,7 +29,7 @@ class TestCreateBillingMenu:
         mock_q.text.return_value.ask.side_effect = ["Apt 101", "desc", ""]
         mock_q.confirm.return_value.ask.return_value = False
         mock_service = MagicMock()
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_not_called()
 
     @patch("landlord.settings.settings")
@@ -50,7 +50,7 @@ class TestCreateBillingMenu:
 
         mock_service = MagicMock()
         mock_service.create_billing.return_value = Billing(name="Apt 101")
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_called_once()
 
     @patch("landlord.settings.settings")
@@ -67,7 +67,7 @@ class TestCreateBillingMenu:
 
         mock_service = MagicMock()
         mock_service.create_billing.return_value = Billing(name="Apt 101")
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_called_once()
 
     @patch("landlord.settings.settings")
@@ -84,7 +84,7 @@ class TestCreateBillingMenu:
 
         mock_service = MagicMock()
         mock_service.create_billing.return_value = Billing(name="Apt 101")
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_called_once()
 
     @patch("landlord.settings.settings")
@@ -106,7 +106,7 @@ class TestCreateBillingMenu:
 
         mock_service = MagicMock()
         mock_service.create_billing.return_value = Billing(name="Apt 101")
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_called_once()
 
 
@@ -118,7 +118,7 @@ class TestListBillingsMenu:
         mock_billing_svc = MagicMock()
         mock_billing_svc.list_billings.return_value = []
         mock_bill_svc = MagicMock()
-        list_billings_menu(mock_billing_svc, mock_bill_svc)
+        list_billings_menu(mock_billing_svc, mock_bill_svc, MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_select_back(self, mock_q):
@@ -132,7 +132,7 @@ class TestListBillingsMenu:
         mock_q.select.return_value.ask.return_value = "Voltar"
         mock_bill_svc = MagicMock()
 
-        list_billings_menu(mock_billing_svc, mock_bill_svc)
+        list_billings_menu(mock_billing_svc, mock_bill_svc, MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_select_none(self, mock_q):
@@ -144,7 +144,7 @@ class TestListBillingsMenu:
         mock_billing_svc = MagicMock()
         mock_billing_svc.list_billings.return_value = [billing]
         mock_q.select.return_value.ask.return_value = None
-        list_billings_menu(mock_billing_svc, MagicMock())
+        list_billings_menu(mock_billing_svc, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_select_billing(self, mock_q):
@@ -161,7 +161,7 @@ class TestListBillingsMenu:
             "1 - Apt 101",  # select billing
             "Voltar",       # detail menu -> back
         ]
-        list_billings_menu(mock_billing_svc, MagicMock())
+        list_billings_menu(mock_billing_svc, MagicMock(), MagicMock())
 
 
 
@@ -176,7 +176,7 @@ class TestBillingDetailMenu:
         mock_q.select.return_value.ask.side_effect = ["Gerar Nova Fatura", "Voltar"]
 
         with patch("landlord.cli.billing_menu.generate_bill_menu") as mock_gen:
-            _billing_detail_menu(billing, MagicMock(), MagicMock())
+            _billing_detail_menu(billing, MagicMock(), MagicMock(), MagicMock())
             mock_gen.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -187,7 +187,7 @@ class TestBillingDetailMenu:
         mock_q.select.return_value.ask.side_effect = ["Ver Faturas Anteriores", "Voltar"]
 
         with patch("landlord.cli.billing_menu.list_bills_menu") as mock_list:
-            _billing_detail_menu(billing, MagicMock(), MagicMock())
+            _billing_detail_menu(billing, MagicMock(), MagicMock(), MagicMock())
             mock_list.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -199,7 +199,7 @@ class TestBillingDetailMenu:
         mock_q.confirm.return_value.ask.return_value = True
 
         mock_billing_svc = MagicMock()
-        _billing_detail_menu(billing, mock_billing_svc, MagicMock())
+        _billing_detail_menu(billing, mock_billing_svc, MagicMock(), MagicMock())
         mock_billing_svc.delete_billing.assert_called_once_with(1)
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -211,7 +211,7 @@ class TestBillingDetailMenu:
         mock_q.confirm.return_value.ask.return_value = False
 
         mock_billing_svc = MagicMock()
-        _billing_detail_menu(billing, mock_billing_svc, MagicMock())
+        _billing_detail_menu(billing, mock_billing_svc, MagicMock(), MagicMock())
         mock_billing_svc.delete_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -222,7 +222,7 @@ class TestBillingDetailMenu:
         mock_q.select.return_value.ask.side_effect = ["Editar Cobrança", "Voltar", "Voltar"]
 
         mock_billing_svc = MagicMock()
-        _billing_detail_menu(billing, mock_billing_svc, MagicMock())
+        _billing_detail_menu(billing, mock_billing_svc, MagicMock(), MagicMock())
 
 
 class TestCreateBillingMenuEdgeCases:
@@ -246,7 +246,7 @@ class TestCreateBillingMenuEdgeCases:
 
         mock_service = MagicMock()
         mock_service.create_billing.return_value = Billing(name="Apt 101")
-        create_billing_menu(mock_service)
+        create_billing_menu(mock_service, MagicMock())
         mock_service.create_billing.assert_called_once()
 
 
@@ -260,7 +260,7 @@ class TestBillingDetailMenuEdgeCases:
             BillingItem(description="Rent", amount=100000, item_type=ItemType.FIXED),
         ])
         mock_q.select.return_value.ask.return_value = "Voltar"
-        _billing_detail_menu(billing, MagicMock(), MagicMock())
+        _billing_detail_menu(billing, MagicMock(), MagicMock(), MagicMock())
 
 
 class TestEditBillingMenuEdgeCases:
@@ -280,7 +280,7 @@ class TestEditBillingMenuEdgeCases:
         ]
         mock_q.text.return_value.ask.side_effect = ["Rent", None]  # desc ok, amount cancel
 
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_edit_item_invalid_amount_then_valid(self, mock_q):
@@ -300,7 +300,7 @@ class TestEditBillingMenuEdgeCases:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -312,7 +312,7 @@ class TestEditBillingMenuEdgeCases:
         mock_q.select.return_value.ask.side_effect = ["Adicionar Item", "Fixo", "Voltar"]
         mock_q.text.return_value.ask.side_effect = ["Water", None]  # desc ok, amount cancel
 
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_add_item_invalid_amount_then_valid(self, mock_q):
@@ -325,7 +325,7 @@ class TestEditBillingMenuEdgeCases:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
 
@@ -336,7 +336,7 @@ class TestEditBillingMenu:
 
         billing = Billing(id=1, name="Apt 101", items=[])
         mock_q.select.return_value.ask.return_value = "Voltar"
-        result = _edit_billing_menu(billing, MagicMock())
+        result = _edit_billing_menu(billing, MagicMock(), MagicMock())
         assert result is billing
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -350,7 +350,7 @@ class TestEditBillingMenu:
         mock_svc = MagicMock()
         updated = Billing(id=1, name="Apt 101", pix_key="new@pix", items=[])
         mock_svc.update_billing.return_value = updated
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -362,7 +362,7 @@ class TestEditBillingMenu:
         mock_q.text.return_value.ask.return_value = None
 
         mock_svc = MagicMock()
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -371,7 +371,7 @@ class TestEditBillingMenu:
 
         billing = Billing(id=1, name="Apt 101", items=[])
         mock_q.select.return_value.ask.side_effect = ["Editar Item", "Voltar"]
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_add_item(self, mock_q):
@@ -385,7 +385,7 @@ class TestEditBillingMenu:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -397,7 +397,7 @@ class TestEditBillingMenu:
         mock_q.text.return_value.ask.return_value = ""
 
         mock_svc = MagicMock()
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -417,7 +417,7 @@ class TestEditBillingMenu:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -426,7 +426,7 @@ class TestEditBillingMenu:
 
         billing = Billing(id=1, name="Apt 101", items=[])
         mock_q.select.return_value.ask.side_effect = ["Remover Item", "Voltar"]
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_remove_last_item_blocked(self, mock_q):
@@ -442,7 +442,7 @@ class TestEditBillingMenu:
         ]
 
         mock_svc = MagicMock()
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -461,7 +461,7 @@ class TestEditBillingMenu:
         mock_q.confirm.return_value.ask.return_value = False
 
         mock_svc = MagicMock()
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_not_called()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -476,7 +476,7 @@ class TestEditBillingMenu:
             "Voltar",  # select item -> back
             "Voltar",  # main -> back
         ]
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_edit_item_success(self, mock_q):
@@ -495,7 +495,7 @@ class TestEditBillingMenu:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -515,7 +515,7 @@ class TestEditBillingMenu:
 
         mock_svc = MagicMock()
         mock_svc.update_billing.return_value = billing
-        _edit_billing_menu(billing, mock_svc)
+        _edit_billing_menu(billing, mock_svc, MagicMock())
         mock_svc.update_billing.assert_called_once()
 
     @patch("landlord.cli.billing_menu.questionary")
@@ -532,7 +532,7 @@ class TestEditBillingMenu:
         ]
         mock_q.text.return_value.ask.return_value = None
 
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_add_item_cancel_type(self, mock_q):
@@ -542,7 +542,7 @@ class TestEditBillingMenu:
         mock_q.select.return_value.ask.side_effect = ["Adicionar Item", None, "Voltar"]
         mock_q.text.return_value.ask.return_value = "Water"
 
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_remove_item_select_back(self, mock_q):
@@ -556,7 +556,7 @@ class TestEditBillingMenu:
             "Voltar",
             "Voltar",
         ]
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())
 
     @patch("landlord.cli.billing_menu.questionary")
     def test_edit_item_cancel_type(self, mock_q):
@@ -572,4 +572,4 @@ class TestEditBillingMenu:
             "Voltar",
         ]
         mock_q.text.return_value.ask.return_value = "Rent"
-        _edit_billing_menu(billing, MagicMock())
+        _edit_billing_menu(billing, MagicMock(), MagicMock())

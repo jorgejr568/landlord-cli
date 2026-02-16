@@ -25,7 +25,7 @@ class TestListBillsMenu:
         mock_service = MagicMock()
         mock_service.list_bills.return_value = []
 
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_select_back(self, mock_q):
@@ -39,7 +39,7 @@ class TestListBillsMenu:
         mock_service.get_invoice_url.return_value = ""
         mock_q.select.return_value.ask.return_value = "Voltar"
 
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_select_none(self, mock_q):
@@ -53,7 +53,7 @@ class TestListBillsMenu:
         mock_service.get_invoice_url.return_value = ""
         mock_q.select.return_value.ask.return_value = None
 
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_select_bill_then_back(self, mock_q):
@@ -70,7 +70,7 @@ class TestListBillsMenu:
             "Voltar",          # detail -> back
         ]
 
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_select_bill_not_found(self, mock_q):
@@ -84,7 +84,7 @@ class TestListBillsMenu:
         mock_service.get_invoice_url.return_value = ""
         mock_q.select.return_value.ask.return_value = "1 - Março/2025"
 
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
 
 
 class TestGenerateBillMenu:
@@ -107,7 +107,7 @@ class TestGenerateBillMenu:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
         mock_service.generate_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -131,7 +131,7 @@ class TestGenerateBillMenu:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
         mock_service.generate_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -155,7 +155,7 @@ class TestGenerateBillMenu:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
         mock_service.generate_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -178,7 +178,7 @@ class TestGenerateBillMenu:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
 
 
 class TestBillDetailMenu:
@@ -198,7 +198,7 @@ class TestBillDetailMenu:
             uuid="u", paid_at=datetime.now(SP_TZ),
         )
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_regenerate_pdf(self, mock_q):
@@ -211,7 +211,7 @@ class TestBillDetailMenu:
         mock_service = MagicMock()
         mock_service.regenerate_pdf.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
         mock_service.regenerate_pdf.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -225,7 +225,7 @@ class TestBillDetailMenu:
 
         mock_service = MagicMock()
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
         mock_service.delete_bill.assert_called_once_with(1)
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -239,7 +239,7 @@ class TestBillDetailMenu:
 
         mock_service = MagicMock()
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
         mock_service.delete_bill.assert_not_called()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -262,7 +262,7 @@ class TestBillDetailMenu:
         mock_service = MagicMock()
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
         mock_service.update_bill.assert_called_once()
 
 
@@ -304,7 +304,7 @@ class TestGenerateBillMenuEdgeCases:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_variable_item_id_none(self, mock_q):
@@ -323,7 +323,7 @@ class TestGenerateBillMenuEdgeCases:
         mock_service = MagicMock()
         import pytest
         with pytest.raises(ValueError, match="must have an id"):
-            generate_bill_menu(billing, mock_service)
+            generate_bill_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_invalid_variable_amount_then_valid(self, mock_q):
@@ -347,7 +347,7 @@ class TestGenerateBillMenuEdgeCases:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_invalid_extra_amount_then_valid(self, mock_q):
@@ -372,7 +372,7 @@ class TestGenerateBillMenuEdgeCases:
         mock_service.generate_bill.return_value = bill
         mock_service.get_invoice_url.return_value = "/path"
 
-        generate_bill_menu(billing, mock_service)
+        generate_bill_menu(billing, mock_service, MagicMock())
 
 
 class TestEditBillMenuEdgeCases:
@@ -398,7 +398,7 @@ class TestEditBillMenuEdgeCases:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_invalid_edit_extra_amount_then_valid(self, mock_q):
@@ -427,7 +427,7 @@ class TestEditBillMenuEdgeCases:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_empty_new_extra_desc_skipped(self, mock_q):
@@ -451,7 +451,7 @@ class TestEditBillMenuEdgeCases:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_invalid_new_extra_amount_then_valid(self, mock_q):
@@ -477,7 +477,7 @@ class TestEditBillMenuEdgeCases:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
 
 
 class TestListBillsMenuEdgeCases:
@@ -488,7 +488,7 @@ class TestListBillsMenuEdgeCases:
 
         billing = Billing(id=None, name="Apt 101")
         mock_service = MagicMock()
-        list_bills_menu(billing, mock_service)
+        list_bills_menu(billing, mock_service, MagicMock())
         mock_service.list_bills.assert_not_called()
 
 
@@ -514,7 +514,7 @@ class TestBillDetailMenuEdgeCases:
             uuid="u", paid_at=None,
         )
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
 
     @patch("landlord.cli.bill_menu.questionary")
     def test_delete_bill_id_none(self, mock_q):
@@ -528,7 +528,7 @@ class TestBillDetailMenuEdgeCases:
 
         mock_service = MagicMock()
         mock_service.get_invoice_url.return_value = ""
-        _bill_detail_menu(bill, billing, mock_service)
+        _bill_detail_menu(bill, billing, mock_service, MagicMock())
         mock_service.delete_bill.assert_not_called()
 
 
@@ -557,7 +557,7 @@ class TestEditBillMenu:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
         mock_service.update_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -584,7 +584,7 @@ class TestEditBillMenu:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
         mock_service.update_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -612,7 +612,7 @@ class TestEditBillMenu:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
         mock_service.update_bill.assert_called_once()
 
     @patch("landlord.cli.bill_menu.questionary")
@@ -639,5 +639,5 @@ class TestEditBillMenu:
         mock_service.update_bill.return_value = bill
         mock_service.get_invoice_url.return_value = ""
 
-        edit_bill_menu(bill, billing, mock_service)
+        edit_bill_menu(bill, billing, mock_service, MagicMock())
         mock_service.update_bill.assert_called_once()

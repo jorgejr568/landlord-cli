@@ -88,3 +88,49 @@ class TestS3Storage:
         )
         call_kwargs = mock_boto3.client.call_args[1]
         assert "endpoint_url" not in call_kwargs
+
+    @patch("landlord.storage.s3.boto3")
+    def test_get_calls_get_object(self, mock_boto3):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        mock_body.read.return_value = b"file-contents"
+        mock_client.get_object.return_value = {"Body": mock_body}
+        mock_boto3.client.return_value = mock_client
+
+        from landlord.storage.s3 import S3Storage
+
+        storage = S3Storage(
+            bucket="my-bucket",
+            region="us-east-1",
+            access_key_id="key",
+            secret_access_key="secret",
+        )
+        data = storage.get("path/to/file.pdf")
+
+        mock_client.get_object.assert_called_once_with(
+            Bucket="my-bucket", Key="path/to/file.pdf"
+        )
+        assert data == b"file-contents"
+
+    @patch("landlord.storage.s3.boto3")
+    def test_save_with_content_type(self, mock_boto3):
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        from landlord.storage.s3 import S3Storage
+
+        storage = S3Storage(
+            bucket="my-bucket",
+            region="us-east-1",
+            access_key_id="key",
+            secret_access_key="secret",
+        )
+        result = storage.save("path/to/img.jpg", b"jpeg-data", content_type="image/jpeg")
+
+        mock_client.put_object.assert_called_once_with(
+            Bucket="my-bucket",
+            Key="path/to/img.jpg",
+            Body=b"jpeg-data",
+            ContentType="image/jpeg",
+        )
+        assert result == "path/to/img.jpg"

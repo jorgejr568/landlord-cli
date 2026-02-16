@@ -16,7 +16,11 @@ from landlord.models import format_brl
 from landlord.models.bill import Bill
 from landlord.models.billing import Billing
 from landlord.pdf.invoice import InvoicePDF
-from landlord.repositories.factory import get_bill_repository, get_billing_repository
+from landlord.repositories.factory import (
+    get_bill_repository,
+    get_billing_repository,
+    get_receipt_repository,
+)
 from landlord.services.bill_service import BillService, _storage_key
 from landlord.storage.factory import get_storage
 
@@ -30,13 +34,15 @@ def main() -> None:
 
     billing_repo = get_billing_repository()
     bill_repo = get_bill_repository()
+    receipt_repo = get_receipt_repository()
     storage = get_storage()
-    pdf_generator = InvoicePDF()
+
+    bill_service = BillService(bill_repo, storage, receipt_repo)
 
     billings = billing_repo.list_all()
 
     if not billings:
-        console.print("[yellow]Nenhuma cobrança encontrada.[/yellow]")
+        console.print("[yellow]Nenhuma cobranca encontrada.[/yellow]")
         return
 
     all_bills: list[tuple[Billing, Bill]] = []
@@ -52,8 +58,8 @@ def main() -> None:
 
     table = Table(title="Faturas encontradas")
     table.add_column("#", style="dim")
-    table.add_column("Cobrança", style="bold")
-    table.add_column("Referência")
+    table.add_column("Cobranca", style="bold")
+    table.add_column("Referencia")
     table.add_column("Total", justify="right")
     table.add_column("Link", style="dim")
 
@@ -77,16 +83,8 @@ def main() -> None:
     console.print("\n[cyan]Regenerando PDFs...[/cyan]\n")
 
     for billing, bill in all_bills:
-        pix_png, pix_key, pix_payload = BillService._get_pix_data(billing, bill.total_amount)
-        pdf_bytes = pdf_generator.generate(
-            bill, billing.name,
-            pix_qrcode_png=pix_png, pix_key=pix_key, pix_payload=pix_payload,
-        )
-        key = _storage_key(billing.uuid, bill.uuid)
-        path = storage.save(key, pdf_bytes)
-        assert bill.id is not None
-        bill_repo.update_pdf_path(bill.id, path)
-        url = storage.get_url(path)
+        bill_service.regenerate_pdf(bill, billing)
+        url = storage.get_url(bill.pdf_path) if bill.pdf_path else "-"
         console.print(f"  [green]\u2713[/green] {billing.name} - {bill.reference_month} \u2192 {url}")
 
     console.print(f"\n[green bold]{len(all_bills)} fatura(s) regenerada(s) com sucesso![/green bold]")

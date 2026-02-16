@@ -41,15 +41,21 @@ class S3Storage(StorageBackend):
             )
         self.client = boto3.client(**client_kwargs)
 
-    def save(self, key: str, data: bytes) -> str:
+    def save(self, key: str, data: bytes, content_type: str = "application/pdf") -> str:
         self.client.put_object(
             Bucket=self.bucket,
             Key=key,
             Body=data,
-            ContentType="application/pdf",
+            ContentType=content_type,
         )
         logger.info("Uploaded %s to s3://%s/%s (%d bytes)", key, self.bucket, key, len(data))
         return key
+
+    def get(self, key: str) -> bytes:
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        data = response["Body"].read()
+        logger.debug("Downloaded %s from s3://%s/%s (%d bytes)", key, self.bucket, key, len(data))
+        return data
 
     def get_url(self, key: str) -> str:
         url = self.client.generate_presigned_url(

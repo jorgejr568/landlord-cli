@@ -448,3 +448,233 @@ class TestBillInvoiceS3Redirect:
                 follow_redirects=False,
             )
         assert response.status_code == 302
+
+
+class TestReceiptUpload:
+    def test_upload_pdf(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("receipt.pdf", b"%PDF-test", "application/pdf")},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+        assert f"/bills/{bill.uuid}/edit" in response.headers.get("location", "")
+
+    def test_upload_image(self, auth_client, test_engine, tmp_path, csrf_token):
+        from io import BytesIO
+        from PIL import Image
+        img = Image.new("RGB", (100, 100), color="red")
+        buf = BytesIO()
+        img.save(buf, format="JPEG")
+        jpeg_bytes = buf.getvalue()
+
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_upload_invalid_type(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("file.gif", b"GIF89a", "image/gif")},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_upload_empty_file(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("empty.pdf", b"", "application/pdf")},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_upload_no_file(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_upload_bill_not_found(self, auth_client, csrf_token):
+        response = auth_client.post(
+            "/billings/x/bills/nonexistent/receipts/upload",
+            data={"csrf_token": csrf_token},
+            files={"receipt_file": ("r.pdf", b"%PDF", "application/pdf")},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+    def test_upload_billing_not_found(self, auth_client, test_engine, tmp_path, csrf_token):
+        """When bill exists but billing is soft-deleted, should redirect."""
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+        # Soft-delete billing
+        with test_engine.connect() as conn:
+            repo = SQLAlchemyBillingRepository(conn)
+            repo.delete(billing.id)
+        response = auth_client.post(
+            f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+            data={"csrf_token": csrf_token},
+            files={"receipt_file": ("r.pdf", b"%PDF", "application/pdf")},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+
+class TestReceiptDelete:
+    def test_delete_receipt(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            # Upload a receipt first
+            auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("receipt.pdf", b"%PDF-test-data", "application/pdf")},
+                follow_redirects=False,
+            )
+            # Get receipts to find the UUID
+            from landlord.repositories.sqlalchemy import SQLAlchemyReceiptRepository
+            with test_engine.connect() as conn:
+                receipt_repo = SQLAlchemyReceiptRepository(conn)
+                receipts = receipt_repo.list_by_bill(bill.id)
+            assert len(receipts) == 1
+            receipt_uuid = receipts[0].uuid
+
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/{receipt_uuid}/delete",
+                data={"csrf_token": csrf_token},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_delete_receipt_not_found(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/nonexistent/delete",
+                data={"csrf_token": csrf_token},
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+    def test_delete_receipt_bill_not_found(self, auth_client, csrf_token):
+        response = auth_client.post(
+            "/billings/x/bills/nonexistent/receipts/r-uuid/delete",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+    def test_delete_receipt_billing_not_found(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+        # Soft-delete billing
+        with test_engine.connect() as conn:
+            repo = SQLAlchemyBillingRepository(conn)
+            repo.delete(billing.id)
+        response = auth_client.post(
+            f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/r-uuid/delete",
+            data={"csrf_token": csrf_token},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+
+class TestEditFormShowsReceipts:
+    def test_edit_form_shows_receipts(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            # Upload a receipt
+            auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("receipt.pdf", b"%PDF-test", "application/pdf")},
+                follow_redirects=False,
+            )
+            response = auth_client.get(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/edit",
+            )
+        assert response.status_code == 200
+        assert "receipt.pdf" in response.text
+        assert "Comprovantes" in response.text
+
+
+class TestReceiptView:
+    def test_view_receipt(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("proof.pdf", b"%PDF-test-data", "application/pdf")},
+                follow_redirects=False,
+            )
+            from landlord.repositories.sqlalchemy import SQLAlchemyReceiptRepository
+            with test_engine.connect() as conn:
+                receipts = SQLAlchemyReceiptRepository(conn).list_by_bill(bill.id)
+            assert len(receipts) == 1
+            response = auth_client.get(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/{receipts[0].uuid}",
+                follow_redirects=False,
+            )
+        assert response.status_code == 200
+        assert "application/pdf" in response.headers["content-type"]
+
+    def test_view_receipt_not_found(self, auth_client, test_engine, tmp_path):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.get(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/nonexistent",
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+
+
+class TestDetailShowsReceipts:
+    def test_detail_shows_receipts(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            # Upload a receipt
+            auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_file": ("proof.pdf", b"%PDF-test", "application/pdf")},
+                follow_redirects=False,
+            )
+            response = auth_client.get(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}",
+            )
+        assert response.status_code == 200
+        assert "proof.pdf" in response.text
+        assert "Comprovantes" in response.text

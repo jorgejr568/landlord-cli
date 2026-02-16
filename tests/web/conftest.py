@@ -100,6 +100,17 @@ def create_org_in_db(engine, name, created_by_user_id):
     return org
 
 
+def get_audit_logs(engine, event_type=None):
+    """Query audit_logs from the test DB. Optionally filter by event_type."""
+    from landlord.repositories.sqlalchemy import SQLAlchemyAuditLogRepository
+    with engine.connect() as conn:
+        repo = SQLAlchemyAuditLogRepository(conn)
+        logs = repo.list_recent(limit=100)
+        if event_type:
+            logs = [l for l in logs if l.event_type == event_type]
+        return logs
+
+
 def get_csrf_token(client) -> str:
     """Extract the CSRF token from a page that renders a form."""
     response = client.get("/change-password")

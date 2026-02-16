@@ -6,7 +6,9 @@ import time
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from web.deps import get_user_service, render
+from landlord.models.audit_log import AuditEventType
+from landlord.services.audit_serializers import serialize_user
+from web.deps import get_audit_service, get_user_service, render
 from web.flash import flash
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,18 @@ async def signup(request: Request):
     request.session["user_id"] = user.id
     request.session["username"] = user.username
     logger.info("User %s signed up", user.username)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.USER_SIGNUP,
+        actor_id=user.id,
+        actor_username=user.username,
+        source="web",
+        entity_type="user",
+        entity_id=user.id,
+        new_state=serialize_user(user),
+    )
+
     return RedirectResponse("/", status_code=302)
 
 
@@ -116,6 +130,14 @@ async def login(request: Request):
         logger.warning(
             "Failed login attempt for username=%s from %s", username, client_ip
         )
+        audit = get_audit_service(request)
+        audit.safe_log(
+            AuditEventType.USER_LOGIN_FAILED,
+            source="web",
+            entity_type="user",
+            new_state={"username": str(username)},
+            metadata={"ip": client_ip},
+        )
         return render(request, "login.html", {"error": "Usuário ou senha inválidos."})
 
     _clear_attempts(client_ip)
@@ -123,6 +145,19 @@ async def login(request: Request):
     request.session["user_id"] = user.id
     request.session["username"] = user.username
     logger.info("User %s logged in", user.username)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.USER_LOGIN,
+        actor_id=user.id,
+        actor_username=user.username,
+        source="web",
+        entity_type="user",
+        entity_id=user.id,
+        new_state={"user_id": user.id, "username": user.username},
+        metadata={"ip": client_ip},
+    )
+
     return RedirectResponse("/", status_code=302)
 
 
@@ -170,13 +205,38 @@ async def change_password(request: Request):
 
     user_service.change_password(username, new_password)
     logger.info("Password changed for user=%s", username)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.USER_CHANGE_PASSWORD,
+        actor_id=request.session.get("user_id"),
+        actor_username=username,
+        source="web",
+        entity_type="user",
+        entity_id=request.session.get("user_id"),
+        new_state={"username": username},
+    )
+
     flash(request, "Senha alterada com sucesso!", "success")
     return RedirectResponse("/", status_code=302)
 
 
 @router.post("/logout")
 async def logout(request: Request):
+    user_id = request.session.get("user_id")
     username = request.session.get("username")
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.USER_LOGOUT,
+        actor_id=user_id,
+        actor_username=username or "",
+        source="web",
+        entity_type="user",
+        entity_id=user_id,
+        new_state={"username": username},
+    )
+
     request.session.clear()
     logger.info("User %s logged out", username)
     return RedirectResponse("/login", status_code=302)

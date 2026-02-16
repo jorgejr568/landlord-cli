@@ -94,6 +94,34 @@ CREATE TABLE invites (
     created_at DATETIME NOT NULL,
     responded_at DATETIME
 );
+
+CREATE TABLE audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid VARCHAR(26) NOT NULL UNIQUE,
+    event_type VARCHAR(50) NOT NULL,
+    actor_id INTEGER,
+    actor_username VARCHAR(255) NOT NULL DEFAULT '',
+    source VARCHAR(10) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL DEFAULT '',
+    entity_id INTEGER,
+    entity_uuid VARCHAR(26) NOT NULL DEFAULT '',
+    previous_state TEXT,
+    new_state TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME NOT NULL
+);
+
+CREATE TABLE receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid VARCHAR(26) NOT NULL UNIQUE,
+    bill_id INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL
+);
 """
 
 

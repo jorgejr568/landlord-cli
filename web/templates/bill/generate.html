@@ -6,7 +6,7 @@
 <h2 class="mb-1">Gerar Fatura</h2>
 <p class="text-muted">Cobrança: <strong>{{ billing.name }}</strong></p>
 
-<form method="post" action="/billings/{{ billing.uuid }}/bills/generate">
+<form method="post" action="/billings/{{ billing.uuid }}/bills/generate" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <div class="panel">
@@ -98,6 +98,20 @@
             <div class="field mb-0">
                 <label for="notes" class="field-label">Observações</label>
                 <textarea class="field-textarea" id="notes" name="notes" rows="3"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-head">
+            <h5>Comprovantes</h5>
+        </div>
+        <div class="panel-body">
+            <div class="field">
+                <label for="receipt_files" class="field-label">Anexar comprovantes</label>
+                <input type="file" class="field-input" id="receipt_files" name="receipt_files"
+                       accept=".pdf,.jpg,.jpeg,.png" multiple>
+                <small class="text-muted">PDF, JPG ou PNG. Maximo 10 MB cada. Voce pode selecionar varios arquivos.</small>
             </div>
         </div>
     </div>

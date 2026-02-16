@@ -12,11 +12,15 @@ from landlord.models.billing import Billing, BillingItem, ItemType
 from landlord.models.invite import Invite
 from landlord.models.organization import Organization, OrganizationMember
 from landlord.models.user import User
+from landlord.models.audit_log import AuditLog
+from landlord.models.receipt import Receipt
 from landlord.repositories.base import (
+    AuditLogRepository,
     BillingRepository,
     BillRepository,
     InviteRepository,
     OrganizationRepository,
+    ReceiptRepository,
     UserRepository,
 )
 
@@ -706,3 +710,195 @@ class SQLAlchemyInviteRepository(InviteRepository):
             {"org_id": org_id, "uid": user_id},
         ).mappings().fetchone()
         return (result["cnt"] if result else 0) > 0
+
+
+class SQLAlchemyReceiptRepository(ReceiptRepository):
+    def __init__(self, conn: Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row_to_receipt(row: RowMapping) -> Receipt:
+        return Receipt(
+            id=row["id"],
+            uuid=row["uuid"],
+            bill_id=row["bill_id"],
+            filename=row["filename"],
+            storage_key=row["storage_key"],
+            content_type=row["content_type"],
+            file_size=row["file_size"],
+            sort_order=row["sort_order"],
+            created_at=row["created_at"],
+        )
+
+    def create(self, receipt: Receipt) -> Receipt:
+        receipt_uuid = str(ULID())
+        now = _now()
+        result = self.conn.execute(
+            text(
+                "INSERT INTO receipts (uuid, bill_id, filename, storage_key, content_type, "
+                "file_size, sort_order, created_at) "
+                "VALUES (:uuid, :bill_id, :filename, :storage_key, :content_type, "
+                ":file_size, :sort_order, :created_at)"
+            ),
+            {
+                "uuid": receipt_uuid,
+                "bill_id": receipt.bill_id,
+                "filename": receipt.filename,
+                "storage_key": receipt.storage_key,
+                "content_type": receipt.content_type,
+                "file_size": receipt.file_size,
+                "sort_order": receipt.sort_order,
+                "created_at": now,
+            },
+        )
+        self.conn.commit()
+        created = self.get_by_uuid(receipt_uuid)
+        if created is None:
+            raise RuntimeError(f"Failed to retrieve receipt after create (uuid={receipt_uuid})")
+        return created
+
+    def get_by_id(self, receipt_id: int) -> Receipt | None:
+        row = self.conn.execute(
+            text("SELECT * FROM receipts WHERE id = :id"),
+            {"id": receipt_id},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_receipt(row)
+
+    def get_by_uuid(self, uuid: str) -> Receipt | None:
+        row = self.conn.execute(
+            text("SELECT * FROM receipts WHERE uuid = :uuid"),
+            {"uuid": uuid},
+        ).mappings().fetchone()
+        if row is None:
+            return None
+        return self._row_to_receipt(row)
+
+    def list_by_bill(self, bill_id: int) -> list[Receipt]:
+        rows = self.conn.execute(
+            text("SELECT * FROM receipts WHERE bill_id = :bill_id ORDER BY sort_order, id"),
+            {"bill_id": bill_id},
+        ).mappings().fetchall()
+        return [self._row_to_receipt(row) for row in rows]
+
+    def delete(self, receipt_id: int) -> None:
+        self.conn.execute(
+            text("DELETE FROM receipts WHERE id = :id"),
+            {"id": receipt_id},
+        )
+        self.conn.commit()
+
+
+class SQLAlchemyAuditLogRepository(AuditLogRepository):
+    def __init__(self, conn: Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row_to_audit_log(row: RowMapping) -> AuditLog:
+        import json
+
+        previous_state = row["previous_state"]
+        if isinstance(previous_state, str):
+            previous_state = json.loads(previous_state)
+        new_state = row["new_state"]
+        if isinstance(new_state, str):
+            new_state = json.loads(new_state)
+        metadata = row["metadata"]
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+
+        return AuditLog(
+            id=row["id"],
+            uuid=row["uuid"],
+            event_type=row["event_type"],
+            actor_id=row["actor_id"],
+            actor_username=row["actor_username"],
+            source=row["source"],
+            entity_type=row["entity_type"],
+            entity_id=row["entity_id"],
+            entity_uuid=row["entity_uuid"],
+            previous_state=previous_state,
+            new_state=new_state,
+            metadata=metadata,
+            created_at=row["created_at"],
+        )
+
+    def create(self, audit_log: AuditLog) -> AuditLog:
+        import json
+
+        audit_uuid = str(ULID())
+        now = _now()
+        self.conn.execute(
+            text(
+                "INSERT INTO audit_logs (uuid, event_type, actor_id, actor_username, "
+                "source, entity_type, entity_id, entity_uuid, previous_state, "
+                "new_state, metadata, created_at) "
+                "VALUES (:uuid, :event_type, :actor_id, :actor_username, "
+                ":source, :entity_type, :entity_id, :entity_uuid, :previous_state, "
+                ":new_state, :metadata, :created_at)"
+            ),
+            {
+                "uuid": audit_uuid,
+                "event_type": audit_log.event_type,
+                "actor_id": audit_log.actor_id,
+                "actor_username": audit_log.actor_username,
+                "source": audit_log.source,
+                "entity_type": audit_log.entity_type,
+                "entity_id": audit_log.entity_id,
+                "entity_uuid": audit_log.entity_uuid,
+                "previous_state": json.dumps(audit_log.previous_state)
+                if audit_log.previous_state is not None
+                else None,
+                "new_state": json.dumps(audit_log.new_state)
+                if audit_log.new_state is not None
+                else None,
+                "metadata": json.dumps(audit_log.metadata),
+                "created_at": now,
+            },
+        )
+        self.conn.commit()
+
+        row = self.conn.execute(
+            text("SELECT * FROM audit_logs WHERE uuid = :uuid"),
+            {"uuid": audit_uuid},
+        ).mappings().fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"Failed to retrieve audit log after create (uuid={audit_uuid})"
+            )
+        return self._row_to_audit_log(row)
+
+    def list_by_entity(self, entity_type: str, entity_id: int) -> list[AuditLog]:
+        rows = self.conn.execute(
+            text(
+                "SELECT * FROM audit_logs "
+                "WHERE entity_type = :entity_type AND entity_id = :entity_id "
+                "ORDER BY created_at DESC"
+            ),
+            {"entity_type": entity_type, "entity_id": entity_id},
+        ).mappings().fetchall()
+        return [self._row_to_audit_log(row) for row in rows]
+
+    def list_by_actor(self, actor_id: int, limit: int = 50) -> list[AuditLog]:
+        rows = self.conn.execute(
+            text(
+                "SELECT * FROM audit_logs "
+                "WHERE actor_id = :actor_id "
+                "ORDER BY created_at DESC "
+                "LIMIT :limit"
+            ),
+            {"actor_id": actor_id, "limit": limit},
+        ).mappings().fetchall()
+        return [self._row_to_audit_log(row) for row in rows]
+
+    def list_recent(self, limit: int = 50) -> list[AuditLog]:
+        rows = self.conn.execute(
+            text(
+                "SELECT * FROM audit_logs "
+                "ORDER BY created_at DESC "
+                "LIMIT :limit"
+            ),
+            {"limit": limit},
+        ).mappings().fetchall()
+        return [self._row_to_audit_log(row) for row in rows]

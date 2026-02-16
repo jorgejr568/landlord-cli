@@ -1,8 +1,10 @@
 from landlord.repositories.base import (
+    AuditLogRepository,
     BillingRepository,
     BillRepository,
     InviteRepository,
     OrganizationRepository,
+    ReceiptRepository,
     UserRepository,
 )
 
@@ -40,3 +42,17 @@ def get_invite_repository() -> InviteRepository:
     from landlord.repositories.sqlalchemy import SQLAlchemyInviteRepository
 
     return SQLAlchemyInviteRepository(get_connection())
+
+
+def get_receipt_repository() -> ReceiptRepository:
+    from landlord.db import get_connection
+    from landlord.repositories.sqlalchemy import SQLAlchemyReceiptRepository
+
+    return SQLAlchemyReceiptRepository(get_connection())
+
+
+def get_audit_log_repository() -> AuditLogRepository:
+    from landlord.db import get_connection
+    from landlord.repositories.sqlalchemy import SQLAlchemyAuditLogRepository
+
+    return SQLAlchemyAuditLogRepository(get_connection())
