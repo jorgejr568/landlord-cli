@@ -30,6 +30,10 @@ regenerate-pdfs:
 regenerate-pdfs-dry:
 	$(PYTHON) -m landlord.scripts.regenerate_pdfs --dry-run
 
+.PHONY: seed
+seed:
+	$(PYTHON) -m landlord.scripts.seed
+
 # --- Tests ---
 
 .PHONY: test
@@ -94,6 +98,10 @@ docker-createuser:
 docker-regenerate:
 	docker exec $(CONTAINER) python -m landlord.scripts.regenerate_pdfs
 
+.PHONY: docker-seed
+docker-seed:
+	docker exec $(CONTAINER) python -m landlord.scripts.seed
+
 # --- Docker: CLI (standalone) ---
 
 .PHONY: build-cli
@@ -157,6 +165,10 @@ compose-createuser:
 .PHONY: compose-regenerate
 compose-regenerate:
 	docker compose exec cli python -m landlord.scripts.regenerate_pdfs
+
+.PHONY: compose-seed
+compose-seed:
+	docker compose exec landlord python -m landlord.scripts.seed
 
 .PHONY: compose-logs
 compose-logs:

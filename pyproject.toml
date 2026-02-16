@@ -35,6 +35,7 @@ test = [
     "httpx>=0.27,<1",
     "freezegun>=1.4,<2",
     "boto3>=1.35,<2",
+    "faker>=33.0,<34",
 ]
 
 [project.scripts]
@@ -46,7 +47,7 @@ pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["landlord", "web"]
-omit = ["landlord/__main__.py"]
+omit = ["landlord/__main__.py", "landlord/scripts/seed.py"]
 
 [tool.coverage.report]
 show_missing = true
