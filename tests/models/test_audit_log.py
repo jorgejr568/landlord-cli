@@ -83,6 +83,10 @@ class TestAuditEventType:
         assert AuditEventType.BILL_TOGGLE_PAID == "bill.toggle_paid"
         assert AuditEventType.BILL_REGENERATE_PDF == "bill.regenerate_pdf"
 
+    def test_receipt_events(self):
+        assert AuditEventType.RECEIPT_UPLOAD == "receipt.upload"
+        assert AuditEventType.RECEIPT_DELETE == "receipt.delete"
+
     def test_organization_events(self):
         assert AuditEventType.ORGANIZATION_CREATE == "organization.create"
         assert AuditEventType.ORGANIZATION_UPDATE == "organization.update"

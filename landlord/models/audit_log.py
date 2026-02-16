@@ -29,6 +29,10 @@ class AuditEventType:
     BILL_TOGGLE_PAID = "bill.toggle_paid"
     BILL_REGENERATE_PDF = "bill.regenerate_pdf"
 
+    # Receipt events
+    RECEIPT_UPLOAD = "receipt.upload"
+    RECEIPT_DELETE = "receipt.delete"
+
     # Organization events
     ORGANIZATION_CREATE = "organization.create"
     ORGANIZATION_UPDATE = "organization.update"

@@ -100,7 +100,7 @@ async def bill_generate(request: Request, billing_uuid: str):
 
     # Attach uploaded receipt files
     receipt_files = form.getlist("receipt_files")
-    attached = 0
+    attached_receipts = []
     for upload in receipt_files:
         if not isinstance(upload, UploadFile) or not upload.filename:
             continue
@@ -110,16 +110,16 @@ async def bill_generate(request: Request, billing_uuid: str):
             continue
         if len(file_bytes) > MAX_RECEIPT_SIZE:
             continue
-        bill_service.add_receipt(
+        receipt = bill_service.add_receipt(
             bill=bill,
             billing=billing,
             filename=upload.filename,
             file_bytes=file_bytes,
             content_type=content_type,
         )
-        attached += 1
-    if attached:
-        logger.info("Attached %d receipts to bill uuid=%s", attached, bill.uuid)
+        attached_receipts.append(receipt)
+    if attached_receipts:
+        logger.info("Attached %d receipts to bill uuid=%s", len(attached_receipts), bill.uuid)
 
     audit = get_audit_service(request)
     audit.safe_log(
@@ -132,6 +132,19 @@ async def bill_generate(request: Request, billing_uuid: str):
         entity_uuid=bill.uuid,
         new_state=serialize_bill(bill),
     )
+    for receipt in attached_receipts:
+        audit.safe_log(
+            AuditEventType.RECEIPT_UPLOAD,
+            actor_id=user_id,
+            actor_username=request.session.get("username", ""),
+            source="web",
+            entity_type="receipt",
+            entity_id=receipt.id,
+            entity_uuid=receipt.uuid,
+            new_state={"filename": receipt.filename, "content_type": receipt.content_type,
+                       "file_size": receipt.file_size, "bill_uuid": bill.uuid,
+                       "billing_uuid": billing_uuid},
+        )
 
     flash(request, "Fatura gerada com sucesso!", "success")
     return RedirectResponse(f"/billings/{billing_uuid}/bills/{bill.uuid}", status_code=302)
@@ -475,7 +488,7 @@ async def receipt_upload(request: Request, billing_uuid: str, bill_uuid: str):
         flash(request, "Arquivo muito grande. Máximo 10 MB.", "danger")
         return RedirectResponse(redirect_url, status_code=302)
 
-    bill_service.add_receipt(
+    receipt = bill_service.add_receipt(
         bill=bill,
         billing=billing,
         filename=upload.filename,
@@ -483,6 +496,21 @@ async def receipt_upload(request: Request, billing_uuid: str, bill_uuid: str):
         content_type=content_type,
     )
     logger.info("Receipt uploaded for bill uuid=%s", bill_uuid)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.RECEIPT_UPLOAD,
+        actor_id=request.session.get("user_id"),
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="receipt",
+        entity_id=receipt.id,
+        entity_uuid=receipt.uuid,
+        new_state={"filename": receipt.filename, "content_type": receipt.content_type,
+                   "file_size": receipt.file_size, "bill_uuid": bill_uuid,
+                   "billing_uuid": billing_uuid},
+    )
+
     flash(request, "Comprovante anexado com sucesso!", "success")
     return RedirectResponse(redirect_url, status_code=302)
 
@@ -514,7 +542,23 @@ async def receipt_delete(request: Request, billing_uuid: str, bill_uuid: str, re
         flash(request, "Comprovante não encontrado.", "danger")
         return RedirectResponse(redirect_url, status_code=302)
 
+    previous_state = {"filename": receipt.filename, "content_type": receipt.content_type,
+                      "file_size": receipt.file_size, "bill_uuid": bill_uuid,
+                      "billing_uuid": billing_uuid}
     bill_service.delete_receipt(receipt, bill, billing)
     logger.info("Receipt deleted: uuid=%s", receipt_uuid)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.RECEIPT_DELETE,
+        actor_id=request.session.get("user_id"),
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="receipt",
+        entity_id=receipt.id,
+        entity_uuid=receipt_uuid,
+        previous_state=previous_state,
+    )
+
     flash(request, "Comprovante removido.", "success")
     return RedirectResponse(redirect_url, status_code=302)

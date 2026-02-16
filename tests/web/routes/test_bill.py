@@ -4,7 +4,8 @@ from landlord.models.bill import Bill
 from landlord.models.user import User
 from landlord.repositories.sqlalchemy import SQLAlchemyBillingRepository, SQLAlchemyUserRepository
 from landlord.storage.local import LocalStorage
-from tests.web.conftest import create_billing_in_db, generate_bill_in_db
+from landlord.models.audit_log import AuditEventType
+from tests.web.conftest import create_billing_in_db, generate_bill_in_db, get_audit_logs
 
 
 def _create_other_user_billing(test_engine):
@@ -463,6 +464,9 @@ class TestReceiptUpload:
             )
         assert response.status_code == 302
         assert f"/bills/{bill.uuid}/edit" in response.headers.get("location", "")
+        logs = get_audit_logs(test_engine, AuditEventType.RECEIPT_UPLOAD)
+        assert len(logs) >= 1
+        assert logs[0].new_state["filename"] == "receipt.pdf"
 
     def test_upload_image(self, auth_client, test_engine, tmp_path, csrf_token):
         from io import BytesIO
@@ -571,6 +575,9 @@ class TestReceiptDelete:
                 follow_redirects=False,
             )
         assert response.status_code == 302
+        logs = get_audit_logs(test_engine, AuditEventType.RECEIPT_DELETE)
+        assert len(logs) >= 1
+        assert logs[0].previous_state["filename"] == "receipt.pdf"
 
     def test_delete_receipt_not_found(self, auth_client, test_engine, tmp_path, csrf_token):
         billing = create_billing_in_db(test_engine)
