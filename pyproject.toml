@@ -1,5 +1,5 @@
 [project]
-name = "rentivo-cli"
+name = "rentivo"
 version = "0.1.0"
 description = "Apartment billing management and invoice generation"
 requires-python = ">=3.10"

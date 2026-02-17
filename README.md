@@ -5,9 +5,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jorgejr568/rentivo-cli/actions/workflows/deploy.yml"><img src="https://github.com/jorgejr568/rentivo-cli/actions/workflows/deploy.yml/badge.svg" alt="Tests"></a>
-  <a href="https://codecov.io/gh/jorgejr568/rentivo-cli"><img src="https://codecov.io/gh/jorgejr568/rentivo-cli/branch/main/graph/badge.svg" alt="codecov"></a>
-  <a href="https://github.com/jorgejr568/rentivo-cli/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="GPL-3.0"></a>
+  <a href="https://github.com/jorgejr568/rentivo/actions/workflows/deploy.yml"><img src="https://github.com/jorgejr568/rentivo/actions/workflows/deploy.yml/badge.svg" alt="Tests"></a>
+  <a href="https://codecov.io/gh/jorgejr568/rentivo"><img src="https://codecov.io/gh/jorgejr568/rentivo/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://github.com/jorgejr568/rentivo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="GPL-3.0"></a>
 </p>
 
 <p align="center">
