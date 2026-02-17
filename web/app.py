@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, RedirectResponse
 
 from rentivo.constants import format_month
 from rentivo.db import initialize_db
@@ -87,6 +87,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 async def home(request: Request):
+    if request.session.get("user_id"):
+        return RedirectResponse("/billings/", status_code=302)
     return templates.TemplateResponse(
         request,
         "landing.html",
