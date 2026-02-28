@@ -334,3 +334,25 @@ class BillService:
         if self.receipt_repo is None:
             return None
         return self.receipt_repo.get_by_uuid(uuid)
+
+    def reorder_receipts(self, bill: Bill, billing: Billing, receipt_uuids: list[str]) -> None:
+        """Reorder receipts by the given UUID list and regenerate the PDF."""
+        if self.receipt_repo is None:
+            raise RuntimeError("Receipt repository not configured")
+        if bill.id is None:
+            raise ValueError("Cannot reorder receipts for bill without an id")
+
+        existing = self.receipt_repo.list_by_bill(bill.id)
+        by_uuid = {r.uuid: r for r in existing}
+
+        for uuid in receipt_uuids:
+            if uuid not in by_uuid:
+                raise ValueError(f"Receipt {uuid} does not belong to this bill")
+        if len(receipt_uuids) != len(existing):
+            raise ValueError("Must include all receipts in the new order")
+
+        updates = [(by_uuid[uuid].id, idx) for idx, uuid in enumerate(receipt_uuids)]
+        self.receipt_repo.update_sort_orders(updates)
+        logger.info("Receipts reordered: bill=%s", bill.uuid)
+
+        self._generate_and_store_pdf(bill, billing)

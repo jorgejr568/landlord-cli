@@ -114,14 +114,22 @@
         <table class="data-table" style="margin-bottom: 1rem;">
             <thead>
                 <tr>
+                    {% if role in ("owner", "admin", "manager") %}
+                    <th style="width:2rem;"></th>
+                    {% endif %}
                     <th>Arquivo</th>
                     <th class="text-right">Tamanho</th>
                     <th></th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="receipt-list"
+                   data-reorder-url="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}/receipts/reorder"
+                   data-csrf="{{ csrf_token }}">
                 {% for receipt in receipts %}
-                <tr>
+                <tr data-uuid="{{ receipt.uuid }}">
+                    {% if role in ("owner", "admin", "manager") %}
+                    <td class="drag-handle">&equiv;</td>
+                    {% endif %}
                     <td>{{ receipt.filename }}</td>
                     <td class="text-right">{{ "%.1f" | format(receipt.file_size / 1024) }} KB</td>
                     <td class="text-right" style="white-space: nowrap;">
@@ -153,10 +161,10 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="next" value="/billings/{{ billing.uuid }}/bills/{{ bill.uuid }}">
             <div class="field">
-                <label for="receipt_file" class="field-label">Anexar comprovante</label>
-                <input type="file" class="field-input" id="receipt_file" name="receipt_file"
-                       accept=".pdf,.jpg,.jpeg,.png">
-                <small class="text-muted">PDF, JPG ou PNG. Maximo 10 MB.</small>
+                <label for="receipt_files" class="field-label">Anexar comprovantes</label>
+                <input type="file" class="field-input" id="receipt_files" name="receipt_files"
+                       accept=".pdf,.jpg,.jpeg,.png" multiple>
+                <small class="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small>
             </div>
             <button type="submit" class="btn btn--sm btn--primary">Enviar</button>
         </form>
@@ -175,3 +183,35 @@
     {% endif %}
 </div>
 {% endblock %}
+
+{% if receipts and role in ("owner", "admin", "manager") %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js"></script>
+<script>
+(function () {
+    var el = document.getElementById('receipt-list');
+    if (!el) return;
+    Sortable.create(el, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        onEnd: function () {
+            var rows = el.querySelectorAll('tr[data-uuid]');
+            var order = [];
+            for (var i = 0; i < rows.length; i++) {
+                order.push(rows[i].getAttribute('data-uuid'));
+            }
+            fetch(el.getAttribute('data-reorder-url'), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': el.getAttribute('data-csrf')
+                },
+                body: JSON.stringify({ order: order })
+            });
+        }
+    });
+})();
+</script>
+{% endblock %}
+{% endif %}

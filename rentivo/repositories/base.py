@@ -172,6 +172,9 @@ class ReceiptRepository(ABC):
     @abstractmethod
     def delete(self, receipt_id: int) -> None: ...
 
+    @abstractmethod
+    def update_sort_orders(self, updates: list[tuple[int, int]]) -> None: ...
+
 
 class MFATOTPRepository(ABC):
     @abstractmethod

@@ -506,7 +506,7 @@ class TestReceiptUpload:
             response = auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("receipt.pdf", b"%PDF-test", "application/pdf")},
+                files={"receipt_files": ("receipt.pdf", b"%PDF-test", "application/pdf")},
                 follow_redirects=False,
             )
         assert response.status_code == 302
@@ -531,7 +531,7 @@ class TestReceiptUpload:
             response = auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+                files={"receipt_files": ("photo.jpg", jpeg_bytes, "image/jpeg")},
                 follow_redirects=False,
             )
         assert response.status_code == 302
@@ -543,7 +543,7 @@ class TestReceiptUpload:
             response = auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("file.gif", b"GIF89a", "image/gif")},
+                files={"receipt_files": ("file.gif", b"GIF89a", "image/gif")},
                 follow_redirects=False,
             )
         assert response.status_code == 302
@@ -555,7 +555,7 @@ class TestReceiptUpload:
             response = auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("empty.pdf", b"", "application/pdf")},
+                files={"receipt_files": ("empty.pdf", b"", "application/pdf")},
                 follow_redirects=False,
             )
         assert response.status_code == 302
@@ -575,7 +575,7 @@ class TestReceiptUpload:
         response = auth_client.post(
             "/billings/x/bills/nonexistent/receipts/upload",
             data={"csrf_token": csrf_token},
-            files={"receipt_file": ("r.pdf", b"%PDF", "application/pdf")},
+            files={"receipt_files": ("r.pdf", b"%PDF", "application/pdf")},
             follow_redirects=False,
         )
         assert response.status_code == 302
@@ -592,9 +592,44 @@ class TestReceiptUpload:
         response = auth_client.post(
             f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
             data={"csrf_token": csrf_token},
-            files={"receipt_file": ("r.pdf", b"%PDF", "application/pdf")},
+            files={"receipt_files": ("r.pdf", b"%PDF", "application/pdf")},
             follow_redirects=False,
         )
+        assert response.status_code == 302
+
+
+class TestReceiptUploadMultiple:
+    def test_upload_multiple_files(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files=[
+                    ("receipt_files", ("a.pdf", b"%PDF-a", "application/pdf")),
+                    ("receipt_files", ("b.pdf", b"%PDF-b", "application/pdf")),
+                ],
+                follow_redirects=False,
+            )
+        assert response.status_code == 302
+        logs = get_audit_logs(test_engine, AuditEventType.RECEIPT_UPLOAD)
+        assert len(logs) >= 2
+
+    def test_upload_all_skipped(self, auth_client, test_engine, tmp_path, csrf_token):
+        """All files are invalid type — skipped > 0, attached == 0."""
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files=[
+                    ("receipt_files", ("a.gif", b"GIF89a", "image/gif")),
+                    ("receipt_files", ("b.gif", b"GIF89a", "image/gif")),
+                ],
+                follow_redirects=False,
+            )
         assert response.status_code == 302
 
 
@@ -607,7 +642,7 @@ class TestReceiptDelete:
             auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("receipt.pdf", b"%PDF-test-data", "application/pdf")},
+                files={"receipt_files": ("receipt.pdf", b"%PDF-test-data", "application/pdf")},
                 follow_redirects=False,
             )
             # Get receipts to find the UUID
@@ -673,7 +708,7 @@ class TestEditFormShowsReceipts:
             auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("receipt.pdf", b"%PDF-test", "application/pdf")},
+                files={"receipt_files": ("receipt.pdf", b"%PDF-test", "application/pdf")},
                 follow_redirects=False,
             )
             response = auth_client.get(
@@ -692,7 +727,7 @@ class TestReceiptView:
             auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("proof.pdf", b"%PDF-test-data", "application/pdf")},
+                files={"receipt_files": ("proof.pdf", b"%PDF-test-data", "application/pdf")},
                 follow_redirects=False,
             )
             from rentivo.repositories.sqlalchemy import SQLAlchemyReceiptRepository
@@ -810,7 +845,7 @@ class TestReceiptViewS3Redirect:
             auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("proof.pdf", b"%PDF-test-data", "application/pdf")},
+                files={"receipt_files": ("proof.pdf", b"%PDF-test-data", "application/pdf")},
                 follow_redirects=False,
             )
             from rentivo.repositories.sqlalchemy import SQLAlchemyReceiptRepository
@@ -846,7 +881,7 @@ class TestReceiptUploadOversized:
             response = auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("big.pdf", oversized, "application/pdf")},
+                files={"receipt_files": ("big.pdf", oversized, "application/pdf")},
                 follow_redirects=False,
             )
         assert response.status_code == 302
@@ -983,7 +1018,7 @@ class TestDetailShowsReceipts:
             auth_client.post(
                 f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
                 data={"csrf_token": csrf_token},
-                files={"receipt_file": ("proof.pdf", b"%PDF-test", "application/pdf")},
+                files={"receipt_files": ("proof.pdf", b"%PDF-test", "application/pdf")},
                 follow_redirects=False,
             )
             response = auth_client.get(
@@ -992,3 +1027,104 @@ class TestDetailShowsReceipts:
         assert response.status_code == 200
         assert "proof.pdf" in response.text
         assert "Comprovantes" in response.text
+
+
+class TestReceiptReorder:
+    def _upload_receipts(self, auth_client, billing, bill, csrf_token, count=2):
+        """Upload N receipts and return their UUIDs."""
+
+        for i in range(count):
+            auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/upload",
+                data={"csrf_token": csrf_token},
+                files={"receipt_files": (f"receipt_{i}.pdf", b"%PDF-test-" + bytes([i]), "application/pdf")},
+                follow_redirects=False,
+            )
+
+    def _get_receipt_uuids(self, test_engine, bill_id):
+        from rentivo.repositories.sqlalchemy import SQLAlchemyReceiptRepository
+
+        with test_engine.connect() as conn:
+            receipts = SQLAlchemyReceiptRepository(conn).list_by_bill(bill_id)
+        return [r.uuid for r in receipts]
+
+    def test_reorder_success(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            self._upload_receipts(auth_client, billing, bill, csrf_token, count=2)
+            uuids = self._get_receipt_uuids(test_engine, bill.id)
+            # Reverse the order
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+                json={"order": list(reversed(uuids))},
+            )
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+        logs = get_audit_logs(test_engine, AuditEventType.RECEIPT_REORDER)
+        assert len(logs) >= 1
+
+    def test_reorder_bill_not_found(self, auth_client):
+        response = auth_client.post(
+            "/billings/x/bills/nonexistent/receipts/reorder",
+            json={"order": []},
+        )
+        assert response.status_code == 404
+
+    def test_reorder_billing_not_found(self, auth_client, test_engine, tmp_path):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+        # Soft-delete billing
+        with test_engine.connect() as conn:
+            repo = SQLAlchemyBillingRepository(conn)
+            repo.delete(billing.id)
+        response = auth_client.post(
+            f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+            json={"order": []},
+        )
+        assert response.status_code == 404
+
+    def test_reorder_access_denied(self, auth_client, test_engine, tmp_path):
+        billing = _create_other_user_billing(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+        response = auth_client.post(
+            f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+            json={"order": []},
+        )
+        assert response.status_code == 403
+
+    def test_reorder_invalid_json(self, auth_client, test_engine, tmp_path):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+                content=b"not json",
+                headers={"content-type": "application/json"},
+            )
+        assert response.status_code == 400
+        assert "JSON" in response.json()["error"]
+
+    def test_reorder_order_not_a_list(self, auth_client, test_engine, tmp_path):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+                json={"order": "not-a-list"},
+            )
+        assert response.status_code == 400
+        assert "lista" in response.json()["error"]
+
+    def test_reorder_invalid_uuid(self, auth_client, test_engine, tmp_path, csrf_token):
+        billing = create_billing_in_db(test_engine)
+        with patch("web.deps.get_storage", return_value=LocalStorage(str(tmp_path))):
+            bill = generate_bill_in_db(test_engine, billing, tmp_path)
+            self._upload_receipts(auth_client, billing, bill, csrf_token, count=1)
+            response = auth_client.post(
+                f"/billings/{billing.uuid}/bills/{bill.uuid}/receipts/reorder",
+                json={"order": ["nonexistent-uuid"]},
+            )
+        assert response.status_code == 400

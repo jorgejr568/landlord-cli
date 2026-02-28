@@ -143,3 +143,43 @@ class TestReceiptRepoCRUD:
         with patch.object(receipt_repo, "get_by_uuid", return_value=None):
             with pytest.raises(RuntimeError, match="Failed to retrieve receipt after create"):
                 receipt_repo.create(receipt)
+
+    def test_update_sort_orders(self, receipt_repo, billing_with_bill):
+        _, bill = billing_with_bill
+        r1 = receipt_repo.create(
+            Receipt(
+                bill_id=bill.id,
+                filename="a.pdf",
+                storage_key="a",
+                content_type="application/pdf",
+                file_size=1,
+                sort_order=0,
+            )
+        )
+        r2 = receipt_repo.create(
+            Receipt(
+                bill_id=bill.id,
+                filename="b.pdf",
+                storage_key="b",
+                content_type="application/pdf",
+                file_size=1,
+                sort_order=1,
+            )
+        )
+        r3 = receipt_repo.create(
+            Receipt(
+                bill_id=bill.id,
+                filename="c.pdf",
+                storage_key="c",
+                content_type="application/pdf",
+                file_size=1,
+                sort_order=2,
+            )
+        )
+        # Reverse order: c, b, a
+        receipt_repo.update_sort_orders([(r3.id, 0), (r2.id, 1), (r1.id, 2)])
+
+        results = receipt_repo.list_by_bill(bill.id)
+        assert results[0].filename == "c.pdf"
+        assert results[1].filename == "b.pdf"
+        assert results[2].filename == "a.pdf"

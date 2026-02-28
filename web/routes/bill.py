@@ -4,7 +4,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile
 
 from rentivo.models.audit_log import AuditEventType
@@ -494,56 +494,64 @@ async def receipt_upload(request: Request, billing_uuid: str, bill_uuid: str):
         flash(request, "Cobrança não encontrada.", "danger")
         return RedirectResponse("/", status_code=302)
 
-    upload = form.get("receipt_file")
-    if not upload or not isinstance(upload, UploadFile) or not upload.filename:
+    uploads = form.getlist("receipt_files")
+    valid_uploads = [u for u in uploads if isinstance(u, UploadFile) and u.filename]
+    if not valid_uploads:
         logger.warning("No file uploaded for bill uuid=%s", bill_uuid)
         flash(request, "Nenhum arquivo selecionado.", "danger")
         return RedirectResponse(redirect_url, status_code=302)
 
-    file_bytes = await upload.read()
-    content_type = upload.content_type or ""
-
-    if content_type not in ALLOWED_RECEIPT_TYPES:
-        logger.warning("Invalid file type: %s", content_type)
-        flash(request, "Tipo de arquivo não permitido. Use PDF, JPG ou PNG.", "danger")
-        return RedirectResponse(redirect_url, status_code=302)
-
-    if not file_bytes:
-        flash(request, "Arquivo vazio.", "danger")
-        return RedirectResponse(redirect_url, status_code=302)
-
-    if len(file_bytes) > MAX_RECEIPT_SIZE:
-        flash(request, "Arquivo muito grande. Máximo 10 MB.", "danger")
-        return RedirectResponse(redirect_url, status_code=302)
-
-    receipt = bill_service.add_receipt(
-        bill=bill,
-        billing=billing,
-        filename=upload.filename,
-        file_bytes=file_bytes,
-        content_type=content_type,
-    )
-    logger.info("Receipt uploaded for bill uuid=%s", bill_uuid)
-
+    attached = 0
+    skipped = 0
     audit = get_audit_service(request)
-    audit.safe_log(
-        AuditEventType.RECEIPT_UPLOAD,
-        actor_id=request.session.get("user_id"),
-        actor_username=request.session.get("username", ""),
-        source="web",
-        entity_type="receipt",
-        entity_id=receipt.id,
-        entity_uuid=receipt.uuid,
-        new_state={
-            "filename": receipt.filename,
-            "content_type": receipt.content_type,
-            "file_size": receipt.file_size,
-            "bill_uuid": bill_uuid,
-            "billing_uuid": billing_uuid,
-        },
-    )
+    for upload in valid_uploads:
+        file_bytes = await upload.read()
+        content_type = upload.content_type or ""
 
-    flash(request, "Comprovante anexado com sucesso!", "success")
+        if content_type not in ALLOWED_RECEIPT_TYPES:
+            logger.warning("Invalid file type: %s", content_type)
+            skipped += 1
+            continue
+        if not file_bytes:
+            skipped += 1
+            continue
+        if len(file_bytes) > MAX_RECEIPT_SIZE:
+            skipped += 1
+            continue
+
+        receipt = bill_service.add_receipt(
+            bill=bill,
+            billing=billing,
+            filename=upload.filename,
+            file_bytes=file_bytes,
+            content_type=content_type,
+        )
+        logger.info("Receipt uploaded for bill uuid=%s", bill_uuid)
+        attached += 1
+
+        audit.safe_log(
+            AuditEventType.RECEIPT_UPLOAD,
+            actor_id=request.session.get("user_id"),
+            actor_username=request.session.get("username", ""),
+            source="web",
+            entity_type="receipt",
+            entity_id=receipt.id,
+            entity_uuid=receipt.uuid,
+            new_state={
+                "filename": receipt.filename,
+                "content_type": receipt.content_type,
+                "file_size": receipt.file_size,
+                "bill_uuid": bill_uuid,
+                "billing_uuid": billing_uuid,
+            },
+        )
+
+    if attached == 1:
+        flash(request, "Comprovante anexado com sucesso!", "success")
+    elif attached > 1:
+        flash(request, f"{attached} comprovantes anexados com sucesso!", "success")
+    if skipped:
+        flash(request, f"{skipped} arquivo(s) ignorado(s) (tipo inválido, vazio ou muito grande).", "warning")
     return RedirectResponse(redirect_url, status_code=302)
 
 
@@ -598,3 +606,51 @@ async def receipt_delete(request: Request, billing_uuid: str, bill_uuid: str, re
 
     flash(request, "Comprovante removido.", "success")
     return RedirectResponse(redirect_url, status_code=302)
+
+
+@router.post("/{bill_uuid}/receipts/reorder")
+async def receipt_reorder(request: Request, billing_uuid: str, bill_uuid: str):
+    logger.info("POST /bills/%s/receipts/reorder", bill_uuid)
+    bill_service = get_bill_service(request)
+    billing_service = get_billing_service(request)
+    auth_service = get_authorization_service(request)
+
+    bill = bill_service.get_bill_by_uuid(bill_uuid)
+    if not bill:
+        return JSONResponse({"error": "Fatura não encontrada."}, status_code=404)
+
+    billing = billing_service.get_billing(bill.billing_id)
+    if not billing:
+        return JSONResponse({"error": "Cobrança não encontrada."}, status_code=404)
+
+    user_id = request.session.get("user_id")
+    if not auth_service.can_manage_bills(user_id, billing):
+        return JSONResponse({"error": "Acesso negado."}, status_code=403)
+
+    try:
+        body = await request.json()
+        receipt_uuids = body.get("order", [])
+    except Exception:
+        return JSONResponse({"error": "JSON inválido."}, status_code=400)
+
+    if not isinstance(receipt_uuids, list):
+        return JSONResponse({"error": "Campo 'order' deve ser uma lista."}, status_code=400)
+
+    try:
+        bill_service.reorder_receipts(bill, billing, receipt_uuids)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.RECEIPT_REORDER,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="bill",
+        entity_id=bill.id,
+        entity_uuid=bill.uuid,
+        new_state={"order": receipt_uuids},
+    )
+
+    return JSONResponse({"ok": True})

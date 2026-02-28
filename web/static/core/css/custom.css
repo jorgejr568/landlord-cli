@@ -913,3 +913,22 @@ body::before {
         grid-template-columns: 1fr;
     }
 }
+
+/* ── Drag-and-Drop Sortable ─────────────────────────────── */
+
+.drag-handle {
+    cursor: grab;
+    text-align: center;
+    color: var(--muted);
+    font-size: 1.2rem;
+    user-select: none;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.sortable-ghost {
+    opacity: 0.4;
+    background: var(--cream);
+}

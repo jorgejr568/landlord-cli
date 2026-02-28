@@ -940,6 +940,14 @@ class SQLAlchemyReceiptRepository(ReceiptRepository):
         )
         self.conn.commit()
 
+    def update_sort_orders(self, updates: list[tuple[int, int]]) -> None:
+        for receipt_id, sort_order in updates:
+            self.conn.execute(
+                text("UPDATE receipts SET sort_order = :sort_order WHERE id = :id"),
+                {"sort_order": sort_order, "id": receipt_id},
+            )
+        self.conn.commit()
+
 
 class SQLAlchemyAuditLogRepository(AuditLogRepository):
     def __init__(self, conn: Connection) -> None:

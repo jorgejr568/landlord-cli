@@ -470,6 +470,64 @@ class TestReceiptMethods:
         result = service.get_receipt_by_uuid("uuid")
         assert result is None
 
+    def test_reorder_receipts(self):
+        bill = Bill(id=1, uuid="bill-uuid", billing_id=1, reference_month="2025-03", total_amount=100000)
+        billing = Billing(id=1, uuid="billing-uuid", name="Apt 101")
+
+        r1 = Receipt(
+            id=1, uuid="r1", bill_id=1, filename="a.pdf", sort_order=0, storage_key="k", content_type="application/pdf"
+        )
+        r2 = Receipt(
+            id=2, uuid="r2", bill_id=1, filename="b.pdf", sort_order=1, storage_key="k", content_type="application/pdf"
+        )
+        r3 = Receipt(
+            id=3, uuid="r3", bill_id=1, filename="c.pdf", sort_order=2, storage_key="k", content_type="application/pdf"
+        )
+        self.mock_receipt_repo.list_by_bill.return_value = [r1, r2, r3]
+        self.mock_storage.save.return_value = "/p"
+
+        with patch.object(self.service, "pdf_generator") as mock_pdf:
+            mock_pdf.generate.return_value = b"%PDF"
+            self.service.reorder_receipts(bill, billing, ["r3", "r1", "r2"])
+
+        self.mock_receipt_repo.update_sort_orders.assert_called_once_with([(3, 0), (1, 1), (2, 2)])
+
+    def test_reorder_receipts_no_repo(self):
+        service = BillService(self.mock_repo, self.mock_storage)
+        bill = Bill(id=1, uuid="u", billing_id=1, reference_month="2025-03")
+        billing = Billing(id=1, uuid="bu", name="A")
+        with pytest.raises(RuntimeError, match="Receipt repository not configured"):
+            service.reorder_receipts(bill, billing, [])
+
+    def test_reorder_receipts_bill_id_none(self):
+        bill = Bill(id=None, uuid="u", billing_id=1, reference_month="2025-03")
+        billing = Billing(id=1, uuid="bu", name="A")
+        with pytest.raises(ValueError, match="Cannot reorder receipts for bill without an id"):
+            self.service.reorder_receipts(bill, billing, [])
+
+    def test_reorder_receipts_invalid_uuid(self):
+        bill = Bill(id=1, uuid="u", billing_id=1, reference_month="2025-03")
+        billing = Billing(id=1, uuid="bu", name="A")
+        r1 = Receipt(
+            id=1, uuid="r1", bill_id=1, filename="a.pdf", sort_order=0, storage_key="k", content_type="application/pdf"
+        )
+        self.mock_receipt_repo.list_by_bill.return_value = [r1]
+        with pytest.raises(ValueError, match="does not belong to this bill"):
+            self.service.reorder_receipts(bill, billing, ["nonexistent"])
+
+    def test_reorder_receipts_missing_uuid(self):
+        bill = Bill(id=1, uuid="u", billing_id=1, reference_month="2025-03")
+        billing = Billing(id=1, uuid="bu", name="A")
+        r1 = Receipt(
+            id=1, uuid="r1", bill_id=1, filename="a.pdf", sort_order=0, storage_key="k", content_type="application/pdf"
+        )
+        r2 = Receipt(
+            id=2, uuid="r2", bill_id=1, filename="b.pdf", sort_order=1, storage_key="k", content_type="application/pdf"
+        )
+        self.mock_receipt_repo.list_by_bill.return_value = [r1, r2]
+        with pytest.raises(ValueError, match="Must include all receipts"):
+            self.service.reorder_receipts(bill, billing, ["r1"])
+
 
 class TestPdfGenerationWithReceipts:
     """Test that _generate_and_store_pdf merges receipts."""
