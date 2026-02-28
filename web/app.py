@@ -17,7 +17,7 @@ from starlette.responses import HTMLResponse, RedirectResponse
 from rentivo.constants import format_month
 from rentivo.db import initialize_db
 from rentivo.logging import configure_logging, reconfigure
-from rentivo.models import format_brl
+from rentivo.models import format_brl, format_brl_input
 from rentivo.settings import settings
 from web.auth import router as auth_router
 from web.csrf import CSRFMiddleware
@@ -67,6 +67,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 templates.env.globals["format_brl"] = format_brl
+templates.env.globals["format_brl_input"] = format_brl_input
 templates.env.globals["format_month"] = format_month
 templates.env.globals["asset_version"] = ASSET_VERSION
 

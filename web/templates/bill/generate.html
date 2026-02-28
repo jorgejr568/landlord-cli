@@ -45,10 +45,10 @@
                     <div>
                         {% if item.item_type.value == "fixed" %}
                         <input type="text" class="field-input" disabled
-                               value="{{ '%.2f' | format(item.amount / 100) }}">
+                               value="{{ format_brl_input(item.amount) }}">
                         {% else %}
                         <input type="text" class="field-input"
-                               name="variable_{{ item.id }}" placeholder="0.00" required>
+                               name="variable_{{ item.id }}" placeholder="0,00" inputmode="decimal" required>
                         {% endif %}
                     </div>
                     <div class="text-muted text-mono">
@@ -82,7 +82,7 @@
                     </div>
                     <div class="field mb-0">
                         <input type="text" class="field-input" name="extras-__prefix__-amount"
-                               placeholder="0.00">
+                               placeholder="0,00" inputmode="decimal">
                     </div>
                     <div>
                         <button type="button" class="btn btn--sm btn--danger"

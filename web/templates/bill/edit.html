@@ -43,7 +43,8 @@
                             <label class="field-label">Valor (R$)</label>
                             <input type="text" class="field-input"
                                    name="items-{{ loop.index0 }}-amount"
-                                   value="{{ '%.2f' | format(item.amount / 100) }}">
+                                   value="{{ format_brl_input(item.amount) }}"
+                                   inputmode="decimal">
                         </div>
                         <div>
                             {% if item.item_type.value == "extra" %}
@@ -78,7 +79,7 @@
                     </div>
                     <div class="field mb-0">
                         <input type="text" class="field-input" name="extras-__prefix__-amount"
-                               placeholder="0.00">
+                               placeholder="0,00" inputmode="decimal">
                     </div>
                     <div>
                         <button type="button" class="btn btn--sm btn--danger"
