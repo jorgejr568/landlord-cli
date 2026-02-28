@@ -162,6 +162,27 @@
 {% endif %}
 
 {% if member_role == "admin" %}
+<div class="panel">
+    <div class="panel-head"><h5>Autenticação Multifator (MFA)</h5></div>
+    <div class="panel-body">
+        <p>
+            {% if org.enforce_mfa %}
+            MFA está <strong style="color: var(--emerald);">obrigatório</strong> para todos os membros desta organização.
+            {% else %}
+            MFA <strong>não é obrigatório</strong> para membros desta organização.
+            {% endif %}
+        </p>
+        <form method="post" action="/organizations/{{ org.uuid }}/toggle-mfa" style="margin-top: 0.75rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% if org.enforce_mfa %}
+            <button type="submit" class="btn btn--sm btn--danger">Desativar Exigência de MFA</button>
+            {% else %}
+            <button type="submit" class="btn btn--sm btn--primary">Ativar Exigência de MFA</button>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
 <div class="mt-2">
     <form method="post" action="/organizations/{{ org.uuid }}/delete"
           onsubmit="return confirm('Tem certeza que deseja excluir esta organização?')">

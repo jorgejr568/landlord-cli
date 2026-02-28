@@ -46,6 +46,19 @@ class AuditEventType:
     INVITE_ACCEPT = "invite.accept"
     INVITE_DECLINE = "invite.decline"
 
+    # MFA events
+    MFA_TOTP_ENABLED = "mfa.totp_enabled"
+    MFA_TOTP_DISABLED = "mfa.totp_disabled"
+    MFA_CHALLENGE_ISSUED = "mfa.challenge_issued"
+    MFA_VERIFY_SUCCESS = "mfa.verify_success"
+    MFA_VERIFY_FAILED = "mfa.verify_failed"
+    MFA_RECOVERY_USED = "mfa.recovery_used"
+    MFA_RECOVERY_REGENERATED = "mfa.recovery_regenerated"
+    MFA_PASSKEY_REGISTERED = "mfa.passkey_registered"
+    MFA_PASSKEY_DELETED = "mfa.passkey_deleted"
+    MFA_PASSKEY_USED = "mfa.passkey_used"
+    ORGANIZATION_UPDATE_MFA = "organization.update_mfa"
+
 
 class AuditLog(BaseModel):
     id: int | None = None

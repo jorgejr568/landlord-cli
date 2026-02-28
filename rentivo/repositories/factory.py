@@ -3,8 +3,11 @@ from rentivo.repositories.base import (
     BillingRepository,
     BillRepository,
     InviteRepository,
+    MFATOTPRepository,
     OrganizationRepository,
+    PasskeyRepository,
     ReceiptRepository,
+    RecoveryCodeRepository,
     UserRepository,
 )
 
@@ -56,3 +59,24 @@ def get_audit_log_repository() -> AuditLogRepository:
     from rentivo.repositories.sqlalchemy import SQLAlchemyAuditLogRepository
 
     return SQLAlchemyAuditLogRepository(get_connection())
+
+
+def get_mfa_totp_repository() -> MFATOTPRepository:
+    from rentivo.db import get_connection
+    from rentivo.repositories.sqlalchemy import SQLAlchemyMFATOTPRepository
+
+    return SQLAlchemyMFATOTPRepository(get_connection())
+
+
+def get_recovery_code_repository() -> RecoveryCodeRepository:
+    from rentivo.db import get_connection
+    from rentivo.repositories.sqlalchemy import SQLAlchemyRecoveryCodeRepository
+
+    return SQLAlchemyRecoveryCodeRepository(get_connection())
+
+
+def get_passkey_repository() -> PasskeyRepository:
+    from rentivo.db import get_connection
+    from rentivo.repositories.sqlalchemy import SQLAlchemyPasskeyRepository
+
+    return SQLAlchemyPasskeyRepository(get_connection())

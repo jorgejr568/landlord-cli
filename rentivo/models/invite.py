@@ -23,5 +23,6 @@ class Invite(BaseModel):
     invited_by_username: str = ""
     role: str = "viewer"
     status: str = InviteStatus.PENDING.value
+    enforce_mfa: bool = False
     created_at: datetime | None = None
     responded_at: datetime | None = None

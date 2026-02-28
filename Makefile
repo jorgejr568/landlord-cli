@@ -12,9 +12,11 @@ RUFF    := $(shell [ -d .venv ] && echo .venv/bin/ruff || echo ruff)
 
 .PHONY: install
 install:
-	python -m venv .venv
-	$(PIP) install -e ".[dev,test]"
-	$(PIP) install pre-commit
+	@# Only create venv if it doesn't exist
+	@if [ ! -d .venv ]; then \
+		python -m venv .venv; \
+	fi
+	.venv/bin/python -m pip install -e ".[dev,test]"
 	.venv/bin/pre-commit install
 
 .PHONY: run

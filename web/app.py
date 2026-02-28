@@ -20,11 +20,12 @@ from rentivo.models import format_brl
 from rentivo.settings import settings
 from web.auth import router as auth_router
 from web.csrf import CSRFMiddleware
-from web.deps import AuthMiddleware, DBConnectionMiddleware
+from web.deps import AuthMiddleware, DBConnectionMiddleware, MFAEnforcementMiddleware
 from web.routes.bill import router as bill_router
 from web.routes.billing import router as billing_router
 from web.routes.invite import router as invite_router
 from web.routes.organization import router as organization_router
+from web.routes.security import router as security_router
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 
 app.add_middleware(DBConnectionMiddleware)
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(MFAEnforcementMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=settings.get_secret_key())
 
@@ -72,6 +74,7 @@ app.include_router(billing_router)
 app.include_router(bill_router)
 app.include_router(organization_router)
 app.include_router(invite_router)
+app.include_router(security_router)
 
 
 @app.exception_handler(Exception)
