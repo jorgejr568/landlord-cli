@@ -68,3 +68,12 @@ class OrganizationService:
     def update_member_role(self, org_id: int, user_id: int, role: str) -> None:
         self.repo.update_member_role(org_id, user_id, role)
         logger.info("Updated role for user %s in org %s to %s", user_id, org_id, role)
+
+    def set_enforce_mfa(self, org_id: int, enforce: bool) -> Organization:
+        org = self.repo.get_by_id(org_id)
+        if org is None:
+            raise ValueError("Organização não encontrada")
+        org.enforce_mfa = enforce
+        updated = self.repo.update(org)
+        logger.info("Organization %s enforce_mfa set to %s", org_id, enforce)
+        return updated

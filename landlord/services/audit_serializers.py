@@ -90,6 +90,7 @@ def serialize_organization(org: Organization) -> dict:
         "uuid": org.uuid,
         "name": org.name,
         "created_by": org.created_by,
+        "enforce_mfa": org.enforce_mfa,
         "created_at": _dt(org.created_at),
         "updated_at": _dt(org.updated_at),
     }

@@ -5,6 +5,7 @@ from landlord.models.audit_log import AuditLog
 from landlord.models.bill import Bill
 from landlord.models.billing import Billing
 from landlord.models.invite import Invite
+from landlord.models.mfa import RecoveryCode, UserPasskey, UserTOTP
 from landlord.models.organization import Organization, OrganizationMember
 from landlord.models.receipt import Receipt
 from landlord.models.user import User
@@ -113,6 +114,9 @@ class OrganizationRepository(ABC):
     @abstractmethod
     def update_member_role(self, org_id: int, user_id: int, role: str) -> None: ...
 
+    @abstractmethod
+    def user_has_enforcing_org(self, user_id: int) -> bool: ...
+
 
 class InviteRepository(ABC):
     @abstractmethod
@@ -166,3 +170,54 @@ class ReceiptRepository(ABC):
 
     @abstractmethod
     def delete(self, receipt_id: int) -> None: ...
+
+
+class MFATOTPRepository(ABC):
+    @abstractmethod
+    def get_by_user_id(self, user_id: int) -> UserTOTP | None: ...
+
+    @abstractmethod
+    def create(self, totp: UserTOTP) -> UserTOTP: ...
+
+    @abstractmethod
+    def confirm(self, user_id: int) -> None: ...
+
+    @abstractmethod
+    def delete_by_user_id(self, user_id: int) -> None: ...
+
+
+class RecoveryCodeRepository(ABC):
+    @abstractmethod
+    def create_batch(self, user_id: int, code_hashes: list[str]) -> None: ...
+
+    @abstractmethod
+    def list_unused_by_user(self, user_id: int) -> list[RecoveryCode]: ...
+
+    @abstractmethod
+    def mark_used(self, code_id: int) -> None: ...
+
+    @abstractmethod
+    def delete_all_by_user(self, user_id: int) -> None: ...
+
+
+class PasskeyRepository(ABC):
+    @abstractmethod
+    def create(self, passkey: UserPasskey) -> UserPasskey: ...
+
+    @abstractmethod
+    def get_by_uuid(self, uuid: str) -> UserPasskey | None: ...
+
+    @abstractmethod
+    def get_by_credential_id(self, credential_id: str) -> UserPasskey | None: ...
+
+    @abstractmethod
+    def list_by_user(self, user_id: int) -> list[UserPasskey]: ...
+
+    @abstractmethod
+    def update_sign_count(self, passkey_id: int, sign_count: int) -> None: ...
+
+    @abstractmethod
+    def update_last_used(self, passkey_id: int) -> None: ...
+
+    @abstractmethod
+    def delete(self, passkey_id: int) -> None: ...

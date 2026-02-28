@@ -17,6 +17,7 @@ class Organization(BaseModel):
     uuid: str = ""
     name: str
     created_by: int = 0
+    enforce_mfa: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
     deleted_at: datetime | None = None

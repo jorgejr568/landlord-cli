@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 from landlord.models.audit_log import AuditEventType
-from web.deps import get_audit_service, get_invite_service, render
+from web.deps import get_audit_service, get_invite_service, get_mfa_service, render
 from web.flash import flash
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,11 @@ async def invite_accept(request: Request, invite_uuid: str):
         previous_state={"status": "pending"},
         new_state={"status": "accepted"},
     )
+
+    # Check if user now needs MFA setup (accepted invite from enforcing org)
+    mfa_service = get_mfa_service(request)
+    if mfa_service.user_requires_mfa_setup(user_id):
+        request.session["mfa_setup_required"] = True
 
     flash(request, "Convite aceito!", "success")
     return RedirectResponse("/invites/", status_code=302)

@@ -11,6 +11,7 @@ from landlord.models.audit_log import AuditLog
 from landlord.models.bill import Bill, BillLineItem
 from landlord.models.billing import Billing, BillingItem, ItemType
 from landlord.models.invite import Invite
+from landlord.models.mfa import RecoveryCode, UserPasskey, UserTOTP
 from landlord.models.organization import Organization, OrganizationMember
 from landlord.models.receipt import Receipt
 from landlord.models.user import User
@@ -19,8 +20,11 @@ from landlord.repositories.base import (
     BillingRepository,
     BillRepository,
     InviteRepository,
+    MFATOTPRepository,
     OrganizationRepository,
+    PasskeyRepository,
     ReceiptRepository,
+    RecoveryCodeRepository,
     UserRepository,
 )
 
@@ -516,6 +520,7 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
             uuid=row["uuid"],
             name=row["name"],
             created_by=row["created_by"],
+            enforce_mfa=bool(row.get("enforce_mfa", False)),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             deleted_at=row.get("deleted_at"),
@@ -592,8 +597,11 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
 
     def update(self, org: Organization) -> Organization:
         self.conn.execute(
-            text("UPDATE organizations SET name = :name, updated_at = :updated_at WHERE id = :id"),
-            {"name": org.name, "updated_at": _now(), "id": org.id},
+            text(
+                "UPDATE organizations SET name = :name, enforce_mfa = :enforce_mfa, "
+                "updated_at = :updated_at WHERE id = :id"
+            ),
+            {"name": org.name, "enforce_mfa": org.enforce_mfa, "updated_at": _now(), "id": org.id},
         )
         self.conn.commit()
         if org.id is None:  # pragma: no cover
@@ -677,6 +685,22 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
         )
         self.conn.commit()
 
+    def user_has_enforcing_org(self, user_id: int) -> bool:
+        result = (
+            self.conn.execute(
+                text(
+                    "SELECT COUNT(*) AS cnt FROM organizations o "
+                    "JOIN organization_members om ON o.id = om.organization_id "
+                    "WHERE om.user_id = :uid AND o.enforce_mfa = 1 "
+                    "AND o.deleted_at IS NULL"
+                ),
+                {"uid": user_id},
+            )
+            .mappings()
+            .fetchone()
+        )
+        return (result["cnt"] if result else 0) > 0
+
 
 class SQLAlchemyInviteRepository(InviteRepository):
     def __init__(self, conn: Connection) -> None:
@@ -695,6 +719,7 @@ class SQLAlchemyInviteRepository(InviteRepository):
             invited_by_username=row.get("invited_by_username", ""),
             role=row["role"],
             status=row["status"],
+            enforce_mfa=bool(row.get("enforce_mfa", False)),
             created_at=row["created_at"],
             responded_at=row.get("responded_at"),
         )
@@ -729,7 +754,7 @@ class SQLAlchemyInviteRepository(InviteRepository):
         row = (
             self.conn.execute(
                 text(
-                    "SELECT i.*, o.name AS org_name, "
+                    "SELECT i.*, o.name AS org_name, o.enforce_mfa, "
                     "u1.username AS invited_username, u2.username AS invited_by_username "
                     "FROM invites i "
                     "JOIN organizations o ON i.organization_id = o.id "
@@ -750,7 +775,7 @@ class SQLAlchemyInviteRepository(InviteRepository):
         rows = (
             self.conn.execute(
                 text(
-                    "SELECT i.*, o.name AS org_name, "
+                    "SELECT i.*, o.name AS org_name, o.enforce_mfa, "
                     "u1.username AS invited_username, u2.username AS invited_by_username "
                     "FROM invites i "
                     "JOIN organizations o ON i.organization_id = o.id "
@@ -770,7 +795,7 @@ class SQLAlchemyInviteRepository(InviteRepository):
         rows = (
             self.conn.execute(
                 text(
-                    "SELECT i.*, o.name AS org_name, "
+                    "SELECT i.*, o.name AS org_name, o.enforce_mfa, "
                     "u1.username AS invited_username, u2.username AS invited_by_username "
                     "FROM invites i "
                     "JOIN organizations o ON i.organization_id = o.id "
@@ -1025,3 +1050,226 @@ class SQLAlchemyAuditLogRepository(AuditLogRepository):
             .fetchall()
         )
         return [self._row_to_audit_log(row) for row in rows]
+
+
+class SQLAlchemyMFATOTPRepository(MFATOTPRepository):
+    def __init__(self, conn: Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row_to_totp(row: RowMapping) -> UserTOTP:
+        return UserTOTP(
+            id=row["id"],
+            user_id=row["user_id"],
+            secret=row["secret"],
+            confirmed=bool(row["confirmed"]),
+            created_at=row["created_at"],
+            confirmed_at=row.get("confirmed_at"),
+        )
+
+    def get_by_user_id(self, user_id: int) -> UserTOTP | None:
+        row = (
+            self.conn.execute(
+                text("SELECT * FROM user_totp WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return self._row_to_totp(row)
+
+    def create(self, totp: UserTOTP) -> UserTOTP:
+        self.conn.execute(
+            text(
+                "INSERT INTO user_totp (user_id, secret, confirmed, created_at) "
+                "VALUES (:user_id, :secret, :confirmed, :created_at)"
+            ),
+            {
+                "user_id": totp.user_id,
+                "secret": totp.secret,
+                "confirmed": totp.confirmed,
+                "created_at": _now(),
+            },
+        )
+        self.conn.commit()
+        result = self.get_by_user_id(totp.user_id)
+        if result is None:
+            raise RuntimeError("Failed to retrieve TOTP after create")
+        return result
+
+    def confirm(self, user_id: int) -> None:
+        self.conn.execute(
+            text("UPDATE user_totp SET confirmed = 1, confirmed_at = :now WHERE user_id = :user_id"),
+            {"now": _now(), "user_id": user_id},
+        )
+        self.conn.commit()
+
+    def delete_by_user_id(self, user_id: int) -> None:
+        self.conn.execute(
+            text("DELETE FROM user_totp WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        )
+        self.conn.commit()
+
+
+class SQLAlchemyRecoveryCodeRepository(RecoveryCodeRepository):
+    def __init__(self, conn: Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row_to_code(row: RowMapping) -> RecoveryCode:
+        return RecoveryCode(
+            id=row["id"],
+            user_id=row["user_id"],
+            code_hash=row["code_hash"],
+            used_at=row.get("used_at"),
+            created_at=row["created_at"],
+        )
+
+    def create_batch(self, user_id: int, code_hashes: list[str]) -> None:
+        now = _now()
+        for code_hash in code_hashes:
+            self.conn.execute(
+                text(
+                    "INSERT INTO user_recovery_codes (user_id, code_hash, created_at) "
+                    "VALUES (:user_id, :code_hash, :created_at)"
+                ),
+                {"user_id": user_id, "code_hash": code_hash, "created_at": now},
+            )
+        self.conn.commit()
+
+    def list_unused_by_user(self, user_id: int) -> list[RecoveryCode]:
+        rows = (
+            self.conn.execute(
+                text(
+                    "SELECT * FROM user_recovery_codes "
+                    "WHERE user_id = :user_id AND used_at IS NULL "
+                    "ORDER BY id"
+                ),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .fetchall()
+        )
+        return [self._row_to_code(row) for row in rows]
+
+    def mark_used(self, code_id: int) -> None:
+        self.conn.execute(
+            text("UPDATE user_recovery_codes SET used_at = :now WHERE id = :id"),
+            {"now": _now(), "id": code_id},
+        )
+        self.conn.commit()
+
+    def delete_all_by_user(self, user_id: int) -> None:
+        self.conn.execute(
+            text("DELETE FROM user_recovery_codes WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        )
+        self.conn.commit()
+
+
+class SQLAlchemyPasskeyRepository(PasskeyRepository):
+    def __init__(self, conn: Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row_to_passkey(row: RowMapping) -> UserPasskey:
+        return UserPasskey(
+            id=row["id"],
+            uuid=row["uuid"],
+            user_id=row["user_id"],
+            credential_id=row["credential_id"],
+            public_key=row["public_key"],
+            sign_count=row["sign_count"],
+            name=row["name"],
+            transports=row.get("transports"),
+            created_at=row["created_at"],
+            last_used_at=row.get("last_used_at"),
+        )
+
+    def create(self, passkey: UserPasskey) -> UserPasskey:
+        passkey_uuid = str(ULID())
+        now = _now()
+        self.conn.execute(
+            text(
+                "INSERT INTO user_passkeys (uuid, user_id, credential_id, public_key, "
+                "sign_count, name, transports, created_at) "
+                "VALUES (:uuid, :user_id, :credential_id, :public_key, "
+                ":sign_count, :name, :transports, :created_at)"
+            ),
+            {
+                "uuid": passkey_uuid,
+                "user_id": passkey.user_id,
+                "credential_id": passkey.credential_id,
+                "public_key": passkey.public_key,
+                "sign_count": passkey.sign_count,
+                "name": passkey.name,
+                "transports": passkey.transports,
+                "created_at": now,
+            },
+        )
+        self.conn.commit()
+        created = self.get_by_uuid(passkey_uuid)
+        if created is None:
+            raise RuntimeError("Failed to retrieve passkey after create")
+        return created
+
+    def get_by_uuid(self, uuid: str) -> UserPasskey | None:
+        row = (
+            self.conn.execute(
+                text("SELECT * FROM user_passkeys WHERE uuid = :uuid"),
+                {"uuid": uuid},
+            )
+            .mappings()
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return self._row_to_passkey(row)
+
+    def get_by_credential_id(self, credential_id: str) -> UserPasskey | None:
+        row = (
+            self.conn.execute(
+                text("SELECT * FROM user_passkeys WHERE credential_id = :cid"),
+                {"cid": credential_id},
+            )
+            .mappings()
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return self._row_to_passkey(row)
+
+    def list_by_user(self, user_id: int) -> list[UserPasskey]:
+        rows = (
+            self.conn.execute(
+                text("SELECT * FROM user_passkeys WHERE user_id = :user_id ORDER BY created_at"),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .fetchall()
+        )
+        return [self._row_to_passkey(row) for row in rows]
+
+    def update_sign_count(self, passkey_id: int, sign_count: int) -> None:
+        self.conn.execute(
+            text("UPDATE user_passkeys SET sign_count = :sign_count WHERE id = :id"),
+            {"sign_count": sign_count, "id": passkey_id},
+        )
+        self.conn.commit()
+
+    def update_last_used(self, passkey_id: int) -> None:
+        self.conn.execute(
+            text("UPDATE user_passkeys SET last_used_at = :now WHERE id = :id"),
+            {"now": _now(), "id": passkey_id},
+        )
+        self.conn.commit()
+
+    def delete(self, passkey_id: int) -> None:
+        self.conn.execute(
+            text("DELETE FROM user_passkeys WHERE id = :id"),
+            {"id": passkey_id},
+        )
+        self.conn.commit()

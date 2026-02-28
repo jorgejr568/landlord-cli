@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = False
 
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "Landlord"
+    webauthn_origin: str = "http://localhost:8000"
+
     secret_key: str = _INSECURE_DEFAULT_KEY
 
     def get_secret_key(self) -> str:

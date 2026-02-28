@@ -13,6 +13,7 @@ from web.deps import (
     get_authorization_service,
     get_billing_service,
     get_invite_service,
+    get_mfa_service,
     get_organization_service,
     render,
 )
@@ -366,6 +367,49 @@ async def organization_invite(request: Request, org_uuid: str):
         )
 
     flash(request, f"Convite enviado para '{username}'!", "success")
+    return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
+
+
+@router.post("/{org_uuid}/toggle-mfa")
+async def organization_toggle_mfa(request: Request, org_uuid: str):
+    logger.info("POST /organizations/%s/toggle-mfa", org_uuid)
+    org_service = get_organization_service(request)
+    org = org_service.get_by_uuid(org_uuid)
+    if not org:
+        flash(request, "Organização não encontrada.", "danger")
+        return RedirectResponse("/organizations/", status_code=302)
+
+    user_id = request.session.get("user_id")
+    member = org_service.get_member(org.id, user_id)
+    if not member or member.role != OrgRole.ADMIN.value:
+        flash(request, "Acesso negado.", "danger")
+        return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
+
+    new_value = not org.enforce_mfa
+    org_service.set_enforce_mfa(org.id, new_value)
+
+    audit = get_audit_service(request)
+    audit.safe_log(
+        AuditEventType.ORGANIZATION_UPDATE_MFA,
+        actor_id=user_id,
+        actor_username=request.session.get("username", ""),
+        source="web",
+        entity_type="organization",
+        entity_id=org.id,
+        entity_uuid=org.uuid,
+        previous_state={"enforce_mfa": org.enforce_mfa},
+        new_state={"enforce_mfa": new_value},
+    )
+
+    status = "ativada" if new_value else "desativada"
+    flash(request, f"Exigência de MFA {status}.", "success")
+
+    # If enabling MFA, check if the admin themselves needs to set up MFA
+    if new_value:
+        mfa_service = get_mfa_service(request)
+        if not mfa_service.has_any_mfa(user_id):
+            request.session["mfa_setup_required"] = True
+
     return RedirectResponse(f"/organizations/{org_uuid}", status_code=302)
 
 

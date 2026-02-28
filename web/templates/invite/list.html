@@ -24,7 +24,7 @@
             <tbody>
                 {% for invite in invites %}
                 <tr>
-                    <td>{{ invite.organization_name }}</td>
+                    <td>{{ invite.organization_name }}{% if invite.enforce_mfa %} <span class="tag tag--mfa">MFA</span>{% endif %}</td>
                     <td class="text-center">{{ invite.role }}</td>
                     <td>{{ invite.invited_by_username }}</td>
                     <td class="text-right">

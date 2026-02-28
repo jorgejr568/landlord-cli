@@ -13,8 +13,11 @@ from landlord.repositories.sqlalchemy import (
     SQLAlchemyBillingRepository,
     SQLAlchemyBillRepository,
     SQLAlchemyInviteRepository,
+    SQLAlchemyMFATOTPRepository,
     SQLAlchemyOrganizationRepository,
+    SQLAlchemyPasskeyRepository,
     SQLAlchemyReceiptRepository,
+    SQLAlchemyRecoveryCodeRepository,
     SQLAlchemyUserRepository,
 )
 from landlord.services.audit_service import AuditService
@@ -22,6 +25,7 @@ from landlord.services.authorization_service import AuthorizationService
 from landlord.services.bill_service import BillService
 from landlord.services.billing_service import BillingService
 from landlord.services.invite_service import InviteService
+from landlord.services.mfa_service import MFAService
 from landlord.services.organization_service import OrganizationService
 from landlord.services.user_service import UserService
 from landlord.storage.factory import get_storage
@@ -29,8 +33,12 @@ from web.flash import get_flashed_messages
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_PREFIX_PATHS = {"/login", "/signup", "/static"}
+PUBLIC_PREFIX_PATHS = {"/login", "/signup", "/static", "/mfa-verify", "/security/passkeys/auth"}
 PUBLIC_EXACT_PATHS = {"/"}
+
+# Paths that MFA-enforcement redirect allows even when mfa_setup_required is set
+MFA_EXEMPT_PREFIXES = {"/security", "/logout", "/login", "/signup", "/static", "/mfa-verify"}
+MFA_EXEMPT_EXACT = {"/"}
 
 
 class AuthMiddleware:
@@ -54,6 +62,39 @@ class AuthMiddleware:
             response = RedirectResponse("/login", status_code=302)
             await response(scope, receive, send)
             return
+        await self.app(scope, receive, send)
+
+
+class MFAEnforcementMiddleware:
+    """Pure ASGI middleware — forces users in MFA-enforcing orgs to set up MFA."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+        path = request.url.path
+
+        # Skip for public/exempt paths
+        if path in MFA_EXEMPT_EXACT or any(path.startswith(p) for p in MFA_EXEMPT_PREFIXES):
+            await self.app(scope, receive, send)
+            return
+
+        user_id = request.session.get("user_id")
+        if not user_id:
+            await self.app(scope, receive, send)
+            return
+
+        if request.session.get("mfa_setup_required"):
+            logger.info("MFA enforcement redirect: %s %s — user=%s", request.method, path, user_id)
+            response = RedirectResponse("/security/totp/setup", status_code=302)
+            await response(scope, receive, send)
+            return
+
         await self.app(scope, receive, send)
 
 
@@ -123,6 +164,16 @@ def get_authorization_service(request: Request) -> AuthorizationService:
 
 def get_audit_service(request: Request) -> AuditService:
     return AuditService(SQLAlchemyAuditLogRepository(_get_conn(request)))
+
+
+def get_mfa_service(request: Request) -> MFAService:
+    conn = _get_conn(request)
+    return MFAService(
+        SQLAlchemyMFATOTPRepository(conn),
+        SQLAlchemyRecoveryCodeRepository(conn),
+        SQLAlchemyPasskeyRepository(conn),
+        SQLAlchemyOrganizationRepository(conn),
+    )
 
 
 def render(request: Request, template_name: str, context: dict | None = None) -> Response:
