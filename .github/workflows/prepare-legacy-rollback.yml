@@ -120,14 +120,14 @@ jobs:
           exit-code: "1"
 
       - name: Attest legacy web image provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}/legacy-web
           subject-digest: ${{ steps.legacy-web.outputs.digest }}
           push-to-registry: true
 
       - name: Attest legacy worker image provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}/legacy-worker
           subject-digest: ${{ steps.legacy-worker.outputs.digest }}

@@ -62,7 +62,7 @@ jobs:
           ignore-unfixed: "true"
           exit-code: "1"
       - name: Attest API image provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}/api
           subject-digest: ${{ steps.api.outputs.digest }}
@@ -85,7 +85,7 @@ jobs:
           ignore-unfixed: "true"
           exit-code: "1"
       - name: Attest worker image provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}/worker
           subject-digest: ${{ steps.worker.outputs.digest }}
@@ -108,7 +108,7 @@ jobs:
           ignore-unfixed: "true"
           exit-code: "1"
       - name: Attest frontend image provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}/frontend
           subject-digest: ${{ steps.frontend.outputs.digest }}
