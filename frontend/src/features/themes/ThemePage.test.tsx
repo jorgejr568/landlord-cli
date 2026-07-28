@@ -143,8 +143,9 @@ it("populates a new-account user theme from effective defaults and previews it",
     "page-title"
   );
   for (const name of ["Fontes", "Cores", "Pré-visualização"]) {
+    // jsdom resolves rem against the 16px root font size, so 0.98rem computes to 15.68px.
     expect(screen.getByRole("heading", { level: 2, name })).toHaveStyle({
-      fontSize: "0.98rem",
+      fontSize: "15.68px",
       margin: "0",
       whiteSpace: "nowrap"
     });

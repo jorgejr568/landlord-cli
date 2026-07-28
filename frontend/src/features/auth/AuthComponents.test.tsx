@@ -19,8 +19,9 @@ describe("authentication components", () => {
       </StandardAuthPanel>
     );
 
+    // jsdom resolves rem against the 16px root font size, so 2rem computes to 32px.
     expect(screen.getByText("Conteúdo").closest(".panel-body")).toHaveStyle({
-      padding: "2rem"
+      padding: "32px"
     });
     expect(screen.getByRole("heading", { name: /Ren\s*tivo/ })).toHaveClass("login-title");
   });
