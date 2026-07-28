@@ -600,11 +600,15 @@ jobs:
       MYSQL_PASSWORD: ci-only-database-password
       MYSQL_ROOT_PASSWORD: ci-only-root-password
       MYSQL_USER: rentivo_compose_ci
-      RENTIVO_APP_ENV_FILE: ${{ runner.temp }}/rentivo-compose-app.env
       RENTIVO_PUBLIC_ORIGIN: https://rentivo.example.test
       RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR: 127.0.0.1/32
       RENTIVO_WEBAUTHN_RP_ID: rentivo.example.test
     steps:
+      - name: Resolve runner temporary paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RENTIVO_APP_ENV_FILE=$RUNNER_TEMP/rentivo-compose-app.env" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - name: Create disposable application environment
         run: |
@@ -635,13 +639,17 @@ jobs:
     env:
       MYSQL_DATABASE: rentivo_gate
       MYSQL_USER: rentivo_gate
-      RENTIVO_APP_ENV_FILE: ${{ runner.temp }}/rentivo-gate-app.env
       RENTIVO_PUBLIC_ORIGIN: http://127.0.0.1:8080
       RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR: 127.0.0.1/32
       RENTIVO_WEBAUTHN_RP_ID: 127.0.0.1
-      STACK_OVERRIDE: ${{ runner.temp }}/rentivo-gate.override.yml
       STACK_PROJECT: rentivo-functional-gate
     steps:
+      - name: Resolve runner temporary paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RENTIVO_APP_ENV_FILE=$RUNNER_TEMP/rentivo-gate-app.env" >> "$GITHUB_ENV"
+          echo "STACK_OVERRIDE=$RUNNER_TEMP/rentivo-gate.override.yml" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -767,13 +775,17 @@ jobs:
     env:
       MYSQL_DATABASE: rentivo_production_ci
       MYSQL_USER: rentivo_production_ci
-      RENTIVO_APP_ENV_FILE: ${{ runner.temp }}/rentivo-production-app.env
       RENTIVO_PUBLIC_ORIGIN: https://rentivo.example.test
       RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR: 127.0.0.1/32
       RENTIVO_WEBAUTHN_RP_ID: rentivo.example.test
-      STACK_OVERRIDE: ${{ runner.temp }}/rentivo-production.override.yml
       STACK_PROJECT: rentivo-production-startup
     steps:
+      - name: Resolve runner temporary paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RENTIVO_APP_ENV_FILE=$RUNNER_TEMP/rentivo-production-app.env" >> "$GITHUB_ENV"
+          echo "STACK_OVERRIDE=$RUNNER_TEMP/rentivo-production.override.yml" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - name: Create secure production startup environment
         shell: bash
