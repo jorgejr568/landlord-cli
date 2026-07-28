@@ -25,6 +25,35 @@ from pathlib import Path
 
 API_ROOT = "https://api.appstoreconnect.apple.com"
 FAILED_STATES = frozenset({"FAILED", "INVALID"})
+# App Store Connect rejects a bearer token older than ten minutes, and `wait`
+# polls for far longer than that, so it re-mints one between polls.
+TOKEN_LIFETIME_SECONDS = 600
+
+
+class AppStoreConnectError(Exception):
+    """A failed App Store Connect request.
+
+    `status` is the HTTP status code, or None when the request never produced
+    an HTTP response at all (DNS failure, reset connection, timeout).
+    """
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
+
+def is_transient_status(status):
+    """Return True when a failed request is worth re-polling rather than failing.
+
+    Only `wait` consults this: it runs after an irreversible upload, so dying on
+    one bad request would send an operator to re-dispatch and burn a second
+    build number for an identical binary. `check` and `list` still fail fast.
+    """
+    if status is None:
+        return True
+    if status == 429:
+        return True
+    return 500 <= status < 600
 
 
 def normalize_builds(payload):
@@ -96,7 +125,12 @@ def _token():
         sys.exit(f"No App Store Connect API key at {key_path}.")
     now = int(time.time())
     return jwt.encode(
-        {"iss": issuer_id, "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+        {
+            "iss": issuer_id,
+            "iat": now,
+            "exp": now + TOKEN_LIFETIME_SECONDS,
+            "aud": "appstoreconnect-v1",
+        },
         key_path.read_text(),
         algorithm="ES256",
         headers={"kid": key_id, "typ": "JWT"},
@@ -104,12 +138,20 @@ def _token():
 
 
 def _get(path, bearer):
+    """Fetch a JSON document, raising AppStoreConnectError on any failure.
+
+    Raising rather than exiting lets `wait` decide which failures are worth
+    re-polling; `main` turns anything that reaches it into a clean exit.
+    """
     request = urllib.request.Request(f"{API_ROOT}{path}", headers={"Authorization": f"Bearer {bearer}"})
     try:
         with urllib.request.urlopen(request) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        sys.exit(f"App Store Connect API error {error.code}: {error.read().decode()[:400]}")
+        body = error.read().decode(errors="replace")[:400]
+        raise AppStoreConnectError(f"App Store Connect API error {error.code}: {body}", status=error.code) from error
+    except urllib.error.URLError as error:
+        raise AppStoreConnectError(f"App Store Connect request failed: {error.reason}") from error
 
 
 def _app_id(bundle_id, bearer):
@@ -158,17 +200,30 @@ def command_check(arguments, bearer):
 
 
 def command_wait(arguments, bearer):
+    """Poll until the build reports VALID, its own deadline, or a hard failure.
+
+    This runs after the upload has already consumed the build number, so a
+    transient App Store Connect failure must not end the run: it is logged and
+    the next poll tries again.
+    """
     deadline = time.monotonic() + arguments.timeout
     while True:
-        build = find_build(_builds(arguments.bundle_id, bearer), arguments.version, arguments.build)
-        if build is not None:
-            outcome = classify(build["state"])
-            print(f"  {_describe(build)}")
-            if outcome == "valid":
-                return 0
-            if outcome == "failed":
-                print(f"Build processing failed: {build['state']}", file=sys.stderr)
-                return 1
+        try:
+            builds = _builds(arguments.bundle_id, bearer)
+        except AppStoreConnectError as error:
+            if not is_transient_status(error.status):
+                raise
+            print(f"  App Store Connect is unavailable, still polling: {error}", file=sys.stderr)
+        else:
+            build = find_build(builds, arguments.version, arguments.build)
+            if build is not None:
+                outcome = classify(build["state"])
+                print(f"  {_describe(build)}")
+                if outcome == "valid":
+                    return 0
+                if outcome == "failed":
+                    print(f"Build processing failed: {build['state']}", file=sys.stderr)
+                    return 1
         if time.monotonic() >= deadline:
             print(
                 f"Build {arguments.version} ({arguments.build}) did not reach VALID within {arguments.timeout}s.",
@@ -176,6 +231,7 @@ def command_wait(arguments, bearer):
             )
             return 1
         time.sleep(arguments.interval)
+        bearer = _token()
 
 
 def main(argv=None):
@@ -194,7 +250,10 @@ def main(argv=None):
 
     arguments = parser.parse_args(argv)
     handlers = {"list": command_list, "check": command_check, "wait": command_wait}
-    return handlers[arguments.command](arguments, _token())
+    try:
+        return handlers[arguments.command](arguments, _token())
+    except AppStoreConnectError as error:
+        sys.exit(str(error))
 
 
 if __name__ == "__main__":

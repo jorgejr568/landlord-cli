@@ -4,9 +4,22 @@ description: Run the RentivoCore package suite and the Xcode-hosted RentivoTests
 runs:
   using: composite
   steps:
-    - name: Select newest installed Xcode
+    # Beta toolchains are excluded deliberately: the runner images ship a beta
+    # alongside the release, and `Xcode_26.0_beta.app` sorts after
+    # `Xcode_16.4.app`. The release workflow applies the same exclusion, where
+    # a beta toolchain would produce a binary App Store Connect rejects.
+    - name: Select the newest non-beta installed Xcode
       shell: bash
-      run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+      run: |
+        set -euo pipefail
+        xcode="$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+        if [ -z "$xcode" ]; then
+          echo "No non-beta Xcode found under /Applications:" >&2
+          ls -d /Applications/Xcode*.app >&2 || true
+          exit 1
+        fi
+        sudo xcode-select -s "$xcode"
+        xcodebuild -version
     - name: Cache Swift Package Manager artifacts
       uses: actions/cache@v4
       with:

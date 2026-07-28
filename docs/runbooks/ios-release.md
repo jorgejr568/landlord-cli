@@ -9,18 +9,29 @@ and merging that change to `main`.
 1. Open a PR that bumps `MARKETING_VERSION` (for example `1.0.1` -> `1.0.2`).
    Leave `CURRENT_PROJECT_VERSION` alone — CI supplies the build number.
 2. The PR runs the normal release gate. The macOS `ios` job runs only when the
-   PR touches `ios/`, `scripts/ios-ci.sh`, `scripts/tests/ios-ci-test.sh`,
+   PR touches `ios/`, `.github/actions/ios-unit-tests/`, `scripts/ios-ci.sh`,
+   `scripts/sync-ios-openapi.sh`, `scripts/tests/ios-ci-test.sh`,
    `.github/workflows/ios-release.yml`, or `.github/workflows/test-pr.yaml`
    itself — that last file is the repo-wide "Complete Release Gate" that
    defines the `ios` job, not an iOS-specific workflow; it's in the trigger
-   list so edits to the job's own definition still get checked.
+   list so edits to the job's own definition still get checked. The list is
+   `IOS_PATH_PATTERN` in `scripts/ios-ci.sh`, and it must name every input the
+   job actually runs: the composite action holding its steps and the OpenAPI
+   sync script are in there for exactly that reason, and
+   `backend/tests/test_preview_infrastructure.py` asserts they stay.
 3. Merging to `main` starts `.github/workflows/ios-release.yml`. Its `detect`
-   job diffs `project.pbxproj` against the previous commit; if
-   `MARKETING_VERSION` did not change, the run stops there. If `HEAD^` cannot
-   be resolved at all (for example a history rewrite), `detect` fails outright
-   rather than guessing — errors err toward *not* releasing, not toward
-   releasing. If `detect` decides a release is warranted, two jobs run against
-   that commit:
+   job compares `MARKETING_VERSION` in `project.pbxproj` at the pushed commit
+   against its value at `github.event.before` — the commit `main` pointed at
+   before the push, *not* `HEAD^`. The two only coincide under a squash or
+   merge commit; with a rebase-merged multi-commit PR whose version bump isn't
+   the final commit, `HEAD^` already carries the new version and the release
+   would silently never happen. If `MARKETING_VERSION` did not change, the run
+   stops there. If the base commit is missing, all zeros, or unreachable in the
+   fetched history (`fetch-depth: 0`), `detect` fails outright rather than
+   guessing — errors err toward *not* releasing. A base commit that simply has
+   no `project.pbxproj` is not an error: it means the iOS project was just
+   added, and that releases. If `detect` decides a release is warranted, two
+   jobs run against that commit:
    - `verify` (macOS): `./scripts/sync-ios-openapi.sh check`, then
      `swift test --package-path ios` and the Xcode-hosted `RentivoTests`
      target via the `ios-unit-tests` composite action.
@@ -42,17 +53,22 @@ no approval step between merging a version bump and the upload.
 Six things stop or skip a release before it uploads. Each is the pipeline
 working as designed, not a bug:
 
-- **`MARKETING_VERSION` was unchanged from the parent commit.** `detect`'s
-  "Compare MARKETING_VERSION with the previous commit" step logs
-  `MARKETING_VERSION unchanged at $current; nothing to release.` and sets
-  `release=false`; `verify`, `preflight`, and `release` all skip.
+- **`MARKETING_VERSION` was unchanged from the pushed-from commit.** `detect`'s
+  "Compare MARKETING_VERSION with the pushed-from commit" step logs
+  `MARKETING_VERSION unchanged at $current since $BASE_SHA; nothing to
+  release.` and sets `release=false`; `verify`, `preflight`, and `release` all
+  skip. `$BASE_SHA` is `github.event.before`, so check that commit — not
+  `HEAD^` — when the decision looks wrong.
 - **The push didn't touch `project.pbxproj`.** The workflow's `on.push.paths`
   filter means it never starts at all — no run appears for that commit in
   the Actions list, not even a skipped one.
-- **`HEAD^` couldn't be resolved.** `detect` exits non-zero with
-  `Cannot resolve HEAD^; refusing to release.` (a shallow-history edge case,
-  not expected on ordinary pushes to `main`); `detect` shows as failed (red),
-  not skipped.
+- **The base commit couldn't be resolved.** `detect` exits non-zero with
+  `This push reports no base commit (before='...'); refusing to release.` or
+  `Base commit <sha> is unreachable in the fetched history; refusing to
+  release.` — a branch-creation or force-push edge case, not expected on
+  ordinary pushes to `main`. `detect` shows as failed (red), not skipped. To
+  release after one of these, dispatch the workflow manually from `main` with
+  `skip_upload` unchecked.
 - **The version/build pair was already consumed.** `preflight` runs
   `asc_builds.py check` and fails with
   `Build <version> (<build>) is already consumed: ...`. Re-running the same
@@ -62,10 +78,43 @@ working as designed, not a bug:
   `verify`, and `preflight` can all succeed, but `release` shows as skipped
   in the Actions UI because of its `github.ref == 'refs/heads/main'`
   condition.
-- **`skip_upload` was checked on a manual dispatch.** `release` runs and
-  succeeds through "Validate with App Store Connect," but its
-  "Upload to App Store Connect" and "Wait for the build to reach VALID"
-  steps show as skipped — no build reaches App Store Connect.
+- **`skip_upload` was checked on a manual dispatch.** This is the *default* for
+  a manual run. `release` runs and succeeds through "Validate with App Store
+  Connect," but its "Upload to App Store Connect" and "Wait for the build to
+  reach VALID" steps show as skipped — no build reaches App Store Connect.
+
+## Triage: the upload succeeded but the job is red
+
+Every case above is a non-upload, where the cheap reaction — fix and re-run —
+is also the right one. This one is the opposite, so read it before reacting.
+
+If "Upload to App Store Connect" succeeded and a later step failed, the binary
+is already at Apple and the build number is already consumed. **Do not
+re-dispatch first.** Confirm the build's real state in App Store Connect —
+either in the TestFlight tab, or with your own key (see "Querying App Store
+Connect by hand" below for the prerequisite):
+
+```bash
+ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> \
+  uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py \
+  list --bundle-id br.com.rentivo.ios
+```
+
+- The build is listed at `state=VALID` — the release worked and only the
+  reporting failed. Nothing to do; do not re-dispatch.
+- The build is listed as still processing — wait for it. Re-dispatching would
+  upload the identical binary under a fresh build number.
+- The build is listed at `FAILED` or `INVALID` — Apple rejected it during
+  processing. That build number is spent regardless. Fix the cause and let the
+  next run take the next build number; the emailed rejection from Apple says
+  what to fix.
+
+The step most likely to be red on its own is "Wait for the build to reach
+VALID". It tolerates transient App Store Connect failures (network errors,
+`429`, `5xx`) and re-mints its bearer token between polls, so it goes red only
+on a real rejection, a genuine auth or client error, or the 30-minute timeout
+elapsing while the build is still processing — the last of which is normal for
+a slow processing queue and is *not* a failed release.
 
 ## Versioning
 
@@ -91,6 +140,14 @@ account, and none is needed. The archive is produced with
 `CODE_SIGNING_ALLOWED=NO`, and `xcodebuild -exportArchive` with
 `method: app-store-connect` and `-allowProvisioningUpdates` uses Xcode
 cloud-managed distribution signing driven by the App Store Connect API key.
+
+Both macOS jobs select the newest **non-beta** `/Applications/Xcode_*.app` and
+fail if none exists. The runner images ship a beta alongside the release, and
+`Xcode_26.0_beta.app` sorts after `Xcode_16.4.app` under `sort -V`, so betas
+are excluded rather than ranked: App Store Connect rejects a binary built with
+a beta toolchain during processing — after the build number has already been
+consumed. The chosen toolchain is printed by `xcodebuild -version` into the job
+log and the evidence artifact.
 
 Archiving with signing enabled does **not** work on this account: automatic
 signing asks for an *iOS App Development* profile during an archive, and
@@ -118,7 +175,16 @@ export log itself does get kept as part of the run's evidence artifact, but a
 dedicated step scrubs the Key ID and Issuer ID out of it (`sed`-replaced with
 `REDACTED`) before that upload, since `xcodebuild -exportArchive`'s own output
 otherwise echoes both values back. The run keeps `DistributionSummary.plist`,
-the `codesign` output, and the redacted export log for 30 days.
+the `codesign` output, the redacted export log, and the `xcodebuild -version`
+output that records which toolchain signed the build, for 30 days.
+
+Two placements in `release` are load-bearing and should not be reordered. The
+key directory is deleted by an `if: always()` step placed immediately before
+`actions/upload-artifact` — that upload is the only `uses:` step that runs
+after the key exists on disk, and external actions here are referenced by
+mutable major-version tag. And the Key ID and Issuer ID are attached as `env:`
+to only the steps that authenticate, rather than to the whole job, so the
+archive and verification steps never see them.
 
 Rotating the key: create a new key in App Store Connect -> Users and Access ->
 Integrations, run `gh secret set APPSTORE_CONNECT_PRIVATE_KEY --repo
@@ -140,6 +206,13 @@ The `skip_upload` input archives, signs, and validates without uploading (the
 upload and the VALID-polling step are both conditioned on
 `!inputs.skip_upload`); use it from `main` to prove the signing path still
 works without consuming a build number.
+
+**`skip_upload` defaults to checked.** Because a manual dispatch releases
+regardless of whether the version changed, the default has to be the safe one:
+clicking "Run workflow" to see what the pipeline does must not consume a build
+number for a duplicate binary. Uploading by hand means deliberately unchecking
+the box. The automatic `push` path never reads this input — it is intentionally
+ungated and always uploads.
 
 ## TestFlight
 
@@ -174,11 +247,13 @@ ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> \
 with `uv run --with pyjwt` instead of `uv run --project backend`; adding
 `pyjwt` to the backend's locked dependencies for a release script would be
 worse. Its pure helpers (`normalize_builds`, `find_build`, `classify`,
-`next_page_path`) are unit-tested under the backend environment by
+`next_page_path`, `is_transient_status`) and `command_wait`'s polling loop are
+unit-tested under the backend environment by
 `scripts/tests/test_asc_builds.py`, which the release-gate `scripts` job runs
 with `uv run --project backend --no-sync pytest
-scripts/tests/test_asc_builds.py -q`. `jwt` itself is imported lazily inside
-the script so those pure helpers stay importable without `pyjwt` installed.
+scripts/tests/test_asc_builds.py -q`, and `make scripts-test` runs locally
+alongside the shell tests. `jwt` itself is imported lazily inside the script so
+those pure helpers stay importable without `pyjwt` installed.
 
 Besides `list`, the same script exposes `check` (used by the `preflight` job)
 and `wait` (used by `release` after upload, with `--timeout`/`--interval`).

@@ -7,10 +7,13 @@ on:
       - ios/Rentivo.xcodeproj/project.pbxproj
   workflow_dispatch:
     inputs:
+      # Defaults to a dry run: a manual dispatch releases unconditionally, so an
+      # exploratory "Run workflow" click must not consume a build number. The
+      # automatic push path never reads this input and is unaffected.
       skip_upload:
         description: Archive, sign, and validate without uploading
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -30,37 +33,51 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-      - name: Compare MARKETING_VERSION with the previous commit
+          # The base commit this push replaced can be arbitrarily far back; the
+          # comparison below needs it present locally.
+          fetch-depth: 0
+      - name: Compare MARKETING_VERSION with the pushed-from commit
         id: version
         env:
           EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.before }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           pbxproj=ios/Rentivo.xcodeproj/project.pbxproj
           current="$(./scripts/ios-ci.sh marketing-version "$pbxproj")"
           echo "marketing-version=$current" >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "Manual dispatch: releasing $current as build ${{ github.run_number }}."
+            echo "Manual dispatch: releasing $current as build $BUILD_NUMBER."
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! git rev-parse --verify -q "HEAD^" >/dev/null; then
-            echo "Cannot resolve HEAD^; refusing to release." >&2
+          # The comparison base is what `main` pointed at before this push, not
+          # HEAD^. They only coincide under squash- or merge-commit merges: with
+          # a rebase-merged multi-commit PR whose version bump is not the last
+          # commit, HEAD^ already carries the new version and the release would
+          # silently never happen.
+          if [ -z "$BASE_SHA" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "This push reports no base commit (before='$BASE_SHA'); refusing to release." >&2
             exit 1
           fi
-          previous_file="$(mktemp)"
-          if ! git show "HEAD^:$pbxproj" > "$previous_file" 2>/dev/null; then
-            echo "No previous revision of $pbxproj; releasing $current."
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "Base commit $BASE_SHA is unreachable in the fetched history; refusing to release." >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE_SHA}:$pbxproj" 2>/dev/null; then
+            echo "No $pbxproj at $BASE_SHA; the iOS project is new, releasing $current as build $BUILD_NUMBER."
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          previous_file="$(mktemp)"
+          git show "${BASE_SHA}:$pbxproj" > "$previous_file"
           previous="$(./scripts/ios-ci.sh marketing-version "$previous_file")"
           if [ "$current" = "$previous" ]; then
-            echo "MARKETING_VERSION unchanged at $current; nothing to release."
+            echo "MARKETING_VERSION unchanged at $current since $BASE_SHA; nothing to release."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "MARKETING_VERSION $previous -> $current; releasing as build ${{ github.run_number }}."
+            echo "MARKETING_VERSION $previous -> $current since $BASE_SHA; releasing as build $BUILD_NUMBER."
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -118,23 +135,44 @@ jobs:
     needs: [detect, verify, preflight]
     if: github.ref == 'refs/heads/main'
     timeout-minutes: 90
+    # ASC_KEY_ID and ASC_ISSUER_ID are deliberately not job-wide: they are
+    # attached only to the steps that authenticate to App Store Connect.
     env:
-      ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
       MARKETING_VERSION: ${{ needs.detect.outputs.marketing-version }}
       BUILD_NUMBER: ${{ needs.detect.outputs.build-number }}
     steps:
+      # First, so a missing repository variable fails in seconds instead of
+      # after the fifteen-minute archive. The later guards stay as well.
+      - name: Require the release configuration variables
+        run: |
+          set -euo pipefail
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID repository variable is required}"
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
       - uses: actions/checkout@v7
-      - name: Select newest installed Xcode
-        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+      # A beta toolchain signs a binary App Store Connect rejects at processing,
+      # after the build number has already been permanently consumed. The runner
+      # images ship betas alongside releases and `Xcode_26.0_beta.app` sorts
+      # after `Xcode_16.4.app`, so betas are excluded rather than ranked.
+      - name: Select the newest non-beta installed Xcode
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "No non-beta Xcode found under /Applications; refusing to sign with a beta toolchain." >&2
+            ls -d /Applications/Xcode*.app >&2 || true
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version | tee "$RUNNER_TEMP/toolchain.txt"
       - name: Install uv
         uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
       - name: Install the App Store Connect API key
         env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_CONNECT_PRIVATE_KEY }}
         run: |
           set -euo pipefail
@@ -174,6 +212,9 @@ jobs:
           </plist>
           PLIST
       - name: Export signed IPA
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcodebuild -exportArchive \
@@ -187,6 +228,9 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/export.log"
       - name: Redact API identifiers from the export log
         if: always()
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           if [ -f "$RUNNER_TEMP/export.log" ]; then
@@ -218,18 +262,27 @@ jobs:
             exit 1
           }
       - name: Validate with App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcrun altool --validate-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
       - name: Upload to App Store Connect
         if: ${{ !inputs.skip_upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcrun altool --upload-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
       - name: Wait for the build to reach VALID
         if: ${{ !inputs.skip_upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
@@ -248,6 +301,12 @@ jobs:
             echo "- Build number: \`$BUILD_NUMBER\`"
             echo "- Commit: \`$GITHUB_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
+      # Must stay immediately before the artifact upload: that upload is the only
+      # `uses:` step running after the key is written, external actions here are
+      # referenced by mutable major-version tag, and this repository is public.
+      - name: Remove the App Store Connect API key
+        if: always()
+        run: rm -rf "$HOME/.appstoreconnect"
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -257,5 +316,6 @@ jobs:
             ${{ runner.temp }}/export/DistributionSummary.plist
             ${{ runner.temp }}/signature.txt
             ${{ runner.temp }}/export.log
+            ${{ runner.temp }}/toolchain.txt
           if-no-files-found: warn
           retention-days: 30

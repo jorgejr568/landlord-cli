@@ -73,6 +73,32 @@ git commit -qm 'ios change'
 actual=$(paths_changed "$BASE")
 [[ "$actual" == "true" ]] || fail "ios change reported $actual"
 
+# The macOS jobs' steps live in a composite action, and the release workflow's
+# verify job runs the OpenAPI sync script; both must trigger the iOS jobs.
+BASE=$(git rev-parse HEAD)
+mkdir -p .github/actions/ios-unit-tests
+printf 'name: iOS unit tests\n' > .github/actions/ios-unit-tests/action.yml
+git add -A
+git commit -qm 'composite action change'
+actual=$(paths_changed "$BASE")
+[[ "$actual" == "true" ]] || fail "composite action change reported $actual"
+
+BASE=$(git rev-parse HEAD)
+mkdir -p scripts
+printf 'check\n' > scripts/sync-ios-openapi.sh
+git add -A
+git commit -qm 'openapi sync change'
+actual=$(paths_changed "$BASE")
+[[ "$actual" == "true" ]] || fail "sync-ios-openapi.sh change reported $actual"
+
+# `scripts/` is not matched wholesale; only the named iOS entries are.
+BASE=$(git rev-parse HEAD)
+printf 'unrelated\n' > scripts/unrelated.sh
+git add -A
+git commit -qm 'unrelated script change'
+actual=$(paths_changed "$BASE")
+[[ "$actual" == "false" ]] || fail "unrelated script change reported $actual"
+
 actual=$(paths_changed "")
 [[ "$actual" == "true" ]] || fail "empty base reported $actual"
 

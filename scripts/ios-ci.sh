@@ -3,8 +3,10 @@
 # Source with RENTIVO_IOS_CI_LIB_ONLY=1 to load the functions without dispatching.
 set -euo pipefail
 
-# Paths whose changes require the macOS iOS jobs to run.
-IOS_PATH_PATTERN='^(ios/|scripts/ios-ci\.sh$|scripts/tests/ios-ci-test\.sh$|\.github/workflows/(ios-release\.yml|test-pr\.yaml)$)'
+# Paths whose changes require the macOS iOS jobs to run. This must cover every
+# input to those jobs, including the composite action that holds their steps
+# and the OpenAPI sync script the release workflow verifies with.
+IOS_PATH_PATTERN='^(ios/|\.github/actions/ios-unit-tests/|scripts/(ios-ci|sync-ios-openapi)\.sh$|scripts/tests/ios-ci-test\.sh$|\.github/workflows/(ios-release\.yml|test-pr\.yaml)$)'
 
 # Print the single MARKETING_VERSION declared by an Xcode project file.
 # Debug and Release both declare it; disagreement is a project bug, not a
@@ -37,7 +39,12 @@ paths_changed() {
   fi
   local merge_base
   merge_base=$(git merge-base "$base" HEAD 2>/dev/null || printf '%s' "$base")
-  if git diff --name-only "$merge_base" HEAD | grep -qE "$IOS_PATH_PATTERN"; then
+  # The file list is materialised before matching: piping `git diff` into
+  # `grep -q` lets grep exit on its first match, killing `git diff` with
+  # SIGPIPE, which `pipefail` would report as "no iOS changes".
+  local changed
+  changed=$(git diff --name-only "$merge_base" HEAD)
+  if grep -qE "$IOS_PATH_PATTERN" <<<"$changed"; then
     printf 'true\n'
   else
     printf 'false\n'

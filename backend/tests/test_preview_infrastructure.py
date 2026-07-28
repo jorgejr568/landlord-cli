@@ -20,6 +20,8 @@ RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 ROLLBACK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rollback.yml"
 PREPARE_LEGACY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "prepare-legacy-rollback.yml"
 SETUP_ACTION = REPO_ROOT / ".github" / "actions" / "setup" / "action.yml"
+IOS_UNIT_TESTS_ACTION = REPO_ROOT / ".github" / "actions" / "ios-unit-tests" / "action.yml"
+IOS_CI_SCRIPT = REPO_ROOT / "scripts" / "ios-ci.sh"
 DOCKER_BUILD_ACTION = REPO_ROOT / ".github" / "actions" / "docker-build" / "action.yml"
 DEPENDABOT_CONFIG = REPO_ROOT / ".github" / "dependabot.yml"
 BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
@@ -507,6 +509,37 @@ def test_every_external_action_is_an_allowlisted_reviewed_version():
             found.add(action)
 
     assert found == set(expected)
+
+
+def test_ios_path_filter_covers_every_input_to_the_conditional_ios_jobs():
+    # The `ios` job is skipped unless IOS_PATH_PATTERN matches. Anything the job
+    # actually executes must therefore be in the pattern, or a PR that breaks it
+    # skips its own check and the gate goes green. The composite action holding
+    # the job's steps is the case this pins.
+    declaration = re.search(r"^IOS_PATH_PATTERN='([^']+)'$", IOS_CI_SCRIPT.read_text(), re.MULTILINE)
+    assert declaration is not None, "scripts/ios-ci.sh must declare IOS_PATH_PATTERN on one single-quoted line"
+    pattern = re.compile(declaration.group(1))
+
+    assert IOS_UNIT_TESTS_ACTION.is_file()
+    for triggering_path in (
+        "ios/Rentivo/RentivoApp.swift",
+        "ios/Package.swift",
+        ".github/actions/ios-unit-tests/action.yml",
+        "scripts/ios-ci.sh",
+        "scripts/sync-ios-openapi.sh",
+        "scripts/tests/ios-ci-test.sh",
+        ".github/workflows/ios-release.yml",
+        ".github/workflows/test-pr.yaml",
+    ):
+        assert pattern.search(triggering_path), f"{triggering_path} must trigger the iOS jobs"
+    for unrelated_path in (
+        "backend/rentivo/api/app.py",
+        "frontend/src/main.tsx",
+        "scripts/seed_parity_fixtures.py",
+        ".github/actions/docker-build/action.yml",
+        ".github/workflows/deploy.yml",
+    ):
+        assert not pattern.search(unrelated_path), f"{unrelated_path} must not trigger the iOS jobs"
 
 
 def test_backend_sast_tool_is_exactly_pinned_in_the_lock_contract():

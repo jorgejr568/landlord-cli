@@ -113,6 +113,7 @@ make test
 make openapi-check
 make frontend-check
 make e2e
+make scripts-test            # if scripts/ or the CI script tests changed
 make ios-openapi-check       # if the API schema changed
 make ios-test                # if ios/ changed (requires full Xcode)
 ```
