@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { StandardAuthPanel } from "./AuthComponents";
