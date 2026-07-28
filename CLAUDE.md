@@ -142,6 +142,11 @@ deployment automation validates production configuration and real integration
 reachability before migration and rollout. See
 `docs/runbooks/production-release.md`.
 
+The iOS app releases independently: changing `MARKETING_VERSION` in
+`ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
+`.github/workflows/ios-release.yml`, which archives, signs, and uploads to App
+Store Connect. See `docs/runbooks/ios-release.md`.
+
 ## Contribution rules
 
 - Code, comments, and identifiers are English; customer-facing copy —
