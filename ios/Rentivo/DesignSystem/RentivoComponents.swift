@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct RentivoCard<Content: View>: View {
   private let content: Content
@@ -27,27 +26,16 @@ struct RentivoCard<Content: View>: View {
 struct RentivoButtonStyle: ButtonStyle {
   var color = RentivoColors.emerald
 
-  /// Buttons render as a solid, saturated fill with a white label. Some accent tones
-  /// are intentionally brightened in dark mode so they stay legible as body text/icons
-  /// elsewhere in the app, but that same brightness fails contrast against a white
-  /// label. Resolving the fill against a forced light trait collection keeps every
-  /// solid button legible (white text stays >=4.5:1) in both appearances — see the
-  /// design-system report for the verified ratios.
-  private var fill: Color {
-    Color(
-      uiColor: UIColor(color).resolvedColor(
-        with: UITraitCollection(userInterfaceStyle: .light)
-      )
-    )
-  }
-
+  /// Buttons render as a solid, saturated fill with a white label. The accent tokens are
+  /// fixed light-appearance values, which keeps the white label at >=4.5:1 against every
+  /// fill this style is used with.
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.headline.weight(.bold))
       .foregroundStyle(Color.white)
       .frame(maxWidth: .infinity, minHeight: 48)
       .padding(.horizontal, RentivoSpacing.medium)
-      .background(configuration.isPressed ? fill.opacity(0.75) : fill)
+      .background(configuration.isPressed ? color.opacity(0.75) : color)
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
