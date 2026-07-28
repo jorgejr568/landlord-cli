@@ -113,6 +113,7 @@ make test
 make openapi-check
 make frontend-check
 make e2e
+make scripts-test            # if scripts/ or the CI script tests changed
 make ios-openapi-check       # if the API schema changed
 make ios-test                # if ios/ changed (requires full Xcode)
 ```
@@ -141,6 +142,11 @@ labels/provenance, and tests the exact images without rebuilding. Protected
 deployment automation validates production configuration and real integration
 reachability before migration and rollout. See
 `docs/runbooks/production-release.md`.
+
+The iOS app releases independently: changing `MARKETING_VERSION` in
+`ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
+`.github/workflows/ios-release.yml`, which archives, signs, and uploads to App
+Store Connect. See `docs/runbooks/ios-release.md`.
 
 ## Contribution rules
 

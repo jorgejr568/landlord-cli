@@ -32,9 +32,7 @@ class SeedResult:
 def ensure_non_production(environment: str) -> None:
     """Refuse to mutate a production database."""
     if environment not in {"dev", "staging"}:
-        raise RuntimeError(
-            "Parity fixtures are restricted to non-production environments."
-        )
+        raise RuntimeError("Parity fixtures are restricted to non-production environments.")
 
 
 def validate_fixture_credentials(password: str, totp_secret: str) -> None:
@@ -43,15 +41,11 @@ def validate_fixture_credentials(password: str, totp_secret: str) -> None:
     if not totp_secret:
         raise ValueError("RENTIVO_PARITY_TOTP_SECRET must be valid uppercase base32.")
     if len(totp_secret) < 32:
-        raise ValueError(
-            "RENTIVO_PARITY_TOTP_SECRET must contain at least 32 base32 characters."
-        )
+        raise ValueError("RENTIVO_PARITY_TOTP_SECRET must contain at least 32 base32 characters.")
     try:
         base64.b32decode(totp_secret, casefold=False)
     except (binascii.Error, ValueError) as exc:
-        raise ValueError(
-            "RENTIVO_PARITY_TOTP_SECRET must be valid uppercase base32."
-        ) from exc
+        raise ValueError("RENTIVO_PARITY_TOTP_SECRET must be valid uppercase base32.") from exc
 
 
 def _delete_fixture_accounts(user_repo: UserRepository) -> None:
@@ -92,9 +86,7 @@ def seed_parity_fixtures(
             )
             if account.mfa_enabled:
                 if created.id is None:
-                    raise RuntimeError(
-                        f"Created parity account has no database ID: {account.email}"
-                    )
+                    raise RuntimeError(f"Created parity account has no database ID: {account.email}")
                 totp_repo.create(
                     UserTOTP(
                         user_id=created.id,

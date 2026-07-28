@@ -1,0 +1,321 @@
+name: iOS App Store Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ios/Rentivo.xcodeproj/project.pbxproj
+  workflow_dispatch:
+    inputs:
+      # Defaults to a dry run: a manual dispatch releases unconditionally, so an
+      # exploratory "Run workflow" click must not consume a build number. The
+      # automatic push path never reads this input and is unaffected.
+      skip_upload:
+        description: Archive, sign, and validate without uploading
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-appstore-release
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: detect marketing version change
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      marketing-version: ${{ steps.version.outputs.marketing-version }}
+      build-number: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The base commit this push replaced can be arbitrarily far back; the
+          # comparison below needs it present locally.
+          fetch-depth: 0
+      - name: Compare MARKETING_VERSION with the pushed-from commit
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.before }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          pbxproj=ios/Rentivo.xcodeproj/project.pbxproj
+          current="$(./scripts/ios-ci.sh marketing-version "$pbxproj")"
+          echo "marketing-version=$current" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch: releasing $current as build $BUILD_NUMBER."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The comparison base is what `main` pointed at before this push, not
+          # HEAD^. They only coincide under squash- or merge-commit merges: with
+          # a rebase-merged multi-commit PR whose version bump is not the last
+          # commit, HEAD^ already carries the new version and the release would
+          # silently never happen.
+          if [ -z "$BASE_SHA" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "This push reports no base commit (before='$BASE_SHA'); refusing to release." >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "Base commit $BASE_SHA is unreachable in the fetched history; refusing to release." >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE_SHA}:$pbxproj" 2>/dev/null; then
+            echo "No $pbxproj at $BASE_SHA; the iOS project is new, releasing $current as build $BUILD_NUMBER."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          previous_file="$(mktemp)"
+          git show "${BASE_SHA}:$pbxproj" > "$previous_file"
+          previous="$(./scripts/ios-ci.sh marketing-version "$previous_file")"
+          if [ "$current" = "$previous" ]; then
+            echo "MARKETING_VERSION unchanged at $current since $BASE_SHA; nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "MARKETING_VERSION $previous -> $current since $BASE_SHA; releasing as build $BUILD_NUMBER."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    name: iOS checks for the release commit
+    runs-on: macos-15
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify iOS OpenAPI contract copy is current
+        run: ./scripts/sync-ios-openapi.sh check
+      - uses: ./.github/actions/ios-unit-tests
+
+  preflight:
+    name: confirm the build number is free
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.release == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+      - name: Install the App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s\n' "$ASC_PRIVATE_KEY" \
+            > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+      - name: Confirm the version and build number are unused
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          MARKETING_VERSION: ${{ needs.detect.outputs.marketing-version }}
+          BUILD_NUMBER: ${{ needs.detect.outputs.build-number }}
+        run: |
+          set -euo pipefail
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
+          uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py check \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --version "$MARKETING_VERSION" \
+            --build "$BUILD_NUMBER"
+
+  release:
+    name: archive, sign, and upload
+    runs-on: macos-15
+    needs: [detect, verify, preflight]
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 90
+    # ASC_KEY_ID and ASC_ISSUER_ID are deliberately not job-wide: they are
+    # attached only to the steps that authenticate to App Store Connect.
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      MARKETING_VERSION: ${{ needs.detect.outputs.marketing-version }}
+      BUILD_NUMBER: ${{ needs.detect.outputs.build-number }}
+    steps:
+      # First, so a missing repository variable fails in seconds instead of
+      # after the fifteen-minute archive. The later guards stay as well.
+      - name: Require the release configuration variables
+        run: |
+          set -euo pipefail
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID repository variable is required}"
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
+      - uses: actions/checkout@v7
+      # A beta toolchain signs a binary App Store Connect rejects at processing,
+      # after the build number has already been permanently consumed. The runner
+      # images ship betas alongside releases and `Xcode_26.0_beta.app` sorts
+      # after `Xcode_16.4.app`, so betas are excluded rather than ranked.
+      - name: Select the newest non-beta installed Xcode
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "No non-beta Xcode found under /Applications; refusing to sign with a beta toolchain." >&2
+            ls -d /Applications/Xcode*.app >&2 || true
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version | tee "$RUNNER_TEMP/toolchain.txt"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+      - name: Install the App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s\n' "$ASC_PRIVATE_KEY" \
+            > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+      - name: Archive unsigned
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project ios/Rentivo.xcodeproj \
+            -scheme Rentivo \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Rentivo.xcarchive" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Write export options
+        run: |
+          set -euo pipefail
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID repository variable is required}"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>method</key>          <string>app-store-connect</string>
+          	<key>teamID</key>          <string>${APPLE_TEAM_ID}</string>
+          	<key>signingStyle</key>    <string>automatic</string>
+          	<key>uploadSymbols</key>   <true/>
+          	<key>destination</key>     <string>export</string>
+          	<key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+      - name: Export signed IPA
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Rentivo.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            2>&1 | tee "$RUNNER_TEMP/export.log"
+      - name: Redact API identifiers from the export log
+        if: always()
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/export.log" ]; then
+            sed -i '' -e "s/${ASC_KEY_ID}/REDACTED/g" -e "s/${ASC_ISSUER_ID}/REDACTED/g" "$RUNNER_TEMP/export.log"
+          fi
+      - name: Verify the signature is a distribution signature
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          rm -rf _verify
+          unzip -q export/Rentivo.ipa -d _verify
+          codesign -dvvv _verify/Payload/Rentivo.app > signature.txt 2>&1
+          cat signature.txt
+          grep -q 'Authority=Apple Distribution' signature.txt
+          grep -q "TeamIdentifier=${APPLE_TEAM_ID}" signature.txt
+      - name: Verify the embedded version numbers
+        run: |
+          set -euo pipefail
+          plist="$RUNNER_TEMP/_verify/Payload/Rentivo.app/Info.plist"
+          short="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
+          echo "CFBundleShortVersionString=$short CFBundleVersion=$build"
+          [ "$short" = "$MARKETING_VERSION" ] || {
+            echo "Expected CFBundleShortVersionString $MARKETING_VERSION, got $short" >&2
+            exit 1
+          }
+          [ "$build" = "$BUILD_NUMBER" ] || {
+            echo "Expected CFBundleVersion $BUILD_NUMBER, got $build" >&2
+            exit 1
+          }
+      - name: Validate with App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --validate-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+      - name: Upload to App Store Connect
+        if: ${{ !inputs.skip_upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+      - name: Wait for the build to reach VALID
+        if: ${{ !inputs.skip_upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
+          uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py wait \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --version "$MARKETING_VERSION" \
+            --build "$BUILD_NUMBER" \
+            --timeout 1800
+      - name: Summarise the release
+        if: always()
+        run: |
+          {
+            echo "### iOS release"
+            echo
+            echo "- Marketing version: \`$MARKETING_VERSION\`"
+            echo "- Build number: \`$BUILD_NUMBER\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Must stay immediately before the artifact upload: that upload is the only
+      # `uses:` step running after the key is written, external actions here are
+      # referenced by mutable major-version tag, and this repository is public.
+      - name: Remove the App Store Connect API key
+        if: always()
+        run: rm -rf "$HOME/.appstoreconnect"
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-release-evidence-${{ needs.detect.outputs.marketing-version }}-${{ needs.detect.outputs.build-number }}
+          path: |
+            ${{ runner.temp }}/export/DistributionSummary.plist
+            ${{ runner.temp }}/signature.txt
+            ${{ runner.temp }}/export.log
+            ${{ runner.temp }}/toolchain.txt
+          if-no-files-found: warn
+          retention-days: 30

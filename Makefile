@@ -153,6 +153,13 @@ ios-openapi-check:
 ios-test:
 	swift test --package-path ios
 
+# Standalone CI scripts: outside backend/pyproject.toml's testpaths, so neither
+# `make test` nor the pre-commit hook reaches them.
+.PHONY: scripts-test
+scripts-test:
+	./scripts/tests/ios-ci-test.sh
+	$(PYTEST) scripts/tests/test_asc_builds.py -q
+
 # --- Worker (local) ---
 
 .PHONY: worker
