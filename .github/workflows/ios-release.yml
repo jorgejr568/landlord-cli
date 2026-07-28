@@ -45,6 +45,10 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if ! git rev-parse --verify -q "HEAD^" >/dev/null; then
+            echo "Cannot resolve HEAD^; refusing to release." >&2
+            exit 1
+          fi
           previous_file="$(mktemp)"
           if ! git show "HEAD^:$pbxproj" > "$previous_file" 2>/dev/null; then
             echo "No previous revision of $pbxproj; releasing $current."
@@ -97,16 +101,22 @@ jobs:
         env:
           ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          MARKETING_VERSION: ${{ needs.detect.outputs.marketing-version }}
+          BUILD_NUMBER: ${{ needs.detect.outputs.build-number }}
         run: |
+          set -euo pipefail
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
           uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py check \
-            --bundle-id "${{ vars.IOS_BUNDLE_ID }}" \
-            --version "${{ needs.detect.outputs.marketing-version }}" \
-            --build "${{ needs.detect.outputs.build-number }}"
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --version "$MARKETING_VERSION" \
+            --build "$BUILD_NUMBER"
 
   release:
     name: archive, sign, and upload
     runs-on: macos-15
     needs: [detect, verify, preflight]
+    if: github.ref == 'refs/heads/main'
     timeout-minutes: 90
     env:
       ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
@@ -148,6 +158,7 @@ jobs:
       - name: Write export options
         run: |
           set -euo pipefail
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID repository variable is required}"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -158,6 +169,7 @@ jobs:
           	<key>signingStyle</key>    <string>automatic</string>
           	<key>uploadSymbols</key>   <true/>
           	<key>destination</key>     <string>export</string>
+          	<key>manageAppVersionAndBuildNumber</key><false/>
           </dict>
           </plist>
           PLIST
@@ -173,6 +185,13 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             2>&1 | tee "$RUNNER_TEMP/export.log"
+      - name: Redact API identifiers from the export log
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/export.log" ]; then
+            sed -i '' -e "s/${ASC_KEY_ID}/REDACTED/g" -e "s/${ASC_ISSUER_ID}/REDACTED/g" "$RUNNER_TEMP/export.log"
+          fi
       - name: Verify the signature is a distribution signature
         run: |
           set -euo pipefail
@@ -204,14 +223,16 @@ jobs:
           xcrun altool --validate-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
       - name: Upload to App Store Connect
-        if: github.event_name != 'workflow_dispatch' || inputs.skip_upload != true
+        if: ${{ !inputs.skip_upload }}
         run: |
           set -euo pipefail
           xcrun altool --upload-app -f "$RUNNER_TEMP/export/Rentivo.ipa" -t ios \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
       - name: Wait for the build to reach VALID
-        if: github.event_name != 'workflow_dispatch' || inputs.skip_upload != true
+        if: ${{ !inputs.skip_upload }}
         run: |
+          set -euo pipefail
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
           uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py wait \
             --bundle-id "$IOS_BUNDLE_ID" \
             --version "$MARKETING_VERSION" \
