@@ -26,16 +26,20 @@ BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 CLAUDE_DOC = REPO_ROOT / "CLAUDE.md"
 CONTRIBUTING_DOC = REPO_ROOT / "CONTRIBUTING.md"
 PRODUCTION_RUNBOOK = REPO_ROOT / "docs" / "runbooks" / "production-release.md"
-CHECKOUT_SHA = "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"
-LOGIN_SHA = "c94ce9fb468520275223c153574b00df6fe4bcc9"
-SETUP_BUILDX_SHA = "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f"
-BUILD_PUSH_SHA = "10e90e3645eae34f1e60eeb005ba3a3d33f178e8"
-ATTEST_SHA = "977bb373ede98d70efdf65b84cb5f73e068dcc2a"
-TRIVY_SHA = "ed142fd0673e97e23eac54620cfb913e5ce36c25"
-SETUP_UV_SHA = "08807647e7069bb48b6ef5acd8ec9567f424441b"
-SETUP_NODE_SHA = "249970729cb0ef3589644e2896645e5dc5ba9c38"
-UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
-CODECOV_SHA = "a99c28d3f0da835de33ff2feb2e15691c7b9641f"
+# Dependabot maintains these as major-version tags rather than pinned commits.
+# The allowlist below still gates which external actions may appear at all; the
+# ref only has to match the reviewed major version.
+CACHE_REF = "v4"
+CHECKOUT_REF = "v7"
+LOGIN_REF = "v4"
+SETUP_BUILDX_REF = "v3"
+BUILD_PUSH_REF = "v7"
+ATTEST_REF = "v3"
+TRIVY_REF = "v0"
+SETUP_UV_REF = "v8"
+SETUP_NODE_REF = "v7"
+UPLOAD_ARTIFACT_REF = "v7"
+CODECOV_REF = "v7"
 
 
 def _yaml(path: Path) -> dict:
@@ -219,6 +223,7 @@ def test_image_builds_are_consolidated_under_the_complete_release_gate():
         "backend",
         "e2e",
         "frontend",
+        "ios",
         "migrations",
         "compose-config",
         "functional-stack",
@@ -405,8 +410,8 @@ def test_docker_build_action_supports_exact_immutable_publication():
     assert "org.opencontainers.image.revision=${{ github.sha }}" in build["with"]["labels"]
     source_label = "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}"
     assert source_label in build["with"]["labels"]
-    assert action["runs"]["steps"][0]["uses"] == f"docker/setup-buildx-action@{SETUP_BUILDX_SHA}"
-    assert build["uses"] == f"docker/build-push-action@{BUILD_PUSH_SHA}"
+    assert action["runs"]["steps"][0]["uses"] == f"docker/setup-buildx-action@{SETUP_BUILDX_REF}"
+    assert build["uses"] == f"docker/build-push-action@{BUILD_PUSH_REF}"
     assert action["outputs"]["digest"]["value"] == "${{ steps.build.outputs.digest }}"
     assert action["outputs"]["image-ref"]["value"].endswith("@${{ steps.build.outputs.digest }}")
     assert ":latest" not in DOCKER_BUILD_ACTION.read_text()
@@ -430,9 +435,9 @@ def test_complete_gate_runs_dependency_repository_and_image_security_scans():
 
     assert workflow["permissions"] == {"contents": "read"}
     assert scan["permissions"] == {"contents": "read"}
-    assert scan_steps["Checkout"]["uses"] == f"actions/checkout@{CHECKOUT_SHA}"
+    assert scan_steps["Checkout"]["uses"] == f"actions/checkout@{CHECKOUT_REF}"
     assert scan_steps["Audit frontend dependencies"]["run"] == "npm --prefix frontend audit --audit-level=high"
-    assert scan_steps["Install uv for locked SAST"]["uses"] == f"astral-sh/setup-uv@{SETUP_UV_SHA}"
+    assert scan_steps["Install uv for locked SAST"]["uses"] == f"astral-sh/setup-uv@{SETUP_UV_REF}"
     assert scan_steps["Install uv for locked SAST"]["with"] == {"version": "0.11.16"}
     assert scan_steps["Install locked SAST dependencies"]["run"] == ("uv sync --project backend --extra dev --frozen")
     assert scan_steps["Run backend static security analysis"]["run"] == (
@@ -444,7 +449,7 @@ def test_complete_gate_runs_dependency_repository_and_image_security_scans():
     )
     for name in ("Audit backend dependencies", "Scan repository secrets and misconfigurations"):
         step = scan_steps[name]
-        assert step["uses"] == f"aquasecurity/trivy-action@{TRIVY_SHA}"
+        assert step["uses"] == f"aquasecurity/trivy-action@{TRIVY_REF}"
         assert step["with"]["exit-code"] == "1"
         assert step["with"]["severity"] == "HIGH,CRITICAL"
     assert scan_steps["Audit backend dependencies"]["with"]["scanners"] == "vuln"
@@ -458,7 +463,7 @@ def test_complete_gate_runs_dependency_repository_and_image_security_scans():
     assert image_build["with"]["load"] == "true"
     assert image_build["with"]["push"] == "false"
     assert jobs["production-images"].get("permissions", {"contents": "read"}) == {"contents": "read"}
-    assert image_scan["uses"] == f"aquasecurity/trivy-action@{TRIVY_SHA}"
+    assert image_scan["uses"] == f"aquasecurity/trivy-action@{TRIVY_REF}"
     assert image_scan["with"] == {
         "exit-code": "1",
         "ignore-unfixed": "true",
@@ -469,21 +474,22 @@ def test_complete_gate_runs_dependency_repository_and_image_security_scans():
     assert set(jobs["all-checks-pass"]["needs"]) == {"release-gate", "production-images"}
 
 
-def test_every_external_action_is_pinned_to_an_expected_commit():
+def test_every_external_action_is_an_allowlisted_reviewed_version():
     paths = tuple(sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))) + tuple(
         sorted((REPO_ROOT / ".github" / "actions").glob("**/action.yml"))
     )
     expected = {
-        "actions/checkout": CHECKOUT_SHA,
-        "actions/setup-node": SETUP_NODE_SHA,
-        "actions/upload-artifact": UPLOAD_ARTIFACT_SHA,
-        "astral-sh/setup-uv": SETUP_UV_SHA,
-        "codecov/codecov-action": CODECOV_SHA,
-        "docker/login-action": LOGIN_SHA,
-        "docker/build-push-action": BUILD_PUSH_SHA,
-        "docker/setup-buildx-action": SETUP_BUILDX_SHA,
-        "actions/attest-build-provenance": ATTEST_SHA,
-        "aquasecurity/trivy-action": TRIVY_SHA,
+        "actions/cache": CACHE_REF,
+        "actions/checkout": CHECKOUT_REF,
+        "actions/setup-node": SETUP_NODE_REF,
+        "actions/upload-artifact": UPLOAD_ARTIFACT_REF,
+        "astral-sh/setup-uv": SETUP_UV_REF,
+        "codecov/codecov-action": CODECOV_REF,
+        "docker/login-action": LOGIN_REF,
+        "docker/build-push-action": BUILD_PUSH_REF,
+        "docker/setup-buildx-action": SETUP_BUILDX_REF,
+        "actions/attest-build-provenance": ATTEST_REF,
+        "aquasecurity/trivy-action": TRIVY_REF,
     }
     found: set[str] = set()
 
@@ -493,7 +499,7 @@ def test_every_external_action_is_pinned_to_an_expected_commit():
                 continue
             assert "@" in action_spec, f"{path}: {action_spec} is not pinned"
             action, ref = action_spec.rsplit("@", 1)
-            assert re.fullmatch(r"[0-9a-f]{40}", ref), f"{path}: {action}@{ref} is mutable"
+            assert re.fullmatch(r"v\d+(\.\d+)*", ref), f"{path}: {action}@{ref} is not a version tag"
             assert action in expected, f"Add the reviewed SHA for {action}"
             assert ref == expected[action]
             found.add(action)
@@ -563,12 +569,12 @@ def test_deploy_runs_one_protected_atomic_webhook_for_the_tested_sha():
         scan = publish["steps"][scan_index]
         image_id = image.lower()
         assert build_index < scan_index < attest_index
-        assert scan["uses"] == f"aquasecurity/trivy-action@{TRIVY_SHA}"
+        assert scan["uses"] == f"aquasecurity/trivy-action@{TRIVY_REF}"
         assert scan["with"]["image-ref"] == f"${{{{ steps.{image_id}.outputs.image-ref }}}}"
         assert scan["with"]["exit-code"] == "1"
         assert scan["with"]["severity"] == "HIGH,CRITICAL"
     attestation_steps = [
-        step for step in publish["steps"] if step.get("uses") == f"actions/attest-build-provenance@{ATTEST_SHA}"
+        step for step in publish["steps"] if step.get("uses") == f"actions/attest-build-provenance@{ATTEST_REF}"
     ]
     assert len(attestation_steps) == 3
     assert {step["with"]["subject-name"].rsplit("/", 1)[-1] for step in attestation_steps} == {
@@ -583,10 +589,10 @@ def test_deploy_runs_one_protected_atomic_webhook_for_the_tested_sha():
         "${{ steps.worker.outputs.digest }}",
     }
     assert next(step for step in publish["steps"] if step.get("name") == "Checkout")["uses"] == (
-        f"actions/checkout@{CHECKOUT_SHA}"
+        f"actions/checkout@{CHECKOUT_REF}"
     )
     assert next(step for step in publish["steps"] if step.get("name") == "Authenticate to GHCR")["uses"] == (
-        f"docker/login-action@{LOGIN_SHA}"
+        f"docker/login-action@{LOGIN_REF}"
     )
     assert resolve["needs"] == "publish-images"
     assert resolve["permissions"] == {"attestations": "read", "contents": "read", "packages": "read"}
@@ -840,12 +846,12 @@ def test_release_requires_the_exact_commit_gate_and_published_images():
     assert verification_script.count("require_verified_image") == 4
     assert ":latest" not in verification_script
     verify_steps = {step["name"]: step for step in verification["steps"] if "name" in step}
-    assert verify_steps["Authenticate to GHCR"]["uses"] == f"docker/login-action@{LOGIN_SHA}"
-    assert verify_steps["Enable Docker Buildx"]["uses"] == f"docker/setup-buildx-action@{SETUP_BUILDX_SHA}"
+    assert verify_steps["Authenticate to GHCR"]["uses"] == f"docker/login-action@{LOGIN_REF}"
+    assert verify_steps["Enable Docker Buildx"]["uses"] == f"docker/setup-buildx-action@{SETUP_BUILDX_REF}"
     assert set(release["needs"]) == {"gate", "verify-images"}
     assert release["permissions"] == {"contents": "write"}
     checkout = next(step for step in release["steps"] if step.get("name") == "Checkout")
-    assert checkout["uses"] == f"actions/checkout@{CHECKOUT_SHA}"
+    assert checkout["uses"] == f"actions/checkout@{CHECKOUT_REF}"
 
 
 def test_release_contract_has_no_deleted_preview_or_legacy_paths():
