@@ -1004,3 +1004,25 @@ def test_no_workflow_uses_the_runner_context_in_job_level_env():
                     offenders.append(f"{path.name}:{job_name}:{key}={value}")
 
     assert not offenders, "job-level env may not reference the runner context: " + ", ".join(offenders)
+
+
+def test_ios_test_sources_guard_the_rentivo_core_import():
+    """`RentivoTests` does not link the RentivoCore SPM package.
+
+    Files under ios/RentivoTests/ therefore cannot import RentivoCore
+    unconditionally: `xcodebuild test` fails with "Unable to find module
+    dependency: 'RentivoCore'". The suite uses a dual-mode guard so the same
+    sources build both under `swift test` (package) and `xcodebuild test`
+    (Xcode target). A file added without the guard breaks only the Xcode
+    target, which `swift test` alone will not catch.
+    """
+    unguarded = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "ios" / "RentivoTests").glob("*.swift"))
+        if "import RentivoCore" in (text := path.read_text()) and "canImport(RentivoCore)" not in text
+    ]
+
+    assert not unguarded, (
+        "these iOS test sources import RentivoCore without the "
+        "#if canImport(RentivoCore) guard: " + ", ".join(unguarded)
+    )
