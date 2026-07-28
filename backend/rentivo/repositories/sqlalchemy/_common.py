@@ -16,6 +16,28 @@ def _now() -> datetime:
     return datetime.now(SP_TZ)
 
 
+def _as_local(value: datetime | str | None) -> datetime | None:
+    """Label a naive stored timestamp with the timezone it was written in.
+
+    Timestamps written by `_now()` land in naive ``DATETIME`` columns, so the
+    offset is dropped on the way in and MariaDB hands back bare São Paulo wall
+    clock. Serializing that as-is produces ``2026-07-28T13:28:55`` — not
+    RFC 3339 — which strict clients reject even though the API contract
+    declares ``format: date-time``. Re-attaching `SP_TZ` restores the offset
+    without shifting the instant, so existing rows keep their meaning.
+
+    SQLite returns these columns as strings that already carry the offset, so
+    values that are parsed as aware are passed through untouched.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=SP_TZ)
+
+
 def build_recipients(encryption: EncryptionBackend, rows: Sequence[RowMapping]) -> list[Recipient]:
     """Assemble ``Recipient`` models from rows, decrypting ``name``/``email`` in one batch.
 
