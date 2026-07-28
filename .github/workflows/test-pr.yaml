@@ -551,7 +551,7 @@ jobs:
           )
 
           revisions = connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
-          assert revisions == ["e0f1a2b3c4d5"], revisions
+          assert revisions == ["6f876ec79535"], revisions
 
           for table, expected in snapshot["tables"].items():
               actual_rows = [
@@ -590,7 +590,7 @@ jobs:
         run: |
           current="$(uv run --project backend --no-sync alembic -c backend/alembic.ini current)"
           printf '%s\n' "$current"
-          printf '%s\n' "$current" | grep -F 'e0f1a2b3c4d5 (head)'
+          printf '%s\n' "$current" | grep -F '6f876ec79535 (head)'
 
   compose-config:
     name: promoted Compose configuration

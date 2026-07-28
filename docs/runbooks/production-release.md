@@ -43,7 +43,7 @@ Complete every item before announcing the maintenance window:
    and frontend tests, 100% coverage, lint, OpenAPI freshness, production
    Compose validation, image builds, exact-tag vulnerability scans, the
    real-stack smoke/E2E suite, and the populated production migration rehearsal
-   from `55dc25bae00d` to `e0f1a2b3c4d5`.
+   from `55dc25bae00d` to `6f876ec79535`.
 2. Confirm the release SHA is the commit being deployed. Do not rebuild from a
    moving branch or retag an image after the gate.
 3. Validate production configuration with secret-managed files:
@@ -62,7 +62,7 @@ Complete every item before announcing the maintenance window:
 
    ```bash
    uv run --project backend alembic -c backend/alembic.ini heads
-   # Expected for 5.0.0: e0f1a2b3c4d5 (head)
+   # Expected: 6f876ec79535 (head)
    ```
 
 6. Verify free database capacity, application host capacity, certificate
@@ -98,7 +98,7 @@ record. Abort before migration if either objective is missed.
 
 For the first 5.0 cutover, the gate must first upgrade a populated schema at
 revision `55dc25bae00d` through the complete migration chain to
-`e0f1a2b3c4d5`. Its before/after evidence must preserve representative users,
+`6f876ec79535`. Its before/after evidence must preserve representative users,
 MFA and passkeys, organizations and memberships, billings and billing items,
 bills, receipts, expenses, and audit data; it must also prove all billing-item
 UUIDs are populated and distinct. An empty-database upgrade or a final-migration
@@ -183,7 +183,7 @@ and report the complete-gate-tested SHA and digest references, abort the release
 until that contract is available.
 
 The `rentivo.deploy.v2` request includes expected Alembic revision
-`e0f1a2b3c4d5`. Its response must echo the tested SHA and exact image digests,
+`6f876ec79535`. Its response must echo the tested SHA and exact image digests,
 report one deployment, and return the exact ordered stage list. Every stage
 must include UTC start/end timestamps. Migration evidence must include exit
 code zero, a content-addressed log checksum, and the current Alembic revision;

@@ -346,7 +346,7 @@ def test_pr_migrations_rehearse_a_populated_production_head_to_5_0():
     assert "api_keys" in scripts
     assert "auth_challenges" in scripts
     assert "auth_rate_limits" in scripts
-    assert "e0f1a2b3c4d5" in scripts
+    assert "6f876ec79535" in scripts
 
 
 def test_pr_gate_starts_services_with_validated_production_settings():
@@ -698,7 +698,7 @@ def test_deploy_runs_one_protected_atomic_webhook_for_the_tested_sha():
     assert set(deploy["needs"]) == {"resolve-images", "verify-images"}
     assert deploy["permissions"] == {"contents": "read"}
     assert deploy["environment"]["name"] == "production"
-    assert deploy["env"]["EXPECTED_ALEMBIC_REVISION"] == "e0f1a2b3c4d5"
+    assert deploy["env"]["EXPECTED_ALEMBIC_REVISION"] == "6f876ec79535"
     assert deploy_script.count("curl ") == 1
     assert "X-Idempotency-Key" in deploy_script
     assert "Authorization: Bearer" in deploy_script
@@ -952,7 +952,7 @@ def test_runbook_defines_the_one_time_5_0_rollback_artifact_and_release_guards()
     assert "Later releases must not use the legacy images" in runbook
     assert "prepare-legacy-rollback.yml" in runbook
     assert "55dc25bae00d" in runbook
-    assert "e0f1a2b3c4d5" in runbook
+    assert "6f876ec79535" in runbook
     assert "populated production migration rehearsal" in runbook
     assert "legacy_web_ref" in runbook
     assert "legacy_worker_ref" in runbook
