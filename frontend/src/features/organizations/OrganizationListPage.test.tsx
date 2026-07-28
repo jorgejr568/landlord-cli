@@ -1,5 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -8,6 +9,13 @@ import { jsonResponse, problemResponse } from "../../test/auth";
 import { OrganizationListPage } from "./OrganizationListPage";
 
 type Organization = components["schemas"]["OrganizationResponse"];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((complete, fail) => { resolve = complete; reject = fail; });
+  return { promise, reject, resolve };
+}
 
 const organization: Organization = {
   capabilities: { can_create_billing: false, can_invite: false, can_manage: false, can_view_billing_stats: false },
@@ -88,4 +96,47 @@ it("retries API and network failures", async () => {
   expect(await screen.findByText("Não foi possível carregar as organizações.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await waitFor(() => expect(screen.getByText("Ribeiro Imóveis")).toBeVisible());
+});
+
+it("ignores a stale successful list request discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  vi.stubGlobal("fetch", vi.fn(() => {
+    const attempt = deferred<Response>();
+    attempts.push(attempt);
+    return attempt.promise;
+  }));
+
+  render(<StrictMode><MemoryRouter><OrganizationListPage /></MemoryRouter></StrictMode>);
+
+  // React's Strict Mode intentionally mounts this effect twice in development to surface
+  // non-idempotent effects: the first attempt's AbortController is aborted immediately, and
+  // only the second (retained) attempt should ever be allowed to update the page.
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse({ items: [organization] })); });
+  expect(await screen.findByText("Ribeiro Imóveis")).toBeVisible();
+
+  await act(async () => {
+    attempts[0].resolve(jsonResponse({ items: [{ ...organization, name: "Organização obsoleta", uuid: "org-stale" }] }));
+  });
+  expect(screen.getByText("Ribeiro Imóveis")).toBeVisible();
+  expect(screen.queryByText("Organização obsoleta")).not.toBeInTheDocument();
+});
+
+it("ignores a stale failed list request discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  vi.stubGlobal("fetch", vi.fn(() => {
+    const attempt = deferred<Response>();
+    attempts.push(attempt);
+    return attempt.promise;
+  }));
+
+  render(<StrictMode><MemoryRouter><OrganizationListPage /></MemoryRouter></StrictMode>);
+
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse({ items: [] })); });
+  expect(await screen.findByText("Você não faz parte de nenhuma organização.")).toBeVisible();
+
+  await act(async () => { attempts[0].reject(new Error("stale network failure")); });
+  expect(screen.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar as organizações.")).not.toBeInTheDocument();
 });

@@ -40,6 +40,7 @@ export function LoginPage() {
   const mobileCallbackOpened = useRef(false);
 
   const completeMobileAuthorization = useCallback(async () => {
+    /* v8 ignore next -- both callers already guard on mobile_state before invoking */
     if (!mobileState) {
       return;
     }

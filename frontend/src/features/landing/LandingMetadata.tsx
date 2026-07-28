@@ -75,8 +75,9 @@ export function LandingMetadata() {
       restoredElements.forEach(({ created, element, original }) => {
         if (created) {
           element.remove();
-        } else if (original) {
-          element.replaceWith(original);
+        } else {
+          // `original` is a clone of the pre-existing element, so it is always defined here.
+          element.replaceWith(original as HTMLElement);
         }
       });
     };

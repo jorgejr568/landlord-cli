@@ -76,6 +76,7 @@ export function useDocumentTitle(title: string) {
     if (previousTitle.current === null) previousTitle.current = document.title;
     document.title = title;
     return () => {
+      /* v8 ignore next -- the effect always sets a title before its own cleanup can run */
       if (previousTitle.current !== null) document.title = previousTitle.current;
     };
   }, [title]);

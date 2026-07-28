@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -22,8 +23,9 @@ type BillingList = components["schemas"]["BillingListResponse"];
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => { resolve = complete; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((complete, fail) => { resolve = complete; reject = fail; });
+  return { promise, reject, resolve };
 }
 
 const detail: Detail = {
@@ -570,6 +572,90 @@ it("focuses the members heading after removing the final manageable member", asy
   await user.click(screen.getByRole("button", { name: "Remover membro" }));
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "Membros" })).toHaveFocus());
+});
+
+it("ignores a stale successful detail load discarded by React's automatic double-invoked effect", async () => {
+  const orgAttempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/billings": () => jsonResponse(billings),
+    "GET /api/v1/organizations/org-public-uuid": () => {
+      const attempt = deferred<Response>();
+      orgAttempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/organizations/org-public-uuid"]}>
+        <Routes>
+          <Route element={<OrganizationDetailPage />} path="/organizations/:orgUuid" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  // React's Strict Mode intentionally mounts this effect twice in development to surface
+  // non-idempotent effects: the first attempt's AbortController is aborted immediately, and
+  // only the second (retained) attempt should ever be allowed to update the page.
+  await waitFor(() => expect(orgAttempts).toHaveLength(2));
+  await act(async () => { orgAttempts[1].resolve(jsonResponse(detail)); });
+  expect(await screen.findByRole("heading", { name: "Acme Imóveis" })).toBeVisible();
+
+  await act(async () => { orgAttempts[0].resolve(jsonResponse({ ...detail, name: "Organização obsoleta" })); });
+  expect(screen.getByRole("heading", { name: "Acme Imóveis" })).toBeVisible();
+  expect(screen.queryByText("Organização obsoleta")).not.toBeInTheDocument();
+});
+
+it("ignores a stale failed detail load discarded by React's automatic double-invoked effect", async () => {
+  const orgAttempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/billings": () => jsonResponse(billings),
+    "GET /api/v1/organizations/org-public-uuid": () => {
+      const attempt = deferred<Response>();
+      orgAttempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/organizations/org-public-uuid"]}>
+        <Routes>
+          <Route element={<OrganizationDetailPage />} path="/organizations/:orgUuid" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  await waitFor(() => expect(orgAttempts).toHaveLength(2));
+  await act(async () => { orgAttempts[1].resolve(jsonResponse(detail)); });
+  expect(await screen.findByRole("heading", { name: "Acme Imóveis" })).toBeVisible();
+
+  await act(async () => { orgAttempts[0].reject(new Error("stale network failure")); });
+  expect(screen.getByRole("heading", { name: "Acme Imóveis" })).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar a organização.")).not.toBeInTheDocument();
+});
+
+it("ignores a stale member-role mutation failure from an organization that is no longer current", async () => {
+  const user = userEvent.setup();
+  const roleUpdate = deferred<Response>();
+  installFetch(baseHandlers({
+    "GET /api/v1/organizations/org-beta": () => jsonResponse({ ...detail, invites: [], name: "Beta Imóveis", uuid: "org-beta" }),
+    "PATCH /api/v1/organizations/org-public-uuid/members/77": () => roleUpdate.promise
+  }));
+  renderSwitchablePage();
+  const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
+
+  await user.selectOptions(role, "viewer");
+  await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
+  expect(await screen.findByRole("heading", { name: "Beta Imóveis" })).toBeVisible();
+
+  await act(async () => { roleUpdate.reject(new Error("stale network failure")); });
+
+  expect(screen.getByRole("heading", { name: "Beta Imóveis" })).toBeVisible();
+  expect(screen.queryByText("Não foi possível atualizar o papel.")).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 it("aborts an active organization mutation when the page unmounts", async () => {

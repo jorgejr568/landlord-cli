@@ -177,7 +177,10 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
           <button className="btn btn--sm btn--primary" disabled={activeMutation !== null} type="submit">{activeMutation === "upload" ? "Enviando..." : "Enviar"}</button>
         </form> : null}</div>}
       </div>
-      <ConfirmDialog acceptLabel="Remover" body="Esta ação não pode ser desfeita." onClose={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) void remove(pendingDelete); }} open={pendingDelete !== null} title="Remover documento?" />
+      <ConfirmDialog acceptLabel="Remover" body="Esta ação não pode ser desfeita." onClose={() => setPendingDelete(null)} onConfirm={() => {
+        /* v8 ignore next -- the dialog only renders its accept action while a delete is pending */
+        if (pendingDelete) void remove(pendingDelete);
+      }} open={pendingDelete !== null} title="Remover documento?" />
     </>
   );
 }

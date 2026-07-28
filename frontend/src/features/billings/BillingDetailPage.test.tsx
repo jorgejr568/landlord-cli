@@ -696,6 +696,196 @@ it("does not navigate when billing deletion resolves after the route changes", a
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 
+it("ignores a stale second-stage refresh after navigating away mid load", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let resolveBills: ((response: Response) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(billing);
+    if (key === "GET /api/v1/billings/billing-public/bills") return new Promise<Response>((resolve) => { resolveBills = resolve; });
+    if (key === "GET /api/v1/billings/billing-public/expenses") return jsonResponse({ items: [expense] });
+    if (key === "GET /api/v1/billings/billing-public/attachments") return jsonResponse({ items: [attachment] });
+    if (key === "GET /api/v1/organizations") return jsonResponse({ items: [organization] });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  expect(await screen.findByText("Carregando cobrança...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { resolveBills?.(jsonResponse({ items: bills })); });
+  expect(screen.getByRole("heading", { name: "Casa B" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Apartamento 302" })).not.toBeInTheDocument();
+});
+
+it("ignores a late load failure from route A once route B is showing", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectPublicBilling: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return new Promise<Response>((_resolve, reject) => { rejectPublicBilling = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  expect(await screen.findByText("Carregando cobrança...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectPublicBilling?.(new Error("offline")); });
+  expect(screen.getByRole("heading", { name: "Casa B" })).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar a cobrança.")).not.toBeInTheDocument();
+});
+
+it("ignores a stale export failure once route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectExport: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "POST /api/v1/billings/billing-public/exports") return new Promise<Response>((_resolve, reject) => { rejectExport = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("heading", { name: "Apartamento 302" });
+  await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectExport?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível solicitar a exportação.")).not.toBeInTheDocument();
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores a stale expense-create failure once route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectCreate: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "POST /api/v1/billings/billing-public/expenses") return new Promise<Response>((_resolve, reject) => { rejectCreate = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("button", { name: "Adicionar despesa" });
+  fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectCreate?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível adicionar a despesa.")).not.toBeInTheDocument();
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores a stale expense-removal failure once route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectRemoval: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "DELETE /api/v1/billings/billing-public/expenses/expense-public") return new Promise<Response>((_resolve, reject) => { rejectRemoval = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("button", { name: "Remover despesa IPTU 2026" });
+  await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
+  await user.click(screen.getByRole("button", { name: "Remover" }));
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectRemoval?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível remover a despesa.")).not.toBeInTheDocument();
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores a stale transfer failure once route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectTransfer: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "POST /api/v1/billings/billing-public/transfer") return new Promise<Response>((_resolve, reject) => { rejectTransfer = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /><LocationProbe /></>} path="/billings/:billingUuid" />
+    <Route element={<LocationProbe />} path="/billings/" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("heading", { name: "Apartamento 302" });
+  await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+  await user.click(screen.getByRole("button", { name: "Transferir" }));
+  await user.click(screen.getByRole("button", { name: "Confirmar transferência" }));
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectTransfer?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível transferir a cobrança.")).not.toBeInTheDocument();
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores a stale delete failure once route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectDelete: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "DELETE /api/v1/billings/billing-public") return new Promise<Response>((_resolve, reject) => { rejectDelete = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /><LocationProbe /></>} path="/billings/:billingUuid" />
+    <Route element={<LocationProbe />} path="/billings/" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("button", { name: "Excluir cobrança" });
+  await user.click(screen.getByRole("button", { name: "Excluir cobrança" }));
+  await user.click(screen.getByRole("button", { name: "Excluir cobrança permanentemente" }));
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+
+  await act(async () => { rejectDelete?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível excluir a cobrança.")).not.toBeInTheDocument();
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
 it("rejects a late manual retry from route A after route B has loaded", async () => {
   const user = userEvent.setup();
   const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };

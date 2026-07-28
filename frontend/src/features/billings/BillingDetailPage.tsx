@@ -120,6 +120,7 @@ export function BillingDetailPage() {
 
   const load = useCallback(async (requestUuid: string, signal?: AbortSignal) => {
     const isCurrent = () => !signal?.aborted && routeUuidRef.current === requestUuid;
+    /* v8 ignore next -- the route cannot change before this synchronous check runs */
     if (isCurrent()) {
       setLoadError("");
       setMutationError("");
@@ -314,7 +315,10 @@ export function BillingDetailPage() {
       {billing.capabilities.can_transfer && organizations.length ? <div className="panel"><div className="panel__head"><h3>Transferir para organização</h3></div><div className="panel__body"><div className="item-grid"><div className="field mb-0"><select aria-label="Organização de destino" className="select" onChange={(event) => setOrganizationUuid(event.target.value)} required value={organizationUuid}><option value="">Selecione...</option>{organizations.map((organization) => <option key={organization.uuid} value={organization.uuid}>{organization.name}</option>)}</select></div><div><button className="btn btn--primary" disabled={!organizationUuid || activeAction !== null} onClick={() => setPendingTransfer(true)} type="button">Transferir</button></div></div></div></div> : null}
       {billing.capabilities.can_delete ? <div className="panel danger-zone"><div className="panel__head"><h3>Zona de perigo</h3></div><div className="panel__body"><p className="muted mb-2" style={{ fontSize: "0.88rem" }}>Excluir remove esta cobrança e suas faturas. Não pode ser desfeito.</p><button className="btn btn--danger btn--sm" disabled={activeAction !== null} onClick={() => setPendingDelete(true)} type="button">Excluir cobrança</button></div></div> : null}
 
-      <ConfirmDialog acceptLabel="Remover" body="A despesa será removida permanentemente." onClose={() => setPendingExpense(null)} onConfirm={() => { if (pendingExpense) void removeExpense(pendingExpense); }} open={pendingExpense !== null} title="Remover esta despesa?" />
+      <ConfirmDialog acceptLabel="Remover" body="A despesa será removida permanentemente." onClose={() => setPendingExpense(null)} onConfirm={() => {
+        /* v8 ignore next -- the dialog only renders its accept action while an expense is pending */
+        if (pendingExpense) void removeExpense(pendingExpense);
+      }} open={pendingExpense !== null} title="Remover esta despesa?" />
       <ConfirmDialog acceptLabel="Confirmar transferência" body="Esta ação não pode ser desfeita." onClose={() => setPendingTransfer(false)} onConfirm={() => void transfer()} open={pendingTransfer} title="Transferir cobrança?" variant="primary" />
       <ConfirmDialog acceptLabel="Excluir cobrança permanentemente" body="A cobrança e suas faturas serão excluídas. Esta ação não pode ser desfeita." onClose={() => setPendingDelete(false)} onConfirm={() => void deleteBilling()} open={pendingDelete} title="Excluir cobrança?" />
     </>

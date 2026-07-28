@@ -26,9 +26,9 @@ function Probe() {
   return (
     <>
       <span>{auth.status}</span>
-      <span>{auth.configStatus}</span>
+      <span data-testid="config-status">{auth.configStatus}</span>
       <span>{auth.bootstrap?.user.email ?? "sem usuário"}</span>
-      <span data-testid="path">{location.pathname}</span>
+      <span data-testid="path">{location.pathname}{location.search}</span>
       <button onClick={() => auth.authenticate(AUTHENTICATED_WITH_EVENT)} type="button">
         autenticar
       </button>
@@ -40,6 +40,9 @@ function Probe() {
       </button>
       <button onClick={auth.retrySession} type="button">
         tentar sessão
+      </button>
+      <button onClick={() => void auth.refreshSession()} type="button">
+        atualizar sessão
       </button>
       <button
         onClick={() => void apiRequest(apiClient.GET("/api/v1/profile")).catch(() => undefined)}
@@ -270,6 +273,198 @@ describe("AuthProvider", () => {
     expect(screen.getByText("authenticated")).toBeVisible();
     expect(screen.getByText("user@example.com")).toBeVisible();
     expect(screen.getByTestId("path")).toHaveTextContent("/login");
+  });
+
+  it("discards a stale but successful initial session response superseded by a later login", async () => {
+    const user = userEvent.setup();
+    let resolveSession!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") {
+          return jsonResponse(AUTH_CONFIG);
+        }
+        if (url === "/api/v1/auth/session") {
+          return new Promise<Response>((resolve) => {
+            resolveSession = resolve;
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper path="/login">
+        <Probe />
+      </Wrapper>
+    );
+
+    expect(await screen.findByText("ready")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "autenticar" }));
+    expect(screen.getByText("authenticated")).toBeVisible();
+    expect(screen.getByText("user@example.com")).toBeVisible();
+
+    await act(async () =>
+      resolveSession(
+        jsonResponse({
+          ...AUTHENTICATED_RESPONSE,
+          bootstrap: {
+            ...AUTHENTICATED_RESPONSE.bootstrap,
+            user: { ...AUTHENTICATED_RESPONSE.bootstrap.user, email: "late-bootstrap@example.com" }
+          }
+        })
+      )
+    );
+
+    expect(screen.queryByText("late-bootstrap@example.com")).not.toBeInTheDocument();
+    expect(screen.getByText("user@example.com")).toBeVisible();
+    expect(screen.getByTestId("path")).toHaveTextContent("/login");
+  });
+
+  it("applies fresh bootstrap data when refreshSession completes without a newer generation", async () => {
+    const user = userEvent.setup();
+    let sessionCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") return jsonResponse(AUTH_CONFIG);
+        if (url === "/api/v1/auth/session") {
+          sessionCalls += 1;
+          return jsonResponse(
+            sessionCalls === 1
+              ? AUTHENTICATED_RESPONSE
+              : {
+                  ...AUTHENTICATED_RESPONSE,
+                  bootstrap: {
+                    ...AUTHENTICATED_RESPONSE.bootstrap,
+                    user: { ...AUTHENTICATED_RESPONSE.bootstrap.user, email: "refreshed@example.com" }
+                  }
+                }
+          );
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper>
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("user@example.com");
+    await user.click(screen.getByRole("button", { name: "atualizar sessão" }));
+
+    expect(await screen.findByText("refreshed@example.com")).toBeVisible();
+  });
+
+  it("discards a stale refreshSession response superseded by a newer session generation", async () => {
+    const user = userEvent.setup();
+    let resolveRefresh!: (response: Response) => void;
+    let sessionCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") return jsonResponse(AUTH_CONFIG);
+        if (url === "/api/v1/auth/session") {
+          sessionCalls += 1;
+          if (sessionCalls === 1) {
+            return jsonResponse(AUTHENTICATED_RESPONSE);
+          }
+          return new Promise<Response>((resolve) => {
+            resolveRefresh = resolve;
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper>
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("user@example.com");
+    await user.click(screen.getByRole("button", { name: "atualizar sessão" }));
+    await user.click(screen.getByRole("button", { name: "autenticar" }));
+
+    expect(screen.getByText("user@example.com")).toBeVisible();
+
+    await act(async () =>
+      resolveRefresh(
+        jsonResponse({
+          ...AUTHENTICATED_RESPONSE,
+          bootstrap: {
+            ...AUTHENTICATED_RESPONSE.bootstrap,
+            user: { ...AUTHENTICATED_RESPONSE.bootstrap.user, email: "stale-refresh@example.com" }
+          }
+        })
+      )
+    );
+
+    expect(screen.queryByText("stale-refresh@example.com")).not.toBeInTheDocument();
+    expect(screen.getByText("user@example.com")).toBeVisible();
+  });
+
+  it("does not flag a config load as failed when it was aborted by a retry", async () => {
+    const user = userEvent.setup();
+    let configCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") {
+          configCalls += 1;
+          if (configCalls === 1) {
+            return new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => {
+                reject(new DOMException("Aborted", "AbortError"));
+              });
+            });
+          }
+          return jsonResponse(AUTH_CONFIG);
+        }
+        if (url === "/api/v1/auth/session") return jsonResponse(AUTHENTICATED_RESPONSE);
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper>
+        <Probe />
+      </Wrapper>
+    );
+
+    expect(screen.getByTestId("config-status")).toHaveTextContent("loading");
+    await user.click(screen.getByRole("button", { name: "tentar configuração" }));
+
+    await waitFor(() => expect(screen.getByTestId("config-status")).toHaveTextContent("ready"));
+    expect(screen.getByTestId("config-status")).not.toHaveTextContent("error");
+  });
+
+  it("skips a redundant navigate when logout happens while already on the public login route", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetch();
+
+    render(
+      <Wrapper path="/login?existing=1">
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("authenticated");
+    expect(screen.getByTestId("path")).toHaveTextContent("/login?existing=1");
+
+    await user.click(screen.getByRole("button", { name: "sair" }));
+
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeVisible());
+    expect(screen.getByTestId("path")).toHaveTextContent("/login?existing=1");
+    const logoutCall = fetchMock.mock.calls.find(([url]) => url === "/api/v1/auth/logout");
+    expect(logoutCall).toBeDefined();
   });
 
   it("sends CSRF on logout, clears state, navigates, and pushes the event", async () => {

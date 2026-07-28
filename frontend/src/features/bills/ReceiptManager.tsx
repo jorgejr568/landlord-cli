@@ -47,7 +47,10 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
   const successRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef(receipts);
   const sortableRef = useRef<Sortable | null>(null);
-  const reorderRef = useRef<(next: Receipt[]) => void>(() => undefined);
+  const reorderRef = useRef<(next: Receipt[]) => void>(
+    /* v8 ignore next -- overwritten unconditionally on every render before any handler can invoke it */
+    () => undefined
+  );
   const operation = useRef(0);
 
   useEffect(() => {
@@ -224,6 +227,7 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
     sortableRef.current = sortable;
     return () => {
       sortable.destroy();
+      /* v8 ignore next -- cleanup always pairs with its own setup's sortable instance */
       if (sortableRef.current === sortable) sortableRef.current = null;
     };
   }, [billUuid, billingUuid, sortableEnabled]);

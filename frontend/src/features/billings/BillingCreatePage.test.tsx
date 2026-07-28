@@ -180,6 +180,36 @@ it("retries organization loading and normalizes body field errors with focus", a
   expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
 });
 
+it("ignores a late organizations response after the page unmounts", async () => {
+  let resolveOrganizations: ((response: Response) => void) | undefined;
+  const fetchMock = installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((resolve) => { resolveOrganizations = resolve; })
+  });
+  const view = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  view.unmount();
+
+  await act(async () => { resolveOrganizations?.(jsonResponse(organizationList)); });
+
+  expect(screen.queryByText("Carregando formulário...")).not.toBeInTheDocument();
+});
+
+it("ignores a late organizations load failure after the page unmounts", async () => {
+  let rejectOrganizations: ((reason?: unknown) => void) | undefined;
+  const fetchMock = installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((_resolve, reject) => { rejectOrganizations = reject; })
+  });
+  const view = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  view.unmount();
+
+  await act(async () => { rejectOrganizations?.(new Error("late failure")); });
+
+  expect(screen.queryByText("Não foi possível carregar as organizações.")).not.toBeInTheDocument();
+});
+
 it("aborts a pending create and ignores its late response after cancellation", async () => {
   const user = userEvent.setup();
   let createCalls = 0;

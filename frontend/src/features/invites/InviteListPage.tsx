@@ -161,7 +161,10 @@ export function InviteListPage() {
         acceptLabel={selection?.action === "accept" ? "Aceitar convite" : "Recusar convite"}
         body={selection?.action === "accept" ? "Você passará a fazer parte desta organização." : "O convite será recusado e removido da lista."}
         onClose={() => setSelection(null)}
-        onConfirm={() => { if (selection) void respond(selection.action, selection.invite); }}
+        onConfirm={() => {
+          /* v8 ignore next -- the dialog only renders its accept action while a selection is pending */
+          if (selection) void respond(selection.action, selection.invite);
+        }}
         open={selection !== null}
         title={selection?.action === "accept" ? "Aceitar convite?" : "Recusar convite?"}
         variant={selection?.action === "accept" ? "primary" : "danger"}

@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -42,6 +42,10 @@ function installFetch(responses: Array<Response | Error>) {
 
 function renderPage() {
   return render(<MemoryRouter><BillingListPage /></MemoryRouter>);
+}
+function ListRouteSwitcher() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/elsewhere")} type="button">Sair</button>;
 }
 
 it("shows loading and the exact fresh-account empty state with its first action", async () => {
@@ -109,6 +113,56 @@ it("retries a failed load and renders stats, PIX warnings, owners and current in
   expect(screen.getByText("Sem fatura")).toHaveClass("tag--draft");
   expect(screen.getByText("As cobranças a seguir não podem gerar faturas até que a chave PIX, o nome e a cidade do recebedor sejam preenchidos (na sua conta ou na organização, ou diretamente na cobrança):")).toBeVisible();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("ignores a late successful response after navigating away while it was still loading", async () => {
+  const user = userEvent.setup();
+  let resolveList: ((response: Response) => void) | undefined;
+  const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveList = resolve; }));
+  vi.stubGlobal("fetch", fetchMock);
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  render(<MemoryRouter initialEntries={["/billings"]}><Routes>
+    <Route element={<><BillingListPage /><ListRouteSwitcher /></>} path="/billings" />
+    <Route element={<p>Outra página</p>} path="/elsewhere" />
+  </Routes></MemoryRouter>);
+
+  expect(screen.getByText("Carregando cobranças...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Sair" }));
+  expect(screen.getByText("Outra página")).toBeVisible();
+
+  await act(async () => {
+    resolveList?.(jsonResponse({ items: [], stats, user_pix_incomplete: false } satisfies BillingList));
+  });
+
+  expect(screen.getByText("Outra página")).toBeVisible();
+  expect(screen.queryByText("Minhas Cobranças")).not.toBeInTheDocument();
+  expect(errorSpy).not.toHaveBeenCalled();
+  errorSpy.mockRestore();
+});
+
+it("ignores a late failed response after navigating away while it was still loading", async () => {
+  const user = userEvent.setup();
+  let rejectList: ((reason?: unknown) => void) | undefined;
+  const fetchMock = vi.fn(() => new Promise<Response>((_resolve, reject) => { rejectList = reject; }));
+  vi.stubGlobal("fetch", fetchMock);
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  render(<MemoryRouter initialEntries={["/billings"]}><Routes>
+    <Route element={<><BillingListPage /><ListRouteSwitcher /></>} path="/billings" />
+    <Route element={<p>Outra página</p>} path="/elsewhere" />
+  </Routes></MemoryRouter>);
+
+  expect(screen.getByText("Carregando cobranças...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Sair" }));
+  expect(screen.getByText("Outra página")).toBeVisible();
+
+  await act(async () => { rejectList?.(new Error("offline")); });
+
+  expect(screen.getByText("Outra página")).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar as cobranças.")).not.toBeInTheDocument();
+  expect(errorSpy).not.toHaveBeenCalled();
+  errorSpy.mockRestore();
 });
 
 it("uses the owner-only PIX warning copy and singular billing count", async () => {

@@ -254,6 +254,60 @@ it("discards StrictMode mount work and returns to loading when the billing route
   expect(requestKeys.filter((key) => key === "GET /api/v1/billings/billing-second")).toHaveLength(1);
 });
 
+it("ignores a late load failure from route A once route B is showing", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa 2", uuid: "billing-second" };
+  let rejectPublicBilling: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return new Promise<Response>((_resolve, reject) => { rejectPublicBilling = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public/edit"]}><Routes>
+    <Route element={<><BillingEditPage /><RouteSwitcher /></>} path="/billings/:billingUuid/edit" />
+  </Routes></MemoryRouter>);
+
+  expect(screen.getByText("Carregando cobrança...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByDisplayValue("Casa 2")).toBeVisible();
+
+  await act(async () => { rejectPublicBilling?.(new Error("offline")); });
+  expect(screen.getByDisplayValue("Casa 2")).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar a cobrança.")).not.toBeInTheDocument();
+});
+
+it("ignores a stale attachment-refresh failure after switching billing routes", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa 2", uuid: "billing-second" };
+  let attachmentGets = 0;
+  let rejectRefresh: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(billing);
+    if (key === "GET /api/v1/billings/billing-public/attachments") {
+      attachmentGets += 1;
+      if (attachmentGets === 1) return jsonResponse({ items: [] });
+      return new Promise<Response>((_resolve, reject) => { rejectRefresh = reject; });
+    }
+    if (key === "POST /api/v1/billings/billing-public/attachments") return jsonResponse(attachment, 201);
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public/edit"]}><Routes>
+    <Route element={<><BillingEditPage /><RouteSwitcher /></>} path="/billings/:billingUuid/edit" />
+  </Routes></MemoryRouter>);
+
+  await user.upload(await screen.findByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  await waitFor(() => expect(attachmentGets).toBe(2));
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByDisplayValue("Casa 2")).toBeVisible();
+
+  await act(async () => { rejectRefresh?.(new Error("offline")); });
+  expect(screen.queryByText("Não foi possível atualizar a lista de documentos.")).not.toBeInTheDocument();
+});
+
 it("keeps generic attachment errors out of billing-form focus handling", async () => {
   const user = userEvent.setup();
   installFetch((key) => {

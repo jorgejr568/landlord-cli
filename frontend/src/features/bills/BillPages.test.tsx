@@ -984,6 +984,31 @@ it("targets moderation acknowledgement field errors", async () => {
   await waitFor(() => expect(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).toHaveFocus());
 });
 
+it("reports a generic send failure without moving focus when the backend names no field", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Ok</p>", mild: [], severe: [] }),
+    "POST /api/v1/billings/billing-public-uuid/communications/send": () => problemResponse({
+      code: "send_failed", detail: "Não foi possível enviar no momento.", fields: {}, request_id: "req",
+      status: 503, title: "Erro", type: "problem"
+    })
+  });
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await screen.findByText("Ok");
+  const sendButton = screen.getByRole("button", { name: "Enviar fatura" });
+  sendButton.focus();
+
+  await user.click(sendButton);
+
+  expect(await screen.findByText("Não foi possível enviar no momento.")).toBeVisible();
+  expect(screen.getByLabelText("Assunto")).not.toHaveFocus();
+  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).not.toHaveFocus();
+  expect(screen.getByLabelText("Ana <ana@example.com>")).not.toHaveFocus();
+  expect(screen.getByLabelText("Salvar modelo")).not.toHaveFocus();
+});
+
 it("renders the payment-receipt variant with an empty template and capability-driven owner scope", async () => {
   installFetch({
     "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({

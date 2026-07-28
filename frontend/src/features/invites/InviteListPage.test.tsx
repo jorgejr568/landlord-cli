@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -128,6 +129,67 @@ it("renders loading, retry, and the exact empty new-account invite state", async
   await waitFor(() => expect(document.title).toBe("Convites - Rentivo"));
   view.unmount();
   expect(document.title).toBe("Anterior");
+});
+
+it("ignores a stale successful invites load discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/invites": () => {
+      const attempt = deferred<Response>();
+      attempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/invites/"]}>
+        <Routes>
+          <Route element={<InviteListPage />} path="/invites/" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  // React's Strict Mode intentionally mounts this effect twice in development to surface
+  // non-idempotent effects: the first attempt's AbortController is aborted immediately, and
+  // only the second (retained) attempt should ever be allowed to update the page.
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse({ items: [acmeInvite] })); });
+  expect(await screen.findByText("Acme")).toBeVisible();
+
+  await act(async () => { attempts[0].resolve(jsonResponse({ items: [betaInvite] })); });
+  expect(screen.getByText("Acme")).toBeVisible();
+  expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+});
+
+it("ignores a stale failed invites load discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/invites": () => {
+      const attempt = deferred<Response>();
+      attempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/invites/"]}>
+        <Routes>
+          <Route element={<InviteListPage />} path="/invites/" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse({ items: [] })); });
+  expect(await screen.findByText("Nenhum convite pendente.")).toBeVisible();
+
+  await act(async () => { attempts[0].reject(new Error("stale network failure")); });
+  expect(screen.getByText("Nenhum convite pendente.")).toBeVisible();
+  expect(screen.queryByText("Não foi possível carregar os convites.")).not.toBeInTheDocument();
 });
 
 it("accepts an invite, forwards analytics, and routes enforced MFA setup", async () => {

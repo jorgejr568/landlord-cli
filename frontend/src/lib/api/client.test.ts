@@ -205,6 +205,20 @@ describe("typed API client", () => {
     expect(onUnauthorized).toHaveBeenCalledOnce();
   });
 
+  it("treats a malformed 401 body as carrying no problem details", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("not-json", { status: 401 }))
+    );
+
+    await expect(
+      apiRequest(apiClient.GET("/api/v1/auth/session"))
+    ).rejects.toMatchObject({ code: "request_failed", status: 401 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("does not globally handle expected public-auth 401s", async () => {
     const onUnauthorized = vi.fn();
     setUnauthorizedHandler(onUnauthorized);

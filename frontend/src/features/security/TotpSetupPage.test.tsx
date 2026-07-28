@@ -8,6 +8,16 @@ import { TotpSetupPage } from "./TotpSetupPage";
 
 afterEach(() => vi.unstubAllGlobals());
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 it("starts setup with POST and routes confirmed codes to the one-time screen", async () => {
   const user = userEvent.setup();
   const { fetchMock } = renderAuth(<TotpSetupPage />, {
@@ -85,4 +95,46 @@ it("reports a generic setup failure", async () => {
     session: "authenticated"
   });
   expect(await screen.findByText("Não foi possível iniciar a configuração TOTP.")).toBeVisible();
+});
+
+it("ignores a setup failure that arrives after the user has already left the page", async () => {
+  const setup = deferred<Response>();
+  const { unmount } = renderAuth(<TotpSetupPage />, {
+    handlers: { "/api/v1/security/totp/setup": () => setup.promise },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  expect(await screen.findByText("Carregando...")).toBeVisible();
+
+  // The user navigates away (e.g. back to /security) while the setup request
+  // is still in flight; unmounting aborts the in-flight request's signal.
+  unmount();
+  setup.reject(new Error("offline"));
+  // Flush the rejected promise through load()'s catch/finally so any (guarded)
+  // state updates would have run had the abort check been missing.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
+it("still routes to the recovery-codes screen when the post-confirmation session refresh fails", async () => {
+  const user = userEvent.setup();
+  let sessionCalls = 0;
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/confirm": () => jsonResponse({ recovery_codes: ["code-one"] }),
+      "/api/v1/security/totp/setup": () =>
+        jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    sessionHandler: () => {
+      sessionCalls += 1;
+      if (sessionCalls === 1) return jsonResponse(AUTHENTICATED_RESPONSE);
+      throw new Error("offline");
+    }
+  });
+
+  expect(await screen.findByAltText("QR Code TOTP")).toBeVisible();
+  await user.type(screen.getByLabelText("Código de verificação"), "123456");
+  await user.click(screen.getByRole("button", { name: "Confirmar e Ativar" }));
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/security/recovery-codes"));
 });

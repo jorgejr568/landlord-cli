@@ -373,3 +373,73 @@ it.each(["resolve", "reject"] as const)("ignores a stale reorder that %s after t
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+it("recovers from a reorder failure after every receipt is removed from the same bill mid-flight", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  let settle!: () => void;
+  const pending = new Promise<Response>((resolve) => {
+    settle = () => resolve(problemResponse({
+      code: "order_failed", detail: "Falha ao ordenar.", fields: {}, request_id: "req", status: 409, title: "Erro", type: "problem"
+    }));
+  });
+  installFetch({
+    "PUT /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipt-order": () => pending
+  });
+  const view = render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={receipts} />);
+  screen.getByRole("button", { name: "Reordenar julho.pdf" }).focus();
+  await user.keyboard("{ArrowDown}");
+
+  // The same bill now reports zero receipts (e.g. a concurrent removal elsewhere), so the
+  // table unmounts and the list ref goes null while the reorder request is still pending.
+  view.rerender(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={[]} />);
+  expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+
+  settle();
+  expect(await screen.findByText("Falha ao ordenar.")).toBeVisible();
+  expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+});
+
+it("skips reattaching a persisted row that SortableJS never left in the DOM", () => {
+  const fetchMock = installFetch({});
+  render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={vi.fn()} receipts={receipts} />);
+  const record = sortable.instances[0];
+
+  // Simulate SortableJS losing track of a row entirely (e.g. dropped outside the list),
+  // leaving a persisted receipt with no matching DOM row at all.
+  record.element.querySelector(`tr[data-uuid="${receipts[1].uuid}"]`)!.remove();
+
+  act(() => record.options.onEnd?.());
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(record.element.querySelector(`tr[data-uuid="${receipts[0].uuid}"]`)).not.toBeNull();
+  expect(record.element.querySelector(`tr[data-uuid="${receipts[1].uuid}"]`)).toBeNull();
+});
+
+it("ignores a stale file-input clear after upload capability is revoked mid-flight", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  const uploaded: Receipt = { ...receipts[0], filename: "novo.pdf", uuid: "01J00000000000000000000005" };
+  let resolveUpload!: (response: Response) => void;
+  installFetch({
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => new Promise<Response>((resolve) => { resolveUpload = resolve; })
+  });
+  const view = render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={receipts} />);
+  await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "novo.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+
+  // The backend revokes upload access for this bill while the request is still in flight,
+  // so the file input unmounts before the response arrives.
+  view.rerender(<ReceiptManager
+    billingUuid="billing-public-uuid" billUuid="bill-public-uuid"
+    capabilities={{ ...capabilities, can_upload_receipts: false }} onChange={onChange} receipts={receipts}
+  />);
+  expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
+
+  await act(async () => resolveUpload(jsonResponse({ attached: 1, items: [uploaded], skipped: 0, total_bytes: 3 }, 201, {
+    "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded"
+  })));
+
+  expect(await screen.findByText("1 comprovante(s) anexado(s).")).toBeVisible();
+  expect(onChange).toHaveBeenCalledWith([...receipts, uploaded]);
+});

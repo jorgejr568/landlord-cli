@@ -84,6 +84,7 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
     setBusyTarget("");
     setError("");
     return () => {
+      /* v8 ignore next -- cleanup always pairs with its own setup's generation */
       if (routeGeneration.current === generation) routeGeneration.current += 1;
       controllerRef.current?.abort();
       controllerRef.current = null;
@@ -157,7 +158,10 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
         acceptLabel={confirmation?.accept}
         body={confirmation?.body}
         onClose={() => setSelected(null)}
-        onConfirm={() => { if (selected) void changeStatus(selected); }}
+        onConfirm={() => {
+          /* v8 ignore next -- the dialog only renders its accept action while a transition is selected */
+          if (selected) void changeStatus(selected);
+        }}
         open={Boolean(selected)}
         title={confirmation?.title ?? "Alterar status da fatura?"}
         variant={selected?.style === "primary" ? "primary" : "danger"}

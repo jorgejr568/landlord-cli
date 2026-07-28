@@ -1,8 +1,9 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AUTHENTICATED_RESPONSE,
   AUTHENTICATED_WITH_EVENT,
   jsonResponse,
   problemResponse
@@ -132,6 +133,27 @@ describe("LoginPage", () => {
         "/mfa-verify?challenge=challenge%2Fid&mobile_state=native-state"
       )
     );
+  });
+
+  it("finishes the mobile handoff after a fresh password login instead of redirecting to the dashboard", async () => {
+    const user = userEvent.setup();
+    renderAuth(<LoginPage />, {
+      handlers: {
+        "/api/v1/auth/login": () => jsonResponse(AUTHENTICATED_RESPONSE),
+        "/api/v1/auth/mobile/authorize": (init) => {
+          expect(JSON.parse(String(init?.body))).toEqual({ state: "native-state" });
+          return jsonResponse({ authorization_code: "fresh-login-code", state: "native-state" });
+        }
+      },
+      path: "/login?mobile_state=native-state"
+    });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+
+    expect(await screen.findByRole("heading", { name: "Tudo pronto" })).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent("/login?mobile_state=native-state");
   });
 
   it("shows API errors, restores focus, resets Turnstile, and forwards analytics", async () => {
@@ -269,6 +291,46 @@ describe("LoginPage", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not return to the app a second time once the handoff already completed", async () => {
+    vi.useFakeTimers();
+    try {
+      renderAuth(<LoginPage />, {
+        path: "/login?mobile_state=native-state",
+        session: "authenticated",
+        handlers: {
+          "/api/v1/auth/mobile/authorize": () =>
+            jsonResponse({ authorization_code: "one-time-code", state: "native-state" })
+        }
+      });
+
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      fireEvent.click(screen.getByRole("button", { name: "Voltar para o app agora" }));
+      expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
+
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+      expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a mobile authorization error when finishing an existing session's handoff fails", async () => {
+    renderAuth(<LoginPage />, {
+      path: "/login?mobile_state=native-state",
+      session: "authenticated",
+      handlers: {
+        "/api/v1/auth/mobile/authorize": () => problemResponse()
+      }
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Não foi possível concluir a autorização no aplicativo. Tente novamente."
+    );
+    expect(screen.queryByRole("heading", { name: "Tudo pronto" })).not.toBeInTheDocument();
+    expect(openMobileAuthorizationCallback).not.toHaveBeenCalled();
   });
 
   it("shows the generic request error when no API response is available", async () => {

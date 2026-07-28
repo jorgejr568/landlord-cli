@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -435,6 +436,66 @@ it("deduplicates an edit save and aborts it when the page unmounts", async () =>
 
   expect(saveSignal?.aborted).toBe(true);
   await act(async () => { save.resolve(jsonResponse(detail)); });
+});
+
+it("ignores a stale successful edit load discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/organizations/org-public-uuid": () => {
+      const attempt = deferred<Response>();
+      attempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/organizations/org-public-uuid/edit"]}>
+        <Routes>
+          <Route element={<OrganizationEditPage />} path="/organizations/:orgUuid/edit" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  // React's Strict Mode intentionally mounts this effect twice in development to surface
+  // non-idempotent effects: the first attempt's AbortController is aborted immediately, and
+  // only the second (retained) attempt should ever be allowed to update the form.
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse(detail)); });
+  expect(await screen.findByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+
+  await act(async () => { attempts[0].resolve(jsonResponse({ ...detail, name: "Organização obsoleta" })); });
+  expect(screen.getByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+});
+
+it("ignores a stale failed edit load discarded by React's automatic double-invoked effect", async () => {
+  const attempts: ReturnType<typeof deferred<Response>>[] = [];
+  installFetch({
+    "GET /api/v1/organizations/org-public-uuid": () => {
+      const attempt = deferred<Response>();
+      attempts.push(attempt);
+      return attempt.promise;
+    }
+  });
+
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={["/organizations/org-public-uuid/edit"]}>
+        <Routes>
+          <Route element={<OrganizationEditPage />} path="/organizations/:orgUuid/edit" />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>
+  );
+
+  await waitFor(() => expect(attempts).toHaveLength(2));
+  await act(async () => { attempts[1].resolve(jsonResponse(detail)); });
+  expect(await screen.findByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+
+  await act(async () => { attempts[0].reject(new Error("stale network failure")); });
+  expect(screen.getByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+  expect(screen.queryByText("Não foi possível carregar a organização.")).not.toBeInTheDocument();
 });
 
 it("ignores a rejected edit save after switching organizations", async () => {
