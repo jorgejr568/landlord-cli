@@ -26,9 +26,10 @@ struct RentivoCard<Content: View>: View {
 struct RentivoButtonStyle: ButtonStyle {
   var color = RentivoColors.emerald
 
-  /// Buttons render as a solid, saturated fill with a white label. The accent tokens are
-  /// fixed light-appearance values, which keeps the white label at >=4.5:1 against every
-  /// fill this style is used with.
+  /// Buttons render as a solid, saturated fill with a white label. The style is used only with
+  /// saturated accent tokens (`emerald`, `blue`, and similar), which keep the white label at
+  /// >=4.5:1; `color` is a mutable var, so passing a light token such as `paper` or `surface`
+  /// here would break that contrast — nothing in this type enforces it.
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.headline.weight(.bold))

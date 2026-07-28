@@ -4,7 +4,7 @@
 
 **Goal:** The Rentivo iOS app renders in light appearance only, regardless of the device's system appearance setting, with dark-mode support removed from the code rather than merely overridden.
 
-**Architecture:** Three coordinated changes. `UIUserInterfaceStyle = Light` in the app's Info.plist forces light appearance on all UIKit-drawn chrome (the load-bearing change). The 10 `RentivoColors` tokens then collapse from dual light/dark values to single fixed light values. Finally, `RentivoButtonStyle`'s forced-light workaround — which existed only to compensate for dark-mode-brightened accents — is deleted. Token *names* are unchanged, so all 144 call sites across 19 files are untouched.
+**Architecture:** Three coordinated changes. `UIUserInterfaceStyle = Light` in the app's Info.plist forces light appearance on all UIKit-drawn chrome (the load-bearing change). The 10 `RentivoColors` tokens then collapse from dual light/dark values to single fixed light values. Finally, `RentivoButtonStyle`'s forced-light workaround — which existed only to compensate for dark-mode-brightened accents — is deleted. Token *names* are unchanged, so all 146 call sites across 19 files are untouched.
 
 **Tech Stack:** Swift 6, SwiftUI, Xcode project at `ios/Rentivo.xcodeproj` (scheme `Rentivo`), SwiftPM package `RentivoCore` at `ios/Package.swift`.
 
@@ -189,7 +189,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project ios
 
 Expected: `** BUILD SUCCEEDED **`.
 
-This step is the real check on Task 2: it compiles all 19 files and 144 call sites against the new token definitions. If a token name were dropped or mistyped, the build fails here.
+This step is the real check on Task 2: it compiles all 19 files and 146 call sites against the new token definitions. If a token name were dropped or mistyped, the build fails here.
 
 Note: `RentivoComponents.swift` still compiles at this point — its `fill` property calls `UIColor(color).resolvedColor(with:)`, which does not depend on the deleted initializer. Task 3 removes it.
 

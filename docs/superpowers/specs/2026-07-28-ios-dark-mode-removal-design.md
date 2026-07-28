@@ -40,7 +40,7 @@ No user-facing appearance setting is added. Light-only is unconditional.
 
 ## Design
 
-Three files change. The 144 `RentivoColors.` call sites across 19 files are
+Three files change. The 146 `RentivoColors.` call sites across 19 files are
 untouched, because every token keeps its current name.
 
 ### 1. Lock the appearance
