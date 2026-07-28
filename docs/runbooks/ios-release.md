@@ -9,8 +9,11 @@ and merging that change to `main`.
 1. Open a PR that bumps `MARKETING_VERSION` (for example `1.0.1` -> `1.0.2`).
    Leave `CURRENT_PROJECT_VERSION` alone — CI supplies the build number.
 2. The PR runs the normal release gate. The macOS `ios` job runs only when the
-   PR touches `ios/`, `scripts/ios-ci.sh`, `scripts/tests/ios-ci-test.sh`, or
-   either iOS workflow file.
+   PR touches `ios/`, `scripts/ios-ci.sh`, `scripts/tests/ios-ci-test.sh`,
+   `.github/workflows/ios-release.yml`, or `.github/workflows/test-pr.yaml`
+   itself — that last file is the repo-wide "Complete Release Gate" that
+   defines the `ios` job, not an iOS-specific workflow; it's in the trigger
+   list so edits to the job's own definition still get checked.
 3. Merging to `main` starts `.github/workflows/ios-release.yml`. Its `detect`
    job diffs `project.pbxproj` against the previous commit; if
    `MARKETING_VERSION` did not change, the run stops there. If `HEAD^` cannot
@@ -34,6 +37,36 @@ The upload is automatic and irreversible. A build number is consumed
 permanently and an uploaded build can only be expired, never deleted. There is
 no approval step between merging a version bump and the upload.
 
+## Triage: why a release didn't happen
+
+Six things stop or skip a release before it uploads. Each is the pipeline
+working as designed, not a bug:
+
+- **`MARKETING_VERSION` was unchanged from the parent commit.** `detect`'s
+  "Compare MARKETING_VERSION with the previous commit" step logs
+  `MARKETING_VERSION unchanged at $current; nothing to release.` and sets
+  `release=false`; `verify`, `preflight`, and `release` all skip.
+- **The push didn't touch `project.pbxproj`.** The workflow's `on.push.paths`
+  filter means it never starts at all — no run appears for that commit in
+  the Actions list, not even a skipped one.
+- **`HEAD^` couldn't be resolved.** `detect` exits non-zero with
+  `Cannot resolve HEAD^; refusing to release.` (a shallow-history edge case,
+  not expected on ordinary pushes to `main`); `detect` shows as failed (red),
+  not skipped.
+- **The version/build pair was already consumed.** `preflight` runs
+  `asc_builds.py check` and fails with
+  `Build <version> (<build>) is already consumed: ...`. Re-running the same
+  workflow run reuses its run number and fails the same way — dispatch a
+  fresh run instead.
+- **The run was dispatched from a ref other than `main`.** `detect`,
+  `verify`, and `preflight` can all succeed, but `release` shows as skipped
+  in the Actions UI because of its `github.ref == 'refs/heads/main'`
+  condition.
+- **`skip_upload` was checked on a manual dispatch.** `release` runs and
+  succeeds through "Validate with App Store Connect," but its
+  "Upload to App Store Connect" and "Wait for the build to reach VALID"
+  steps show as skipped — no build reaches App Store Connect.
+
 ## Versioning
 
 - `MARKETING_VERSION` is the release train (`CFBundleShortVersionString`) and is
@@ -47,9 +80,9 @@ no approval step between merging a version bump and the upload.
   cannot rewrite the version/build numbers it was just archived with — the
   "Verify the embedded version numbers" step is checking the number CI passed
   in, not one Xcode picked afterward.
-- Re-running a failed workflow run reuses its run number. If a run fails after
-  the upload succeeded, the preflight on the re-run fails with
-  "already consumed" — dispatch a fresh run instead of re-running.
+- Re-running a failed workflow run reuses its run number, so the build number
+  never changes on a re-run — see "the version/build pair was already
+  consumed" under Triage above for what that means for retries.
 
 ## Signing
 
@@ -123,6 +156,13 @@ prompt per build. If that key is removed the prompt returns, and the correct
 value depends on the app's actual cryptography — ask rather than guess.
 
 ## Querying App Store Connect by hand
+
+This requires your own App Store Connect API key to already exist at
+`~/.appstoreconnect/private_keys/AuthKey_<key id>.p8` on the machine running
+the command (create one in App Store Connect -> Users and Access ->
+Integrations if you don't have one) — `ASC_KEY_ID` below must match that
+file's `<key id>` exactly, since that's the only place the script looks for
+it; otherwise it exits with `No App Store Connect API key at <path>.`.
 
 ```bash
 ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> \
