@@ -43,7 +43,7 @@ Complete every item before announcing the maintenance window:
    and frontend tests, 100% coverage, lint, OpenAPI freshness, production
    Compose validation, image builds, exact-tag vulnerability scans, the
    real-stack smoke/E2E suite, and the populated production migration rehearsal
-   from `55dc25bae00d` to `e0f1a2b3c4d5`.
+   from `55dc25bae00d` to `6f876ec79535`.
 2. Confirm the release SHA is the commit being deployed. Do not rebuild from a
    moving branch or retag an image after the gate.
 3. Validate production configuration with secret-managed files:
@@ -183,7 +183,7 @@ and report the complete-gate-tested SHA and digest references, abort the release
 until that contract is available.
 
 The `rentivo.deploy.v2` request includes expected Alembic revision
-`e0f1a2b3c4d5`. Its response must echo the tested SHA and exact image digests,
+`6f876ec79535`. Its response must echo the tested SHA and exact image digests,
 report one deployment, and return the exact ordered stage list. Every stage
 must include UTC start/end timestamps. Migration evidence must include exit
 code zero, a content-addressed log checksum, and the current Alembic revision;

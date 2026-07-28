@@ -372,7 +372,7 @@ jobs:
     env:
       API_DIGEST: ${{ needs.resolve-images.outputs.api-digest }}
       API_REF: ${{ needs.resolve-images.outputs.api-ref }}
-      EXPECTED_ALEMBIC_REVISION: e0f1a2b3c4d5
+      EXPECTED_ALEMBIC_REVISION: 6f876ec79535
       FRONTEND_DIGEST: ${{ needs.resolve-images.outputs.frontend-digest }}
       FRONTEND_REF: ${{ needs.resolve-images.outputs.frontend-ref }}
       PRODUCTION_DEPLOY_WEBHOOK_TOKEN: ${{ secrets.PRODUCTION_DEPLOY_WEBHOOK_TOKEN }}
