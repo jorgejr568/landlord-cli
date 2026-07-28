@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -109,6 +109,26 @@ it("retries a failed load and renders stats, PIX warnings, owners and current in
   expect(screen.getByText("Sem fatura")).toHaveClass("tag--draft");
   expect(screen.getByText("As cobranças a seguir não podem gerar faturas até que a chave PIX, o nome e a cidade do recebedor sejam preenchidos (na sua conta ou na organização, ou diretamente na cobrança):")).toBeVisible();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("ignores billing list load settlements after the page unmounts", async () => {
+  let resolveLoad: ((response: Response) => void) | undefined;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveLoad = resolve; })));
+  const view = renderPage();
+  expect(screen.getByText("Carregando cobranças...")).toBeVisible();
+  await waitFor(() => expect(resolveLoad).toBeDefined());
+  view.unmount();
+  await act(async () => { resolveLoad?.(jsonResponse({ items: [], stats, user_pix_incomplete: false } satisfies BillingList)); });
+  expect(screen.queryByText("Nenhuma cobrança cadastrada.")).not.toBeInTheDocument();
+
+  let rejectLoad: ((reason?: unknown) => void) | undefined;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((_resolve, reject) => { rejectLoad = reject; })));
+  const second = renderPage();
+  expect(screen.getByText("Carregando cobranças...")).toBeVisible();
+  await waitFor(() => expect(rejectLoad).toBeDefined());
+  second.unmount();
+  await act(async () => { rejectLoad?.(new Error("late failure")); });
+  expect(screen.queryByText("Não foi possível carregar as cobranças.")).not.toBeInTheDocument();
 });
 
 it("uses the owner-only PIX warning copy and singular billing count", async () => {

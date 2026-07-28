@@ -28,6 +28,24 @@ describe("AppShell", () => {
     expect(trigger.closest(".topbar-dropdown")).not.toHaveClass("open");
   });
 
+  it("keeps the account menu open when a non-Escape key is pressed", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <AppShell currentUser={{ email: "user@example.com" }} />
+      </MemoryRouter>
+    );
+
+    const trigger = screen.getByRole("button", { name: /user@example.com/i });
+    await user.click(trigger);
+    expect(trigger.closest(".topbar-dropdown")).toHaveClass("open");
+
+    await user.keyboard("a");
+
+    expect(trigger.closest(".topbar-dropdown")).toHaveClass("open");
+  });
+
   it("uses the browser location when no current path is supplied", () => {
     render(
       <MemoryRouter initialEntries={["/organizations/browser-path"]}>

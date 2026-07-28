@@ -78,6 +78,26 @@ it("reports confirmation API and network failures and restores focus", async () 
   expect(await screen.findByText("Não foi possível confirmar o código.")).toBeVisible();
 });
 
+it("ignores a setup failure delivered after the page is closed", async () => {
+  let rejectSetup!: (reason: unknown) => void;
+  const pendingSetup = new Promise<Response>((_resolve, reject) => {
+    rejectSetup = reject;
+  });
+  const { fetchMock, unmount } = renderAuth(<TotpSetupPage />, {
+    handlers: { "/api/v1/security/totp/setup": () => pendingSetup },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/security/totp/setup", expect.anything())
+  );
+  unmount();
+
+  rejectSetup(new Error("offline"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
 it("reports a generic setup failure", async () => {
   renderAuth(<TotpSetupPage />, {
     handlers: { "/api/v1/security/totp/setup": () => { throw new Error("offline"); } },

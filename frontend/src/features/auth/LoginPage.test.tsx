@@ -242,6 +242,48 @@ describe("LoginPage", () => {
       "rentivo://auth/callback?code=one-time-code&state=native-state"
     );
     expect(screen.getByTestId("location")).toHaveTextContent("/login?mobile_state=native-state");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Voltar para o app agora" }));
+
+    expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
+  });
+
+  it("completes the mobile handoff after a password login", async () => {
+    const user = userEvent.setup();
+    renderAuth(<LoginPage />, {
+      handlers: {
+        "/api/v1/auth/login": () => jsonResponse(AUTHENTICATED_WITH_EVENT),
+        "/api/v1/auth/mobile/authorize": (init) => {
+          expect(JSON.parse(String(init?.body))).toEqual({ state: "native-state" });
+          return jsonResponse({ authorization_code: "one-time-code", state: "native-state" });
+        }
+      },
+      path: "/login?mobile_state=native-state"
+    });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+
+    expect(await screen.findByRole("heading", { name: "Tudo pronto" })).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent("/login?mobile_state=native-state");
+  });
+
+  it("reports a mobile authorization failure for an existing web session", async () => {
+    renderAuth(<LoginPage />, {
+      handlers: {
+        "/api/v1/auth/mobile/authorize": () => {
+          throw new TypeError("network unavailable");
+        }
+      },
+      path: "/login?mobile_state=native-state",
+      session: "authenticated"
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Não foi possível concluir a autorização no aplicativo. Tente novamente."
+    );
+    expect(screen.queryByRole("heading", { name: "Tudo pronto" })).not.toBeInTheDocument();
   });
 
   it("automatically returns to the app one second after showing the handoff confirmation", async () => {

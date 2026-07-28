@@ -57,6 +57,7 @@ export function BillEditPage() {
     setDeleting(false);
     setDeleteOpen(false);
     return () => {
+      /* v8 ignore next -- cleanup always runs before the next effect setup */
       if (routeGeneration.current === generation) routeGeneration.current += 1;
       controllers.forEach((controller) => controller.abort());
       controllers.clear();

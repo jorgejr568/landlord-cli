@@ -213,6 +213,30 @@ it("aborts a pending create and ignores its late response after cancellation", a
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 
+it("ignores organization load settlements after the page unmounts", async () => {
+  let resolveOrganizations: ((response: Response) => void) | undefined;
+  installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((resolve) => { resolveOrganizations = resolve; })
+  });
+  const view = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(resolveOrganizations).toBeDefined());
+  view.unmount();
+  await act(async () => { resolveOrganizations?.(jsonResponse(organizationList)); });
+  expect(screen.queryByLabelText("Nome do imóvel")).not.toBeInTheDocument();
+
+  let rejectOrganizations: ((reason?: unknown) => void) | undefined;
+  installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((_resolve, reject) => { rejectOrganizations = reject; })
+  });
+  const second = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(rejectOrganizations).toBeDefined());
+  second.unmount();
+  await act(async () => { rejectOrganizations?.(new Error("late failure")); });
+  expect(screen.queryByText("Não foi possível carregar as organizações.")).not.toBeInTheDocument();
+});
+
 it("ignores a late create failure after the page unmounts", async () => {
   const user = userEvent.setup();
   let rejectCreate: ((reason?: unknown) => void) | undefined;

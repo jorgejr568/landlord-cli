@@ -437,6 +437,34 @@ it("deduplicates an edit save and aborts it when the page unmounts", async () =>
   await act(async () => { save.resolve(jsonResponse(detail)); });
 });
 
+it("ignores an edit detail load that settles after the page unmounts", async () => {
+  const load = deferred<Response>();
+  let loadSignal: AbortSignal | null | undefined;
+  installFetch({
+    "GET /api/v1/organizations/org-public-uuid": (init) => {
+      loadSignal = init?.signal;
+      return load.promise;
+    }
+  });
+  const view = renderEdit();
+
+  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  await waitFor(() => expect(loadSignal).toBeDefined());
+  view.unmount();
+  expect(loadSignal?.aborted).toBe(true);
+  await act(async () => { load.resolve(jsonResponse(detail)); });
+
+  const failingLoad = deferred<Response>();
+  installFetch({
+    "GET /api/v1/organizations/org-public-uuid": () => failingLoad.promise
+  });
+  const second = renderEdit();
+  second.unmount();
+  await act(async () => { failingLoad.reject(new Error("offline")); });
+
+  expect(screen.queryByText("Não foi possível carregar a organização.")).not.toBeInTheDocument();
+});
+
 it("ignores a rejected edit save after switching organizations", async () => {
   const user = userEvent.setup();
   const save = deferred<Response>();

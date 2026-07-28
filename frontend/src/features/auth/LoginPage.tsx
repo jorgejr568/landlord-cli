@@ -39,17 +39,14 @@ export function LoginPage() {
   const mobileAuthorizationStarted = useRef(false);
   const mobileCallbackOpened = useRef(false);
 
-  const completeMobileAuthorization = useCallback(async () => {
-    if (!mobileState) {
-      return;
-    }
+  const completeMobileAuthorization = useCallback(async (state: string) => {
     const { data: authorization } = await apiRequest(
-      apiClient.POST("/api/v1/auth/mobile/authorize", { body: { state: mobileState } })
+      apiClient.POST("/api/v1/auth/mobile/authorize", { body: { state } })
     );
     setMobileCallbackURL(
       `rentivo://auth/callback?code=${encodeURIComponent(authorization.authorization_code)}&state=${encodeURIComponent(authorization.state)}`
     );
-  }, [mobileState]);
+  }, []);
 
   const openMobileCallback = useCallback(() => {
     if (!mobileCallbackURL || mobileCallbackOpened.current) {
@@ -80,7 +77,7 @@ export function LoginPage() {
       return;
     }
     mobileAuthorizationStarted.current = true;
-    void completeMobileAuthorization().catch(() => {
+    void completeMobileAuthorization(mobileState).catch(() => {
       setError("Não foi possível concluir a autorização no aplicativo. Tente novamente.");
     });
   }, [auth.status, completeMobileAuthorization, mobileState]);
@@ -117,7 +114,7 @@ export function LoginPage() {
         return;
       }
       if (mobileState) {
-        await completeMobileAuthorization();
+        await completeMobileAuthorization(mobileState);
         return;
       }
       auth.authenticate(data);

@@ -84,6 +84,7 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
     setBusyTarget("");
     setError("");
     return () => {
+      /* v8 ignore next -- cleanup always runs before the next effect setup */
       if (routeGeneration.current === generation) routeGeneration.current += 1;
       controllerRef.current?.abort();
       controllerRef.current = null;

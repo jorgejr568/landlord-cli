@@ -22,8 +22,9 @@ type BillingList = components["schemas"]["BillingListResponse"];
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => { resolve = complete; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((complete, fail) => { resolve = complete; reject = fail; });
+  return { promise, reject, resolve };
 }
 
 const detail: Detail = {
@@ -570,6 +571,56 @@ it("focuses the members heading after removing the final manageable member", asy
   await user.click(screen.getByRole("button", { name: "Remover membro" }));
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "Membros" })).toHaveFocus());
+});
+
+it("ignores initial organization loads that settle after the page unmounts", async () => {
+  const detailLoad = deferred<Response>();
+  let detailSignal: AbortSignal | null | undefined;
+  installFetch({
+    "GET /api/v1/billings": () => jsonResponse(billings),
+    "GET /api/v1/organizations/org-public-uuid": (init) => {
+      detailSignal = init?.signal;
+      return detailLoad.promise;
+    }
+  });
+  const view = renderPage();
+
+  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  await waitFor(() => expect(detailSignal).toBeDefined());
+  view.unmount();
+  expect(detailSignal?.aborted).toBe(true);
+  await act(async () => { detailLoad.resolve(jsonResponse(detail)); });
+
+  const failingLoad = deferred<Response>();
+  installFetch({
+    "GET /api/v1/billings": () => jsonResponse(billings),
+    "GET /api/v1/organizations/org-public-uuid": () => failingLoad.promise
+  });
+  const second = renderPage();
+  second.unmount();
+  await act(async () => { failingLoad.reject(new Error("offline")); });
+
+  expect(screen.queryByText("Não foi possível carregar a organização.")).not.toBeInTheDocument();
+});
+
+it("does not surface errors when an MFA request fails after the organization route changes", async () => {
+  const user = userEvent.setup();
+  const mfaUpdate = deferred<Response>();
+  installFetch({
+    "GET /api/v1/billings": () => jsonResponse(billings),
+    "GET /api/v1/organizations/org-beta": () => jsonResponse({ ...detail, name: "Beta Imóveis", uuid: "org-beta" }),
+    "GET /api/v1/organizations/org-public-uuid": () => jsonResponse(detail),
+    "PUT /api/v1/organizations/org-public-uuid/mfa-policy": () => mfaUpdate.promise
+  });
+  renderSwitchablePage();
+  await user.click(await screen.findByRole("switch", { name: "Ativar exigência de MFA" }));
+  await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
+  await screen.findByRole("heading", { name: "Beta Imóveis" });
+
+  await act(async () => { mfaUpdate.reject(new Error("offline")); });
+
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-beta");
 });
 
 it("aborts an active organization mutation when the page unmounts", async () => {

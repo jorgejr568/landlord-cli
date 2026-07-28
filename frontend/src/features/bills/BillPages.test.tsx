@@ -984,6 +984,25 @@ it("targets moderation acknowledgement field errors", async () => {
   await waitFor(() => expect(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).toHaveFocus());
 });
 
+it("keeps focus untouched for unrecognized send field errors", async () => {
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Ok</p>", mild: [], severe: [] }),
+    "POST /api/v1/billings/billing-public-uuid/communications/send": () => problemResponse({
+      code: "validation_error", detail: "Confira os campos.",
+      fields: { "body.comm_type": "Tipo de comunicação inválido." }, request_id: "req",
+      status: 422, title: "Dados inválidos", type: "problem"
+    })
+  });
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await screen.findByText("Ok");
+  fireEvent.submit(document.getElementById("comm-form")!);
+
+  expect(await screen.findByText("Confira os campos.")).toBeVisible();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(document.body).toHaveFocus();
+});
+
 it("renders the payment-receipt variant with an empty template and capability-driven owner scope", async () => {
   installFetch({
     "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({
