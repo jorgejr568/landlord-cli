@@ -372,7 +372,6 @@ jobs:
     env:
       API_DIGEST: ${{ needs.resolve-images.outputs.api-digest }}
       API_REF: ${{ needs.resolve-images.outputs.api-ref }}
-      EXPECTED_ALEMBIC_REVISION: 6f876ec79535
       FRONTEND_DIGEST: ${{ needs.resolve-images.outputs.frontend-digest }}
       FRONTEND_REF: ${{ needs.resolve-images.outputs.frontend-ref }}
       PRODUCTION_DEPLOY_WEBHOOK_TOKEN: ${{ secrets.PRODUCTION_DEPLOY_WEBHOOK_TOKEN }}
@@ -380,11 +379,38 @@ jobs:
       WORKER_DIGEST: ${{ needs.resolve-images.outputs.worker-digest }}
       WORKER_REF: ${{ needs.resolve-images.outputs.worker-ref }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --all-extras --frozen
+      - name: Resolve the expected Alembic revision from the deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          heads="$(uv run --project backend --no-sync alembic -c backend/alembic.ini heads)"
+          printf '%s\n' "$heads"
+          [ "$(printf '%s\n' "$heads" | grep -c ' (head)$')" -eq 1 ] || {
+            echo "Expected exactly one Alembic head in the deployed SHA."
+            exit 1
+          }
+          revision="$(printf '%s\n' "$heads" | awk '/ \(head\)$/ {print $1}')"
+          [[ "$revision" =~ ^[0-9a-f]{12,40}$ ]] || {
+            echo "Resolved Alembic head is not a valid revision id."
+            exit 1
+          }
+          echo "EXPECTED_ALEMBIC_REVISION=$revision" >> "$GITHUB_ENV"
       - name: Deploy tested images once
         shell: bash
         run: |
           set -euo pipefail
           : "${PRODUCTION_DEPLOY_WEBHOOK_URL:?Configure the protected production webhook URL}"
+          : "${EXPECTED_ALEMBIC_REVISION:?The expected Alembic revision was not resolved}"
           : "${PRODUCTION_DEPLOY_WEBHOOK_TOKEN:?Configure the protected production webhook token}"
           python3 - <<'PY'
           import os

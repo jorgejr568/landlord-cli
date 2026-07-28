@@ -541,6 +541,8 @@ jobs:
           import os
           from pathlib import Path
 
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
           from sqlalchemy import inspect, text
 
           from rentivo.db import get_connection
@@ -550,8 +552,10 @@ jobs:
               (Path(os.environ["RUNNER_TEMP"]) / "migration-before.json").read_text()
           )
 
+          head = ScriptDirectory.from_config(Config("backend/alembic.ini")).get_current_head()
+          assert head is not None
           revisions = connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
-          assert revisions == ["6f876ec79535"], revisions
+          assert revisions == [head], (revisions, head)
 
           for table, expected in snapshot["tables"].items():
               actual_rows = [
@@ -588,9 +592,16 @@ jobs:
           PY
       - name: Report and verify the applied revision
         run: |
+          set -euo pipefail
+          heads="$(uv run --project backend --no-sync alembic -c backend/alembic.ini heads)"
+          [ "$(printf '%s\n' "$heads" | grep -c ' (head)$')" -eq 1 ] || {
+            echo "Expected exactly one Alembic head."
+            exit 1
+          }
+          head_revision="$(printf '%s\n' "$heads" | awk '/ \(head\)$/ {print $1}')"
           current="$(uv run --project backend --no-sync alembic -c backend/alembic.ini current)"
           printf '%s\n' "$current"
-          printf '%s\n' "$current" | grep -F '6f876ec79535 (head)'
+          printf '%s\n' "$current" | grep -F "$head_revision (head)"
 
   compose-config:
     name: promoted Compose configuration
