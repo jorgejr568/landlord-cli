@@ -489,7 +489,7 @@ it.each([
     level: 1,
     name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme — Tema" : "Aluguel — Tema"
   });
-  expect(document.title).toBe(expected);
+  await waitFor(() => expect(document.title).toBe(expected));
   unmount();
   expect(document.title).toBe("Título anterior");
 });
