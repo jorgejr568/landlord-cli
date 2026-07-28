@@ -167,7 +167,7 @@ Run:
 grep -n -i "uikit\|dark\|userInterfaceStyle\|traitCollection" ios/Rentivo/DesignSystem/RentivoTheme.swift
 ```
 
-Expected: no output (exit code 1).
+Expected: exactly one hit — the doc comment's reference to `UIUserInterfaceStyle = Light` in `Config/Rentivo-Info.plist`. That reference is intentional and documents *why* the tokens are single-valued; keep it. Any hit naming `import UIKit`, `traitCollection`, or a `dark:` value is a real leftover and must be removed.
 
 - [ ] **Step 3: Confirm every token name survived**
 
@@ -278,7 +278,9 @@ Run:
 grep -rn -i "dark\|userInterfaceStyle\|colorScheme\|UIKit" ios/Rentivo/DesignSystem/
 ```
 
-Expected: no output. This is the spec's completeness check — dark-mode support is fully removed from the design system.
+Expected: exactly one hit — `RentivoTheme.swift`'s doc comment referencing `UIUserInterfaceStyle = Light` in `Config/Rentivo-Info.plist`, which is intentional documentation of why the tokens are single-valued.
+
+This is the spec's completeness check. It passes when the only surviving match is that comment: no `import UIKit`, no `traitCollection`, no `resolvedColor`, no `dark:` value anywhere under `DesignSystem/`.
 
 - [ ] **Step 5: Build**
 
