@@ -1,0 +1,46 @@
+name: iOS unit tests
+description: Run the RentivoCore package suite and the Xcode-hosted RentivoTests target.
+
+runs:
+  using: composite
+  steps:
+    - name: Select newest installed Xcode
+      shell: bash
+      run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+    - name: Cache Swift Package Manager artifacts
+      uses: actions/cache@v4
+      with:
+        path: ios/.build
+        key: ${{ runner.os }}-spm-${{ hashFiles('ios/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+    - name: Run RentivoCore package tests
+      shell: bash
+      run: swift test --package-path ios
+    # The Xcode-hosted `RentivoTests` target used to fail `xcodebuild test`: several files
+    # under ios/RentivoTests/ imported RentivoCore unconditionally, but the target does not
+    # link the RentivoCore SPM package. Fixed by applying the dual-mode
+    # `#if canImport(RentivoCore) @testable import RentivoCore #else @testable import Rentivo
+    # #endif` guard uniformly across the suite. Only unit tests run here — RentivoUITests is
+    # intentionally kept out of the required PR path (slower, more simulator/timing-sensitive,
+    # and at least one interaction in it was found unreliable with XCUITest's synthesized taps
+    # during local verification; see its file-level comments and docs/runbooks/ios-release.md).
+    - name: Resolve an available iOS Simulator destination
+      id: simulator
+      shell: bash
+      run: |
+        DESTINATION_ID=$(xcodebuild -project ios/Rentivo.xcodeproj -scheme Rentivo -showdestinations 2>/dev/null \
+          | grep "platform:iOS Simulator" | grep "name:iPhone" | head -1 \
+          | sed -E 's/.*id:([0-9A-Fa-f-]+).*/\1/')
+        if [ -z "$DESTINATION_ID" ]; then
+          echo "No iPhone Simulator destination available on this runner" >&2
+          exit 1
+        fi
+        echo "id=$DESTINATION_ID" >> "$GITHUB_OUTPUT"
+    - name: Run Xcode-hosted RentivoTests unit target
+      shell: bash
+      run: |
+        xcodebuild -project ios/Rentivo.xcodeproj -scheme Rentivo \
+          -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO \
+          test -only-testing:RentivoTests

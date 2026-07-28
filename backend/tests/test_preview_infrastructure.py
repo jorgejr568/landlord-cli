@@ -221,6 +221,7 @@ def test_image_builds_are_consolidated_under_the_complete_release_gate():
 
     required_jobs = {
         "backend",
+        "changes",
         "e2e",
         "frontend",
         "ios",
@@ -228,6 +229,7 @@ def test_image_builds_are_consolidated_under_the_complete_release_gate():
         "compose-config",
         "functional-stack",
         "production-startup",
+        "scripts",
         "security-scan",
     }
     assert set(jobs["release-gate"]["needs"]) == required_jobs
