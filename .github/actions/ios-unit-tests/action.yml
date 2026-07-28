@@ -8,18 +8,35 @@ runs:
     # alongside the release, and `Xcode_26.0_beta.app` sorts after
     # `Xcode_16.4.app`. The release workflow applies the same exclusion, where
     # a beta toolchain would produce a binary App Store Connect rejects.
-    - name: Select the newest non-beta installed Xcode
+    #
+    # The newest installed Xcode is NOT automatically usable for simulator
+    # tests: the runner images pre-install iOS simulator runtimes only for the
+    # image's default Xcode, so selecting a newer one leaves `xcodebuild
+    # -showdestinations` with no iPhone destination at all. Candidates are
+    # therefore tried newest-first and the first one carrying an available
+    # iPhone simulator wins, with the image default as the final fallback.
+    - name: Select an Xcode with an available iPhone simulator
       shell: bash
       run: |
         set -euo pipefail
-        xcode="$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
-        if [ -z "$xcode" ]; then
-          echo "No non-beta Xcode found under /Applications:" >&2
-          ls -d /Applications/Xcode*.app >&2 || true
-          exit 1
-        fi
-        sudo xcode-select -s "$xcode"
-        xcodebuild -version
+        candidates="$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -Vr || true)"
+        candidates="$(printf '%s\n/Applications/Xcode.app\n' "$candidates" | grep -v '^$')"
+        for xcode in $candidates; do
+          [ -d "$xcode" ] || continue
+          sudo xcode-select -s "$xcode"
+          if xcrun simctl list devices available 2>/dev/null | grep -q "iPhone"; then
+            echo "Selected $xcode"
+            xcodebuild -version
+            exit 0
+          fi
+          echo "$xcode has no available iPhone simulator; trying the next candidate." >&2
+        done
+        echo "No installed Xcode has an available iPhone simulator." >&2
+        echo "--- installed Xcodes ---" >&2
+        ls -d /Applications/Xcode*.app >&2 || true
+        echo "--- simulator runtimes ---" >&2
+        xcrun simctl list runtimes >&2 || true
+        exit 1
     - name: Cache Swift Package Manager artifacts
       uses: actions/cache@v4
       with:
@@ -47,6 +64,10 @@ runs:
           | sed -E 's/.*id:([0-9A-Fa-f-]+).*/\1/')
         if [ -z "$DESTINATION_ID" ]; then
           echo "No iPhone Simulator destination available on this runner" >&2
+          echo "--- xcodebuild -showdestinations ---" >&2
+          xcodebuild -project ios/Rentivo.xcodeproj -scheme Rentivo -showdestinations >&2 2>&1 || true
+          echo "--- available devices ---" >&2
+          xcrun simctl list devices available >&2 || true
           exit 1
         fi
         echo "id=$DESTINATION_ID" >> "$GITHUB_OUTPUT"
