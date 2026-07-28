@@ -1,42 +1,23 @@
 import SwiftUI
-import UIKit
 
-extension Color {
-  /// Builds a color that adapts to the system appearance via a dynamic `UIColor`
-  /// provider, so every consumer (backgrounds, text, borders, tints) automatically
-  /// tracks light/dark mode without extra call-site logic.
-  ///
-  /// Components expressed as 0...1 sRGB triples, matching the existing
-  /// `Color(red:green:blue:)` literals this design system already used.
-  init(light: (Double, Double, Double), dark: (Double, Double, Double)) {
-    self.init(
-      uiColor: UIColor { traitCollection in
-        let rgb = traitCollection.userInterfaceStyle == .dark ? dark : light
-        return UIColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
-      }
-    )
-  }
-}
-
-/// Semantic color tokens for the app. Every color is adaptive (light + dark variant)
-/// so screens built on system `Form`/`List` backgrounds stay legible in both
-/// appearances. Accent hues (`emerald`, `amber`, `coral`, `blue`, `lilac`) are tuned so
-/// that, used as-is, they meet WCAG AA (>=4.5:1) as foreground text/icon color against
-/// both `paper` and `surface` in their own mode, AND against their own 14%-opacity tint
-/// (the pattern `StatusBadge` uses) — see the design-system report for the exact
-/// contrast ratios verified for this palette.
+/// Semantic color tokens for the app. The app renders in light appearance only
+/// (`UIUserInterfaceStyle = Light` in `Config/Rentivo-Info.plist`), so each token is a
+/// single fixed sRGB value. Accent hues (`emerald`, `amber`, `coral`, `blue`, `lilac`) are
+/// tuned so that, used as-is, they meet WCAG AA (>=4.5:1) as foreground text/icon color
+/// against both `paper` and `surface`, AND against their own 14%-opacity tint (the pattern
+/// `StatusBadge` uses).
 enum RentivoColors {
-  static let paper = Color(light: (0.97, 0.95, 0.90), dark: (0.07, 0.075, 0.09))
-  static let surface = Color(light: (1.00, 0.99, 0.96), dark: (0.145, 0.155, 0.185))
-  static let ink = Color(light: (0.12, 0.12, 0.18), dark: (0.93, 0.94, 0.96))
-  static let secondaryInk = Color(light: (0.34, 0.34, 0.40), dark: (0.72, 0.735, 0.78))
+  static let paper = Color(red: 0.97, green: 0.95, blue: 0.90)
+  static let surface = Color(red: 1.00, green: 0.99, blue: 0.96)
+  static let ink = Color(red: 0.12, green: 0.12, blue: 0.18)
+  static let secondaryInk = Color(red: 0.34, green: 0.34, blue: 0.40)
 
-  static let emerald = Color(light: (0.026, 0.456, 0.318), dark: (0.208, 0.782, 0.584))
-  static let emeraldLight = Color(light: (0.87, 0.96, 0.93), dark: (0.10, 0.16, 0.14))
-  static let amber = Color(light: (0.539, 0.36, 0.093), dark: (0.98, 0.723, 0.327))
-  static let coral = Color(light: (0.681, 0.254, 0.205), dark: (0.972, 0.494, 0.448))
-  static let blue = Color(light: (0.16, 0.395, 0.714), dark: (0.456, 0.653, 0.97))
-  static let lilac = Color(light: (0.446, 0.346, 0.655), dark: (0.743, 0.604, 0.941))
+  static let emerald = Color(red: 0.026, green: 0.456, blue: 0.318)
+  static let emeraldLight = Color(red: 0.87, green: 0.96, blue: 0.93)
+  static let amber = Color(red: 0.539, green: 0.36, blue: 0.093)
+  static let coral = Color(red: 0.681, green: 0.254, blue: 0.205)
+  static let blue = Color(red: 0.16, green: 0.395, blue: 0.714)
+  static let lilac = Color(red: 0.446, green: 0.346, blue: 0.655)
 }
 
 enum RentivoSpacing {
