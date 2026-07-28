@@ -136,9 +136,9 @@ with `uv run --with pyjwt` instead of `uv run --project backend`; adding
 worse. Its pure helpers (`normalize_builds`, `find_build`, `classify`,
 `next_page_path`) are unit-tested under the backend environment by
 `scripts/tests/test_asc_builds.py`, which the release-gate `scripts` job runs
-with `uv run --project backend --no-sync pytest scripts/tests/test_asc_builds.py
--q`. `jwt` itself is imported lazily inside the script so those pure helpers
-stay importable without `pyjwt` installed.
+with `uv run --project backend --no-sync pytest
+scripts/tests/test_asc_builds.py -q`. `jwt` itself is imported lazily inside
+the script so those pure helpers stay importable without `pyjwt` installed.
 
 Besides `list`, the same script exposes `check` (used by the `preflight` job)
 and `wait` (used by `release` after upload, with `--timeout`/`--interval`).
