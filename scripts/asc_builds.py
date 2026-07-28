@@ -70,7 +70,9 @@ def normalize_builds(payload):
     builds = []
     for item in payload.get("data", []):
         attributes = item.get("attributes", {})
-        related = item.get("relationships", {}).get("preReleaseVersion", {}).get("data") or {}
+        related = (
+            item.get("relationships", {}).get("preReleaseVersion", {}).get("data") or {}
+        )
         builds.append(
             {
                 "id": item.get("id"),
@@ -143,15 +145,21 @@ def _get(path, bearer):
     Raising rather than exiting lets `wait` decide which failures are worth
     re-polling; `main` turns anything that reaches it into a clean exit.
     """
-    request = urllib.request.Request(f"{API_ROOT}{path}", headers={"Authorization": f"Bearer {bearer}"})
+    request = urllib.request.Request(
+        f"{API_ROOT}{path}", headers={"Authorization": f"Bearer {bearer}"}
+    )
     try:
         with urllib.request.urlopen(request) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
         body = error.read().decode(errors="replace")[:400]
-        raise AppStoreConnectError(f"App Store Connect API error {error.code}: {body}", status=error.code) from error
+        raise AppStoreConnectError(
+            f"App Store Connect API error {error.code}: {body}", status=error.code
+        ) from error
     except urllib.error.URLError as error:
-        raise AppStoreConnectError(f"App Store Connect request failed: {error.reason}") from error
+        raise AppStoreConnectError(
+            f"App Store Connect request failed: {error.reason}"
+        ) from error
 
 
 def _app_id(bundle_id, bearer):
@@ -213,7 +221,10 @@ def command_wait(arguments, bearer):
         except AppStoreConnectError as error:
             if not is_transient_status(error.status):
                 raise
-            print(f"  App Store Connect is unavailable, still polling: {error}", file=sys.stderr)
+            print(
+                f"  App Store Connect is unavailable, still polling: {error}",
+                file=sys.stderr,
+            )
         else:
             build = find_build(builds, arguments.version, arguments.build)
             if build is not None:

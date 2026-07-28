@@ -12,7 +12,11 @@ PAYLOAD = {
                 "processingState": "VALID",
                 "uploadedDate": "2026-07-28T10:00:00-07:00",
             },
-            "relationships": {"preReleaseVersion": {"data": {"id": "train-1", "type": "preReleaseVersions"}}},
+            "relationships": {
+                "preReleaseVersion": {
+                    "data": {"id": "train-1", "type": "preReleaseVersions"}
+                }
+            },
         },
         {
             "id": "build-b",
@@ -21,7 +25,11 @@ PAYLOAD = {
                 "processingState": "PROCESSING",
                 "uploadedDate": "2026-07-28T11:00:00-07:00",
             },
-            "relationships": {"preReleaseVersion": {"data": {"id": "train-2", "type": "preReleaseVersions"}}},
+            "relationships": {
+                "preReleaseVersion": {
+                    "data": {"id": "train-2", "type": "preReleaseVersions"}
+                }
+            },
         },
         {
             "id": "build-orphan",
@@ -29,8 +37,16 @@ PAYLOAD = {
         },
     ],
     "included": [
-        {"id": "train-1", "type": "preReleaseVersions", "attributes": {"version": "1.0.1"}},
-        {"id": "train-2", "type": "preReleaseVersions", "attributes": {"version": "1.0.2"}},
+        {
+            "id": "train-1",
+            "type": "preReleaseVersions",
+            "attributes": {"version": "1.0.1"},
+        },
+        {
+            "id": "train-2",
+            "type": "preReleaseVersions",
+            "attributes": {"version": "1.0.2"},
+        },
         {"id": "app-1", "type": "apps", "attributes": {"name": "Rentivo"}},
     ],
 }
@@ -91,10 +107,15 @@ def test_classify_maps_processing_states_to_outcomes():
 
 def test_next_page_path_strips_the_scheme_and_host_from_an_absolute_url():
     payload = {
-        "links": {"next": "https://api.appstoreconnect.apple.com/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"}
+        "links": {
+            "next": "https://api.appstoreconnect.apple.com/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"
+        }
     }
 
-    assert asc_builds.next_page_path(payload) == "/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"
+    assert (
+        asc_builds.next_page_path(payload)
+        == "/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"
+    )
 
 
 def test_next_page_path_returns_none_without_a_links_key():
@@ -102,7 +123,10 @@ def test_next_page_path_returns_none_without_a_links_key():
 
 
 def test_next_page_path_returns_none_without_a_next_key():
-    assert asc_builds.next_page_path({"links": {"self": "https://example.com/v1/builds"}}) is None
+    assert (
+        asc_builds.next_page_path({"links": {"self": "https://example.com/v1/builds"}})
+        is None
+    )
 
 
 def test_is_transient_status_retries_network_failures_throttling_and_server_errors():
@@ -130,7 +154,13 @@ def _wait_arguments(timeout=120):
     )
 
 
-VALID_BUILD = {"id": "build-a", "build": "42", "version": "1.0.2", "state": "VALID", "uploaded": None}
+VALID_BUILD = {
+    "id": "build-a",
+    "build": "42",
+    "version": "1.0.2",
+    "state": "VALID",
+    "uploaded": None,
+}
 
 
 def test_command_wait_keeps_polling_through_a_transient_failure(monkeypatch):
@@ -139,7 +169,9 @@ def test_command_wait_keeps_polling_through_a_transient_failure(monkeypatch):
     def fake_builds(bundle_id, bearer):
         tokens.append(bearer)
         if len(tokens) == 1:
-            raise asc_builds.AppStoreConnectError("App Store Connect request failed: connection reset")
+            raise asc_builds.AppStoreConnectError(
+                "App Store Connect request failed: connection reset"
+            )
         return [VALID_BUILD]
 
     monkeypatch.setattr(asc_builds, "_builds", fake_builds)
@@ -153,7 +185,9 @@ def test_command_wait_keeps_polling_through_a_transient_failure(monkeypatch):
 
 def test_command_wait_fails_fast_on_a_non_transient_error(monkeypatch):
     def fake_builds(bundle_id, bearer):
-        raise asc_builds.AppStoreConnectError("App Store Connect API error 401: bad token", status=401)
+        raise asc_builds.AppStoreConnectError(
+            "App Store Connect API error 401: bad token", status=401
+        )
 
     monkeypatch.setattr(asc_builds, "_builds", fake_builds)
     monkeypatch.setattr(asc_builds, "_token", lambda: "refreshed")
@@ -167,7 +201,9 @@ def test_command_wait_stops_at_its_deadline_when_the_api_stays_unavailable(monke
 
     def fake_builds(bundle_id, bearer):
         calls.append(bearer)
-        raise asc_builds.AppStoreConnectError("App Store Connect API error 503: unavailable", status=503)
+        raise asc_builds.AppStoreConnectError(
+            "App Store Connect API error 503: unavailable", status=503
+        )
 
     monkeypatch.setattr(asc_builds, "_builds", fake_builds)
     monkeypatch.setattr(asc_builds, "_token", lambda: "refreshed")
