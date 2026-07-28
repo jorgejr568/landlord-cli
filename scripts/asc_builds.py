@@ -72,6 +72,18 @@ def classify(state):
     return "pending"
 
 
+def next_page_path(payload):
+    """Return the path+query for the next page of results, or None.
+
+    ASC returns an absolute URL in links.next; `_get` prepends API_ROOT, so the
+    scheme and host are stripped here to leave the path+query `_get` expects.
+    """
+    next_url = payload.get("links", {}).get("next")
+    if not next_url:
+        return None
+    return next_url.removeprefix(API_ROOT)
+
+
 def _token():
     import jwt
 
@@ -109,8 +121,13 @@ def _app_id(bundle_id, bearer):
 
 def _builds(bundle_id, bearer):
     app_id = _app_id(bundle_id, bearer)
-    payload = _get(f"/v1/builds?filter[app]={app_id}&include=preReleaseVersion&limit=200", bearer)
-    return normalize_builds(payload)
+    path = f"/v1/builds?filter[app]={app_id}&include=preReleaseVersion&limit=200"
+    builds = []
+    while path is not None:
+        payload = _get(path, bearer)
+        builds.extend(normalize_builds(payload))
+        path = next_page_path(payload)
+    return builds
 
 
 def _describe(build):

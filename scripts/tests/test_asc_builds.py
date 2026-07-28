@@ -84,3 +84,19 @@ def test_classify_maps_processing_states_to_outcomes():
     assert asc_builds.classify("INVALID") == "failed"
     assert asc_builds.classify("PROCESSING") == "pending"
     assert asc_builds.classify(None) == "pending"
+
+
+def test_next_page_path_strips_the_scheme_and_host_from_an_absolute_url():
+    payload = {
+        "links": {"next": "https://api.appstoreconnect.apple.com/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"}
+    }
+
+    assert asc_builds.next_page_path(payload) == "/v1/builds?filter[app]=app-1&limit=200&cursor=abc123"
+
+
+def test_next_page_path_returns_none_without_a_links_key():
+    assert asc_builds.next_page_path({}) is None
+
+
+def test_next_page_path_returns_none_without_a_next_key():
+    assert asc_builds.next_page_path({"links": {"self": "https://example.com/v1/builds"}}) is None
