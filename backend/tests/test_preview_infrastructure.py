@@ -438,8 +438,7 @@ def test_complete_gate_runs_dependency_repository_and_image_security_scans():
     assert scan["permissions"] == {"contents": "read"}
     assert scan_steps["Checkout"]["uses"] == f"actions/checkout@{CHECKOUT_REF}"
     assert (
-        scan_steps["Audit frontend dependencies"]["run"]
-        == "npm --prefix frontend audit --omit=dev --audit-level=high"
+        scan_steps["Audit frontend dependencies"]["run"] == "npm --prefix frontend audit --omit=dev --audit-level=high"
     )
     assert scan_steps["Install uv for locked SAST"]["uses"] == f"astral-sh/setup-uv@{SETUP_UV_REF}"
     assert scan_steps["Install uv for locked SAST"]["with"] == {"version": "0.11.16"}
