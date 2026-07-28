@@ -8,6 +8,23 @@
 
 **Tech Stack:** GitHub Actions (`ubuntu-latest`, `macos-15`), `xcodebuild`, `xcrun altool`, App Store Connect API (ES256 JWT via `pyjwt`), Bash, Python 3 run through `uv`.
 
+> **Status: implemented and superseded in part.** Tasks 0-3, 5, and 6 are built and
+> committed. Task 4 (repository secrets and variables) is blocked on a CI-only App
+> Store Connect API key; Task 7 (end-to-end verification) is post-merge.
+>
+> **Do not treat this document's YAML as current.** Two review rounds changed the
+> shipped code after this plan was written: Task 5's workflow gained export-log
+> redaction, `env:`-bound values in `preflight`, a hard failure when the base commit
+> cannot be resolved, a typing-agnostic `skip_upload` guard defaulting to `true`,
+> non-empty assertions on `APPLE_TEAM_ID`/`IOS_BUNDLE_ID`, `manageAppVersionAndBuildNumber`
+> false, a `refs/heads/main` guard on the `release` job, beta-Xcode exclusion, key
+> deletion before artifact upload, and a comparison against `github.event.before`
+> rather than `HEAD^`; and Task 3 extracted the iOS test steps into
+> `.github/actions/ios-unit-tests` instead of duplicating them.
+>
+> `.github/workflows/ios-release.yml` and `docs/runbooks/ios-release.md` are the
+> current record of how releases actually work.
+
 ## Global Constraints
 
 - Code, comments, and identifiers are English; customer-facing copy — including the iOS app's UI — is PT-BR.
