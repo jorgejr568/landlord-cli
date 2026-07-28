@@ -37,8 +37,8 @@ LOGIN_REF = "v4"
 SETUP_BUILDX_REF = "v4"
 BUILD_PUSH_REF = "v7"
 ATTEST_REF = "v4"
-TRIVY_REF = "v0"
-SETUP_UV_REF = "v8"
+TRIVY_REF = "v0.36.0"
+SETUP_UV_REF = "v8.1.0"
 SETUP_NODE_REF = "v7"
 UPLOAD_ARTIFACT_REF = "v7"
 CODECOV_REF = "v7"
@@ -253,7 +253,6 @@ def test_compose_ci_renders_the_promoted_production_and_development_topologies()
         "MYSQL_PASSWORD": "ci-only-database-password",
         "MYSQL_ROOT_PASSWORD": "ci-only-root-password",
         "MYSQL_USER": "rentivo_compose_ci",
-        "RENTIVO_APP_ENV_FILE": "${{ runner.temp }}/rentivo-compose-app.env",
         "RENTIVO_PUBLIC_ORIGIN": "https://rentivo.example.test",
         "RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR": "127.0.0.1/32",
         "RENTIVO_WEBAUTHN_RP_ID": "rentivo.example.test",
@@ -360,11 +359,9 @@ def test_pr_gate_starts_services_with_validated_production_settings():
     assert job["env"] == {
         "MYSQL_DATABASE": "rentivo_production_ci",
         "MYSQL_USER": "rentivo_production_ci",
-        "RENTIVO_APP_ENV_FILE": "${{ runner.temp }}/rentivo-production-app.env",
         "RENTIVO_PUBLIC_ORIGIN": "https://rentivo.example.test",
         "RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR": "127.0.0.1/32",
         "RENTIVO_WEBAUTHN_RP_ID": "rentivo.example.test",
-        "STACK_OVERRIDE": "${{ runner.temp }}/rentivo-production.override.yml",
         "STACK_PROJECT": "rentivo-production-startup",
     }
     assert "RENTIVO_ENVIRONMENT=production" in environment
@@ -984,3 +981,26 @@ def test_backend_version_matches_the_breaking_release():
     metadata = tomllib.loads(BACKEND_PYPROJECT.read_text())
 
     assert metadata["project"]["version"] == "5.0.0"
+
+
+def test_no_workflow_uses_the_runner_context_in_job_level_env():
+    """`runner` is a step-level context only.
+
+    A job-level `env:` entry referencing `${{ runner.temp }}` makes GitHub
+    reject the whole workflow file: the run is created with zero jobs, no
+    logs, and nothing the REST API exposes, so it looks like an outage rather
+    than a syntax error. Five such entries kept this repository's CI dead for
+    days. Resolve the path inside a step and export it via `$GITHUB_ENV`.
+    """
+    offenders = []
+
+    for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
+        workflow = _yaml(path)
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            for key, value in (job.get("env") or {}).items():
+                if isinstance(value, str) and "runner." in value:
+                    offenders.append(f"{path.name}:{job_name}:{key}={value}")
+
+    assert not offenders, "job-level env may not reference the runner context: " + ", ".join(offenders)

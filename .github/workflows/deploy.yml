@@ -54,7 +54,7 @@ jobs:
           cache-scope: production-api
           push: "true"
       - name: Scan API image
-        uses: aquasecurity/trivy-action@v0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.api.outputs.image-ref }}
           scanners: vuln
@@ -77,7 +77,7 @@ jobs:
           cache-scope: production-worker
           push: "true"
       - name: Scan worker image
-        uses: aquasecurity/trivy-action@v0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.worker.outputs.image-ref }}
           scanners: vuln
@@ -100,7 +100,7 @@ jobs:
           cache-scope: production-frontend
           push: "true"
       - name: Scan frontend image
-        uses: aquasecurity/trivy-action@v0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.frontend.outputs.image-ref }}
           scanners: vuln

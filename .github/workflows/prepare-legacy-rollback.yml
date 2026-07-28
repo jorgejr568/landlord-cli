@@ -57,7 +57,7 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$LEGACY_SHA" ]
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
 
@@ -102,7 +102,7 @@ jobs:
             org.opencontainers.image.revision=${{ inputs.legacy_sha }}
 
       - name: Scan exact legacy web image
-        uses: aquasecurity/trivy-action@v0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}/legacy-web@${{ steps.legacy-web.outputs.digest }}
           scanners: vuln
@@ -111,7 +111,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan exact legacy worker image
-        uses: aquasecurity/trivy-action@v0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}/legacy-worker@${{ steps.legacy-worker.outputs.digest }}
           scanners: vuln
