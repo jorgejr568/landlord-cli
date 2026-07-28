@@ -1,2 +1,18 @@
 [tool.uv.workspace]
 members = ["backend"]
+
+# Ruff resolves configuration by walking up from each file. Without a section
+# here, anything outside backend/ — notably scripts/ — fell through to ruff's
+# built-in defaults, so `ruff format --check .` disagreed with itself depending
+# on where it ran: 120 columns for backend/, 88 everywhere else. That made CI
+# reject files the pre-commit hook had just accepted. These values mirror
+# backend/pyproject.toml, which still governs backend/ as the closer config.
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rentivo"]
