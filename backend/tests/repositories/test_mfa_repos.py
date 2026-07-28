@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import IntegrityError
 
+from rentivo.api.schemas.security import PasskeyResponse
 from rentivo.models.mfa import MFAFactorRemovalResult, RecoveryCode, UserPasskey, UserTOTP
 from rentivo.models.user import User
 from rentivo.repositories.sqlalchemy import (
@@ -759,6 +760,64 @@ class TestPasskeyRepository:
         passkey_repo.update_last_used(created.id)
         fetched = passkey_repo.get_by_uuid(created.uuid)
         assert fetched.last_used_at is not None
+
+    def test_naive_mariadb_rows_serialize_as_rfc3339(self):
+        """Passkey timestamps must reach the API with a timezone designator.
+
+        MariaDB hands back bare ``datetime`` objects for the naive ``DATETIME``
+        columns (SQLite returns offset-carrying strings, so the rest of this
+        suite never sees the production shape). Serialized raw, that becomes
+        ``2026-07-28T13:28:55`` — not RFC 3339, which the OpenAPI contract
+        promises for ``format: date-time``. The iOS app's strict
+        ``ISO8601DateFormatter`` rejects it and blanks the whole Security tab.
+        """
+        mariadb_row = {
+            "id": 1,
+            "uuid": "passkey-uuid",
+            "user_id": 7,
+            "credential_id": "cred",
+            "public_key": "pk",
+            "sign_count": 0,
+            "name": "iPhone de Ana",
+            "transports": None,
+            "created_at": datetime(2026, 7, 28, 13, 28, 55),
+            "last_used_at": datetime(2026, 7, 28, 13, 28, 55, 63639),
+        }
+
+        passkey = SQLAlchemyPasskeyRepository._row_to_passkey(mariadb_row)
+
+        assert passkey.created_at.utcoffset() is not None
+        assert passkey.last_used_at.utcoffset() is not None
+        # Labelling must not shift the instant the row already recorded.
+        assert passkey.created_at.replace(tzinfo=None) == mariadb_row["created_at"]
+
+        payload = PasskeyResponse(
+            uuid=passkey.uuid,
+            name=passkey.name,
+            created_at=passkey.created_at,
+            last_used_at=passkey.last_used_at,
+        ).model_dump_json()
+        assert "2026-07-28T13:28:55-03:00" in payload
+
+    def test_read_timestamps_stay_offset_aware_end_to_end(self, passkey_repo, user_repo):
+        user = _create_user(user_repo)
+        created = passkey_repo.create(
+            UserPasskey(
+                user_id=user.id,
+                credential_id="cred_tz",
+                public_key="pk",
+                sign_count=0,
+                name="Timezone Key",
+            )
+        )
+        passkey_repo.update_last_used(created.id)
+
+        fetched = passkey_repo.get_by_uuid(created.uuid)
+        listed = passkey_repo.list_by_user(user.id)[0]
+
+        for passkey in (created, fetched, listed):
+            assert passkey.created_at.utcoffset() is not None
+        assert fetched.last_used_at.utcoffset() is not None
 
     def test_delete(self, passkey_repo, user_repo):
         user = _create_user(user_repo)

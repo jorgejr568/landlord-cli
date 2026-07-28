@@ -15,7 +15,7 @@ from rentivo.repositories.base import (
     PasskeyRepository,
     RecoveryCodeRepository,
 )
-from rentivo.repositories.sqlalchemy._common import _now
+from rentivo.repositories.sqlalchemy._common import _as_local, _now
 
 _USERS = table("users", column("id"))
 _ORGANIZATIONS = table("organizations", column("id"), column("enforce_mfa"), column("deleted_at"))
@@ -402,8 +402,8 @@ class SQLAlchemyPasskeyRepository(PasskeyRepository):
             sign_count=row["sign_count"],
             name=row["name"],
             transports=row.get("transports"),
-            created_at=row["created_at"],
-            last_used_at=row.get("last_used_at"),
+            created_at=_as_local(row["created_at"]),
+            last_used_at=_as_local(row.get("last_used_at")),
         )
 
     @traced("passkey_repo.create")

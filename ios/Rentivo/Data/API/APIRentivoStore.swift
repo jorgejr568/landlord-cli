@@ -519,9 +519,30 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }()
   private static let isoDateTimeFormatter = ISO8601DateFormatter()
 
+  // Timestamps read straight out of a naive `DATETIME` column reach us without a timezone
+  // designator (e.g. `2026-07-28T13:28:55`). `.withInternetDateTime` requires one, so both
+  // formatters above reject those outright and a display-only date takes down the whole
+  // screen. They are São Paulo wall clock on the wire, so parse them in that zone.
+  //
+  // These are strictly a fallback: lacking `.withTimeZone`, they happily parse an
+  // offset-bearing string while *ignoring* its offset, which would silently shift a `Z`
+  // timestamp. `isoDate` therefore only reaches them once the strict formatters have failed.
+  private static func localDateTimeFormatter(fractionalSeconds: Bool) -> ISO8601DateFormatter {
+    let formatter = ISO8601DateFormatter()
+    var options: ISO8601DateFormatter.Options = [.withFullDate, .withTime, .withColonSeparatorInTime]
+    if fractionalSeconds { options.insert(.withFractionalSeconds) }
+    formatter.formatOptions = options
+    formatter.timeZone = TimeZone(identifier: "America/Sao_Paulo") ?? .current
+    return formatter
+  }
+  private static let localDateTimeFormatterWithFraction = localDateTimeFormatter(fractionalSeconds: true)
+  private static let localDateTimeFormatterWithoutFraction = localDateTimeFormatter(fractionalSeconds: false)
+
   private func isoDate(_ value: String) throws -> Date {
     if let date = Self.isoDateTimeFormatterWithFraction.date(from: value) { return date }
     if let date = Self.isoDateTimeFormatter.date(from: value) { return date }
+    if let date = Self.localDateTimeFormatterWithFraction.date(from: value) { return date }
+    if let date = Self.localDateTimeFormatterWithoutFraction.date(from: value) { return date }
     throw LiveAPIError.invalidResponse
   }
 
