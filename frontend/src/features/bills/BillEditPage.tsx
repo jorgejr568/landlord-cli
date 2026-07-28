@@ -1,6 +1,6 @@
 import { Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";

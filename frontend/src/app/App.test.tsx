@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { RouterProvider } from "react-router-dom";
+import { RouterProvider } from "react-router";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { App } from "./App";

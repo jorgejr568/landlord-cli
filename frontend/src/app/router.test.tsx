@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
-import { RouterProvider } from "react-router-dom";
+import { RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { saveMfaChallenge } from "../features/auth/authStorage";

@@ -1,6 +1,6 @@
 import { Building2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
 

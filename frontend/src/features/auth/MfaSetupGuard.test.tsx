@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RouterProvider } from "react-router-dom";
+import { RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../../app/router";
@@ -103,7 +103,7 @@ it("guards direct navigation while preserving setup, recovery, and logout access
   const view = render(<RouterProvider router={router} />);
 
   await waitFor(() => expect(router.state.location.pathname).toBe("/security/totp/setup"));
-  expect(screen.getByRole("heading", { name: "Configuração permitida" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Configuração permitida" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "user@example.com" }));
   expect(screen.getByRole("button", { name: "Sair" })).toBeVisible();
 

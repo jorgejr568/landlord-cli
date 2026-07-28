@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";

@@ -1,6 +1,6 @@
 import { QrCode, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
 import { formatBrl, parseBrl } from "../../lib/format";

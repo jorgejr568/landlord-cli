@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type FormEvent
 } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";

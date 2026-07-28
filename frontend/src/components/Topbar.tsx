@@ -1,6 +1,6 @@
 import { CircleUserRound, Menu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 
 export interface TopbarProps {
   currentPath?: string;

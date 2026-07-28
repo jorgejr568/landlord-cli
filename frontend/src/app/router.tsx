@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet, type RouteObject } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, type RouteObject } from "react-router";
 
 import {
   AuthenticatedAppShell,

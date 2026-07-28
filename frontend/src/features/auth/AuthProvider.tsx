@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 import { AppShell } from "../../components/AppShell";
 import { ApiError, apiClient, apiRequest, setCsrfToken, setUnauthorizedHandler } from "../../lib/api/client";
