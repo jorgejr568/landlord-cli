@@ -989,6 +989,10 @@ jobs:
     name: immutable image build (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: release-gate
+    # A skipped transitive dependency (the conditional ios job) would skip
+    # this job through the default success() condition even when the gate
+    # verifier passed, so gate on the verifier's result explicitly.
+    if: always() && needs.release-gate.result == 'success'
     permissions:
       contents: read
     strategy:
