@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -232,6 +232,82 @@ it("ignores stale upload failures and stale attachment removals after the billin
   expect(onChanged).not.toHaveBeenCalled();
   expect(onError).not.toHaveBeenCalled();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("finishes an upload without touching the file input after edit access is revoked mid-flight", async () => {
+  const user = userEvent.setup();
+  const onChanged = vi.fn();
+  const onError = vi.fn();
+  let resolveUpload: ((response: Response) => void) | undefined;
+  installFetch(() => new Promise<Response>((resolve) => { resolveUpload = resolve; }));
+  const view = render(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-public" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+
+  await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  view.rerender(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-public" canEdit={false} mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+  expect(screen.queryByLabelText("Arquivo")).not.toBeInTheDocument();
+
+  await act(async () => { resolveUpload?.(jsonResponse(attachment, 201)); });
+  expect(await screen.findByRole("status")).toHaveTextContent("Documento enviado.");
+  await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  expect(onError).not.toHaveBeenCalled();
+});
+
+it("ignores an upload refresh failure that settles after the billing UUID changes", async () => {
+  const user = userEvent.setup();
+  let rejectRefresh: ((reason?: unknown) => void) | undefined;
+  const onChanged = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectRefresh = reject; }));
+  const onError = vi.fn();
+  installFetch(() => jsonResponse(attachment, 201));
+  const view = render(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-public" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+
+  await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  view.rerender(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-second" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+  await act(async () => { rejectRefresh?.(new Error("late refresh failure")); });
+
+  expect(onError).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("ignores a stale attachment removal failure after the billing UUID changes", async () => {
+  const user = userEvent.setup();
+  const onChanged = vi.fn();
+  const onError = vi.fn();
+  let rejectRemove: ((reason?: unknown) => void) | undefined;
+  installFetch(() => new Promise<Response>((_resolve, reject) => { rejectRemove = reject; }));
+  const view = render(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-public" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+
+  await user.click(screen.getByRole("button", { name: "Remover documento Contrato" }));
+  await user.click(screen.getByRole("button", { name: "Remover" }));
+  await waitFor(() => expect(rejectRemove).toBeDefined());
+  view.rerender(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-second" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+  await act(async () => { rejectRemove?.(new Error("late failure")); });
+
+  expect(onError).not.toHaveBeenCalled();
+  expect(onChanged).not.toHaveBeenCalled();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+it("ignores a post-removal refresh failure and skips focus after the billing UUID changes", async () => {
+  const user = userEvent.setup();
+  let rejectRefresh: ((reason?: unknown) => void) | undefined;
+  const onChanged = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectRefresh = reject; }));
+  const onError = vi.fn();
+  installFetch(() => new Response(null, { status: 204 }));
+  const view = render(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-public" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+
+  await user.click(screen.getByRole("button", { name: "Remover documento Contrato" }));
+  await user.click(screen.getByRole("button", { name: "Remover" }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  view.rerender(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-second" canEdit mode="edit" onChanged={onChanged} onError={onError} /></MemoryRouter>);
+  await act(async () => { rejectRefresh?.(new Error("late refresh failure")); });
+
+  expect(onError).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "Documentos" })).not.toHaveFocus();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
 

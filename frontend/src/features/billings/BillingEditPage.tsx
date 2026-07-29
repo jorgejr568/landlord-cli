@@ -1,6 +1,6 @@
 import { ChevronLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";

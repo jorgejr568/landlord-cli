@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
 import { EmptyState, LoadError, LoadingState } from "../../components/PageState";

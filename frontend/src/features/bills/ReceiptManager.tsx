@@ -47,6 +47,7 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
   const successRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef(receipts);
   const sortableRef = useRef<Sortable | null>(null);
+  /* v8 ignore next -- the placeholder is reassigned every render before Sortable can call it */
   const reorderRef = useRef<(next: Receipt[]) => void>(() => undefined);
   const operation = useRef(0);
 
@@ -224,6 +225,7 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
     sortableRef.current = sortable;
     return () => {
       sortable.destroy();
+      /* v8 ignore next -- the previous instance is destroyed before a new one is created */
       if (sortableRef.current === sortable) sortableRef.current = null;
     };
   }, [billUuid, billingUuid, sortableEnabled]);

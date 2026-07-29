@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -693,6 +693,150 @@ it("does not navigate when billing deletion resolves after the route changes", a
   await act(async () => { resolveDelete?.(new Response(null, { status: 204 })); });
 
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-second");
+  expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores a late route-A load failure after route B becomes active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectFirstBilling: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return new Promise<Response>((_resolve, reject) => { rejectFirstBilling = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/organizations") return jsonResponse({ items: [organization] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  expect(await screen.findByText("Carregando cobrança...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+  await act(async () => { rejectFirstBilling?.(new Error("late failure")); });
+
+  expect(screen.queryByText("Não foi possível carregar a cobrança.")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Casa B" })).toBeVisible();
+});
+
+it("discards route-A domain data that finishes loading after route B is active", async () => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let organizationGets = 0;
+  let resolveBills: ((response: Response) => void) | undefined;
+  let resolveExpenses: ((response: Response) => void) | undefined;
+  let resolveAttachments: ((response: Response) => void) | undefined;
+  let resolveOrganizations: ((response: Response) => void) | undefined;
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(billing);
+    if (key === "GET /api/v1/billings/billing-public/bills") return new Promise<Response>((resolve) => { resolveBills = resolve; });
+    if (key === "GET /api/v1/billings/billing-public/expenses") return new Promise<Response>((resolve) => { resolveExpenses = resolve; });
+    if (key === "GET /api/v1/billings/billing-public/attachments") return new Promise<Response>((resolve) => { resolveAttachments = resolve; });
+    if (key === "GET /api/v1/organizations") {
+      organizationGets += 1;
+      if (organizationGets === 1) return new Promise<Response>((resolve) => { resolveOrganizations = resolve; });
+      return jsonResponse({ items: [organization] });
+    }
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  await waitFor(() => expect(resolveOrganizations).toBeDefined());
+  expect(screen.getByText("Carregando cobrança...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+  await act(async () => {
+    resolveBills?.(jsonResponse({ items: bills }));
+    resolveExpenses?.(jsonResponse({ items: [expense] }));
+    resolveAttachments?.(jsonResponse({ items: [attachment] }));
+    resolveOrganizations?.(jsonResponse({ items: [organization] }));
+  });
+
+  expect(screen.getByRole("heading", { name: "Casa B" })).toBeVisible();
+  expect(screen.queryByText("IPTU 2026")).not.toBeInTheDocument();
+});
+
+const staleMutationFailures: Array<{
+  endpoint: string;
+  errorText: string;
+  mutation: string;
+  run: (user: ReturnType<typeof userEvent.setup>) => Promise<void>;
+}> = [
+  {
+    endpoint: "POST /api/v1/billings/billing-public/exports",
+    errorText: "Não foi possível solicitar a exportação.",
+    mutation: "export",
+    run: async (user) => { await user.click(screen.getByRole("button", { name: "Exportar CSV" })); }
+  },
+  {
+    endpoint: "POST /api/v1/billings/billing-public/expenses",
+    errorText: "Não foi possível adicionar a despesa.",
+    mutation: "expense creation",
+    run: async () => { fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!); }
+  },
+  {
+    endpoint: "DELETE /api/v1/billings/billing-public/expenses/expense-public",
+    errorText: "Não foi possível remover a despesa.",
+    mutation: "expense removal",
+    run: async (user) => {
+      await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
+      await user.click(screen.getByRole("button", { name: "Remover" }));
+    }
+  },
+  {
+    endpoint: "POST /api/v1/billings/billing-public/transfer",
+    errorText: "Não foi possível transferir a cobrança.",
+    mutation: "transfer",
+    run: async (user) => {
+      await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+      await user.click(screen.getByRole("button", { name: "Transferir" }));
+      await user.click(screen.getByRole("button", { name: "Confirmar transferência" }));
+    }
+  },
+  {
+    endpoint: "DELETE /api/v1/billings/billing-public",
+    errorText: "Não foi possível excluir a cobrança.",
+    mutation: "billing deletion",
+    run: async (user) => {
+      await user.click(screen.getByRole("button", { name: "Excluir cobrança" }));
+      await user.click(screen.getByRole("button", { name: "Excluir cobrança permanentemente" }));
+    }
+  }
+];
+
+it.each(staleMutationFailures)("ignores a late $mutation failure after the billing route changes", async ({ endpoint, errorText, run }) => {
+  const user = userEvent.setup();
+  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
+  let rejectMutation: ((reason?: unknown) => void) | undefined;
+  installFetch((key) => {
+    if (key === endpoint) return new Promise<Response>((_resolve, reject) => { rejectMutation = reject; });
+    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
+    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
+    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
+    return dataResponse(key);
+  });
+  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
+  </Routes></MemoryRouter>);
+
+  await screen.findByRole("heading", { name: "Apartamento 302" });
+  await run(user);
+  await waitFor(() => expect(rejectMutation).toBeDefined());
+  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
+  expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
+  await act(async () => { rejectMutation?.(new Error("late failure")); });
+
+  expect(screen.queryByText(errorText)).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 

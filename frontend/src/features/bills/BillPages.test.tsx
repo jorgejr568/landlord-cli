@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -982,6 +982,25 @@ it("targets moderation acknowledgement field errors", async () => {
   fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Confirme antes de enviar.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).toHaveFocus());
+});
+
+it("keeps focus untouched for unrecognized send field errors", async () => {
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Ok</p>", mild: [], severe: [] }),
+    "POST /api/v1/billings/billing-public-uuid/communications/send": () => problemResponse({
+      code: "validation_error", detail: "Confira os campos.",
+      fields: { "body.comm_type": "Tipo de comunicação inválido." }, request_id: "req",
+      status: 422, title: "Dados inválidos", type: "problem"
+    })
+  });
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await screen.findByText("Ok");
+  fireEvent.submit(document.getElementById("comm-form")!);
+
+  expect(await screen.findByText("Confira os campos.")).toBeVisible();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(document.body).toHaveFocus();
 });
 
 it("renders the payment-receipt variant with an empty template and capability-driven owner scope", async () => {

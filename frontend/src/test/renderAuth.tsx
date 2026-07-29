@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { vi } from "vitest";
 
 import { AuthProvider } from "../features/auth/AuthProvider";

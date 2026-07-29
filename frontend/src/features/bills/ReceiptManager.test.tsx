@@ -273,6 +273,66 @@ it("rejects malformed SortableJS DOM orders and restores persisted rows", () => 
   );
 });
 
+it("recovers a failed reorder after every receipt left the bill", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  let settle!: (response: Response) => void;
+  installFetch({
+    "PUT /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipt-order": () => new Promise<Response>((resolve) => { settle = resolve; })
+  });
+  const view = render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={receipts} />);
+  screen.getByRole("button", { name: "Reordenar julho.pdf" }).focus();
+  await user.keyboard("{ArrowDown}");
+  view.rerender(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={[]} />);
+  expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+
+  await act(async () => settle(problemResponse({
+    code: "order_failed", detail: "Falha ao ordenar.", fields: {}, request_id: "req", status: 409, title: "Erro", type: "problem"
+  })));
+
+  expect(await screen.findByText("Falha ao ordenar.")).toBeVisible();
+  expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it("restores persisted receipts when a drag leaves a row missing from the DOM", () => {
+  const fetchMock = installFetch({});
+  render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={vi.fn()} receipts={receipts} />);
+  const record = sortable.instances[0];
+  record.element.querySelector(`tr[data-uuid="${receipts[1].uuid}"]`)!.remove();
+
+  act(() => record.options.onEnd?.());
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(Array.from(record.element.querySelectorAll("tr[data-uuid]"), (row) => row.getAttribute("data-uuid"))).toEqual([
+    receipts[0].uuid
+  ]);
+});
+
+it("completes an upload that finishes after uploads were disabled", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  const uploaded: Receipt = { ...receipts[0], filename: "novo.pdf", uuid: "01J00000000000000000000005" };
+  let settle!: (response: Response) => void;
+  installFetch({
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => new Promise<Response>((resolve) => { settle = resolve; })
+  });
+  const view = render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={receipts} />);
+  await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "novo.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+  view.rerender(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={{ ...capabilities, can_upload_receipts: false }} onChange={onChange} receipts={receipts} />);
+  expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
+
+  await act(async () => settle(jsonResponse({ attached: 1, items: [uploaded], skipped: 0, total_bytes: 3 }, 201, {
+    "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded"
+  })));
+
+  const success = await screen.findByRole("status");
+  expect(success).toHaveTextContent("1 comprovante(s) anexado(s).");
+  expect(onChange).toHaveBeenLastCalledWith([...receipts, uploaded]);
+  expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
+});
+
 it("destroys and reinitializes SortableJS across route, capability, and unmount lifecycles", () => {
   const view = render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={vi.fn()} receipts={receipts} />);
   const first = sortable.instances[0].instance;

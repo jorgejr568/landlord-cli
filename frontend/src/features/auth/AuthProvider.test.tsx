@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient, apiRequest } from "../../lib/api/client";
@@ -34,6 +34,9 @@ function Probe() {
       </button>
       <button onClick={() => void auth.logout()} type="button">
         sair
+      </button>
+      <button onClick={() => void auth.refreshSession()} type="button">
+        atualizar sessão
       </button>
       <button onClick={auth.retryConfig} type="button">
         tentar configuração
@@ -269,6 +272,150 @@ describe("AuthProvider", () => {
 
     expect(screen.getByText("authenticated")).toBeVisible();
     expect(screen.getByText("user@example.com")).toBeVisible();
+    expect(screen.getByTestId("path")).toHaveTextContent("/login");
+  });
+
+  it("discards a stale session refresh once a newer login lands", async () => {
+    const user = userEvent.setup();
+    let sessionCalls = 0;
+    let resolveRefresh!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") {
+          return jsonResponse(AUTH_CONFIG);
+        }
+        if (url === "/api/v1/auth/session") {
+          sessionCalls += 1;
+          if (sessionCalls === 1) {
+            return jsonResponse(AUTHENTICATED_RESPONSE);
+          }
+          return new Promise<Response>((resolve) => {
+            resolveRefresh = resolve;
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper>
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("user@example.com");
+    await user.click(screen.getByRole("button", { name: "atualizar sessão" }));
+    await user.click(screen.getByRole("button", { name: "autenticar" }));
+
+    await act(async () =>
+      resolveRefresh(
+        jsonResponse({
+          ...AUTHENTICATED_RESPONSE,
+          bootstrap: {
+            ...AUTHENTICATED_RESPONSE.bootstrap,
+            user: { email: "stale@example.com", id: 43 }
+          }
+        })
+      )
+    );
+
+    expect(screen.getByText("user@example.com")).toBeVisible();
+    expect(screen.queryByText("stale@example.com")).not.toBeInTheDocument();
+  });
+
+  it("ignores a delayed authenticated bootstrap once a newer login lands", async () => {
+    const user = userEvent.setup();
+    let resolveSession!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/v1/auth/config") {
+          return jsonResponse(AUTH_CONFIG);
+        }
+        if (url === "/api/v1/auth/session") {
+          return new Promise<Response>((resolve) => {
+            resolveSession = resolve;
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      })
+    );
+
+    render(
+      <Wrapper path="/login">
+        <Probe />
+      </Wrapper>
+    );
+
+    expect(await screen.findByText("ready")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "autenticar" }));
+    expect(screen.getByText("authenticated")).toBeVisible();
+
+    await act(async () =>
+      resolveSession(
+        jsonResponse({
+          ...AUTHENTICATED_RESPONSE,
+          bootstrap: {
+            ...AUTHENTICATED_RESPONSE.bootstrap,
+            user: { email: "stale@example.com", id: 43 }
+          }
+        })
+      )
+    );
+
+    expect(screen.getByText("user@example.com")).toBeVisible();
+    expect(screen.queryByText("stale@example.com")).not.toBeInTheDocument();
+  });
+
+  it("ignores a configuration failure delivered after unmount", async () => {
+    let rejectConfig!: (reason: unknown) => void;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/v1/auth/config") {
+        return new Promise<Response>((_resolve, reject) => {
+          rejectConfig = reject;
+        });
+      }
+      if (url === "/api/v1/auth/session") {
+        return problemResponse();
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = render(
+      <Wrapper>
+        <Probe />
+      </Wrapper>
+    );
+
+    expect(await screen.findByText("anonymous")).toBeVisible();
+    expect(screen.getByText("loading")).toBeVisible();
+    unmount();
+
+    rejectConfig(new Error("offline"));
+    await act(async () => undefined);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/auth/config", expect.anything());
+  });
+
+  it("keeps the current URL when logging out from the login page", async () => {
+    const user = userEvent.setup();
+    installFetch();
+
+    render(
+      <Wrapper path="/login">
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("authenticated");
+    await user.click(screen.getByRole("button", { name: "sair" }));
+
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeVisible());
     expect(screen.getByTestId("path")).toHaveTextContent("/login");
   });
 

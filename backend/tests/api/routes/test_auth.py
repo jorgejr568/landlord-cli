@@ -419,6 +419,33 @@ def test_mobile_authorization_code_exchanges_once_for_a_native_bearer_session(
     )
 
 
+def test_mobile_exchange_rejects_a_malformed_authorization_code(
+    auth_harness: AuthHarness,
+) -> None:
+    response = auth_harness.client.post(
+        "/api/v1/auth/mobile/exchange",
+        json={"authorization_code": "missing-separator"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "invalid_or_expired_mobile_authorization"
+
+
+def test_mobile_exchange_rejects_an_authorization_whose_user_no_longer_exists(
+    auth_harness: AuthHarness,
+) -> None:
+    orphaned_code = "01J00000000000000000000000.orphaned-user-nonce"
+    auth_harness.auth_challenge.codes[orphaned_code] = USER.id + 999
+
+    response = auth_harness.client.post(
+        "/api/v1/auth/mobile/exchange",
+        json={"authorization_code": orphaned_code},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "invalid_or_expired_mobile_authorization"
+
+
 def test_signup_returns_authenticated_bootstrap_and_secure_login_cookies(
     auth_harness: AuthHarness,
 ) -> None:

@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -211,6 +211,30 @@ it("aborts a pending create and ignores its late response after cancellation", a
   await act(async () => { resolveCreate?.(jsonResponse(created, 201, { "X-Rentivo-Analytics-Event": "rentivo_billing_created" })); });
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/");
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
+});
+
+it("ignores organization load settlements after the page unmounts", async () => {
+  let resolveOrganizations: ((response: Response) => void) | undefined;
+  installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((resolve) => { resolveOrganizations = resolve; })
+  });
+  const view = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(resolveOrganizations).toBeDefined());
+  view.unmount();
+  await act(async () => { resolveOrganizations?.(jsonResponse(organizationList)); });
+  expect(screen.queryByLabelText("Nome do imóvel")).not.toBeInTheDocument();
+
+  let rejectOrganizations: ((reason?: unknown) => void) | undefined;
+  installFetch({
+    "GET /api/v1/organizations": () => new Promise<Response>((_resolve, reject) => { rejectOrganizations = reject; })
+  });
+  const second = renderPage();
+  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  await waitFor(() => expect(rejectOrganizations).toBeDefined());
+  second.unmount();
+  await act(async () => { rejectOrganizations?.(new Error("late failure")); });
+  expect(screen.queryByText("Não foi possível carregar as organizações.")).not.toBeInTheDocument();
 });
 
 it("ignores a late create failure after the page unmounts", async () => {

@@ -1,6 +1,6 @@
 import { ChevronLeft, QrCode } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";

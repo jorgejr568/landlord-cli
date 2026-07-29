@@ -1,6 +1,6 @@
 import { ArrowRight, LockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";

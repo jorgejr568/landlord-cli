@@ -1,6 +1,6 @@
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { pushAnalyticsFromResponse } from "../auth/analytics";

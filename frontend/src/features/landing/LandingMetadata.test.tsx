@@ -69,6 +69,23 @@ it("restores replaced document metadata when unmounted", async () => {
   expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute("href", "/existente");
 });
 
+it("keeps a pre-existing element in place when no original snapshot is available", async () => {
+  const canonical = document.createElement("link");
+  canonical.rel = "canonical";
+  canonical.href = "/existente";
+  vi.spyOn(canonical, "cloneNode").mockReturnValue(undefined as unknown as Node);
+  document.head.append(canonical);
+
+  const view = await renderMetadata();
+  expect(document.head.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
+
+  view.unmount();
+
+  const remaining = document.head.querySelector('link[rel="canonical"]');
+  expect(remaining).toBe(canonical);
+  expect(remaining).toHaveAttribute("href", "/");
+});
+
 it("replaces the fallback structured data without duplicating it", async () => {
   document.head.innerHTML = '<script type="application/ld+json">{"name":"Fallback"}</script>';
 

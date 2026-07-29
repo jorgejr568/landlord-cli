@@ -49,6 +49,39 @@ it("ports the security summary and clears authentication after disabling TOTP", 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
 });
 
+it("still lands on /login when logout fails after disabling TOTP", async () => {
+  const user = userEvent.setup();
+  renderPage({
+    "/api/v1/auth/logout": () => {
+      throw new Error("offline");
+    },
+    "/api/v1/security/totp/disable": () => new Response(null, { status: 204 })
+  });
+
+  expect(await screen.findByRole("heading", { name: "Segurança" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
+  await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "password");
+  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
+});
+
+it("still lands on /login when logout fails after a passkey deletion revokes the session", async () => {
+  const user = userEvent.setup();
+  const value = { ...summary, passkeys: [{ created_at: "2026-07-17T10:00:00Z", last_used_at: null, name: "Notebook", uuid: "pk-uuid" }] };
+  renderPage({
+    "/api/v1/auth/logout": () => {
+      throw new Error("offline");
+    },
+    "/api/v1/security/passkeys/pk-uuid": () => new Response(null, { status: 204 })
+  }, value);
+
+  await user.click(await screen.findByRole("button", { name: "Remover Notebook" }));
+  await user.click(screen.getByRole("button", { name: "Remover passkey" }));
+
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
+});
+
 it("shows incomplete PIX, enforced MFA, disabled TOTP, and low recovery warnings", async () => {
   const value = {
     ...summary,

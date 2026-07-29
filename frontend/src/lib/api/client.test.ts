@@ -273,6 +273,22 @@ describe("typed API client", () => {
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
+  it("treats unparseable authenticated 401 bodies as generic failures without clearing the session", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("not-json", { status: 401 }))
+    );
+
+    await expect(apiRequest(apiClient.GET("/api/v1/auth/session"))).rejects.toMatchObject({
+      code: "request_failed",
+      message: "Não foi possível concluir a solicitação. Tente novamente.",
+      status: 401
+    });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("normalizes non-problem failures and malformed problem bodies", async () => {
     const fetchMock = vi
       .fn()

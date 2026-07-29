@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -88,4 +88,30 @@ it("retries API and network failures", async () => {
   expect(await screen.findByText("Não foi possível carregar as organizações.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await waitFor(() => expect(screen.getByText("Ribeiro Imóveis")).toBeVisible());
+});
+
+it("ignores loads that settle after the page unmounts", async () => {
+  let resolveLoad!: (response: Response) => void;
+  const pendingLoad = new Promise<Response>((resolve) => { resolveLoad = resolve; });
+  let loadSignal: AbortSignal | null | undefined;
+  vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    loadSignal = init?.signal;
+    return pendingLoad;
+  }));
+  const view = render(<MemoryRouter><OrganizationListPage /></MemoryRouter>);
+
+  expect(screen.getByText("Carregando organizações...")).toBeVisible();
+  await waitFor(() => expect(loadSignal).toBeDefined());
+  view.unmount();
+  expect(loadSignal?.aborted).toBe(true);
+  await act(async () => { resolveLoad(jsonResponse({ items: [organization] })); });
+
+  let rejectLoad!: (reason?: unknown) => void;
+  const failingLoad = new Promise<Response>((resolve, reject) => { rejectLoad = reject; });
+  vi.stubGlobal("fetch", vi.fn(() => failingLoad));
+  const second = render(<MemoryRouter><OrganizationListPage /></MemoryRouter>);
+  second.unmount();
+  await act(async () => { rejectLoad(new Error("offline")); });
+
+  expect(screen.queryByText("Não foi possível carregar as organizações.")).not.toBeInTheDocument();
 });

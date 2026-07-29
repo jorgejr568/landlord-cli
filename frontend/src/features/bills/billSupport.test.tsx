@@ -61,3 +61,20 @@ it("updates and restores the page title across rerenders", () => {
   view.unmount();
   expect(document.title).toBe("Anterior");
 });
+
+it("skips the title restore when no previous title could be captured", () => {
+  const written: string[] = [];
+  Object.defineProperty(document, "title", {
+    configurable: true,
+    get: () => null as unknown as string,
+    set: (value: string) => { written.push(value); }
+  });
+  try {
+    const view = render(<TitleProbe title="Primeiro" />);
+    expect(written).toEqual(["Primeiro"]);
+    view.unmount();
+    expect(written).toEqual(["Primeiro"]);
+  } finally {
+    Reflect.deleteProperty(document, "title");
+  }
+});

@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Link, MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router";
 import { vi } from "vitest";
 
 import { EmptyState, LoadError, LoadingState } from "./PageState";

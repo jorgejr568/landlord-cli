@@ -1,6 +1,6 @@
 import { ArrowLeft, Edit3, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { LoadError, LoadingState } from "../../components/PageState";
@@ -54,6 +54,7 @@ export function BillDetailPage() {
     setDownloadingRecibo(false);
     setOpenDropdown(null);
     return () => {
+      /* v8 ignore next -- cleanup always runs before the next effect setup */
       if (routeGeneration.current === generation) routeGeneration.current += 1;
       controllers.forEach((controller) => controller.abort());
       controllers.clear();

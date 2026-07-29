@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -336,6 +336,35 @@ it("ignores navigation after leaving while the accepted invite refreshes the ses
   await user.click(screen.getByRole("button", { name: "Sair da página" }));
   await act(async () => { sessionRefresh.resolve(undefined); });
 
+  expect(screen.getByTestId("location")).toHaveTextContent("/away");
+});
+
+it("ignores an invite list load that settles after leaving the page", async () => {
+  const user = userEvent.setup();
+  const load = deferred<Response>();
+  let loadSignal: AbortSignal | null | undefined;
+  installFetch({
+    "GET /api/v1/invites": (init) => {
+      loadSignal = init?.signal;
+      return load.promise;
+    }
+  });
+  renderPageWithAway();
+
+  expect(screen.getByText("Carregando convites...")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Sair da página" }));
+  expect(loadSignal?.aborted).toBe(true);
+  await act(async () => { load.resolve(jsonResponse({ items: [acmeInvite] })); });
+  expect(screen.getByTestId("location")).toHaveTextContent("/away");
+
+  cleanup();
+  const failingLoad = deferred<Response>();
+  installFetch({ "GET /api/v1/invites": () => failingLoad.promise });
+  renderPageWithAway();
+  await user.click(screen.getByRole("button", { name: "Sair da página" }));
+  await act(async () => { failingLoad.reject(new Error("offline")); });
+
+  expect(screen.queryByText("Não foi possível carregar os convites.")).not.toBeInTheDocument();
   expect(screen.getByTestId("location")).toHaveTextContent("/away");
 });
 

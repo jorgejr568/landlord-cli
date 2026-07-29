@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -489,7 +489,7 @@ it.each([
     level: 1,
     name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme — Tema" : "Aluguel — Tema"
   });
-  expect(document.title).toBe(expected);
+  await waitFor(() => expect(document.title).toBe(expected));
   unmount();
   expect(document.title).toBe("Título anterior");
 });
