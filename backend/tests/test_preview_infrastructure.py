@@ -205,7 +205,7 @@ def test_frontend_runs_unprivileged_and_read_only_on_port_8080():
     frontend = compose["services"]["frontend"]
 
     assert "FROM node:22-alpine AS builder" in dockerfile
-    assert "FROM nginxinc/nginx-unprivileged:1.28-alpine" in dockerfile
+    assert "FROM nginxinc/nginx-unprivileged:1.30-alpine" in dockerfile
     assert "listen 8080 default_server;" in dockerfile
     assert "USER 101" in dockerfile
     assert "EXPOSE 8080" in dockerfile

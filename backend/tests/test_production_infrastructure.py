@@ -241,7 +241,7 @@ def test_frontend_runs_unprivileged_and_read_only():
     dockerfile = FRONTEND_DOCKERFILE.read_text()
     frontend = _yaml(COMPOSE_FILE)["services"]["frontend"]
 
-    assert "FROM nginxinc/nginx-unprivileged:1.28-alpine" in dockerfile
+    assert "FROM nginxinc/nginx-unprivileged:1.30-alpine" in dockerfile
     assert "USER 101" in dockerfile
     assert "EXPOSE 8080" in dockerfile
     assert frontend["read_only"] is True
