@@ -15,7 +15,7 @@ struct HomeView: View {
 
   var body: some View {
     PageStateView(state: state) { data in
-      HomeContent(data: data)
+      HomeContent(data: data) { await load() }
     } retry: {
       await load()
     }
@@ -75,9 +75,24 @@ struct HomeView: View {
   }
 }
 
+/// Value-based route to a bill's detail screen. The links are value-based (and
+/// not `NavigationLink { BillDetailView(...) }`) because acting on a bill from
+/// its detail screen — publishing, sending, marking it paid — reloads the
+/// dashboard and drops that bill out of "Próximas faturas". A view-based link
+/// would be torn down along with its row and pop the user back to Início
+/// mid-flow; a pushed value survives its source disappearing.
+private struct BillRoute: Hashable {
+  let billingID: BillingID
+  let billID: BillID
+}
+
 private struct HomeContent: View {
   @Environment(AppModel.self) private var app
   let data: HomeData
+  /// Reloads the dashboard after a bill opened from here is mutated on its
+  /// detail screen (status transition, edit, deletion), so the summary cards
+  /// and the "Próximas faturas" list don't go stale behind the pushed view.
+  let reload: () async -> Void
 
   private let columns = [
     GridItem(.flexible(), spacing: RentivoSpacing.medium),
@@ -126,6 +141,11 @@ private struct HomeContent: View {
         activitySection
       }
       .padding(RentivoSpacing.page)
+    }
+    .navigationDestination(for: BillRoute.self) { route in
+      BillDetailView(billingID: route.billingID, billID: route.billID) {
+        await reload()
+      }
     }
   }
 
@@ -205,27 +225,31 @@ private struct HomeContent: View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
       SectionTitle(title: title, symbol: "calendar")
       ForEach(bills) { bill in
-        RentivoCard {
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            HStack(alignment: .top) {
-              VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-                Text(data.billingNames[bill.billingID] ?? "Cobrança")
-                  .font(RentivoTypography.cardTitle)
-                Text(bill.referenceMonth.label.capitalized)
-                  .font(.subheadline)
-                  .foregroundStyle(RentivoColors.secondaryInk)
+        NavigationLink(value: BillRoute(billingID: bill.billingID, billID: bill.id)) {
+          RentivoCard {
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                  Text(data.billingNames[bill.billingID] ?? "Cobrança")
+                    .font(RentivoTypography.cardTitle)
+                  Text(bill.referenceMonth.label.capitalized)
+                    .font(.subheadline)
+                    .foregroundStyle(RentivoColors.secondaryInk)
+                }
+                Spacer()
+                StatusBadge(status: bill.status)
               }
-              Spacer()
-              StatusBadge(status: bill.status)
-            }
-            HStack {
-              Label("Vence em \(bill.dueDate.displayFormatted)", systemImage: "calendar")
-                .font(.caption)
-              Spacer()
-              MoneyText(money: bill.effectiveTotal)
+              HStack {
+                Label("Vence em \(bill.dueDate.displayFormatted)", systemImage: "calendar")
+                  .font(.caption)
+                Spacer()
+                MoneyText(money: bill.effectiveTotal)
+              }
             }
           }
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home.bill.card.\(bill.id.rawValue)")
       }
     }
   }

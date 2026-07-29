@@ -39,6 +39,29 @@ final class RentivoUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Conta"].waitForExistence(timeout: 2))
   }
 
+  func testUpcomingBillOnHomeOpensItsDetailAndSurvivesLeavingTheList() throws {
+    let app = launchAndSignIn()
+
+    // "Próximas faturas" only lists draft/published/sent bills; the canonical
+    // draft is one of them.
+    let upcoming = app.buttons["home.bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(upcoming, in: app)
+    upcoming.tap()
+    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
+
+    // Walking the bill to "paid" drops it out of "Próximas faturas" when the
+    // dashboard reloads behind this screen. The push is value-based precisely
+    // so that does not yank the user back to Início mid-flow.
+    transition("published", in: app)
+    transition("sent", in: app)
+    transition("paid", in: app)
+    XCTAssertTrue(app.navigationBars["Fatura"].exists)
+
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    XCTAssertTrue(app.navigationBars["Início"].waitForExistence(timeout: 3))
+    XCTAssertFalse(upcoming.exists)
+  }
+
   func testBillingCreationValidation() throws {
     let app = launchAndSignIn()
     app.tabBars.buttons["Cobranças"].tap()
