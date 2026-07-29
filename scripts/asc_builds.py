@@ -7,6 +7,8 @@ Usage:
         check --bundle-id br.com.rentivo.ios --version 1.0.2 --build 42
     uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py \
         wait --bundle-id br.com.rentivo.ios --version 1.0.2 --build 42
+    uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py \
+        distribute --bundle-id br.com.rentivo.ios --version 1.0.2 --build 42
 
 The account is configured with ASC_KEY_ID and ASC_ISSUER_ID; the private key is
 read from ~/.appstoreconnect/private_keys/AuthKey_<key id>.p8 and is never
@@ -54,6 +56,40 @@ def is_transient_status(status):
     if status == 429:
         return True
     return 500 <= status < 600
+
+
+def is_pending_association_status(status):
+    """Return True when a failed group association is worth retrying.
+
+    `processingState=VALID` only means the binary finished processing. The
+    TestFlight-side records land later, and until they do App Store Connect
+    answers a relationship POST with 404 `NOT_FOUND` for a build id it will
+    happily return from `/v1/builds`. That 404 is a "not yet", not a "never",
+    so `distribute` re-polls it alongside the usual transient failures.
+    """
+    return status == 404 or is_transient_status(status)
+
+
+def select_beta_group(groups, name=None):
+    """Pick the beta group to distribute to, or return (None, reason).
+
+    With `--group` this is an exact name match. Without it the group is derived
+    rather than pinned: a single internal group is unambiguous, and anything
+    else is a decision the release must not guess at.
+    """
+    if name is not None:
+        for group in groups:
+            if group.get("attributes", {}).get("name") == name:
+                return group, None
+        available = ", ".join(sorted(g.get("attributes", {}).get("name") or "?" for g in groups)) or "none"
+        return None, f"No beta group named {name!r}. Groups on this app: {available}."
+    internal = [group for group in groups if group.get("attributes", {}).get("isInternalGroup")]
+    if len(internal) == 1:
+        return internal[0], None
+    if not internal:
+        return None, "This app has no internal beta group; create one or pass --group."
+    names = ", ".join(sorted(g.get("attributes", {}).get("name") or "?" for g in internal))
+    return None, f"This app has {len(internal)} internal beta groups ({names}); pass --group to choose one."
 
 
 def normalize_builds(payload):
@@ -154,6 +190,24 @@ def _get(path, bearer):
         raise AppStoreConnectError(f"App Store Connect request failed: {error.reason}") from error
 
 
+def _post(path, document, bearer):
+    """POST a JSON:API document, raising AppStoreConnectError on any failure."""
+    request = urllib.request.Request(
+        f"{API_ROOT}{path}",
+        data=json.dumps(document).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {bearer}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        body = error.read().decode(errors="replace")[:400]
+        raise AppStoreConnectError(f"App Store Connect API error {error.code}: {body}", status=error.code) from error
+    except urllib.error.URLError as error:
+        raise AppStoreConnectError(f"App Store Connect request failed: {error.reason}") from error
+
+
 def _app_id(bundle_id, bearer):
     apps = _get(f"/v1/apps?filter[bundleId]={bundle_id}", bearer)
     if not apps["data"]:
@@ -234,22 +288,82 @@ def command_wait(arguments, bearer):
         bearer = _token()
 
 
+def command_distribute(arguments, bearer):
+    """Attach an uploaded build to a TestFlight beta group.
+
+    Without this the release stops at a processed binary: the build shows in
+    App Store Connect but belongs to no group, so no tester ever sees it. Like
+    `wait`, this runs after the irreversible upload, so it re-polls rather than
+    dying on the TestFlight records not existing yet.
+    """
+    app_id = _app_id(arguments.bundle_id, bearer)
+    groups = _get(f"/v1/apps/{app_id}/betaGroups?limit=200", bearer)["data"]
+    group, reason = select_beta_group(groups, arguments.group)
+    if group is None:
+        print(reason, file=sys.stderr)
+        return 1
+    group_id = group["id"]
+    group_name = group["attributes"]["name"]
+
+    deadline = time.monotonic() + arguments.timeout
+    while True:
+        try:
+            builds = _builds(arguments.bundle_id, bearer)
+            build = find_build(builds, arguments.version, arguments.build)
+            if build is None:
+                raise AppStoreConnectError(
+                    f"Build {arguments.version} ({arguments.build}) is not in App Store Connect.", status=404
+                )
+            assigned = _get(f"/v1/betaGroups/{group_id}/builds?limit=200", bearer)["data"]
+            if any(item["id"] == build["id"] for item in assigned):
+                print(f"  {arguments.version} ({arguments.build}) is already in {group_name}.")
+                return 0
+            _post(
+                f"/v1/betaGroups/{group_id}/relationships/builds",
+                {"data": [{"type": "builds", "id": build["id"]}]},
+                bearer,
+            )
+            print(f"  {arguments.version} ({arguments.build}) distributed to {group_name}.")
+            return 0
+        except AppStoreConnectError as error:
+            if not is_pending_association_status(error.status):
+                raise
+            print(f"  TestFlight is not ready for this build yet, still polling: {error}", file=sys.stderr)
+        if time.monotonic() >= deadline:
+            print(
+                f"Build {arguments.version} ({arguments.build}) could not be added to "
+                f"{group_name} within {arguments.timeout}s.",
+                file=sys.stderr,
+            )
+            return 1
+        time.sleep(arguments.interval)
+        bearer = _token()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("list", "check", "wait"):
+    for name in ("list", "check", "wait", "distribute"):
         subparser = subparsers.add_parser(name)
         subparser.add_argument("--bundle-id", required=True)
         if name != "list":
             subparser.add_argument("--version", required=True)
             subparser.add_argument("--build", required=True)
-        if name == "wait":
+        if name in ("wait", "distribute"):
             subparser.add_argument("--timeout", type=int, default=1800)
             subparser.add_argument("--interval", type=int, default=30)
+        if name == "distribute":
+            # Omitted, the group is derived from the app; see select_beta_group.
+            subparser.add_argument("--group", default=None)
 
     arguments = parser.parse_args(argv)
-    handlers = {"list": command_list, "check": command_check, "wait": command_wait}
+    handlers = {
+        "list": command_list,
+        "check": command_check,
+        "wait": command_wait,
+        "distribute": command_distribute,
+    }
     try:
         return handlers[arguments.command](arguments, _token())
     except AppStoreConnectError as error:

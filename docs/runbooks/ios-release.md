@@ -41,8 +41,9 @@ and merging that change to `main`.
    is executing on `main` (`github.ref == 'refs/heads/main'`): it archives
    **unsigned**, exports **signed**, checks the signature is
    `Apple Distribution` for team `Q87D3V95YZ`, checks the embedded
-   `CFBundleShortVersionString`/`CFBundleVersion`, validates, uploads, and
-   polls until the build reports `state=VALID`.
+   `CFBundleShortVersionString`/`CFBundleVersion`, validates, uploads, polls
+   until the build reports `state=VALID`, and then attaches it to a TestFlight
+   beta group.
 
 The upload is automatic and irreversible. A build number is consumed
 permanently and an uploaded build can only be expired, never deleted. There is
@@ -218,10 +219,24 @@ ungated and always uploads.
 
 There is no separate TestFlight build. TestFlight and App Store review consume
 the same binary, so a build at `state=VALID` is already the TestFlight build.
-What remains is distribution configuration in App Store Connect:
 
-- **Internal testers** — assign in the TestFlight tab; no review, immediate.
-- **External testers** — needs Beta App Review first.
+`state=VALID` is *not* the same as testable, though. It means the binary
+finished processing; a build that belongs to no beta group is invisible in the
+TestFlight app no matter how valid it is. Version 1.1 (build 5) shipped exactly
+that way before the release workflow attached builds to a group. The
+"Distribute the build to its TestFlight group" step now closes that gap:
+
+- **Internal testers** — the workflow attaches the build automatically. It
+  picks the app's single internal group; set the `IOS_BETA_GROUP` repository
+  variable to a group name when there is more than one, or none is internal.
+  The group is resolved by name at release time, never pinned to an id.
+- **External testers** — still manual; needs Beta App Review first.
+
+The TestFlight-side records for a build appear minutes *after* it reports
+`VALID` — until they do, App Store Connect answers a group association with
+`404 NOT_FOUND` for a build id it will happily return from `/v1/builds`. The
+step treats that 404 as "not yet" and re-polls, so it is not a failure unless
+its 30-minute deadline elapses.
 
 Export compliance is already answered: `ios/Config/Rentivo-Info.plist` sets
 `ITSAppUsesNonExemptEncryption` to `false`, so App Store Connect does not
