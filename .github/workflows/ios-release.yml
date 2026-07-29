@@ -291,6 +291,33 @@ jobs:
             --version "$MARKETING_VERSION" \
             --build "$BUILD_NUMBER" \
             --timeout 1800
+      # A VALID build is a processed binary, not a testable one: until it is
+      # attached to a beta group it belongs to none, and no tester ever sees it
+      # in TestFlight. Version 1.1 (build 5) shipped exactly that way. The
+      # TestFlight-side records land minutes after VALID, so this polls.
+      - name: Distribute the build to its TestFlight group
+        if: ${{ !inputs.skip_upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+          IOS_BETA_GROUP: ${{ vars.IOS_BETA_GROUP }}
+        run: |
+          set -euo pipefail
+          : "${IOS_BUNDLE_ID:?IOS_BUNDLE_ID repository variable is required}"
+          # An array, not `${IOS_BETA_GROUP:+--group "$IOS_BETA_GROUP"}`: the
+          # quotes inside that expansion are removed before word splitting, so
+          # a group name containing a space would arrive as two arguments.
+          arguments=(
+            --bundle-id "$IOS_BUNDLE_ID"
+            --version "$MARKETING_VERSION"
+            --build "$BUILD_NUMBER"
+            --timeout 1800
+          )
+          if [ -n "${IOS_BETA_GROUP:-}" ]; then
+            arguments+=(--group "$IOS_BETA_GROUP")
+          fi
+          uv run --quiet --with pyjwt --with cryptography python scripts/asc_builds.py distribute \
+            "${arguments[@]}"
       - name: Summarise the release
         if: always()
         run: |
