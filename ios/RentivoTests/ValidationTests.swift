@@ -51,6 +51,72 @@ import Testing
   #expect(draft.validate().isEmpty)
 }
 
+@Test func billingKeepsEveryRecipientItIsGiven() {
+  // A billing update replaces the whole recipient set server-side, so a draft carrying
+  // several recipients must validate as-is instead of being narrowed to the first one.
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(id: UUID(), description: "Aluguel", amount: Money(centavos: 180_000), type: .fixed, sortOrder: 0)
+    ],
+    recipients: [
+      BillingRecipient(id: RecipientID(rawValue: "r1"), name: "Ana", email: "ana@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "r2"), name: "Bruno", email: "bruno@example.com"),
+    ]
+  )
+
+  #expect(draft.validate().isEmpty)
+  #expect(draft.recipients.count == 2)
+}
+
+@Test func billingRejectsIncompleteOrMalformedRecipients() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(id: UUID(), description: "Aluguel", amount: Money(centavos: 180_000), type: .fixed, sortOrder: 0)
+    ],
+    recipients: [
+      BillingRecipient(id: RecipientID(rawValue: "r1"), name: "Ana", email: "ana@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "r2"), name: "  ", email: "bruno@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "r3"), name: "Carla", email: "carla@example"),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.recipient])
+}
+
+@Test func billingRejectsRepeatedRecipientEmails() {
+  // The send endpoint requires distinct recipient uuids, and the server keys contacts by
+  // email, so two rows sharing an address would break the communication flow.
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(id: UUID(), description: "Aluguel", amount: Money(centavos: 180_000), type: .fixed, sortOrder: 0)
+    ],
+    recipients: [
+      BillingRecipient(id: RecipientID(rawValue: "r1"), name: "Ana", email: "ana@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "r2"), name: "Ana (cópia)", email: "ANA@example.com"),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.recipient])
+}
+
+@Test func emailValidationAcceptsAddressesTheServerAccepts() {
+  #expect(EmailAddress.isValid("ana@example.com"))
+  #expect(EmailAddress.isValid("ana+cobranca@sub.example.com.br"))
+  #expect(!EmailAddress.isValid(""))
+  #expect(!EmailAddress.isValid("ana"))
+  #expect(!EmailAddress.isValid("ana@example"))
+  #expect(!EmailAddress.isValid("ana @example.com"))
+}
+
 @Test func invoiceDraftRejectsBlankRowsAndNegativeValues() {
   let draft = BillDraft(
     billingID: StableID.billingAurora101,

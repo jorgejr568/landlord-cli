@@ -82,6 +82,16 @@ public struct BillingRecipient: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+public enum EmailAddress {
+  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
+  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
+  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
+  public static func isValid(_ email: String) -> Bool {
+    let pattern = #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#
+    return email.range(of: pattern, options: .regularExpression) != nil
+  }
+}
+
 public struct BillingCapabilities: Hashable, Codable, Sendable {
   public var canEdit: Bool
   public var canReadBills: Bool
@@ -247,6 +257,28 @@ public struct BillingDraft: Hashable, Sendable {
         ValidationIssue(field: .itemAmount, message: "Os valores não podem ser negativos.")
       )
     }
+    if recipients.contains(where: {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
+      issues.append(
+        ValidationIssue(
+          field: .recipient,
+          message: "Informe nome e e-mail válidos para todos os destinatários."
+        )
+      )
+    } else {
+      // The send endpoint requires distinct recipient uuids and the server keys contacts by
+      // email, so duplicates here would break the communication flow later.
+      let emails = recipients.map {
+        $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      }
+      if Set(emails).count != emails.count {
+        issues.append(
+          ValidationIssue(field: .recipient, message: "Remova os destinatários repetidos.")
+        )
+      }
+    }
     return issues
   }
 }
@@ -256,6 +288,7 @@ public enum ValidationField: Hashable, Sendable {
   case items
   case itemDescription
   case itemAmount
+  case recipient
 }
 
 public struct ValidationIssue: Hashable, Sendable {

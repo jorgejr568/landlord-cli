@@ -31,6 +31,37 @@ private struct EditableBillingItem: Identifiable {
   }
 }
 
+private struct EditableRecipient: Identifiable {
+  let id: RecipientID
+  var name: String
+  var email: String
+
+  init(recipient: BillingRecipient) {
+    id = recipient.id
+    name = recipient.name
+    email = recipient.email
+  }
+
+  init() {
+    id = RecipientID(rawValue: UUID().uuidString)
+    name = ""
+    email = ""
+  }
+
+  var isBlank: Bool {
+    name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  func domain() -> BillingRecipient {
+    BillingRecipient(
+      id: id,
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+      email: email.trimmingCharacters(in: .whitespacesAndNewlines)
+    )
+  }
+}
+
 struct BillingFormView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -44,8 +75,7 @@ struct BillingFormView: View {
   @State private var pixKey: String
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
-  @State private var recipientName: String
-  @State private var recipientEmail: String
+  @State private var recipients: [EditableRecipient]
   @State private var replyTo: String
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
@@ -63,8 +93,7 @@ struct BillingFormView: View {
     _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
-    _recipientName = State(initialValue: billing?.recipients.first?.name ?? "")
-    _recipientEmail = State(initialValue: billing?.recipients.first?.email ?? "")
+    _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
     _replyTo = State(initialValue: billing?.replyTo ?? "")
   }
 
@@ -127,14 +156,37 @@ struct BillingFormView: View {
           .foregroundStyle(RentivoColors.secondaryInk)
       }
 
-      Section("Comunicação") {
-        TextField("Nome do destinatário", text: $recipientName)
-        TextField("E-mail do destinatário", text: $recipientEmail)
-          .keyboardType(.emailAddress)
-          .textInputAutocapitalization(.never)
+      Section {
+        ForEach($recipients) { $recipient in
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            TextField("Nome do destinatário", text: $recipient.name)
+            TextField("E-mail do destinatário", text: $recipient.email)
+              .keyboardType(.emailAddress)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+          }
+          .padding(.vertical, RentivoSpacing.tiny)
+        }
+        .onDelete { recipients.remove(atOffsets: $0) }
+        .onMove { recipients.move(fromOffsets: $0, toOffset: $1) }
+        Button {
+          recipients.append(EditableRecipient())
+        } label: {
+          Label("Adicionar destinatário", systemImage: "plus.circle.fill")
+        }
+        .accessibilityIdentifier("billing.form.recipients.add")
         TextField("Responder para", text: $replyTo)
           .keyboardType(.emailAddress)
           .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+      } header: {
+        HStack {
+          Text("Comunicação")
+          Spacer()
+          EditButton()
+        }
+      } footer: {
+        Text("Todos os destinatários listados recebem as comunicações desta cobrança.")
       }
 
       if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil {
@@ -194,18 +246,10 @@ struct BillingFormView: View {
       app.showNotice("Não foi possível confirmar o responsável.", kind: .warning)
       return
     }
-    let recipients: [BillingRecipient]
-    if recipientName.isEmpty && recipientEmail.isEmpty {
-      recipients = []
-    } else {
-      recipients = [
-        BillingRecipient(
-          id: billing?.recipients.first?.id ?? RecipientID(rawValue: UUID().uuidString),
-          name: recipientName,
-          email: recipientEmail
-        )
-      ]
-    }
+    // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
+    // so it is dropped rather than reported as invalid. Partially filled rows still fail
+    // validation below, because the update replaces the billing's whole recipient set.
+    let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
     let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -225,7 +269,7 @@ struct BillingFormView: View {
       pixOverride: pix.isEmpty
         ? nil
         : PixConfiguration(key: pix, merchantName: merchantName, merchantCity: merchantCity),
-      recipients: recipients,
+      recipients: draftRecipients,
       replyTo: replyTo.isEmpty ? nil : replyTo
     )
     validationIssues = draft.validate()

@@ -448,7 +448,7 @@ struct CommunicationComposerView: View {
       app.showNotice("Informe ao menos um destinatário válido.", kind: .warning)
       return
     }
-    let invalidRecipients = parsedRecipients.filter { !Self.isValidEmail($0) }
+    let invalidRecipients = parsedRecipients.filter { !EmailAddress.isValid($0) }
     guard invalidRecipients.isEmpty else {
       app.showNotice(
         "E-mail inválido: \(invalidRecipients.joined(separator: ", ")). Revise os destinatários.",
@@ -471,14 +471,6 @@ struct CommunicationComposerView: View {
       dismiss()
       app.showNotice("Comunicação enfileirada para envio.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
-  }
-
-  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
-  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
-  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
-  private static func isValidEmail(_ email: String) -> Bool {
-    let pattern = #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#
-    return email.range(of: pattern, options: .regularExpression) != nil
   }
 
   private func loadPreview() async {
