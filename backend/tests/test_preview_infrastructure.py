@@ -670,7 +670,9 @@ def test_deploy_runs_one_protected_atomic_webhook_for_the_tested_sha():
     }
     verify_steps = {step["name"]: step for step in verify["steps"] if "name" in step}
     override = verify_steps["Create exact-image stack environment"]["run"]
+    assert "RENTIVO_PUBLIC_ORIGIN=http://127.0.0.1:18080" in override
     assert "RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR=127.0.0.1/32" in override
+    assert "RENTIVO_WEBAUTHN_RP_ID=127.0.0.1" in override
     for local_backend in (
         "RENTIVO_EMAIL_BACKEND=local",
         "RENTIVO_STORAGE_BACKEND=local",
