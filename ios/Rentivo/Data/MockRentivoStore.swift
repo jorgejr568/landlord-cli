@@ -405,7 +405,13 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard snapshot.billings.contains(where: { $0.id == billingID }) else {
       throw DemoError.resourceNotFound
     }
-    return CommunicationPreview(html: message, severeWarnings: [], mildWarnings: [])
+    // A deliberately tiny stand-in for the server-side moderation scan, just so demo
+    // mode can exercise the "reconheço o aviso" flow. The real word lists live in
+    // backend/rentivo/communications/moderation.py.
+    let mildTerms = ["caloteiro", "vagabundo"]
+    let lowered = "\(subject)\n\(message)".lowercased()
+    let mild = mildTerms.filter { lowered.contains($0) }
+    return CommunicationPreview(html: message, severeWarnings: [], mildWarnings: mild)
   }
 
   @discardableResult

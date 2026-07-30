@@ -426,3 +426,18 @@ import Testing
   #expect(summary.recoveryCodeCount == 8)
   #expect(summary.passkeys.contains { $0.id == passkey.id && $0.name == "iPhone pessoal" })
 }
+
+@Test @MainActor func mockPreviewFlagsMildLanguageLikeTheServerModeration() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let clean = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Fatura", message: "Olá {{nome_inquilino}}"
+  )
+  #expect(clean.mildWarnings.isEmpty)
+  #expect(clean.html == "Olá {{nome_inquilino}}")
+
+  let flagged = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Fatura", message: "Pague logo, seu caloteiro"
+  )
+  #expect(flagged.mildWarnings == ["caloteiro"])
+}
