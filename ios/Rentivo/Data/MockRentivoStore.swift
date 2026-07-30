@@ -410,13 +410,19 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard snapshot.billings.contains(where: { $0.id == billingID }) else {
       throw DemoError.resourceNotFound
     }
-    // A deliberately tiny stand-in for the server-side moderation scan, just so demo
-    // mode can exercise the "reconheço o aviso" flow. The real word lists live in
-    // backend/rentivo/communications/moderation.py.
-    let mildTerms = ["caloteiro", "vagabundo"]
-    let lowered = "\(subject)\n\(message)".lowercased()
-    let mild = mildTerms.filter { lowered.contains($0) }
-    return CommunicationPreview(html: message, severeWarnings: [], mildWarnings: mild)
+    // A deliberately tiny stand-in for the server-side moderation scan, just so demo mode can
+    // exercise the "reconheço o aviso" warning flow and the blocking one. Both lists below are
+    // small subsets of the real PT-BR lexicons in backend/rentivo/communications/moderation.py
+    // (`_MILD` and `_SEVERE_PHRASES`), so demo mode never flags text the server accepts. Unlike
+    // the server it only folds case and accents — no leetspeak folding, no word boundaries.
+    let mildTerms = ["babaca", "otario"]
+    let severeTerms = ["vou te matar"]
+    let scanned = "\(subject)\n\(message)".folding(
+      options: [.caseInsensitive, .diacriticInsensitive], locale: nil
+    )
+    let mild = mildTerms.filter { scanned.contains($0) }
+    let severe = severeTerms.filter { scanned.contains($0) }
+    return CommunicationPreview(html: message, severeWarnings: severe, mildWarnings: mild)
   }
 
   @discardableResult

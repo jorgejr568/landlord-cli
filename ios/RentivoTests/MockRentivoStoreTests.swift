@@ -282,6 +282,30 @@ import Testing
   #expect(stored.communicationTemplates == billing.communicationTemplates)
 }
 
+@Test @MainActor func sendingToASubsetQueuesOnlyTheSelectedRecipient() async throws {
+  // The composer lets the user deselect recipients, so a partial selection must queue exactly
+  // the chosen ones instead of falling back to the whole billing.
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  #expect(billing.recipients.count >= 2)
+  let selected = try #require(billing.recipients.last)
+
+  let queued = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [selected.id],
+    subject: "Sua fatura está disponível",
+    message: "Olá! Consulte os detalhes no Rentivo.",
+    acknowledgeWarning: false,
+    saveScope: nil
+  )
+
+  #expect(queued == 1)
+  let record = try #require(store.snapshot.communications.first)
+  #expect(record.recipients == [selected.email])
+}
+
 @Test @MainActor func sendingToARecipientOutsideTheBillingFails() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
 
@@ -478,17 +502,38 @@ import Testing
   #expect(summary.passkeys.contains { $0.id == passkey.id && $0.name == "iPhone pessoal" })
 }
 
-@Test @MainActor func mockPreviewFlagsMildLanguageLikeTheServerModeration() async throws {
+@Test @MainActor func mockPreviewFlagsTermsTakenFromTheServerModerationLexicon() async throws {
+  // The demo lexicon is a strict subset of the server's, so anything flagged here is also
+  // flagged by backend/rentivo/communications/moderation.py — demo mode never warns about
+  // text production accepts.
   let store = MockRentivoStore(fixtures: .canonical)
 
   let clean = try await store.previewCommunication(
     billingID: StableID.billingAurora101, subject: "Fatura", message: "Olá {{nome_inquilino}}"
   )
   #expect(clean.mildWarnings.isEmpty)
+  #expect(clean.severeWarnings.isEmpty)
   #expect(clean.html == "Olá {{nome_inquilino}}")
 
-  let flagged = try await store.previewCommunication(
-    billingID: StableID.billingAurora101, subject: "Fatura", message: "Pague logo, seu caloteiro"
+  let flaggedBody = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Fatura", message: "Pague logo, seu babaca"
   )
-  #expect(flagged.mildWarnings == ["caloteiro"])
+  #expect(flaggedBody.mildWarnings == ["babaca"])
+  #expect(flaggedBody.severeWarnings.isEmpty)
+
+  // The server scans subject and body together and normalizes accents before matching.
+  let flaggedSubject = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Aviso ao otário", message: "Segue a fatura."
+  )
+  #expect(flaggedSubject.mildWarnings == ["otario"])
+  #expect(flaggedSubject.severeWarnings.isEmpty)
+
+  // Severe terms block sending, which is the composer branch this case keeps demoable.
+  let blocked = try await store.previewCommunication(
+    billingID: StableID.billingAurora101,
+    subject: "Fatura",
+    message: "Se não pagar até sexta, vou te matar."
+  )
+  #expect(blocked.severeWarnings == ["vou te matar"])
+  #expect(blocked.mildWarnings.isEmpty)
 }
