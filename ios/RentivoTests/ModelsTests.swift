@@ -77,3 +77,32 @@ private struct SamplePlainError: Error {}
 @Test func referenceMonthDisplayFormattedMatchesPortugueseLabel() {
   #expect(ReferenceMonth(year: 2026, month: 8).displayFormatted == "agosto de 2026")
 }
+
+@Test func communicationTypeRawValuesMatchTheAPIContract() {
+  #expect(CommunicationType.billReady.rawValue == "bill_ready")
+  #expect(CommunicationType.paymentReceipt.rawValue == "payment_receipt")
+  #expect(CommunicationSaveScope.billing.rawValue == "billing")
+  #expect(CommunicationSaveScope.owner.rawValue == "owner")
+}
+
+@Test func billingResolvesTheTemplateForACommunicationType() {
+  let billReady = CommunicationTemplate(
+    commType: .billReady, subject: "Cobrança {{unidade}}", body: "Olá {{nome_inquilino}}"
+  )
+  let receipt = CommunicationTemplate(
+    commType: .paymentReceipt, subject: "Recibo {{unidade}}", body: "Recebemos {{total}}"
+  )
+  let billing = Billing(
+    id: BillingID(rawValue: "b1"), name: "Apt 101", description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"), items: [],
+    communicationTemplates: [billReady, receipt]
+  )
+
+  #expect(billing.template(for: .billReady) == billReady)
+  #expect(billing.template(for: .paymentReceipt) == receipt)
+  #expect(
+    Billing(
+      id: BillingID(rawValue: "b2"), name: "Apt 102", description: "",
+      owner: .user(id: StableID.userAna, name: "Pessoal"), items: []
+    ).template(for: .billReady) == nil)
+}

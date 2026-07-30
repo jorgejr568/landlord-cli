@@ -210,17 +210,117 @@ import Testing
 
 @Test @MainActor func communicationMutationUsesSharedActivityGraph() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipientIDs = billing.recipients.map(\.id)
+  #expect(recipientIDs.count >= 2)  // fixture must exercise the multi-recipient path
 
-  let communication = try await store.sendCommunication(
+  let queued = try await store.sendCommunication(
     billingID: StableID.billingAurora101,
     billID: StableID.billPublished,
-    recipients: ["locatario@example.com"],
+    commType: .billReady,
+    recipientIDs: recipientIDs,
     subject: "Sua fatura está disponível",
-    message: "Olá! Consulte os detalhes no Rentivo."
+    message: "Olá! Consulte os detalhes no Rentivo.",
+    acknowledgeWarning: false,
+    saveScope: nil
   )
 
-  #expect(store.snapshot.communications.contains { $0.id == communication.id })
-  #expect(store.recentActivities.first?.detail == communication.subject)
+  #expect(queued == recipientIDs.count)
+  let record = try #require(store.snapshot.communications.first)
+  #expect(Set(record.recipients) == Set(billing.recipients.map(\.email)))
+  #expect(store.recentActivities.first?.detail == record.subject)
+}
+
+@Test @MainActor func canonicalFixtureBillingsCarryATemplateForEveryCommType() async throws {
+  // The composer prefills subject/body from the billing templates, so demo mode only
+  // matches production when the fixtures ship templates for every communication type.
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  for billing in try await store.listBillings() {
+    for commType in CommunicationType.allCases {
+      let template = try #require(billing.template(for: commType))
+      #expect(!template.subject.isEmpty)
+      #expect(template.body.contains("{{nome_inquilino}}"))
+    }
+  }
+}
+
+@Test @MainActor func creatingABillingAttachesTheDefaultCommunicationTemplates() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let created = try await store.createBilling(
+    BillingDraft(
+      name: "Apt 999 - Edifício Novo",
+      description: "Cobrança recém-criada",
+      owner: .user(id: StableID.userAna, name: "Pessoal"),
+      items: []
+    )
+  )
+
+  #expect(created.communicationTemplates == MockFixtures.defaultCommunicationTemplates)
+  let stored = try await store.billing(id: created.id)
+  #expect(stored.communicationTemplates == MockFixtures.defaultCommunicationTemplates)
+}
+
+@Test @MainActor func updatingABillingKeepsItsCommunicationTemplates() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let draft = BillingDraft(
+    name: "Apt 101 - Edifício Aurora (renomeado)",
+    description: billing.description,
+    owner: billing.owner,
+    items: billing.items,
+    recipients: billing.recipients,
+    replyTo: billing.replyTo
+  )
+
+  let updated = try await store.updateBilling(id: billing.id, draft: draft)
+
+  #expect(!billing.communicationTemplates.isEmpty)
+  #expect(updated.communicationTemplates == billing.communicationTemplates)
+  let stored = try await store.billing(id: billing.id)
+  #expect(stored.communicationTemplates == billing.communicationTemplates)
+}
+
+@Test @MainActor func sendingToASubsetQueuesOnlyTheSelectedRecipient() async throws {
+  // The composer lets the user deselect recipients, so a partial selection must queue exactly
+  // the chosen ones instead of falling back to the whole billing.
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  #expect(billing.recipients.count >= 2)
+  let selected = try #require(billing.recipients.last)
+
+  let queued = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [selected.id],
+    subject: "Sua fatura está disponível",
+    message: "Olá! Consulte os detalhes no Rentivo.",
+    acknowledgeWarning: false,
+    saveScope: nil
+  )
+
+  #expect(queued == 1)
+  let record = try #require(store.snapshot.communications.first)
+  #expect(record.recipients == [selected.email])
+}
+
+@Test @MainActor func sendingToARecipientOutsideTheBillingFails() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billPublished,
+      commType: .billReady,
+      recipientIDs: [RecipientID(rawValue: "not-a-recipient")],
+      subject: "Assunto",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
 }
 
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {
@@ -400,4 +500,40 @@ import Testing
   #expect(codes.count == 8)
   #expect(summary.recoveryCodeCount == 8)
   #expect(summary.passkeys.contains { $0.id == passkey.id && $0.name == "iPhone pessoal" })
+}
+
+@Test @MainActor func mockPreviewFlagsTermsTakenFromTheServerModerationLexicon() async throws {
+  // The demo lexicon is a strict subset of the server's, so anything flagged here is also
+  // flagged by backend/rentivo/communications/moderation.py — demo mode never warns about
+  // text production accepts.
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let clean = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Fatura", message: "Olá {{nome_inquilino}}"
+  )
+  #expect(clean.mildWarnings.isEmpty)
+  #expect(clean.severeWarnings.isEmpty)
+  #expect(clean.html == "Olá {{nome_inquilino}}")
+
+  let flaggedBody = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Fatura", message: "Pague logo, seu babaca"
+  )
+  #expect(flaggedBody.mildWarnings == ["babaca"])
+  #expect(flaggedBody.severeWarnings.isEmpty)
+
+  // The server scans subject and body together and normalizes accents before matching.
+  let flaggedSubject = try await store.previewCommunication(
+    billingID: StableID.billingAurora101, subject: "Aviso ao otário", message: "Segue a fatura."
+  )
+  #expect(flaggedSubject.mildWarnings == ["otario"])
+  #expect(flaggedSubject.severeWarnings.isEmpty)
+
+  // Severe terms block sending, which is the composer branch this case keeps demoable.
+  let blocked = try await store.previewCommunication(
+    billingID: StableID.billingAurora101,
+    subject: "Fatura",
+    message: "Se não pagar até sexta, vou te matar."
+  )
+  #expect(blocked.severeWarnings == ["vou te matar"])
+  #expect(blocked.mildWarnings.isEmpty)
 }

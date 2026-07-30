@@ -82,6 +82,16 @@ public struct BillingRecipient: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+public enum EmailAddress {
+  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
+  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
+  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
+  public static func isValid(_ email: String) -> Bool {
+    let pattern = #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#
+    return email.range(of: pattern, options: .regularExpression) != nil
+  }
+}
+
 public struct BillingCapabilities: Hashable, Codable, Sendable {
   public var canEdit: Bool
   public var canReadBills: Bool
@@ -162,6 +172,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
   public var pixOverride: PixConfiguration?
   public var recipients: [BillingRecipient]
   public var replyTo: String?
+  public var communicationTemplates: [CommunicationTemplate]
   public var capabilities: BillingCapabilities
 
   public init(
@@ -173,6 +184,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     pixOverride: PixConfiguration? = nil,
     recipients: [BillingRecipient] = [],
     replyTo: String? = nil,
+    communicationTemplates: [CommunicationTemplate] = [],
     capabilities: BillingCapabilities = .full
   ) {
     self.id = id
@@ -183,11 +195,16 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     self.pixOverride = pixOverride
     self.recipients = recipients
     self.replyTo = replyTo
+    self.communicationTemplates = communicationTemplates
     self.capabilities = capabilities
   }
 
   public var fixedSubtotal: Money {
     items.filter { $0.type == .fixed }.map(\.amount).reduce(.zero, +)
+  }
+
+  public func template(for type: CommunicationType) -> CommunicationTemplate? {
+    communicationTemplates.first { $0.commType == type }
   }
 }
 
@@ -247,6 +264,28 @@ public struct BillingDraft: Hashable, Sendable {
         ValidationIssue(field: .itemAmount, message: "Os valores não podem ser negativos.")
       )
     }
+    if recipients.contains(where: {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
+      issues.append(
+        ValidationIssue(
+          field: .recipient,
+          message: "Informe nome e e-mail válidos para todos os destinatários."
+        )
+      )
+    } else {
+      // The send endpoint requires distinct recipient uuids and the server keys contacts by
+      // email, so duplicates here would break the communication flow later.
+      let emails = recipients.map {
+        $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      }
+      if Set(emails).count != emails.count {
+        issues.append(
+          ValidationIssue(field: .recipient, message: "Remova os destinatários repetidos.")
+        )
+      }
+    }
     return issues
   }
 }
@@ -256,6 +295,7 @@ public enum ValidationField: Hashable, Sendable {
   case items
   case itemDescription
   case itemAmount
+  case recipient
 }
 
 public struct ValidationIssue: Hashable, Sendable {
@@ -514,6 +554,35 @@ public struct Expense: Identifiable, Hashable, Codable, Sendable {
     self.amount = amount
     self.category = category
     self.incurredOn = incurredOn
+  }
+}
+
+public enum CommunicationType: String, CaseIterable, Codable, Sendable {
+  case billReady = "bill_ready"
+  case paymentReceipt = "payment_receipt"
+
+  public var label: String {
+    switch self {
+    case .billReady: "Fatura"
+    case .paymentReceipt: "Recibo de pagamento"
+    }
+  }
+}
+
+public enum CommunicationSaveScope: String, Codable, Sendable {
+  case billing
+  case owner
+}
+
+public struct CommunicationTemplate: Hashable, Codable, Sendable {
+  public let commType: CommunicationType
+  public let subject: String
+  public let body: String
+
+  public init(commType: CommunicationType, subject: String, body: String) {
+    self.commType = commType
+    self.subject = subject
+    self.body = body
   }
 }
 

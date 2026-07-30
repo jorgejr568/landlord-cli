@@ -40,6 +40,40 @@ import Testing
 }
 
 @MainActor
+@Test func liveBillingDetailDecodesTheServerCommunicationTemplates() async throws {
+  // The composer prefills subject/body from the billing's saved templates, so
+  // `communication_templates` from `GET /billings/{uuid}` must reach the domain model. Rows whose
+  // `comm_type` the app doesn't model are skipped instead of failing the whole billing decode.
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billingSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let billing = try await store.billing(id: BillingID(rawValue: "billing-1"))
+
+  #expect(billing.communicationTemplates.count == 2)
+  #expect(billing.template(for: .billReady)?.subject == "Cobrança {{unidade}} — {{mes}}")
+  #expect(billing.template(for: .billReady)?.body == "Prezado {{nome_inquilino}}")
+  #expect(billing.template(for: .paymentReceipt)?.subject == "Recibo {{unidade}}")
+  #expect(billing.template(for: .paymentReceipt)?.body == "Recebemos {{total}}")
+}
+
+@MainActor
+@Test func liveBillingDetailWithoutTemplatesDecodesAnEmptyTemplateList() async throws {
+  // A billing payload that omits `communication_templates` must still decode: the field is absent
+  // from list items and from any older response shape.
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billingSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let billing = try await store.billing(id: BillingID(rawValue: "billing-2"))
+
+  #expect(billing.communicationTemplates.isEmpty)
+  #expect(billing.template(for: .billReady) == nil)
+}
+
+@MainActor
 @Test func liveCreateBillingNullsClientMintedItemUUIDsButKeepsServerIssuedULIDs() async throws {
   // Regression test for the 422 bug: BillingItemInput.uuid only accepts a 26-char ULID or null,
   // but freshly-added items carry a 36-char client UUID. Uses its own dedicated URLProtocol
@@ -132,7 +166,10 @@ private final class BillingURLProtocol: URLProtocol, @unchecked Sendable {
     case "/api/v1/billings":
       body = #"{"items":[{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}],"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":50000,"pending":20000,"overdue":5000,"paid_count":3,"pending_count":1,"overdue_count":1,"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":42000}}"#
     case "/api/v1/billings/billing-1":
-      body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
+      body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"communication_templates":[{"comm_type":"bill_ready","subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}","body":"Recebemos {{total}}"},{"comm_type":"telepathy","subject":"Ignorado","body":"Ignorado"}],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
+    case "/api/v1/billings/billing-2":
+      // Deliberately omits `communication_templates`.
+      body = #"{"uuid":"billing-2","name":"Kitnet","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }

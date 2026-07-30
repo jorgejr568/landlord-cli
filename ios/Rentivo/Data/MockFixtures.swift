@@ -278,6 +278,36 @@ public struct MockFixtures: Sendable {
     )
   }
 
+  /// Templates every demo billing carries, shortened stand-ins for the system defaults in
+  /// `backend/rentivo/communications/defaults.py`. The server resolves a template for every
+  /// communication type (billing, then owner, then system default), so no real billing ever
+  /// reaches the composer without one; demo billings must behave the same.
+  public static let defaultCommunicationTemplates: [CommunicationTemplate] = [
+    CommunicationTemplate(
+      commType: .billReady,
+      subject: "Cobrança {{unidade}} — {{mes}}",
+      body: """
+        Prezado {{nome_inquilino}},
+
+        Segue em anexo a cobrança de **{{mes}}** da unidade **{{unidade}}**.
+
+        Atenciosamente.
+        """
+    ),
+    CommunicationTemplate(
+      commType: .paymentReceipt,
+      subject: "Recibo de pagamento {{unidade}} — {{mes}}",
+      body: """
+        Prezado {{nome_inquilino}},
+
+        Confirmamos o recebimento de **{{total}}** referente a **{{mes}}**. \
+        Segue o recibo em anexo.
+
+        Atenciosamente.
+        """
+    ),
+  ]
+
   private static func billing(
     id: BillingID,
     name: String,
@@ -304,9 +334,15 @@ public struct MockFixtures: Sendable {
           id: stableID(20_000),
           name: "Locatário",
           email: "locatario@example.com"
-        )
+        ),
+        BillingRecipient(
+          id: stableID(20_001),
+          name: "Fiadora",
+          email: "fiadora@example.com"
+        ),
       ],
-      replyTo: "ana@example.com"
+      replyTo: "ana@example.com",
+      communicationTemplates: defaultCommunicationTemplates
     )
   }
 

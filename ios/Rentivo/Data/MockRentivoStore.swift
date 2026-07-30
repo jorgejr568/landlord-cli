@@ -100,7 +100,10 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       items: draft.items,
       pixOverride: draft.pixOverride,
       recipients: draft.recipients,
-      replyTo: draft.replyTo
+      replyTo: draft.replyTo,
+      // The server always resolves a template per communication type (billing, then owner,
+      // then system default), so a fresh billing is never template-less in production.
+      communicationTemplates: MockFixtures.defaultCommunicationTemplates
     )
     snapshot.billings.insert(billing, at: 0)
     recordActivity(kind: .billing, title: "Cobrança criada", detail: billing.name)
@@ -113,7 +116,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard let index = snapshot.billings.firstIndex(where: { $0.id == id }) else {
       throw DemoError.resourceNotFound
     }
-    let capabilities = snapshot.billings[index].capabilities
+    let existing = snapshot.billings[index]
     let billing = Billing(
       id: id,
       name: draft.name,
@@ -123,7 +126,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       pixOverride: draft.pixOverride,
       recipients: draft.recipients,
       replyTo: draft.replyTo,
-      capabilities: capabilities
+      // Editing a billing never touches its templates; the draft does not carry them.
+      communicationTemplates: existing.communicationTemplates,
+      capabilities: existing.capabilities
     )
     snapshot.billings[index] = billing
     recordActivity(kind: .billing, title: "Cobrança atualizada", detail: billing.name)
@@ -405,33 +410,54 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard snapshot.billings.contains(where: { $0.id == billingID }) else {
       throw DemoError.resourceNotFound
     }
-    return CommunicationPreview(html: message, severeWarnings: [], mildWarnings: [])
+    // A deliberately tiny stand-in for the server-side moderation scan, just so demo mode can
+    // exercise the "reconheço o aviso" warning flow and the blocking one. Both lists below are
+    // small subsets of the real PT-BR lexicons in backend/rentivo/communications/moderation.py
+    // (`_MILD` and `_SEVERE_PHRASES`), so demo mode never flags text the server accepts. Unlike
+    // the server it only folds case and accents — no leetspeak folding, no word boundaries.
+    let mildTerms = ["babaca", "otario"]
+    let severeTerms = ["vou te matar"]
+    let scanned = "\(subject)\n\(message)".folding(
+      options: [.caseInsensitive, .diacriticInsensitive], locale: nil
+    )
+    let mild = mildTerms.filter { scanned.contains($0) }
+    let severe = severeTerms.filter { scanned.contains($0) }
+    return CommunicationPreview(html: message, severeWarnings: severe, mildWarnings: mild)
   }
 
+  @discardableResult
   public func sendCommunication(
     billingID: BillingID,
-    billID: BillID?,
-    recipients: [String],
+    billID: BillID,
+    commType: CommunicationType,
+    recipientIDs: [RecipientID],
     subject: String,
-    message: String
-  ) async throws -> CommunicationRecord {
+    message: String,
+    acknowledgeWarning: Bool,
+    saveScope: CommunicationSaveScope?
+  ) async throws -> Int {
     try await prepareOperation()
     try requireWriteAccess()
-    guard snapshot.billings.contains(where: { $0.id == billingID }), !recipients.isEmpty else {
+    guard let billing = snapshot.billings.first(where: { $0.id == billingID }),
+      !recipientIDs.isEmpty
+    else {
       throw DemoError.operationFailed
     }
+    let byID = Dictionary(uniqueKeysWithValues: billing.recipients.map { ($0.id, $0) })
+    let selected = recipientIDs.compactMap { byID[$0] }
+    guard selected.count == recipientIDs.count else { throw DemoError.operationFailed }
     let communication = CommunicationRecord(
       id: CommunicationID(rawValue: UUID().uuidString),
       billingID: billingID,
       billID: billID,
-      recipients: recipients,
+      recipients: selected.map(\.email),
       subject: subject,
       message: message,
       sentAt: Date()
     )
     snapshot.communications.insert(communication, at: 0)
     recordActivity(kind: .bill, title: "Comunicação simulada", detail: subject)
-    return communication
+    return selected.count
   }
 
   public func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }

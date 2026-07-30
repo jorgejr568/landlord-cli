@@ -46,44 +46,41 @@ import Testing
 }
 
 @MainActor
-@Test func liveSendCommunicationPreservesExistingRecipientsAndResolvesTypedEmails() async throws {
-  // Regression test: sendCommunication used to full-replace the billing's recipients with only
-  // the ad-hoc emails typed for a single send, deleting every other configured recipient, and
-  // fabricated the returned CommunicationRecord instead of using the server's response.
+@Test func liveSendCommunicationSendsRecipientUUIDsWithoutTouchingTheContactList() async throws {
+  // Regression test: sendCommunication used to full-replace the billing's recipients via
+  // PUT /recipients as a side effect of every send. It must now send the chosen recipient
+  // uuids directly and never call any other mutating endpoint.
   let configuration = URLSessionConfiguration.ephemeral
-  configuration.protocolClasses = [RecipientsPreservingURLProtocol.self]
-  RecipientsPreservingURLProtocol.capturedPutBody = nil
-  RecipientsPreservingURLProtocol.capturedSendBody = nil
+  configuration.protocolClasses = [CommunicationSendURLProtocol.self]
+  CommunicationSendURLProtocol.capturedSendBody = nil
+  CommunicationSendURLProtocol.unexpectedRequests = []
   let credentials = MemoryCredentialStore(token: "stored-token")
   let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
   let store = APIRentivoStore(client: client)
   _ = try #require(try await store.restoreSession())
 
-  let record = try await store.sendCommunication(
+  let queued = try await store.sendCommunication(
     billingID: BillingID(rawValue: "billing-1"),
     billID: BillID(rawValue: "bill-1"),
-    recipients: ["Maria@Example.com", "novo@example.com"],
-    subject: "Fatura de julho",
-    message: "Segue a fatura."
+    commType: .paymentReceipt,
+    recipientIDs: [RecipientID(rawValue: "contact-1"), RecipientID(rawValue: "contact-2")],
+    subject: "Recibo de julho",
+    message: "Segue o recibo.",
+    acknowledgeWarning: true,
+    saveScope: .billing
   )
 
-  // The existing recipient must be resent with its original name (not overwritten), and only the
-  // genuinely-new email gets appended (with a derived name, since the caller has no better one).
-  let putBody = try #require(RecipientsPreservingURLProtocol.capturedPutBody)
-  let putJSON = try #require(JSONSerialization.jsonObject(with: putBody) as? [String: Any])
-  let putItems = try #require(putJSON["items"] as? [[String: String]])
-  #expect(Set(putItems.compactMap { $0["email"] }) == Set(["maria@example.com", "novo@example.com"]))
-  #expect(putItems.first { $0["email"] == "maria@example.com" }?["name"] == "Maria")
-  #expect(putItems.first { $0["email"] == "novo@example.com" }?["name"] == "novo")
-
-  // The send request must use the uuids the server just assigned, resolved by matching email.
-  let sendBody = try #require(RecipientsPreservingURLProtocol.capturedSendBody)
-  let sendJSON = try #require(JSONSerialization.jsonObject(with: sendBody) as? [String: Any])
-  let recipientUUIDs = try #require(sendJSON["recipient_uuids"] as? [String])
-  #expect(Set(recipientUUIDs) == Set(["contact-new-1", "contact-new-2"]))
-
-  #expect(record.recipients == ["Maria@Example.com", "novo@example.com"])
-  #expect(record.subject == "Fatura de julho")
+  #expect(queued == 2)
+  #expect(CommunicationSendURLProtocol.unexpectedRequests.isEmpty)
+  let sendBody = try #require(CommunicationSendURLProtocol.capturedSendBody)
+  let json = try #require(JSONSerialization.jsonObject(with: sendBody) as? [String: Any])
+  #expect(json["bill_uuid"] as? String == "bill-1")
+  #expect(json["comm_type"] as? String == "payment_receipt")
+  #expect(json["subject"] as? String == "Recibo de julho")
+  #expect(json["body"] as? String == "Segue o recibo.")
+  #expect(json["recipient_uuids"] as? [String] == ["contact-1", "contact-2"])
+  #expect(json["acknowledge_warning"] as? Bool == true)
+  #expect(json["save_scope"] as? String == "billing")
 }
 
 // Dedicated to the createBill encoding test only, so its mutable capture state can't race with
@@ -136,9 +133,9 @@ private final class CapturingBillCreateURLProtocol: URLProtocol, @unchecked Send
 
 // Dedicated to the sendCommunication encoding test only, so its mutable capture state can't race
 // with other tests.
-private final class RecipientsPreservingURLProtocol: URLProtocol, @unchecked Sendable {
-  nonisolated(unsafe) static var capturedPutBody: Data?
+private final class CommunicationSendURLProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var capturedSendBody: Data?
+  nonisolated(unsafe) static var unexpectedRequests: [String] = []
 
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -149,16 +146,12 @@ private final class RecipientsPreservingURLProtocol: URLProtocol, @unchecked Sen
     switch (request.httpMethod, path) {
     case ("GET", "/api/v1/auth/session"):
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
-    case ("GET", "/api/v1/billings/billing-1"):
-      body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[{"uuid":"contact-old-1","name":"Maria","email":"maria@example.com"}],"reply_to":[],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
-    case ("PUT", "/api/v1/billings/billing-1/recipients"):
-      Self.capturedPutBody = Self.requestBody(from: request)
-      body = #"{"items":[{"uuid":"contact-new-1","name":"Maria","email":"maria@example.com"},{"uuid":"contact-new-2","name":"novo","email":"novo@example.com"}]}"#
     case ("POST", "/api/v1/billings/billing-1/communications/send"):
       Self.capturedSendBody = Self.requestBody(from: request)
       body = #"{"queued_count": 2}"#
     default:
-      body = #"{"detail":"Endpoint inesperado: \#(request.httpMethod ?? "?") \#(path ?? "nil")"}"#
+      Self.unexpectedRequests.append("\(request.httpMethod ?? "?") \(path ?? "nil")")
+      body = #"{"detail":"Endpoint inesperado"}"#
     }
     let response = HTTPURLResponse(
       url: request.url!, statusCode: 200, httpVersion: nil,
