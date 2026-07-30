@@ -4,7 +4,6 @@ import WebKit
 
 struct BillingOperationsLinks: View {
   let billingID: BillingID
-  let recipients: [String]
   let capabilities: BillingCapabilities
   let onMutation: () async -> Void
 
@@ -368,55 +367,145 @@ struct DownloadShareView: View {
 struct CommunicationComposerView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
-  let billingID: BillingID
-  let billID: BillID?
-  @State private var recipients: String
-  @State private var subject = "Sua fatura está disponível"
-  @State private var message = "Olá! Confira os detalhes da sua cobrança no Rentivo."
+  let billing: Billing
+  let bill: Bill
+
+  @State private var commType: CommunicationType = .billReady
+  @State private var selectedRecipients: Set<RecipientID>
+  @State private var subject: String
+  @State private var message: String
+  @State private var saveScope: CommunicationSaveScope?
   @State private var preview: CommunicationPreview?
+  @State private var acknowledgedWarnings = false
   @State private var isLoadingPreview = false
   @State private var isSending = false
 
-  init(billingID: BillingID, billID: BillID?, initialRecipients: [String]) {
-    self.billingID = billingID
-    self.billID = billID
-    _recipients = State(initialValue: initialRecipients.joined(separator: ", "))
+  init(billing: Billing, bill: Bill) {
+    self.billing = billing
+    self.bill = bill
+    _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
+    let template = billing.template(for: .billReady)
+    _subject = State(initialValue: template?.subject ?? "")
+    _message = State(initialValue: template?.body ?? "")
+  }
+
+  private var availableTypes: [CommunicationType] {
+    bill.status == .paid ? CommunicationType.allCases : [.billReady]
+  }
+
+  private var hasSevereWarnings: Bool { !(preview?.severeWarnings.isEmpty ?? true) }
+  private var hasMildWarnings: Bool { !(preview?.mildWarnings.isEmpty ?? true) }
+
+  private var sendDisabled: Bool {
+    isSending || isLoadingPreview || preview == nil || hasSevereWarnings
+      || (hasMildWarnings && !acknowledgedWarnings) || selectedRecipients.isEmpty
+  }
+
+  private var attachmentDescription: String {
+    commType == .paymentReceipt ? "recibo" : "PDF da fatura"
   }
 
   var body: some View {
     Form {
-      Section("Mensagem") {
-        TextField("Destinatários", text: $recipients, axis: .vertical)
-        TextField("Assunto", text: $subject)
-        TextField("Mensagem", text: $message, axis: .vertical)
-          .lineLimit(5...10)
-      }
-      Section {
-        Label("O envio será enfileirado para os destinatários da cobrança.", systemImage: "paperplane.circle")
-      }
-    }
-    .navigationTitle("Comunicação")
-    .toolbar {
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Visualizar") { Task { await loadPreview() } }
-          .disabled(isLoadingPreview || recipients.isEmpty || subject.isEmpty)
-      }
-    }
-    .sheet(item: $preview) { preview in
-      NavigationStack {
-        VStack(alignment: .leading, spacing: RentivoSpacing.large) {
-          Text(subject).font(RentivoTypography.title)
-          Text("Para: \(recipients)").font(.caption)
-          Divider()
-          HTMLPreviewView(html: preview.html)
-            .frame(minHeight: 180)
-          if !preview.mildWarnings.isEmpty {
-            WarningList(title: "Revise antes de enviar", warnings: preview.mildWarnings, color: RentivoColors.coral)
+      if billing.recipients.isEmpty {
+        Section {
+          Text("Nenhum destinatário cadastrado. Adicione destinatários na cobrança antes de enviar.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
+      } else {
+        if availableTypes.count > 1 {
+          Section {
+            Picker("Tipo", selection: $commType) {
+              ForEach(availableTypes, id: \.self) { type in
+                Text(type.label).tag(type)
+              }
+            }
+            .pickerStyle(.segmented)
           }
-          if !preview.severeWarnings.isEmpty {
-            WarningList(title: "Envio bloqueado", warnings: preview.severeWarnings, color: RentivoColors.coral)
+        }
+
+        Section {
+          ForEach(billing.recipients) { recipient in
+            Toggle(isOn: binding(for: recipient.id)) {
+              VStack(alignment: .leading) {
+                Text(recipient.name).font(.subheadline.weight(.semibold))
+                Text(recipient.email)
+                  .font(.caption)
+                  .foregroundStyle(RentivoColors.secondaryInk)
+              }
+            }
           }
-          Spacer()
+        } header: {
+          Text("Destinatários")
+        } footer: {
+          Text("Cada destinatário recebe um e-mail separado com o \(attachmentDescription) anexado.")
+        }
+
+        Section {
+          TextField("Assunto", text: $subject)
+          TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
+            .lineLimit(5...12)
+          Button {
+            Task { await loadPreview() }
+          } label: {
+            if isLoadingPreview {
+              Text("Atualizando...")
+            } else {
+              Label("Atualizar pré-visualização", systemImage: "eye")
+            }
+          }
+          .disabled(isLoadingPreview || subject.isEmpty || message.isEmpty)
+        } header: {
+          Text("Mensagem")
+        } footer: {
+          Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+        }
+
+        Section("Pré-visualização") {
+          if let preview {
+            HTMLPreviewView(html: preview.html)
+              .frame(height: 260)
+          } else {
+            Text("A pré-visualização aparecerá aqui.")
+              .font(.caption)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
+        }
+
+        if hasSevereWarnings || hasMildWarnings {
+          Section("Verificação de conteúdo") {
+            if hasSevereWarnings, let preview {
+              Text(
+                "Conteúdo não permitido (ofensa grave ou ameaça): \(preview.severeWarnings.joined(separator: ", ")). Edite para enviar."
+              )
+              .font(.caption)
+              .foregroundStyle(RentivoColors.coral)
+            }
+            if hasMildWarnings, let preview {
+              Text("Linguagem possivelmente ofensiva: \(preview.mildWarnings.joined(separator: ", ")).")
+                .font(.caption)
+                .foregroundStyle(RentivoColors.coral)
+            }
+            if hasMildWarnings && !hasSevereWarnings {
+              Toggle("Reconheço o aviso e quero enviar mesmo assim.", isOn: $acknowledgedWarnings)
+                .font(.caption)
+            }
+          }
+        }
+
+        Section {
+          Picker("Salvar modelo", selection: $saveScope) {
+            Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
+            Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
+            if billing.capabilities.canEdit {
+              Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
+            }
+          }
+        } footer: {
+          Text("O modelo salvo preenche automaticamente as próximas comunicações.")
+        }
+
+        Section {
           Button {
             Task { await send() }
           } label: {
@@ -425,81 +514,103 @@ struct CommunicationComposerView: View {
                 ProgressView()
                   .tint(.white)
               }
-              Text("Enviar")
+              Text(isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())")
             }
+            .frame(maxWidth: .infinity)
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(isSending || !preview.severeWarnings.isEmpty)
+          .disabled(sendDisabled)
+          .accessibilityIdentifier("comm.send")
+          .listRowBackground(Color.clear)
+          .listRowInsets(EdgeInsets())
         }
-        .padding(RentivoSpacing.page)
-        .background(RentivoColors.paper)
-        .navigationTitle("Prévia")
       }
+    }
+    .navigationTitle("Enviar \(commType.label.lowercased())")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }
+      }
+    }
+    .task { await loadPreviewIfPossible() }
+    .onChange(of: commType) { _, newType in
+      let template = billing.template(for: newType)
+      subject = template?.subject ?? ""
+      message = template?.body ?? ""
+      invalidatePreview()
+      Task { await loadPreviewIfPossible() }
+    }
+    .onChange(of: subject) { invalidatePreview() }
+    .onChange(of: message) { invalidatePreview() }
+    .interactiveDismissDisabled(isSending)
+  }
+
+  private var ownerScopeLabel: String {
+    switch billing.owner {
+    case .organization: "Salvar para a organização"
+    case .user: "Salvar para minha conta"
     }
   }
 
-  private func send() async {
-    guard !isSending else { return }
-    let parsedRecipients = recipients
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    guard !parsedRecipients.isEmpty else {
-      app.showNotice("Informe ao menos um destinatário válido.", kind: .warning)
-      return
-    }
-    let invalidRecipients = parsedRecipients.filter { !EmailAddress.isValid($0) }
-    guard invalidRecipients.isEmpty else {
-      app.showNotice(
-        "E-mail inválido: \(invalidRecipients.joined(separator: ", ")). Revise os destinatários.",
-        kind: .warning
-      )
-      return
-    }
+  private func binding(for id: RecipientID) -> Binding<Bool> {
+    Binding(
+      get: { selectedRecipients.contains(id) },
+      set: { isOn in
+        if isOn { selectedRecipients.insert(id) } else { selectedRecipients.remove(id) }
+      }
+    )
+  }
 
-    isSending = true
-    defer { isSending = false }
-    do {
-      _ = try await app.dependencies.communications.sendCommunication(
-        billingID: billingID,
-        billID: billID,
-        recipients: parsedRecipients,
-        subject: subject,
-        message: message
-      )
-      preview = nil
-      dismiss()
-      app.showNotice("Comunicação enfileirada para envio.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  // Programmatic template re-prefill also flows through the subject/message onChange
+  // handlers, so a comm-type switch invalidates once and then re-requests below.
+  private func invalidatePreview() {
+    preview = nil
+    acknowledgedWarnings = false
+  }
+
+  private func loadPreviewIfPossible() async {
+    guard !billing.recipients.isEmpty, !subject.isEmpty, !message.isEmpty else { return }
+    await loadPreview()
   }
 
   private func loadPreview() async {
     isLoadingPreview = true
     defer { isLoadingPreview = false }
     do {
-      preview = try await app.dependencies.communications.previewCommunication(
-        billingID: billingID, subject: subject, message: message
+      let loaded = try await app.dependencies.communications.previewCommunication(
+        billingID: billing.id, subject: subject, message: message
       )
+      preview = loaded
+      acknowledgedWarnings = false
     } catch {
       app.showNotice(DemoError(error).message, kind: .warning)
     }
   }
-}
 
-private struct WarningList: View {
-  let title: String
-  let warnings: [String]
-  let color: Color
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-      Text(title).font(.headline).foregroundStyle(color)
-      ForEach(warnings, id: \.self) { warning in
-        Label(warning, systemImage: "exclamationmark.triangle.fill")
-          .font(.footnote)
-          .foregroundStyle(color)
-      }
+  private func send() async {
+    guard !isSending else { return }
+    guard !selectedRecipients.isEmpty else {
+      app.showNotice("Selecione ao menos um destinatário.", kind: .warning)
+      return
     }
+    isSending = true
+    defer { isSending = false }
+    do {
+      let orderedIDs = billing.recipients.map(\.id).filter(selectedRecipients.contains)
+      _ = try await app.dependencies.communications.sendCommunication(
+        billingID: billing.id,
+        billID: bill.id,
+        commType: commType,
+        recipientIDs: orderedIDs,
+        subject: subject,
+        message: message,
+        acknowledgeWarning: acknowledgedWarnings,
+        saveScope: saveScope
+      )
+      dismiss()
+      app.showNotice("Comunicação enfileirada para envio.")
+    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 }
 

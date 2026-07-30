@@ -244,13 +244,9 @@ struct BillDetailView: View {
     }
     .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
     .sheet(isPresented: $showingCommunication) {
-      if let billing {
+      if let billing, let bill = state.value {
         NavigationStack {
-          CommunicationComposerView(
-            billingID: billing.id,
-            billID: billID,
-            initialRecipients: billing.recipients.map(\.email)
-          )
+          CommunicationComposerView(billing: billing, bill: bill)
         }
       }
     }

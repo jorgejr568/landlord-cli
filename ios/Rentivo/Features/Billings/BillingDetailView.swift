@@ -96,7 +96,6 @@ struct BillingDetailView: View {
         financialSummary(data)
         BillingOperationsLinks(
           billingID: billingID,
-          recipients: data.billing.recipients.map(\.email),
           capabilities: data.billing.capabilities
         ) {
           await load()
