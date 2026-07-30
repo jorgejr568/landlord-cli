@@ -383,6 +383,12 @@ struct CommunicationComposerView: View {
   // in-flight preview cannot be aborted here, so every response is checked against the generation
   // it was requested under and a superseded one is dropped instead of overwriting fresh state.
   @State private var previewGeneration = 0
+  // Bumped by the refresh button; part of the preview task's id so a manual refresh runs as a
+  // structured task that is cancelled on dismissal like every other preview request.
+  @State private var manualPreviewRequests = 0
+  // The comm type whose template currently populates the fields, so a manual refresh does not
+  // re-apply a template over the user's edits.
+  @State private var appliedTemplateType: CommunicationType
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -391,6 +397,44 @@ struct CommunicationComposerView: View {
     let template = billing.template(for: .billReady)
     _subject = State(initialValue: template?.subject ?? "")
     _message = State(initialValue: template?.body ?? "")
+    _appliedTemplateType = State(initialValue: .billReady)
+  }
+
+  /// Identifies one preview request. Driving `.task(id:)` with this restarts — and genuinely
+  /// cancels — the request whenever the comm type changes or the refresh button is tapped.
+  private struct PreviewRequestKey: Equatable {
+    let commType: CommunicationType
+    let manualAttempt: Int
+  }
+
+  private var previewRequestKey: PreviewRequestKey {
+    PreviewRequestKey(commType: commType, manualAttempt: manualPreviewRequests)
+  }
+
+  // The web attaches invalidation to the input's change event rather than to observation of the
+  // value (CommunicationComposePage.tsx:236-237). These bindings do the same, which is what keeps a
+  // programmatic template prefill from being mistaken for a user edit: an `onChange(of: subject)`
+  // observer cannot tell the two apart and would disown the very request a type switch just made.
+  private var subjectBinding: Binding<String> {
+    Binding(
+      get: { subject },
+      set: { newValue in
+        guard newValue != subject else { return }
+        subject = newValue
+        invalidatePreview()
+      }
+    )
+  }
+
+  private var messageBinding: Binding<String> {
+    Binding(
+      get: { message },
+      set: { newValue in
+        guard newValue != message else { return }
+        message = newValue
+        invalidatePreview()
+      }
+    )
   }
 
   private var availableTypes: [CommunicationType] {
@@ -446,11 +490,11 @@ struct CommunicationComposerView: View {
         }
 
         Section {
-          TextField("Assunto", text: $subject)
-          TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
+          TextField("Assunto", text: subjectBinding)
+          TextField("Corpo (Markdown — HTML não é permitido)", text: messageBinding, axis: .vertical)
             .lineLimit(5...12)
           Button {
-            Task { await loadPreview() }
+            manualPreviewRequests += 1
           } label: {
             if isLoadingPreview {
               Text("Atualizando...")
@@ -538,16 +582,14 @@ struct CommunicationComposerView: View {
           .disabled(isSending)
       }
     }
-    .task { await loadPreviewIfPossible() }
-    .onChange(of: commType) { _, newType in
-      let template = billing.template(for: newType)
-      subject = template?.subject ?? ""
-      message = template?.body ?? ""
-      invalidatePreview()
-      Task { await loadPreviewIfPossible() }
+    // One structured task owns every preview request: the automatic one on open, the one after a
+    // comm-type switch, and the manual refresh. Applying the template inside the task — rather than
+    // from an `onChange(of: commType)` observer — also removes any dependency on the order in which
+    // SwiftUI delivers the change callback and restarts the task.
+    .task(id: previewRequestKey) {
+      applyTemplateIfNeeded()
+      await loadPreviewIfPossible()
     }
-    .onChange(of: subject) { invalidatePreview() }
-    .onChange(of: message) { invalidatePreview() }
     .interactiveDismissDisabled(isSending)
   }
 
@@ -567,9 +609,18 @@ struct CommunicationComposerView: View {
     )
   }
 
-  // Programmatic template re-prefill also flows through the subject/message onChange
-  // handlers, so a comm-type switch invalidates once and then re-requests below.
-  //
+  /// Re-prefills subject and body from the newly selected type's template, writing the `@State`
+  /// directly so the change is not mistaken for a user edit. A no-op when the type has not changed
+  /// since the last application, which is what lets a manual refresh keep the user's own text.
+  private func applyTemplateIfNeeded() {
+    guard appliedTemplateType != commType else { return }
+    appliedTemplateType = commType
+    let template = billing.template(for: commType)
+    subject = template?.subject ?? ""
+    message = template?.body ?? ""
+    invalidatePreview()
+  }
+
   // Bumping the generation disowns any request already in flight: its response can no longer
   // restore a preview of the pre-edit content, which would otherwise re-open the send gate (and
   // hide the moderation panel) for text the server never checked. Clearing `isLoadingPreview` here
