@@ -511,8 +511,7 @@ struct CommunicationComposerView: View {
 
         Section("Pré-visualização") {
           if let preview {
-            HTMLPreviewView(html: preview.html)
-              .frame(height: 260)
+            HTMLPreviewPanel(html: preview.html)
           } else {
             Text("A pré-visualização aparecerá aqui.")
               .font(.caption)
@@ -695,19 +694,119 @@ struct CommunicationComposerView: View {
   }
 }
 
-private struct HTMLPreviewView: UIViewRepresentable {
+/// Inline preview of the rendered communication, sized to the document it loaded.
+///
+/// The send gate assumes the user actually read the rendered message, so the panel follows the
+/// document height (as the web composer's flowing `<div>` does) instead of clipping it inside a
+/// fixed viewport. Past `maxHeight` the web view keeps its own scrolling so nothing is
+/// unreachable on a very long template.
+private struct HTMLPreviewPanel: View {
   let html: String
 
+  private static let minHeight: CGFloat = 80
+  private static let maxHeight: CGFloat = 600
+
+  @State private var documentHeight: CGFloat = HTMLPreviewPanel.minHeight
+
+  var body: some View {
+    HTMLPreviewView(html: html, documentHeight: $documentHeight)
+      .frame(height: min(max(documentHeight, Self.minHeight), Self.maxHeight))
+  }
+}
+
+private struct HTMLPreviewView: UIViewRepresentable {
+  let html: String
+  @Binding var documentHeight: CGFloat
+
+  private static let heightHandler = "rentivoPreviewHeight"
+
+  // Reports the body height at load and on every relayout (late sizing, rotation, images
+  // finishing). `body.scrollHeight` is content-driven — unlike the document element's, which is
+  // at least the viewport height — so growing the frame to the reported height cannot feed back
+  // into an ever-taller measurement.
+  private static let measureScript = """
+    (function () {
+      function report() {
+        window.webkit.messageHandlers.\(heightHandler).postMessage(document.body.scrollHeight);
+      }
+      new ResizeObserver(report).observe(document.body);
+      report();
+    })();
+    """
+
+  func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
   func makeUIView(context: Context) -> WKWebView {
-    let webView = WKWebView()
+    let configuration = WKWebViewConfiguration()
+    configuration.userContentController.addUserScript(
+      WKUserScript(source: Self.measureScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+    )
+    configuration.userContentController.add(context.coordinator, name: Self.heightHandler)
+    let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.isOpaque = false
     webView.backgroundColor = .clear
-    webView.scrollView.isScrollEnabled = false
+    webView.scrollView.backgroundColor = .clear
+    // Only ever engaged for documents taller than the cap: shorter ones have a frame that already
+    // matches their height, so the Form keeps the scroll gesture.
+    webView.scrollView.isScrollEnabled = true
     return webView
   }
 
   func updateUIView(_ webView: WKWebView, context: Context) {
-    webView.loadHTMLString(html, baseURL: nil)
+    context.coordinator.parent = self
+    // Reloading on every update would restart the measurement, and the height it publishes
+    // re-enters this method — so the document is loaded only when its content actually changes.
+    guard context.coordinator.loadedHTML != html else { return }
+    context.coordinator.loadedHTML = html
+    webView.loadHTMLString(Self.document(for: html), baseURL: nil)
+  }
+
+  static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: heightHandler)
+  }
+
+  /// Wraps the server's Markdown-rendered fragment in a minimal document. The viewport tag makes
+  /// the layout width the view's own width, which both keeps the text legible (WebKit otherwise
+  /// lays a bare fragment out at 980pt and scales it down) and makes the measured CSS pixels
+  /// equal to points. A full document — should the contract ever return one — is loaded as is.
+  private static func document(for html: String) -> String {
+    let trimmed = html.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmed.hasPrefix("<!doctype"), !trimmed.hasPrefix("<html") else { return html }
+    return """
+      <!doctype html>
+      <html lang="pt-BR"><head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        background: transparent;
+        font: -apple-system-body;
+        font-family: -apple-system, system-ui, sans-serif;
+        line-height: 1.45;
+        overflow-wrap: break-word;
+      }
+      img, table { max-width: 100%; }
+      </style>
+      </head><body>\(html)</body></html>
+      """
+  }
+
+  @MainActor final class Coordinator: NSObject, WKScriptMessageHandler {
+    var parent: HTMLPreviewView
+    var loadedHTML: String?
+
+    init(parent: HTMLPreviewView) { self.parent = parent }
+
+    func userContentController(
+      _ controller: WKUserContentController, didReceive message: WKScriptMessage
+    ) {
+      guard let height = (message.body as? NSNumber)?.doubleValue else { return }
+      // Sub-point jitter would republish state on every relayout for no visible gain.
+      guard abs(parent.documentHeight - height) > 0.5 else { return }
+      parent.documentHeight = height
+    }
   }
 }
 
