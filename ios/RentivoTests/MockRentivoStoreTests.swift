@@ -231,6 +231,20 @@ import Testing
   #expect(store.recentActivities.first?.detail == record.subject)
 }
 
+@Test @MainActor func canonicalFixtureBillingsCarryATemplateForEveryCommType() async throws {
+  // The composer prefills subject/body from the billing templates, so demo mode only
+  // matches production when the fixtures ship templates for every communication type.
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  for billing in try await store.listBillings() {
+    for commType in CommunicationType.allCases {
+      let template = try #require(billing.template(for: commType))
+      #expect(!template.subject.isEmpty)
+      #expect(template.body.contains("{{nome_inquilino}}"))
+    }
+  }
+}
+
 @Test @MainActor func sendingToARecipientOutsideTheBillingFails() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
 

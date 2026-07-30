@@ -311,7 +311,35 @@ public struct MockFixtures: Sendable {
           email: "fiadora@example.com"
         ),
       ],
-      replyTo: "ana@example.com"
+      replyTo: "ana@example.com",
+      // Shortened stand-ins for the system defaults in
+      // backend/rentivo/communications/defaults.py, so the demo composer prefills and
+      // previews the same way production does.
+      communicationTemplates: [
+        CommunicationTemplate(
+          commType: .billReady,
+          subject: "Cobrança {{unidade}} — {{mes}}",
+          body: """
+            Prezado {{nome_inquilino}},
+
+            Segue em anexo a cobrança de **{{mes}}** da unidade **{{unidade}}**.
+
+            Atenciosamente.
+            """
+        ),
+        CommunicationTemplate(
+          commType: .paymentReceipt,
+          subject: "Recibo de pagamento {{unidade}} — {{mes}}",
+          body: """
+            Prezado {{nome_inquilino}},
+
+            Confirmamos o recebimento de **{{total}}** referente a **{{mes}}**. \
+            Segue o recibo em anexo.
+
+            Atenciosamente.
+            """
+        ),
+      ]
     )
   }
 
