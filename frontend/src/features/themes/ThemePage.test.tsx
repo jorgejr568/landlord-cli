@@ -249,7 +249,7 @@ it("loads an exact organization label on a direct route", async () => {
   );
 
   expect(await screen.findByRole("heading", { name: "Acme Direta — Tema" })).toBeVisible();
-  expect(document.title).toBe("Acme Direta — Tema - Rentivo");
+  await waitFor(() => expect(document.title).toBe("Acme Direta — Tema - Rentivo"));
   expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute(
     "href",
     "/organizations/org-route"
@@ -278,7 +278,7 @@ it("uses inherited effective values for a billing without a stored theme", async
   renderPage(<ThemePage target="billing" targetUuid="billing-prop" />);
 
   expect(await screen.findByRole("heading", { name: "Aluguel Direto — Tema" })).toBeVisible();
-  expect(document.title).toBe("Aluguel Direto — Tema - Rentivo");
+  await waitFor(() => expect(document.title).toBe("Aluguel Direto — Tema - Rentivo"));
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Lora");
   expect(screen.getByLabelText("Fonte do Texto")).toHaveValue("Roboto");
   const sourceBanner = screen.getByText("Tema efetivo atual:").closest("div");
@@ -507,7 +507,7 @@ it("preserves an explicit owner label over the theme owner name", async () => {
   );
 
   expect(await screen.findByRole("heading", { name: "Nome injetado — Tema" })).toBeVisible();
-  expect(document.title).toBe("Nome injetado — Tema - Rentivo");
+  await waitFor(() => expect(document.title).toBe("Nome injetado — Tema - Rentivo"));
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
