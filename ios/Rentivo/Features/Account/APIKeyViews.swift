@@ -25,39 +25,19 @@ struct APIKeyListView: View {
       emptyActionTitle: canCreate ? "Criar chave" : nil,
       emptyAction: canCreate ? { showingCreate = true } : nil
     ) { keys in
-      List {
-        ForEach(keys) { key in
-          VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-            HStack {
-              Text(key.name).font(.headline)
-              Spacer()
-              Text(key.hint).font(.system(.caption, design: .monospaced))
-            }
-            Text(key.scopes.map(\.label).sorted().joined(separator: " · "))
-              .font(.caption)
-              .foregroundStyle(RentivoColors.secondaryInk)
-            Text(
-              "Criada em \(key.createdAt.formattedPTBR()) · Expira em \(key.expiresAt.formattedPTBR())"
+      ScrollView {
+        LazyVStack(spacing: RentivoSpacing.large) {
+          ForEach(keys) { key in
+            APIKeyCard(
+              key: key,
+              showsActions: !isDemoViewerLocked,
+              onEdit: { editingKey = key },
+              onRevoke: { keyPendingRevoke = key }
             )
-            .font(.caption)
-            .foregroundStyle(RentivoColors.secondaryInk)
-            LabeledContent("Acessos", value: "\(key.grants.count)")
-              .font(.caption)
-            if !isDemoViewerLocked {
-              HStack {
-                Button("Editar") { editingKey = key }
-                  .accessibilityIdentifier("api-key.edit")
-                Spacer()
-                Button("Revogar", role: .destructive) { keyPendingRevoke = key }
-                  .accessibilityIdentifier("api-key.revoke")
-              }
-              .font(.caption.weight(.semibold))
-            }
           }
-          .padding(.vertical, RentivoSpacing.small)
         }
+        .padding(RentivoSpacing.page)
       }
-      .scrollContentBackground(.hidden)
     } retry: {
       await load()
     }
@@ -90,6 +70,7 @@ struct APIKeyListView: View {
       APIKeySecretView(created: secret)
     }
     .task(id: app.dataRevision) { await load() }
+    .refreshable { await load() }
     .confirmationDialog(
       "Revogar esta chave de integração?",
       isPresented: Binding(
@@ -123,6 +104,72 @@ struct APIKeyListView: View {
       await load()
       app.showNotice("Chave revogada.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  }
+}
+
+private struct APIKeyCard: View {
+  let key: APIKeyMetadata
+  let showsActions: Bool
+  let onEdit: () -> Void
+  let onRevoke: () -> Void
+
+  var body: some View {
+    RentivoCard {
+      VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+        VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+          Text(key.name)
+            .font(RentivoTypography.cardTitle)
+            .foregroundStyle(RentivoColors.ink)
+            .multilineTextAlignment(.leading)
+          Label(key.hint, systemImage: "key.fill")
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
+        // Scopes are never truncated: this is the only place outside the edit sheet that
+        // shows what an integration is allowed to do, so the card grows instead.
+        Text(key.scopes.map(\.label).sorted().joined(separator: " · "))
+          .font(.subheadline)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        HStack(alignment: .top) {
+          dateColumn("Criada em", value: key.createdAt, alignment: .leading)
+          Spacer()
+          dateColumn("Expira em", value: key.expiresAt, alignment: .trailing)
+        }
+        Label(
+          ptBRCount(key.grants.count, singular: "acesso", plural: "acessos"),
+          systemImage: "person.2.fill"
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(RentivoColors.secondaryInk)
+        if showsActions {
+          // `RentivoButtonStyle` already expands to the available width, so the HStack
+          // splits the footer 50/50.
+          HStack(spacing: RentivoSpacing.medium) {
+            Button("Editar", action: onEdit)
+              .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+              .accessibilityIdentifier("api-key.edit")
+            Button("Revogar", action: onRevoke)
+              .buttonStyle(RentivoButtonStyle(color: RentivoColors.coral))
+              .accessibilityIdentifier("api-key.revoke")
+          }
+        }
+      }
+    }
+  }
+
+  private func dateColumn(
+    _ title: String,
+    value: Date,
+    alignment: HorizontalAlignment
+  ) -> some View {
+    VStack(alignment: alignment, spacing: RentivoSpacing.tiny) {
+      Text(title)
+        .font(.caption)
+        .foregroundStyle(RentivoColors.secondaryInk)
+      Text(value.formattedPTBR())
+        .font(RentivoTypography.metadata)
+        .foregroundStyle(RentivoColors.ink)
+    }
   }
 }
 
