@@ -571,6 +571,13 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
         return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
       },
       replyTo: remote.replyTo.first?.email,
+      // Templates for communication types this app doesn't model are dropped rather than failing
+      // the whole billing decode, the same tolerance applied to bill transitions above.
+      communicationTemplates: (remote.communicationTemplates ?? []).compactMap { template in
+        CommunicationType(rawValue: template.commType).map {
+          CommunicationTemplate(commType: $0, subject: template.subject, body: template.body)
+        }
+      },
       capabilities: capabilities(from: remote.capabilities)
     )
   }
@@ -967,10 +974,17 @@ private struct RemoteBilling: Decodable {
   let items: [RemoteBillingItem]
   let pixKey, pixMerchantName, pixMerchantCity: String
   let recipients, replyTo: [RemoteBillingContact]
+  // Optional so a payload without the field keeps decoding; the live billing detail contract
+  // always includes it.
+  let communicationTemplates: [RemoteCommunicationTemplate]?
   let capabilities: RemoteBillingCapabilities
-  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
+  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case communicationTemplates = "communication_templates" }
 }
 private struct RemoteBillingContact: Decodable { let uuid: String; let name, email: String? }
+private struct RemoteCommunicationTemplate: Decodable {
+  let commType, subject, body: String
+  enum CodingKeys: String, CodingKey { case subject, body; case commType = "comm_type" }
+}
 private struct RemoteBillingCapabilities: Decodable {
   let canEdit, canReadBills, canCreateBills, canManageBills, canReadExpenses, canWriteExpenses: Bool
   let canCreateExports, canReadAttachments, canWriteAttachments, canReadTheme, canManageTheme: Bool
