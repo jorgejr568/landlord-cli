@@ -245,6 +245,43 @@ import Testing
   }
 }
 
+@Test @MainActor func creatingABillingAttachesTheDefaultCommunicationTemplates() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let created = try await store.createBilling(
+    BillingDraft(
+      name: "Apt 999 - Edifício Novo",
+      description: "Cobrança recém-criada",
+      owner: .user(id: StableID.userAna, name: "Pessoal"),
+      items: []
+    )
+  )
+
+  #expect(created.communicationTemplates == MockFixtures.defaultCommunicationTemplates)
+  let stored = try await store.billing(id: created.id)
+  #expect(stored.communicationTemplates == MockFixtures.defaultCommunicationTemplates)
+}
+
+@Test @MainActor func updatingABillingKeepsItsCommunicationTemplates() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let draft = BillingDraft(
+    name: "Apt 101 - Edifício Aurora (renomeado)",
+    description: billing.description,
+    owner: billing.owner,
+    items: billing.items,
+    recipients: billing.recipients,
+    replyTo: billing.replyTo
+  )
+
+  let updated = try await store.updateBilling(id: billing.id, draft: draft)
+
+  #expect(!billing.communicationTemplates.isEmpty)
+  #expect(updated.communicationTemplates == billing.communicationTemplates)
+  let stored = try await store.billing(id: billing.id)
+  #expect(stored.communicationTemplates == billing.communicationTemplates)
+}
+
 @Test @MainActor func sendingToARecipientOutsideTheBillingFails() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
 

@@ -100,7 +100,10 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       items: draft.items,
       pixOverride: draft.pixOverride,
       recipients: draft.recipients,
-      replyTo: draft.replyTo
+      replyTo: draft.replyTo,
+      // The server always resolves a template per communication type (billing, then owner,
+      // then system default), so a fresh billing is never template-less in production.
+      communicationTemplates: MockFixtures.defaultCommunicationTemplates
     )
     snapshot.billings.insert(billing, at: 0)
     recordActivity(kind: .billing, title: "Cobrança criada", detail: billing.name)
@@ -113,7 +116,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard let index = snapshot.billings.firstIndex(where: { $0.id == id }) else {
       throw DemoError.resourceNotFound
     }
-    let capabilities = snapshot.billings[index].capabilities
+    let existing = snapshot.billings[index]
     let billing = Billing(
       id: id,
       name: draft.name,
@@ -123,7 +126,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       pixOverride: draft.pixOverride,
       recipients: draft.recipients,
       replyTo: draft.replyTo,
-      capabilities: capabilities
+      // Editing a billing never touches its templates; the draft does not carry them.
+      communicationTemplates: existing.communicationTemplates,
+      capabilities: existing.capabilities
     )
     snapshot.billings[index] = billing
     recordActivity(kind: .billing, title: "Cobrança atualizada", detail: billing.name)
