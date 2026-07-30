@@ -59,13 +59,17 @@ public protocol CommunicationRepository: AnyObject {
   func previewCommunication(
     billingID: BillingID, subject: String, message: String
   ) async throws -> CommunicationPreview
+  @discardableResult
   func sendCommunication(
     billingID: BillingID,
-    billID: BillID?,
-    recipients: [String],
+    billID: BillID,
+    commType: CommunicationType,
+    recipientIDs: [RecipientID],
     subject: String,
-    message: String
-  ) async throws -> CommunicationRecord
+    message: String,
+    acknowledgeWarning: Bool,
+    saveScope: CommunicationSaveScope?
+  ) async throws -> Int  // queued_count reported by the server
 }
 
 @MainActor

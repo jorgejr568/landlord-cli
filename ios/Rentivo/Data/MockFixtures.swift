@@ -304,7 +304,12 @@ public struct MockFixtures: Sendable {
           id: stableID(20_000),
           name: "Locatário",
           email: "locatario@example.com"
-        )
+        ),
+        BillingRecipient(
+          id: stableID(20_001),
+          name: "Fiadora",
+          email: "fiadora@example.com"
+        ),
       ],
       replyTo: "ana@example.com"
     )

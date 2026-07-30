@@ -210,17 +210,42 @@ import Testing
 
 @Test @MainActor func communicationMutationUsesSharedActivityGraph() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipientIDs = billing.recipients.map(\.id)
+  #expect(recipientIDs.count >= 2)  // fixture must exercise the multi-recipient path
 
-  let communication = try await store.sendCommunication(
+  let queued = try await store.sendCommunication(
     billingID: StableID.billingAurora101,
     billID: StableID.billPublished,
-    recipients: ["locatario@example.com"],
+    commType: .billReady,
+    recipientIDs: recipientIDs,
     subject: "Sua fatura está disponível",
-    message: "Olá! Consulte os detalhes no Rentivo."
+    message: "Olá! Consulte os detalhes no Rentivo.",
+    acknowledgeWarning: false,
+    saveScope: nil
   )
 
-  #expect(store.snapshot.communications.contains { $0.id == communication.id })
-  #expect(store.recentActivities.first?.detail == communication.subject)
+  #expect(queued == recipientIDs.count)
+  let record = try #require(store.snapshot.communications.first)
+  #expect(Set(record.recipients) == Set(billing.recipients.map(\.email)))
+  #expect(store.recentActivities.first?.detail == record.subject)
+}
+
+@Test @MainActor func sendingToARecipientOutsideTheBillingFails() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billPublished,
+      commType: .billReady,
+      recipientIDs: [RecipientID(rawValue: "not-a-recipient")],
+      subject: "Assunto",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
 }
 
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {

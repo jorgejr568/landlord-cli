@@ -200,53 +200,31 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       html: response.html, severeWarnings: response.severe, mildWarnings: response.mild
     )
   }
-  public func sendCommunication(billingID: BillingID, billID: BillID?, recipients: [String], subject: String, message: String) async throws -> CommunicationRecord {
-    guard let billID else {
-      throw LiveAPIError.server(message: "Escolha uma fatura antes de enviar a comunicação.")
-    }
-    guard !recipients.isEmpty else {
+  @discardableResult
+  public func sendCommunication(
+    billingID: BillingID,
+    billID: BillID,
+    commType: CommunicationType,
+    recipientIDs: [RecipientID],
+    subject: String,
+    message: String,
+    acknowledgeWarning: Bool,
+    saveScope: CommunicationSaveScope?
+  ) async throws -> Int {
+    guard !recipientIDs.isEmpty else {
       throw LiveAPIError.server(message: "Informe ao menos um destinatário.")
     }
-    // PUT /recipients is a full replace, so we must resend every existing contact (preserving
-    // their names) plus only the genuinely new ad-hoc emails, or we'd delete the billing's
-    // configured recipients every time someone sends a one-off communication.
-    let existingRecipients = try await billing(id: billingID).recipients
-    var mergedContacts = existingRecipients.map(RemoteContactInput.init)
-    var knownEmails = Set(existingRecipients.map { $0.email.lowercased() })
-    for email in recipients {
-      let key = email.lowercased()
-      guard !knownEmails.contains(key) else { continue }
-      knownEmails.insert(key)
-      let localPart = email.split(separator: "@", maxSplits: 1).first.map(String.init) ?? email
-      mergedContacts.append(RemoteContactInput(name: localPart, email: email))
-    }
-
-    let contactResponse: RemoteContactList = try await decode(
-      path: "/api/v1/billings/\(billingID.rawValue)/recipients", method: "PUT",
-      body: RemoteContactListPayload(items: mergedContacts)
-    )
-
-    // The server recreates every recipient row (with fresh uuids) on each replace, so we can
-    // only resolve the uuids to send to by matching the just-saved contacts back by email.
-    let requestedEmails = Set(recipients.map { $0.lowercased() })
-    let recipientIDs = contactResponse.items.compactMap { contact -> String? in
-      guard let email = contact.email?.lowercased(), requestedEmails.contains(email) else { return nil }
-      return contact.uuid
-    }
-    guard recipientIDs.count == requestedEmails.count else { throw LiveAPIError.invalidResponse }
-
-    let sendResponse: RemoteCommunicationSend = try await decode(
+    let response: RemoteCommunicationSend = try await decode(
       path: "/api/v1/billings/\(billingID.rawValue)/communications/send", method: "POST",
       body: RemoteCommunicationSendRequest(
-        billID: billID.rawValue, recipients: recipientIDs, subject: subject, message: message
+        billID: billID.rawValue, commType: commType.rawValue,
+        recipientIDs: recipientIDs.map(\.rawValue),
+        subject: subject, message: message,
+        acknowledgeWarning: acknowledgeWarning, saveScope: saveScope?.rawValue
       )
     )
-    guard sendResponse.queuedCount > 0 else { throw LiveAPIError.invalidResponse }
-
-    return CommunicationRecord(
-      id: CommunicationID(rawValue: UUID().uuidString), billingID: billingID,
-      billID: billID, recipients: recipients, subject: subject, message: message, sentAt: Date()
-    )
+    guard response.queuedCount > 0 else { throw LiveAPIError.invalidResponse }
+    return response.queuedCount
   }
   public func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile {
     try await client.download(
@@ -712,12 +690,6 @@ struct RemotePasswordChange: Encodable {
 }
 private struct RemotePasskey: Decodable { let uuid, name, createdAt: String; let lastUsedAt: String?; enum CodingKeys: String, CodingKey { case uuid, name; case createdAt = "created_at"; case lastUsedAt = "last_used_at" } }
 private struct RemoteRecoveryCodes: Decodable { let recoveryCodes: [String]; enum CodingKeys: String, CodingKey { case recoveryCodes = "recovery_codes" } }
-private struct RemoteContactList: Decodable { let items: [RemoteContactRecord] }
-// The send endpoint's response shape is `ContactReferenceResponse` (uuid only) for integration
-// keys, or `ContactResponse` (uuid+name+email) for login-token sessions (which is what the app
-// always uses). Both decode fine into this with name/email left nil when absent.
-private struct RemoteContactRecord: Decodable { let uuid: String; let name, email: String? }
-private struct RemoteContactListPayload: Encodable { let items: [RemoteContactInput] }
 private struct RemoteContactInput: Encodable {
   let name, email: String
   init(name: String, email: String) { self.name = name; self.email = email }
@@ -735,17 +707,24 @@ private struct RemoteCommunicationPreview: Decodable {
 private struct RemoteCommunicationSendRequest: Encodable {
   let billID, commType, subject, body: String
   let recipientIDs: [String]
-  let acknowledgeWarning = true
+  let acknowledgeWarning: Bool
+  let saveScope: String?
   enum CodingKeys: String, CodingKey {
     case subject, body
     case billID = "bill_uuid"
     case commType = "comm_type"
     case recipientIDs = "recipient_uuids"
     case acknowledgeWarning = "acknowledge_warning"
+    case saveScope = "save_scope"
   }
-  init(billID: String, recipients: [String], subject: String, message: String) {
-    self.billID = billID; commType = "bill_ready"; self.subject = subject; body = message
-    recipientIDs = recipients
+  init(
+    billID: String, commType: String, recipientIDs: [String],
+    subject: String, message: String, acknowledgeWarning: Bool, saveScope: String?
+  ) {
+    self.billID = billID; self.commType = commType; self.subject = subject; body = message
+    self.recipientIDs = recipientIDs
+    self.acknowledgeWarning = acknowledgeWarning
+    self.saveScope = saveScope
   }
 }
 private struct RemoteCommunicationSend: Decodable { let queuedCount: Int; enum CodingKeys: String, CodingKey { case queuedCount = "queued_count" } }

@@ -408,30 +408,39 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return CommunicationPreview(html: message, severeWarnings: [], mildWarnings: [])
   }
 
+  @discardableResult
   public func sendCommunication(
     billingID: BillingID,
-    billID: BillID?,
-    recipients: [String],
+    billID: BillID,
+    commType: CommunicationType,
+    recipientIDs: [RecipientID],
     subject: String,
-    message: String
-  ) async throws -> CommunicationRecord {
+    message: String,
+    acknowledgeWarning: Bool,
+    saveScope: CommunicationSaveScope?
+  ) async throws -> Int {
     try await prepareOperation()
     try requireWriteAccess()
-    guard snapshot.billings.contains(where: { $0.id == billingID }), !recipients.isEmpty else {
+    guard let billing = snapshot.billings.first(where: { $0.id == billingID }),
+      !recipientIDs.isEmpty
+    else {
       throw DemoError.operationFailed
     }
+    let byID = Dictionary(uniqueKeysWithValues: billing.recipients.map { ($0.id, $0) })
+    let selected = recipientIDs.compactMap { byID[$0] }
+    guard selected.count == recipientIDs.count else { throw DemoError.operationFailed }
     let communication = CommunicationRecord(
       id: CommunicationID(rawValue: UUID().uuidString),
       billingID: billingID,
       billID: billID,
-      recipients: recipients,
+      recipients: selected.map(\.email),
       subject: subject,
       message: message,
       sentAt: Date()
     )
     snapshot.communications.insert(communication, at: 0)
     recordActivity(kind: .bill, title: "Comunicação simulada", detail: subject)
-    return communication
+    return selected.count
   }
 
   public func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }
