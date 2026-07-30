@@ -379,6 +379,10 @@ struct CommunicationComposerView: View {
   @State private var acknowledgedWarnings = false
   @State private var isLoadingPreview = false
   @State private var isSending = false
+  // Mirrors the web composer's `previewRequest` sequence (CommunicationComposePage.tsx): an
+  // in-flight preview cannot be aborted here, so every response is checked against the generation
+  // it was requested under and a superseded one is dropped instead of overwriting fresh state.
+  @State private var previewGeneration = 0
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -531,6 +535,7 @@ struct CommunicationComposerView: View {
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
         Button("Cancelar") { dismiss() }
+          .disabled(isSending)
       }
     }
     .task { await loadPreviewIfPossible() }
@@ -564,9 +569,17 @@ struct CommunicationComposerView: View {
 
   // Programmatic template re-prefill also flows through the subject/message onChange
   // handlers, so a comm-type switch invalidates once and then re-requests below.
+  //
+  // Bumping the generation disowns any request already in flight: its response can no longer
+  // restore a preview of the pre-edit content, which would otherwise re-open the send gate (and
+  // hide the moderation panel) for text the server never checked. Clearing `isLoadingPreview` here
+  // — as the web's `setPreviewing(false)` does — keeps the refresh button usable when the disowned
+  // response lands and is dropped.
   private func invalidatePreview() {
+    previewGeneration += 1
     preview = nil
     acknowledgedWarnings = false
+    isLoadingPreview = false
   }
 
   private func loadPreviewIfPossible() async {
@@ -575,17 +588,34 @@ struct CommunicationComposerView: View {
   }
 
   private func loadPreview() async {
+    previewGeneration += 1
+    let generation = previewGeneration
     isLoadingPreview = true
-    defer { isLoadingPreview = false }
+    // Every write below is conditional on still being the current request, so an earlier or
+    // superseded response can neither publish its preview nor clear the busy state of a newer one.
+    defer { if generation == previewGeneration { isLoadingPreview = false } }
     do {
       let loaded = try await app.dependencies.communications.previewCommunication(
         billingID: billing.id, subject: subject, message: message
       )
+      guard generation == previewGeneration else { return }
       preview = loaded
       acknowledgedWarnings = false
     } catch {
+      // A cancelled request means the composer went away (or was superseded); reporting it would
+      // put a warning banner on the screen the user just returned to. `Task.isCancelled` is the
+      // load-bearing half of this check: `LiveAPIClient.transportError(from:)` rewrites
+      // `URLError(.cancelled)` into a generic "não foi possível conectar" `LiveAPIError`, so the
+      // error identity alone does not identify a cancellation on the live store.
+      guard generation == previewGeneration, !Task.isCancelled, !isCancellation(error) else {
+        return
+      }
       app.showNotice(DemoError(error).message, kind: .warning)
     }
+  }
+
+  private func isCancellation(_ error: Error) -> Bool {
+    error is CancellationError || (error as? URLError)?.code == .cancelled
   }
 
   private func send() async {
