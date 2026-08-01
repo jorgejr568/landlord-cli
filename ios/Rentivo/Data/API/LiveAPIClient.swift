@@ -53,10 +53,22 @@ actor LiveAPIClient {
   /// so a stalled connection (e.g. the iOS Simulator's flaky HTTP/3 path, or a
   /// dropped mobile network) fails fast and stays retryable instead of freezing
   /// the UI on the system default timeout. Tests inject their own stubbed session.
-  private static func makeSession() -> URLSession {
+  ///
+  /// It also opts out of `URLCache` completely. `URLSessionConfiguration.default` binds to the
+  /// disk-backed `URLCache.shared`, so authenticated payloads — PIX details on a billing, tenant
+  /// names and e-mail addresses on a contact, and downloaded documents — would be written into the
+  /// app container purely as a side effect of the transport. Nothing is lost by dropping it: these
+  /// routes send no `Cache-Control`, `ETag`, or `Last-Modified`, so their responses have no
+  /// freshness lifetime and could never have been served from cache anyway, and the app is a thin
+  /// client over a live API with no offline mode. `URLSessionConfiguration.ephemeral` is not used
+  /// instead because it still installs a (memory-backed) `URLCache` and would additionally move
+  /// cookie and credential storage — an unrelated behavior change.
+  static func makeSession() -> URLSession {
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = 30
     configuration.waitsForConnectivity = false
+    configuration.urlCache = nil
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     return URLSession(configuration: configuration)
   }
 
