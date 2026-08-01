@@ -269,7 +269,7 @@ struct AttachmentListView: View {
         }
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],
