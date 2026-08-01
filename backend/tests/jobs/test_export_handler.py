@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 
 import openpyxl
 import pytest
@@ -11,7 +10,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from rentivo.encryption.base64 import Base64Backend
+from rentivo.encryption.factory import get_encryption
 from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.sqlalchemy import decode_job_payload
 from rentivo.models.billing import Billing
 from rentivo.repositories.sqlalchemy.billing import SQLAlchemyBillingRepository
 from tests.conftest import SCHEMA_DDL
@@ -62,7 +63,10 @@ def _add_bill(engine, billing, reference_month="2025-03", total_amount=285050):
 def _enqueued(engine, job_type):
     with engine.connect() as c:
         rows = c.execute(text("SELECT payload FROM jobs WHERE job_type = :t"), {"t": job_type}).fetchall()
-    return [json.loads(r[0]) for r in rows]
+    # The repository stores an encrypted envelope; resolve the same backend it
+    # used (rentivo.jobs.factory calls get_encryption()) rather than assuming one.
+    encryption = get_encryption()
+    return [decode_job_payload(encryption, r[0]) for r in rows]
 
 
 def _patch(monkeypatch, engine, storage):
