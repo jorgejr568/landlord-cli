@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     job_worker_idle_sleep_seconds: float = 5.0
     job_worker_stuck_after_seconds: int = 600
 
+    # Terminal-state (`succeeded` / `failed`) job rows older than this are
+    # purged by the `auth.cleanup` handler. Payloads are encrypted at rest, but
+    # they still hold third-party recipient addresses, client IPs, and user
+    # agents -- retaining them forever grows the blast radius of any future key
+    # compromise for no operational benefit. `0` disables the purge.
+    job_retention_days: int = 30
+
     # Background-job execution driver. `database` (default) uses the built-in
     # polling worker over the `jobs` table — zero extra dependencies. `temporal`
     # offloads execution to a Temporal cluster (requires the `temporal` extra;
