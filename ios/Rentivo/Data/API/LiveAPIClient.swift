@@ -37,11 +37,16 @@ actor LiveAPIClient {
 
   private let session: URLSession
   private let credentials: any CredentialStore
+  private let downloads: DownloadedFileStore
   private var accessToken: String?
 
-  init(session: URLSession? = nil, credentials: any CredentialStore) {
+  init(
+    session: URLSession? = nil, credentials: any CredentialStore,
+    downloads: DownloadedFileStore = .shared
+  ) {
     self.session = session ?? Self.makeSession()
     self.credentials = credentials
+    self.downloads = downloads
   }
 
   /// The app's default session. Unlike `URLSession.shared` it bounds each request
@@ -179,10 +184,9 @@ actor LiveAPIClient {
     let resolvedFilename = filename.contains(".")
       ? filename
       : "\(filename).\(fileExtension(for: responseMediaType))"
-    let destination = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-      .appendingPathExtension((resolvedFilename as NSString).pathExtension)
-    try data.write(to: destination, options: .atomic)
+    let destination = try downloads.makeDestination(
+      pathExtension: (resolvedFilename as NSString).pathExtension)
+    try data.write(to: destination, options: DownloadedFileStore.writingOptions)
     return DownloadedFile(fileURL: destination, filename: resolvedFilename, mediaType: responseMediaType)
   }
 
