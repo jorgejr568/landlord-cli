@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import { defaultSecuritySummary, installApiMocks } from "./support/api-mocks";
@@ -83,4 +86,98 @@ test("deletes the account and returns to the login screen", async ({ page }) => 
   expect(deletion?.body).toEqual({ password: "current-password-e2e" });
   expect(api.requests.some((request) => request.path === "/auth/logout")).toBe(true);
   expect(api.unexpectedRequests).toEqual([]);
+});
+
+// The default Playwright projects run against the Vite dev server, which never
+// serves the production nginx headers. These tests lock the committed nginx
+// source instead; frontend/e2e/production-stack.spec.ts asserts the live
+// headers against the real image.
+
+const SECURITY_HEADERS_INCLUDE = "include /etc/nginx/rentivo-security-headers.conf;";
+
+const ENFORCED_CSP = "base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
+
+const REPORT_ONLY_CSP_DIRECTIVES = [
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' https://www.googletagmanager.com https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: https://www.googletagmanager.com https://*.google-analytics.com",
+  "connect-src 'self' https://www.googletagmanager.com https://challenges.cloudflare.com https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net",
+  "frame-src 'self' blob: https://challenges.cloudflare.com"
+];
+
+function readNginxFile(name: string): string {
+  const frontendRoot = path.resolve(path.dirname(test.info().file), "..");
+  return readFileSync(path.join(frontendRoot, "nginx", name), "utf8");
+}
+
+function withoutComments(config: string): string {
+  return config
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
+function locationBlocks(config: string): string[] {
+  const blocks: string[] = [];
+  let start = config.indexOf("location ");
+  while (start >= 0) {
+    let depth = 0;
+    for (let cursor = config.indexOf("{", start); cursor < config.length; cursor += 1) {
+      if (config[cursor] === "{") depth += 1;
+      if (config[cursor] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          blocks.push(config.slice(start, cursor + 1));
+          break;
+        }
+      }
+    }
+    start = config.indexOf("location ", start + 1);
+  }
+  return blocks;
+}
+
+test("declares the baseline security headers unconditionally", () => {
+  const snippet = readNginxFile("security-headers.conf");
+
+  expect(snippet).toContain(`add_header Content-Security-Policy "${ENFORCED_CSP}" always;`);
+  expect(snippet).toContain('add_header X-Content-Type-Options "nosniff" always;');
+  expect(snippet).toContain('add_header X-Frame-Options "DENY" always;');
+  expect(snippet).toContain('add_header Referrer-Policy "strict-origin-when-cross-origin" always;');
+
+  const reportOnly = /add_header Content-Security-Policy-Report-Only "([^"]+)" always;/.exec(snippet);
+  expect(reportOnly, "The report-only policy must stay on one quoted line.").not.toBeNull();
+  REPORT_ONLY_CSP_DIRECTIVES.forEach((directive) => {
+    expect(reportOnly![1]).toContain(directive);
+  });
+
+  // "always" keeps every header on error responses, such as the /assets/ 404.
+  const headerLines = snippet
+    .split("\n")
+    .filter((line) => line.trimStart().startsWith("add_header"));
+  expect(headerLines).toHaveLength(5);
+  headerLines.forEach((line) => expect(line.trimEnd().endsWith("always;")).toBe(true));
+});
+
+test("repeats the security-header include in every nginx block that answers a request", () => {
+  const config = withoutComments(readNginxFile("default.conf"));
+
+  // Nginx discards the whole inherited add_header set as soon as a block
+  // declares an add_header of its own, so a server-level include is not
+  // enough: "location /assets/" and "location = /index.html" both set
+  // Cache-Control and would otherwise drop every security header. The
+  // try_files fallback in "location /" internally redirects to /index.html,
+  // so the exact-match block serves every client-side route.
+  const blocks = locationBlocks(config);
+  expect(blocks).toHaveLength(3);
+  blocks.forEach((block) => expect(block).toContain(SECURITY_HEADERS_INCLUDE));
+
+  expect(config.slice(0, config.indexOf("location "))).toContain(SECURITY_HEADERS_INCLUDE);
+  expect(config.split(SECURITY_HEADERS_INCLUDE).length - 1).toBe(4);
 });
