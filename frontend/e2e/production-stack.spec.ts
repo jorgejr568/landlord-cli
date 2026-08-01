@@ -47,6 +47,62 @@ test("exercises the replacement stack without network interception", async ({ ba
   const email = `production-stack-${unique}@example.com`;
   const password = `Release-${unique}-Aa1!`;
 
+  // Capture every CSP violation, enforced or report-only, for the whole run.
+  // exposeFunction and addInitScript must be installed before the first
+  // navigation so the listener survives each page load.
+  const cspViolations: string[] = [];
+  await page.exposeFunction("__rentivoRecordCspViolation", (violation: string) => {
+    cspViolations.push(violation);
+  });
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      void (
+        window as unknown as {
+          __rentivoRecordCspViolation: (violation: string) => Promise<void>;
+        }
+      ).__rentivoRecordCspViolation(
+        `[${event.disposition}] ${event.violatedDirective} blocked ${event.blockedURI || "inline"} on ${event.documentURI}`
+      );
+    });
+  });
+
+  await test.step("serve the baseline security headers from the frontend image", async () => {
+    const shell = await page.request.get("/");
+    expect(shell.status()).toBe(200);
+    const headers = shell.headers();
+    expect(headers["content-security-policy"]).toBe(
+      "base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+    );
+    expect(headers["content-security-policy-report-only"]).toContain("default-src 'self'");
+    expect(headers["content-security-policy-report-only"]).toContain(
+      "frame-src 'self' blob: https://challenges.cloudflare.com"
+    );
+    expect(headers["x-content-type-options"]).toBe("nosniff");
+    expect(headers["x-frame-options"]).toBe("DENY");
+    expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+
+    // A client-side route reaches "location = /index.html" through the
+    // try_files internal redirect. That block sets its own Cache-Control, so
+    // it is the response nginx would silently strip the headers from.
+    const route = await page.request.get("/login");
+    expect(route.status()).toBe(200);
+    expect(route.headers()["cache-control"]).toBe("no-store");
+    expect(route.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(route.headers()["x-content-type-options"]).toBe("nosniff");
+    expect(route.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+
+    // "location /assets/" also declares its own add_header.
+    const assetPath = /\/assets\/[^"']+\.js/.exec(await shell.text())?.[0];
+    expect(assetPath, "The built shell must reference a hashed asset bundle.").toBeTruthy();
+    const asset = await page.request.get(assetPath!);
+    expect(asset.status()).toBe(200);
+    // "expires 1y" and the add_header both emit Cache-Control, so the header
+    // arrives as two comma-joined values.
+    expect(asset.headers()["cache-control"]).toContain("immutable");
+    expect(asset.headers()["x-content-type-options"]).toBe("nosniff");
+    expect(asset.headers()["content-security-policy"]).toContain("object-src 'none'");
+  });
+
   await test.step("serve public metadata and crawler contracts", async () => {
     await page.goto("/");
     await expect(page).toHaveTitle("Rentivo — Gestão de cobranças para imóveis com PIX");
@@ -84,6 +140,13 @@ test("exercises the replacement stack without network interception", async ({ ba
     await expect(page.getByRole("heading", { level: 1, name: "Meu Tema" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Fontes" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Cores" })).toBeVisible();
+    // The PDF preview is delivered as a blob: URL, which the report-only
+    // policy must permit through frame-src.
+    await expect(page.locator('iframe[title="Pré-visualização do tema"]')).toHaveAttribute(
+      "src",
+      /^blob:/,
+      { timeout: 30_000 }
+    );
 
     await page.goto("/security");
     await expect(page.getByRole("heading", { name: "Segurança" })).toBeVisible();
@@ -251,5 +314,15 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.getByLabel("Código de autenticação").fill(totpCode(totpSecret));
     await page.getByRole("button", { name: "Verificar" }).click();
     await expect(page).toHaveURL(/\/billings\/$/);
+  });
+
+  await test.step("record no Content-Security-Policy violations", async () => {
+    // securitypolicyviolation events cross the bridge asynchronously; let the
+    // last navigation settle before reading them.
+    await page.waitForTimeout(500);
+    expect(
+      cspViolations,
+      `Content-Security-Policy violations observed:\n${cspViolations.join("\n")}`
+    ).toEqual([]);
   });
 });
