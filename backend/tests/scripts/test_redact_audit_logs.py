@@ -207,8 +207,10 @@ class TestRedactAuditLogs:
         for prefix_key in ("pix_key", "pix_merchant_name", "pix_merchant_city"):
             assert f"{prefix_key}_set" not in state
             assert f"{prefix_key}_hash" not in state
-        # email field on user serialization is untouched here — this is just JSON content
-        assert state["email"] == "alice@example.com"
+        # Bare `email` is now backfilled too: audit_logs.new_state is a plain
+        # JSON column, so a legacy plaintext address there sits unencrypted
+        # beside the KMS-encrypted users.email column.
+        assert state["email"] == "al...@example.com"
 
     def test_run_handles_null_states(self, seeded_audit_db):
         """Login events have null previous_state and new_state. Must not crash."""
@@ -392,5 +394,30 @@ class TestRedactAuditLogs:
             }
         )
         result, changed = _redact_state(state)
+        assert changed is False
+        assert result == state
+
+    def test_redact_state_redacts_bare_email_and_to_keys(self, db_connection):
+        """Legacy login / password-reset / login-failure audit rows carried a
+        bare plaintext ``email``; email job payloads carried a bare ``to``."""
+        from rentivo.scripts.redact_audit_logs import _redact_state
+
+        state = json.dumps({"user_id": 7, "email": "alice@example.com", "to": "bob@example.com"})
+
+        result, changed = _redact_state(state)
+
+        assert changed is True
+        data = json.loads(result)
+        assert data["email"] == "al...@example.com"
+        assert data["to"] == "bo...@example.com"
+        assert data["user_id"] == 7
+
+    def test_redact_state_bare_email_is_idempotent(self, db_connection):
+        from rentivo.scripts.redact_audit_logs import _redact_state
+
+        state = json.dumps({"user_id": 7, "email": "al...@example.com"})
+
+        result, changed = _redact_state(state)
+
         assert changed is False
         assert result == state

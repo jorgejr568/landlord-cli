@@ -8,8 +8,10 @@ Behavior:
 - Walks every ``audit_logs`` row.
 - For each row, parses ``previous_state`` and ``new_state`` JSON (each may be NULL).
 - If the parsed dict contains any of ``pix_key`` / ``pix_merchant_name`` /
-  ``pix_merchant_city`` / ``to_email`` as keys, replaces the value in place
-  with a partial-mask redaction (see :mod:`rentivo.pii_redaction`).
+  ``pix_merchant_city`` (PIX mask) or ``to_email`` / ``invited_email`` /
+  ``invited_by_email`` / ``email`` / ``to`` (email mask) as keys, replaces the
+  value in place with a partial-mask redaction (see
+  :mod:`rentivo.pii_redaction`).
 - The redaction is deterministic and key-less, so already-redacted rows are
   byte-for-byte unchanged on re-run.
 - Writes back the rewritten JSON only if the dict actually changed.
@@ -39,7 +41,7 @@ console = Console()
 
 
 _PII_KEYS = ("pix_key", "pix_merchant_name", "pix_merchant_city")
-_EMAIL_KEYS = ("to_email", "invited_email", "invited_by_email")
+_EMAIL_KEYS = ("to_email", "invited_email", "invited_by_email", "email", "to")
 _DROP_KEYS = ("organization_name",)
 
 
