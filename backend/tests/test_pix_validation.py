@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from rentivo.pix import classify_pix_key, validate_pix_key
+from rentivo.pix import validate_pix_key
+from rentivo.pix_keys import classify_pix_key
 
 
 class TestClassifyPixKey:

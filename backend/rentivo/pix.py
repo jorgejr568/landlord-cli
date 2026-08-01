@@ -12,23 +12,7 @@ from io import BytesIO
 import qrcode
 from qrcode.image.pil import PilImage
 
-_PIX_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
-    "cpf": re.compile(r"^\d{11}$"),
-    "cnpj": re.compile(r"^\d{14}$"),
-    "email": re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),
-    "phone": re.compile(r"^\+55\d{10,11}$"),
-    "evp": re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"),
-}
-
-
-def classify_pix_key(key: str) -> str | None:
-    """Return the PIX key type ('cpf', 'cnpj', 'email', 'phone', 'evp') or None if invalid."""
-    if not key:
-        return None
-    for kind, pattern in _PIX_KEY_PATTERNS.items():
-        if pattern.match(key):
-            return kind
-    return None
+from rentivo.pix_keys import PIX_KEY_PATTERNS
 
 
 def validate_pix_key(key: str) -> str:
@@ -58,15 +42,15 @@ def validate_pix_key(key: str) -> str:
 
     if raw.startswith("+") and re.sub(r"[\s()-]", "", raw).replace("+", "", 1).isdigit():
         normalized = "+" + re.sub(r"[\s()\-]", "", raw[1:])
-        if _PIX_KEY_PATTERNS["phone"].match(normalized):
+        if PIX_KEY_PATTERNS["phone"].match(normalized):
             return normalized
 
     if "@" in raw:
         candidate = raw.lower()
-        if _PIX_KEY_PATTERNS["email"].match(candidate):
+        if PIX_KEY_PATTERNS["email"].match(candidate):
             return candidate
 
-    if _PIX_KEY_PATTERNS["evp"].match(raw):
+    if PIX_KEY_PATTERNS["evp"].match(raw):
         return raw.lower()
 
     raise ValueError("Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória (UUID).")

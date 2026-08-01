@@ -28,7 +28,7 @@ import pytest
 
 # Import every regex from its production site so this test fails the moment a
 # new prod pattern is added without being registered below.
-from rentivo.pix import _PIX_KEY_PATTERNS
+from rentivo.pix_keys import PIX_KEY_PATTERNS
 from rentivo.settings import _GTM_RE
 
 # (label, compiled pattern, adversarial input)
@@ -42,18 +42,18 @@ PRODUCTION_REGEXES: list[tuple[str, re.Pattern[str], str]] = [
     # Variable-length: stress with a very long matching prefix + trailing bad char.
     ("settings._GTM_RE", _GTM_RE, "GTM-" + ("A" * 1000) + "!"),
     # Fixed length 11 digits: 11 valid digits + bad trailing char.
-    ("pix.cpf", _PIX_KEY_PATTERNS["cpf"], ("9" * 11) + "!"),
+    ("pix.cpf", PIX_KEY_PATTERNS["cpf"], ("9" * 11) + "!"),
     # Fixed length 14 digits: 14 valid digits + bad trailing char.
-    ("pix.cnpj", _PIX_KEY_PATTERNS["cnpj"], ("9" * 14) + "!"),
+    ("pix.cnpj", PIX_KEY_PATTERNS["cnpj"], ("9" * 14) + "!"),
     # Three negated-class segments separated by `@` and `.` — long matching segments
     # to maximize the work the engine does before failing on the final assertion.
-    ("pix.email", _PIX_KEY_PATTERNS["email"], ("a" * 500) + "@" + ("b" * 500) + "."),
+    ("pix.email", PIX_KEY_PATTERNS["email"], ("a" * 500) + "@" + ("b" * 500) + "."),
     # +55 + 10..11 digits: 11 valid digits + bad trailing char.
-    ("pix.phone", _PIX_KEY_PATTERNS["phone"], "+55" + ("1" * 11) + "!"),
+    ("pix.phone", PIX_KEY_PATTERNS["phone"], "+55" + ("1" * 11) + "!"),
     # UUID with correct hyphen positions but bad trailing char.
     (
         "pix.evp",
-        _PIX_KEY_PATTERNS["evp"],
+        PIX_KEY_PATTERNS["evp"],
         "a" * 8 + "-" + "a" * 4 + "-" + "a" * 4 + "-" + "a" * 4 + "-" + "a" * 12 + "!",
     ),
 ]
