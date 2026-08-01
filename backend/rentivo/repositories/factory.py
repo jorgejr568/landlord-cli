@@ -151,5 +151,6 @@ def get_job_repository():
 
     return SQLAlchemyJobRepository(
         _connection(),
+        _encryption(),
         stuck_after_seconds=settings.job_worker_stuck_after_seconds,
     )

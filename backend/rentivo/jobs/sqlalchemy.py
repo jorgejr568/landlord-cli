@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
+import structlog
 from sqlalchemy import Connection, bindparam, text
 from ulid import ULID
 
 from rentivo.constants import SP_TZ
+from rentivo.encryption.base import EncryptionBackend
 from rentivo.jobs.base import Job, JobRepository
+
+logger = structlog.get_logger(__name__)
+
+_ENVELOPE_KEY = "__enc"
 
 
 def _now() -> datetime:
@@ -26,9 +32,48 @@ def _to_naive_sp(dt: datetime) -> datetime:
     return dt.astimezone(SP_TZ).replace(tzinfo=None)
 
 
+def encode_job_payload(encryption: EncryptionBackend, payload: dict) -> str:
+    """Serialize ``payload`` into the encrypted at-rest envelope.
+
+    The stored value is a JSON *object* -- ``{"__enc": "<ciphertext>"}`` -- and
+    deliberately not a bare ciphertext string. MariaDB renders the
+    ``jobs.payload`` column (declared ``sa.JSON`` in migration d74d94c5ff3c) as
+    ``longtext ... CHECK (json_valid(payload))``, so writing ``enc:v1:...``
+    directly fails with ``ERROR 4025 CONSTRAINT jobs.payload failed``. SQLite --
+    which the test suite uses -- has no such constraint, so the envelope is what
+    keeps local runs honest about production behaviour.
+    """
+    return json.dumps({_ENVELOPE_KEY: encryption.encrypt(json.dumps(payload))})
+
+
+def decode_job_payload(encryption: EncryptionBackend, raw: str | dict) -> dict:
+    """Parse a stored ``jobs.payload`` value, decrypting the envelope if present.
+
+    Three shapes are accepted so encrypted and legacy rows coexist without a
+    flag day (the same coexistence contract ``EncryptionBackend`` documents):
+
+    - ``{"__enc": "<ciphertext>"}``  -> decrypt, then parse the plaintext JSON
+    - ``{...}``                      -> a legacy plaintext row; returned as-is
+    - a ``dict``                     -> already parsed by the driver; as above
+
+    No producer emits a ``__enc`` key, so its presence is an unambiguous marker.
+    """
+    decoded = raw if isinstance(raw, dict) else json.loads(raw)
+    if isinstance(decoded, dict) and _ENVELOPE_KEY in decoded:
+        return json.loads(encryption.decrypt(decoded[_ENVELOPE_KEY]))
+    return decoded
+
+
 class SQLAlchemyJobRepository(JobRepository):
-    def __init__(self, conn: Connection, *, stuck_after_seconds: int = 600) -> None:
+    def __init__(
+        self,
+        conn: Connection,
+        encryption: EncryptionBackend,
+        *,
+        stuck_after_seconds: int = 600,
+    ) -> None:
         self.conn = conn
+        self.encryption = encryption
         self.stuck_after_seconds = stuck_after_seconds
 
     def enqueue(
@@ -51,7 +96,7 @@ class SQLAlchemyJobRepository(JobRepository):
             {
                 "ulid": ulid,
                 "job_type": job_type,
-                "payload": json.dumps(payload),
+                "payload": encode_job_payload(self.encryption, payload),
                 "max_attempts": max_attempts,
                 "run_after": run_at,
                 "now": now,
@@ -67,6 +112,29 @@ class SQLAlchemyJobRepository(JobRepository):
             attempts=0,
             max_attempts=max_attempts,
         )
+
+    def _decode_rows(self, rows: Sequence[Mapping]) -> list[tuple[Mapping, dict]]:
+        """Pair each row with its decoded payload, dropping rows that fail.
+
+        A row is skipped rather than dead-lettered: a transient decrypt failure
+        (KMS unavailable) must never silently discard queued work. A row that is
+        permanently undecryptable is skipped on every poll and logged, so it
+        stalls loudly instead of blocking every other job behind it in the
+        ``ORDER BY id`` scan.
+        """
+        decoded: list[tuple[Mapping, dict]] = []
+        for row in rows:
+            try:
+                payload = decode_job_payload(self.encryption, row["payload"])
+            except Exception:
+                logger.exception(
+                    "job_payload_decode_failed",
+                    job_id=row["id"],
+                    ulid=row["ulid"],
+                )
+                continue
+            decoded.append((row, payload))
+        return decoded
 
     def claim_batch(self, batch_size: int, worker_id: str) -> list[Job]:
         rows = (
@@ -88,7 +156,17 @@ class SQLAlchemyJobRepository(JobRepository):
         if not rows:
             self.conn.commit()
             return []
-        ids = [row["id"] for row in rows]
+        # Decode BEFORE the claiming UPDATE. Decoding afterwards would burn an
+        # attempt and crash the worker out of tick() with the job stuck in
+        # 'running' until the stuck-reclaim window elapsed -- and because
+        # Worker._reschedule_or_fail would never run, max_attempts would never
+        # dead-letter it. Rolling back here leaves every row 'pending' with its
+        # attempt count untouched, so a KMS outage is fully self-healing.
+        claimable = self._decode_rows(rows)
+        if not claimable:
+            self.conn.rollback()
+            return []
+        ids = [row["id"] for row, _ in claimable]
         update_stmt = text(
             "UPDATE jobs SET status = 'running', claimed_at = NOW(), claimed_by = :worker_id, "
             "attempts = attempts + 1, updated_at = NOW() "
@@ -101,11 +179,11 @@ class SQLAlchemyJobRepository(JobRepository):
                 id=row["id"],
                 ulid=row["ulid"],
                 job_type=row["job_type"],
-                payload=row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"]),
+                payload=payload,
                 attempts=row["attempts"] + 1,
                 max_attempts=row["max_attempts"],
             )
-            for row in rows
+            for row, payload in claimable
         ]
 
     def mark_succeeded(self, job_id: int) -> None:
