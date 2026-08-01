@@ -59,6 +59,13 @@ after key destruction) is skipped on every poll and logged as
 `job_payload_decode_failed` with its `job_id` and `ulid`; quarantine it with
 `UPDATE jobs SET status='failed', last_error='undecryptable payload' WHERE id = ...`.
 
+### Retention
+
+The `auth.cleanup` job deletes `succeeded` and `failed` rows whose `updated_at`
+is older than `RENTIVO_JOB_RETENTION_DAYS` (default 30; `0` disables), in
+batches of 100 per run. `pending` and `running` rows are never touched, so a
+job scheduled far in the future and the cleanup job's own row are safe.
+
 Run the worker:
 
 ```bash

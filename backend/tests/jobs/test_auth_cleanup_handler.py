@@ -39,6 +39,21 @@ def cleanup_engine() -> Engine:
                 "consumed_at DATETIME)"
             )
         )
+        connection.execute(
+            text(
+                "CREATE TABLE jobs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "ulid VARCHAR(26) NOT NULL UNIQUE, "
+                "job_type VARCHAR(64) NOT NULL, "
+                "payload TEXT NOT NULL, "
+                "status VARCHAR(16) NOT NULL DEFAULT 'pending', "
+                "attempts INTEGER NOT NULL DEFAULT 0, "
+                "max_attempts INTEGER NOT NULL DEFAULT 5, "
+                "run_after DATETIME NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "updated_at DATETIME NOT NULL)"
+            )
+        )
     yield engine
     engine.dispose()
 
@@ -92,6 +107,33 @@ def _remaining_ids(engine: Engine, table: str) -> list[int]:
         return list(connection.execute(text(f"SELECT id FROM {table} ORDER BY id")).scalars())
 
 
+def _seed_job(
+    engine: Engine,
+    ulid: str,
+    *,
+    status: str,
+    updated_at: datetime,
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO jobs (ulid, job_type, payload, status, attempts, max_attempts, "
+                "run_after, created_at, updated_at) "
+                "VALUES (:ulid, 'email.send', '{}', :status, 0, 5, :updated_at, :updated_at, :updated_at)"
+            ),
+            {
+                "ulid": ulid,
+                "status": status,
+                "updated_at": updated_at.replace(tzinfo=None),
+            },
+        )
+
+
+def _remaining_job_ulids(engine: Engine) -> list[str]:
+    with engine.connect() as connection:
+        return list(connection.execute(text("SELECT ulid FROM jobs ORDER BY id")).scalars())
+
+
 def test_auth_cleanup_handler_is_registered() -> None:
     registry._REGISTRY.pop("auth.cleanup", None)
 
@@ -117,7 +159,7 @@ def test_cleanup_removes_only_expired_login_tokens_and_expired_or_consumed_chall
 
     result = _cleanup({"now": "2026-07-17T12:00:00Z"})
 
-    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 3}
+    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 3, "jobs_deleted": 0}
     assert _remaining_ids(cleanup_engine, "api_keys") == [3, 4]
     assert _remaining_ids(cleanup_engine, "auth_challenges") == [4]
 
@@ -133,8 +175,8 @@ def test_cleanup_is_idempotent_when_retried(
     first = _cleanup({"now": NOW.isoformat()})
     second = _cleanup({"now": NOW.isoformat()})
 
-    assert first == {"login_tokens_deleted": 1, "challenges_deleted": 1}
-    assert second == {"login_tokens_deleted": 0, "challenges_deleted": 0}
+    assert first == {"login_tokens_deleted": 1, "challenges_deleted": 1, "jobs_deleted": 0}
+    assert second == {"login_tokens_deleted": 0, "challenges_deleted": 0, "jobs_deleted": 0}
 
 
 def test_cleanup_honors_the_batch_limit_for_each_table(
@@ -149,7 +191,7 @@ def test_cleanup_honors_the_batch_limit_for_each_table(
 
     result = _cleanup({"now": NOW.isoformat()})
 
-    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 2}
+    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 2, "jobs_deleted": 0}
     assert _remaining_ids(cleanup_engine, "api_keys") == [3]
     assert _remaining_ids(cleanup_engine, "auth_challenges") == [3]
 
@@ -169,3 +211,55 @@ def test_cleanup_uses_current_utc_time_when_payload_omits_now(
     result = _cleanup({})
 
     assert result["login_tokens_deleted"] == 1
+
+
+def test_cleanup_purges_only_old_terminal_state_jobs(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    recent = datetime(2026, 7, 30, tzinfo=UTC)
+    _seed_job(cleanup_engine, "OLD_OK", status="succeeded", updated_at=old)
+    _seed_job(cleanup_engine, "OLD_FAIL", status="failed", updated_at=old)
+    _seed_job(cleanup_engine, "OLD_PENDING", status="pending", updated_at=old)
+    _seed_job(cleanup_engine, "OLD_RUNNING", status="running", updated_at=old)
+    _seed_job(cleanup_engine, "NEW_OK", status="succeeded", updated_at=recent)
+
+    result = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert result["jobs_deleted"] == 2
+    assert _remaining_job_ulids(cleanup_engine) == ["OLD_PENDING", "OLD_RUNNING", "NEW_OK"]
+
+
+def test_cleanup_skips_the_job_purge_when_retention_is_disabled(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 0)
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    _seed_job(cleanup_engine, "OLD_OK", status="succeeded", updated_at=old)
+
+    result = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert result["jobs_deleted"] == 0
+    assert _remaining_job_ulids(cleanup_engine) == ["OLD_OK"]
+
+
+def test_cleanup_honors_the_batch_limit_for_the_job_purge(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    for n in range(3):
+        _seed_job(cleanup_engine, f"OLD{n}", status="succeeded", updated_at=old)
+
+    result = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert result["jobs_deleted"] == 2
+    assert _remaining_job_ulids(cleanup_engine) == ["OLD2"]
