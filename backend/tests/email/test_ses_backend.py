@@ -229,8 +229,8 @@ def test_send_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_moc
         "message_id": "ses-message-1",
     }
     rendered = _redact_event_dict(None, "info", {"event": event, **kwargs})
-    assert rendered["subject"] == "Fat...01"
-    assert rendered["to"] == "te...@example.com"
+    assert rendered["subject"] == "Fatu**** 101"
+    assert rendered["to"] == "t****t@example.com"
     assert "Fatura de julho - Apto 101" not in repr(rendered)
     assert "tenant@example.com" not in repr(rendered)
 
@@ -269,5 +269,5 @@ def test_send_raw_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger
         "message_id": "ses-message-2",
     }
     rendered = _redact_event_dict(None, "info", {"event": event, **kwargs})
-    assert rendered["subject"] == "Fat...01"
+    assert rendered["subject"] == "Fatu**** 101"
     assert "Fatura de julho - Apto 101" not in repr(rendered)

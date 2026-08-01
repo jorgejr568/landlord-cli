@@ -24,33 +24,45 @@ from unittest.mock import MagicMock
 import pytest
 
 from rentivo.logging import _redact_event_dict
-from rentivo.pii_redaction import _PII_FIELDS, redact_pii
+from rentivo.pii_redaction import _PII_FIELDS, PIIKind, redact_pii
 from rentivo.services.audit_service import AuditService
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 PLAINTEXT_EMAIL = "alice@example.com"
-MASKED_EMAIL = "al...@example.com"
+MASKED_EMAIL = "a****e@example.com"
 
-# The minimum set every future change must keep. Adding keys is fine; removing
-# one is the regression this guard exists to catch.
-REQUIRED_PII_KEYS = frozenset(
-    {
-        "email",
-        "to",
-        "toemail",
-        "recipientemail",
-        "invitedemail",
-        "invitedbyemail",
-        "subject",
-        "billingname",
-    }
-)
+# The minimum set every future change must keep, together with the mask shape
+# each key must use. Adding keys is fine; removing one — or silently moving a
+# free-text field back onto the PIX key masker — is the regression this guard
+# exists to catch.
+REQUIRED_PII_KINDS: dict[str, PIIKind] = {
+    "actorusername": PIIKind.EMAIL,
+    "email": PIIKind.EMAIL,
+    "invitedbyemail": PIIKind.EMAIL,
+    "invitedemail": PIIKind.EMAIL,
+    "recipientemail": PIIKind.EMAIL,
+    "to": PIIKind.EMAIL,
+    "toemail": PIIKind.EMAIL,
+    "pixkey": PIIKind.PIX,
+    "billingname": PIIKind.TEXT,
+    "pixmerchantcity": PIIKind.TEXT,
+    "pixmerchantname": PIIKind.TEXT,
+    "subject": PIIKind.TEXT,
+}
+REQUIRED_PII_KEYS = frozenset(REQUIRED_PII_KINDS)
 
 
 def test_required_pii_keys_stay_registered() -> None:
     missing = REQUIRED_PII_KEYS - set(_PII_FIELDS)
     assert not missing, "These keys carry KMS-protected PII and must stay in _PII_FIELDS: " + ", ".join(sorted(missing))
+
+
+def test_required_pii_keys_keep_their_mask_shape() -> None:
+    """PIX means "classify the value as a PIX key". Free-text fields must map to
+    TEXT — sending a subject through the PIX masker would be semantically wrong
+    and would change what gets revealed."""
+    assert {key: _PII_FIELDS[key] for key in REQUIRED_PII_KINDS} == REQUIRED_PII_KINDS
 
 
 @pytest.mark.parametrize("field", sorted(REQUIRED_PII_KEYS))
@@ -108,7 +120,7 @@ def test_redact_pii_masks_the_encrypted_billing_name() -> None:
     (services/bill_service.py) and templates substitute it into subjects."""
     masked = redact_pii({"billing_name": "Apto 101 - Maria Silva", "subject": "Fatura de julho - Apto 101"})
 
-    assert masked == {"billing_name": "Apt...va", "subject": "Fat...01"}
+    assert masked == {"billing_name": "Apto****ilva", "subject": "Fatu**** 101"}
 
 
 _BIND_EMAIL_RE = re.compile(r"bind_contextvars\((?:[^()]|\([^()]*\))*?\bemail\s*=", re.DOTALL)

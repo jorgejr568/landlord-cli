@@ -82,7 +82,7 @@ def seeded_audit_db(db_connection):
             "created_at": "2026-04-03 00:00:00",
         },
         {
-            # Already redacted (partial-mask format) — must be skipped.
+            # Already redacted in the current mask shape — must be skipped.
             "uuid": "01HXAUDIT0000000000000000A4",
             "event_type": "billing.update",
             "actor_id": 1,
@@ -91,8 +91,8 @@ def seeded_audit_db(db_connection):
             "entity_type": "billing",
             "entity_id": 2,
             "entity_uuid": "01HXBILLING0000000000000002",
-            "previous_state": json.dumps({"id": 2, "name": "Apt 202", "pix_key": "abc...xy"}),
-            "new_state": json.dumps({"id": 2, "name": "Apt 202 v2", "pix_key": "abc...xy"}),
+            "previous_state": json.dumps({"id": 2, "name": "Apt 202", "pix_key": "123.***.***-01"}),
+            "new_state": json.dumps({"id": 2, "name": "Apt 202 v2", "pix_key": "123.***.***-01"}),
             "metadata": "{}",
             "created_at": "2026-04-04 00:00:00",
         },
@@ -172,9 +172,9 @@ class TestRedactAuditLogs:
 
         # PIX values are partial-mask redacted in-place under their original
         # field names. Hash and presence-boolean forms are gone.
-        assert prev["pix_key"] == "ali...om"  # 'alice@pix.com' (13 chars) → 'ali...om'
-        assert prev["pix_merchant_name"] == "***"  # 'Alice' (5 chars) collapses
-        assert prev["pix_merchant_city"] == "Sao...lo"  # 'Sao Paulo' (9 chars)
+        assert prev["pix_key"] == "a****e@pix.com"  # 'alice@pix.com' classifies as an email PIX key
+        assert prev["pix_merchant_name"] == "****"  # TEXT: 'Alice' is below the 12-char threshold
+        assert prev["pix_merchant_city"] == "****"  # TEXT: 'Sao Paulo' is below the 12-char threshold
         for prefix_key in ("pix_key", "pix_merchant_name", "pix_merchant_city"):
             assert f"{prefix_key}_set" not in prev
             assert f"{prefix_key}_hash" not in prev
@@ -201,16 +201,16 @@ class TestRedactAuditLogs:
         )
 
         state = json.loads(row["new_state"])
-        assert state["pix_key"] == "ali...om"
-        assert state["pix_merchant_name"] == "***"
-        assert state["pix_merchant_city"] == "Sao...lo"
+        assert state["pix_key"] == "a****e@pix.com"
+        assert state["pix_merchant_name"] == "****"
+        assert state["pix_merchant_city"] == "****"
         for prefix_key in ("pix_key", "pix_merchant_name", "pix_merchant_city"):
             assert f"{prefix_key}_set" not in state
             assert f"{prefix_key}_hash" not in state
         # Bare `email` is now backfilled too: audit_logs.new_state is a plain
         # JSON column, so a legacy plaintext address there sits unencrypted
         # beside the KMS-encrypted users.email column.
-        assert state["email"] == "al...@example.com"
+        assert state["email"] == "a****e@example.com"
 
     def test_run_handles_null_states(self, seeded_audit_db):
         """Login events have null previous_state and new_state. Must not crash."""
@@ -249,7 +249,7 @@ class TestRedactAuditLogs:
         # already partial-mask redacted is a byte-for-byte no-op because
         # redact(redacted_value) == redacted_value for typical inputs.
         state = json.loads(row["new_state"])
-        assert state["pix_key"] == "ali...om"
+        assert state["pix_key"] == "a****e@pix.com"
         assert "pix_key_hash" not in state
         assert "pix_key_set" not in state
 
@@ -299,7 +299,7 @@ class TestRedactAuditLogs:
 
         state = json.loads(row["new_state"])
         # to_email is partial-mask redacted in place under its original key.
-        assert state["to_email"] == "al...@example.com"
+        assert state["to_email"] == "a****e@example.com"
         assert "to_email_hash" not in state
 
         # event and ctx_keys_count are preserved unchanged.
@@ -325,7 +325,7 @@ class TestRedactAuditLogs:
             .fetchone()
         )
         state = json.loads(row["new_state"])
-        assert state["pix_key"] == "ali...om"
+        assert state["pix_key"] == "a****e@pix.com"
         assert "pix_key_hash" not in state
         assert "pix_key_set" not in state
 
@@ -369,8 +369,8 @@ class TestRedactAuditLogs:
         result, changed = _redact_state(state)
         assert changed is True
         data = json.loads(result)
-        assert data["invited_email"] == "bo...@example.com"
-        assert data["invited_by_email"] == "al...@example.com"
+        assert data["invited_email"] == "b****b@example.com"
+        assert data["invited_by_email"] == "a****e@example.com"
         assert "organization_name" not in data
         # Non-PII fields are preserved.
         assert data["id"] == 7
@@ -388,8 +388,8 @@ class TestRedactAuditLogs:
             {
                 "id": 7,
                 "organization_id": 3,
-                "invited_email": "bo...@example.com",
-                "invited_by_email": "al...@example.com",
+                "invited_email": "b****b@example.com",
+                "invited_by_email": "a****e@example.com",
                 "status": "pending",
             }
         )
@@ -408,16 +408,34 @@ class TestRedactAuditLogs:
 
         assert changed is True
         data = json.loads(result)
-        assert data["email"] == "al...@example.com"
-        assert data["to"] == "bo...@example.com"
+        assert data["email"] == "a****e@example.com"
+        assert data["to"] == "b****b@example.com"
         assert data["user_id"] == 7
 
     def test_redact_state_bare_email_is_idempotent(self, db_connection):
         from rentivo.scripts.redact_audit_logs import _redact_state
 
-        state = json.dumps({"user_id": 7, "email": "al...@example.com"})
+        state = json.dumps({"user_id": 7, "email": "a****e@example.com"})
 
         result, changed = _redact_state(state)
 
         assert changed is False
         assert result == state
+
+    def test_redact_state_upgrades_a_legacy_mask_once_then_is_stable(self, db_connection):
+        """Rows backfilled with the earlier 'abc...xy' shape carry no asterisk
+        run, so the current backfill re-masks them once. No plaintext is exposed
+        by that pass, and the row is byte-for-byte stable afterwards."""
+        from rentivo.scripts.redact_audit_logs import _redact_state
+
+        legacy = json.dumps({"pix_key": "abc...xy", "email": "al...@example.com"})
+
+        upgraded, changed = _redact_state(legacy)
+        assert changed is True
+        data = json.loads(upgraded)
+        assert data["pix_key"] == "****"
+        assert data["email"] == "a****.@example.com"
+
+        stable, changed_again = _redact_state(upgraded)
+        assert changed_again is False
+        assert stable == upgraded

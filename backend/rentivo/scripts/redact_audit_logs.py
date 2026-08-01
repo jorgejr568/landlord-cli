@@ -7,8 +7,8 @@ Usage:
 Behavior:
 - Walks every ``audit_logs`` row.
 - For each row, parses ``previous_state`` and ``new_state`` JSON (each may be NULL).
-- If the parsed dict contains any of ``pix_key`` / ``pix_merchant_name`` /
-  ``pix_merchant_city`` (PIX mask) or ``to_email`` / ``invited_email`` /
+- If the parsed dict contains ``pix_key`` (PIX mask), ``pix_merchant_name`` /
+  ``pix_merchant_city`` (free-text mask), or ``to_email`` / ``invited_email`` /
   ``invited_by_email`` / ``email`` / ``to`` (email mask) as keys, replaces the
   value in place with a partial-mask redaction (see
   :mod:`rentivo.pii_redaction`).
@@ -16,6 +16,9 @@ Behavior:
   byte-for-byte unchanged on re-run.
 - Writes back the rewritten JSON only if the dict actually changed.
 - Idempotent. Re-running on already-redacted rows is a no-op.
+- Rows carrying the earlier ``abc...xy`` / ``al...@example.com`` mask shape are
+  re-masked once into the current shape and are byte-for-byte stable from then
+  on. No plaintext is exposed by that pass.
 
 Operator note: run this once after deploying the redacted serializers
 (``rentivo/services/audit_serializers.py``). New audit rows written after that
@@ -40,7 +43,8 @@ logger = structlog.get_logger(__name__)
 console = Console()
 
 
-_PII_KEYS = ("pix_key", "pix_merchant_name", "pix_merchant_city")
+_PIX_KEYS = ("pix_key",)
+_TEXT_KEYS = ("pix_merchant_name", "pix_merchant_city")
 _EMAIL_KEYS = ("to_email", "invited_email", "invited_by_email", "email", "to")
 _DROP_KEYS = ("organization_name",)
 
@@ -65,7 +69,7 @@ def _redact_state(state_json: str | None) -> tuple[str | None, bool]:
     # email.send job payloads stored plaintext to_email before this PR.
     # Invite audit rows stored plaintext invited_email / invited_by_email
     # before the redact-serialize-invite change.
-    for keys, kind in ((_PII_KEYS, PIIKind.PIX), (_EMAIL_KEYS, PIIKind.EMAIL)):
+    for keys, kind in ((_PIX_KEYS, PIIKind.PIX), (_TEXT_KEYS, PIIKind.TEXT), (_EMAIL_KEYS, PIIKind.EMAIL)):
         for key in keys:
             if key not in data:
                 continue

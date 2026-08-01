@@ -41,7 +41,7 @@ class TestAuditServiceLog:
         created_log = self.mock_repo.create.call_args[0][0]
         assert created_log.event_type == "billing.create"
         assert created_log.actor_id == 1
-        assert created_log.actor_username == "***"  # "admin" has no '@' → redacted to ***
+        assert created_log.actor_username == "****"  # "admin" has no '@' → falls back to the TEXT mask
         assert created_log.source == "web"
         assert created_log.entity_type == "billing"
         assert created_log.entity_id == 10
@@ -130,7 +130,7 @@ class TestAuditServiceLog:
             new_state={"user_id": 7, "email": "alice@example.com"},
         )
 
-        assert result.new_state == {"user_id": 7, "email": "al...@example.com"}
+        assert result.new_state == {"user_id": 7, "email": "a****e@example.com"}
 
     def test_log_masks_pii_in_previous_state_and_metadata_recursively(self):
         self.mock_repo.create.side_effect = lambda log: log
@@ -142,13 +142,13 @@ class TestAuditServiceLog:
             metadata={"ip": "1.2.3.4", "to": "alice@example.com"},
         )
 
-        assert result.previous_state == {"recipients": [{"recipient_email": "bo...@example.com"}]}
-        assert result.new_state == {"billing_name": "Apt...va"}
-        assert result.metadata == {"ip": "1.2.3.4", "to": "al...@example.com"}
+        assert result.previous_state == {"recipients": [{"recipient_email": "b****b@example.com"}]}
+        assert result.new_state == {"billing_name": "Apto****ilva"}
+        assert result.metadata == {"ip": "1.2.3.4", "to": "a****e@example.com"}
 
     def test_log_masks_an_attacker_supplied_non_email_login_failure_value(self):
         """_audit_login_failure (api/routes/auth.py) passes whatever string was
-        submitted. Non-email input falls back to the PIX mask, not a crash."""
+        submitted. Non-email input falls back to the free-text mask, not a crash."""
         self.mock_repo.create.side_effect = lambda log: log
 
         result = self.service.log(
@@ -157,7 +157,7 @@ class TestAuditServiceLog:
             new_state={"email": "not-an-email"},
         )
 
-        assert result.new_state == {"email": "not...il"}
+        assert result.new_state == {"email": "not-****mail"}
 
 
 class TestAuditServiceSafeLog:
@@ -237,19 +237,19 @@ class TestActorUsernameRedaction:
             actor_id=1,
             actor_username="alice@example.com",
         )
-        assert result.actor_username == "al...@example.com"
+        assert result.actor_username == "a****e@example.com"
 
     def test_log_keeps_empty_actor_username(self):
         result = self.service.log(event_type="user.login", actor_username="")
         assert result.actor_username == ""
 
     def test_log_masks_non_email_username(self):
-        # If a non-email is ever passed, the PIIKind.EMAIL masker collapses it
-        # (no '@' is treated as a "short" value → ***). This is defensive — CLI
-        # source already uses actor_username="" — but verify the masker isn't
-        # leaking the raw value.
+        # If a non-email is ever passed, the PIIKind.EMAIL masker falls back to
+        # the TEXT mask, and "cli" is below its threshold. This is defensive —
+        # CLI source already uses actor_username="" — but verify the masker
+        # isn't leaking the raw value.
         result = self.service.log(event_type="job.scheduled", actor_username="cli")
-        assert result.actor_username == "***"
+        assert result.actor_username == "****"
 
 
 class TestSafeLogFor:
@@ -272,8 +272,8 @@ class TestSafeLogFor:
         assert result is not None
         created_log = self.mock_repo.create.call_args[0][0]
         assert created_log.actor_id == 42
-        # actor_username is post-redaction; "alice@example.com" → "al...@example.com"
-        assert created_log.actor_username == "al...@example.com"
+        # actor_username is post-redaction; "alice@example.com" → "a****e@example.com"
+        assert created_log.actor_username == "a****e@example.com"
         assert created_log.source == "web"
         assert created_log.entity_type == "billing"
         assert created_log.entity_id == 1

@@ -233,8 +233,8 @@ class TestConfigureLogging:
         )
 
         parsed = json.loads(buf.getvalue().strip().splitlines()[-1])
-        assert parsed["to"] == "al...@example.com"
-        assert parsed["billing_name"] == "Apt...va"
+        assert parsed["to"] == "a****e@example.com"
+        assert parsed["billing_name"] == "Apto****ilva"
         # Correlation identifiers are preserved — observability must not regress.
         assert parsed["message_id"] == "ses-message-1"
         assert parsed["user_id"] == 7
@@ -249,9 +249,9 @@ class TestConfigureLogging:
         structlog.contextvars.clear_contextvars()
 
         parsed = json.loads(buf.getvalue().strip().splitlines()[-1])
-        assert parsed["email"] == "al...@example.com"
+        assert parsed["email"] == "a****e@example.com"
         assert parsed["user_id"] == 7
-        assert parsed["payload"] == {"recipients": [{"invited_email": "bo...@example.com"}]}
+        assert parsed["payload"] == {"recipients": [{"invited_email": "b****b@example.com"}]}
 
     @pytest.mark.parametrize("mode_json", [True, False])
     def test_plaintext_email_never_reaches_the_rendered_output(self, mode_json):
@@ -260,14 +260,14 @@ class TestConfigureLogging:
 
         output = buf.getvalue()
         assert "alice@example.com" not in output
-        assert "al...@example.com" in output
+        assert "a****e@example.com" in output
 
     def test_stdlib_foreign_log_masks_pii_in_extra(self):
         buf = _capture(mode_json=True)
         logging.getLogger("foreign").warning("foreign_event", extra={"payload": {"to": "alice@example.com"}})
 
         parsed = json.loads(buf.getvalue().strip().splitlines()[-1])
-        assert parsed["payload"] == {"to": "al...@example.com"}
+        assert parsed["payload"] == {"to": "a****e@example.com"}
 
     def test_cloudwatch_formatter_masks_pii(self):
         """The CloudWatch handler is a second sink governed by CloudWatch IAM,
@@ -291,7 +291,7 @@ class TestConfigureLogging:
 
         output = buf.getvalue()
         assert "alice@example.com" not in output
-        assert "al...@example.com" in output
+        assert "a****e@example.com" in output
 
 
 def _cw_settings(monkeypatch_target, *, stream="", access_key="", secret=""):

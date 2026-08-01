@@ -190,7 +190,7 @@ def test_request_log_context_binds_the_email_and_the_processor_masks_it(
     assert context["email"] == "person@example.com"
     # ... and masked in everything the processor chain hands to a renderer.
     rendered = _redact_event_dict(None, "info", dict(context))
-    assert rendered["email"] == "pe...@example.com"
+    assert rendered["email"] == "p****n@example.com"
     assert "person@example.com" not in repr(rendered)
 
 
