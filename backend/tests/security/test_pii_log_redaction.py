@@ -112,20 +112,40 @@ def test_redact_pii_masks_the_encrypted_billing_name() -> None:
 
 
 _BIND_EMAIL_RE = re.compile(r"bind_contextvars\((?:[^()]|\([^()]*\))*?\bemail\s*=", re.DOTALL)
+_AUTHENTICATION_MODULE = REPO_ROOT / "rentivo" / "api" / "authentication.py"
 
 
-def test_no_plaintext_email_bound_into_request_contextvars() -> None:
-    """structlog contextvars are cleared only at request start/end (api/app.py),
-    so anything bound there rides on every log line of the whole request.
-    user_id is bound alongside and identifies the user without the address."""
-    offenders: list[str] = []
-    for path in (REPO_ROOT / "rentivo").rglob("*.py"):
-        if "__pycache__" in path.parts:
-            continue
-        text = path.read_text(encoding="utf-8")
-        for match in _BIND_EMAIL_RE.finditer(text):
-            lineno = text.count("\n", 0, match.start()) + 1
-            offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
-    assert not offenders, (
-        "email=<plaintext> must not be bound into structlog contextvars — bind user_id instead\n" + "\n".join(offenders)
+def test_email_bound_into_request_contextvars_stays_registered_for_masking() -> None:
+    """``get_optional_principal`` deliberately binds the plaintext email into
+    the request's structlog contextvars: contextvars are cleared only at request
+    start/end (api/app.py), so the value rides on every log line of the request,
+    and the masked form is exactly the per-line triage signal we want.
+
+    That is only safe while ``email`` is registered in ``_PII_FIELDS`` — the
+    processor chain is what turns it into a mask before any renderer runs. If
+    the binding survives but the registration is dropped, every log line of
+    every authenticated request leaks a KMS-protected value. This guard pins
+    both halves of that contract together."""
+    source = _AUTHENTICATION_MODULE.read_text(encoding="utf-8")
+    assert _BIND_EMAIL_RE.search(source), (
+        "api/authentication.py must keep binding email into structlog contextvars — "
+        "the masked address is the request-scoped triage signal."
     )
+    assert "email" in _PII_FIELDS, (
+        "email is bound into request contextvars; dropping it from _PII_FIELDS would "
+        "render it in plaintext on every log line of every authenticated request."
+    )
+
+
+def test_bound_request_context_renders_masked_not_plaintext() -> None:
+    """End-to-end counterpart to the static guard above: whatever the request
+    binds, the event dict that reaches a renderer never carries the address."""
+    rendered = _redact_event_dict(
+        None,
+        "info",
+        {"event": "request_finished", "user_id": 7, "email": PLAINTEXT_EMAIL},
+    )
+
+    assert rendered["email"] == MASKED_EMAIL
+    assert PLAINTEXT_EMAIL not in repr(rendered)
+    assert rendered["user_id"] == 7

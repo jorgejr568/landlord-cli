@@ -14,6 +14,7 @@ from rentivo.api.authentication import ACCESS_COOKIE_NAME, get_optional_principa
 from rentivo.api.csrf import CSRF_COOKIE_NAME
 from rentivo.api.dependencies import get_services
 from rentivo.api.principal import Principal
+from rentivo.logging import _redact_event_dict
 from rentivo.models.api_key import APIKey
 from rentivo.models.user import User
 
@@ -167,12 +168,14 @@ def _cookie_header(secret: str, *, csrf: str | None = None) -> str:
     return "; ".join(values)
 
 
-def test_request_log_context_carries_user_id_but_never_the_plaintext_email(
+def test_request_log_context_binds_the_email_and_the_processor_masks_it(
     api_client: TestClient,
 ) -> None:
-    """users.email is KMS-encrypted at rest. Binding it into contextvars put it
-    on every log line of the whole request (api/app.py clears contextvars only
-    at request start/end), in a stream governed by different IAM."""
+    """users.email is KMS-encrypted at rest, so its plaintext must never be
+    *rendered*. It is bound into contextvars on purpose — the masked address
+    identifies the account and its provider on every log line of the request —
+    and logging._redact_event_dict masks it before any renderer or exporter
+    runs. The raw value never leaves this process's memory."""
     response = api_client.get(
         "/api/v1/test/log-context",
         headers={"Cookie": _cookie_header(LOGIN_SECRET)},
@@ -183,8 +186,12 @@ def test_request_log_context_carries_user_id_but_never_the_plaintext_email(
     assert context["user_id"] == 7
     assert context["actor_source"] == "web"
     assert context["api_key_class"] == "login"
-    assert "email" not in context
-    assert "person@example.com" not in repr(context)
+    # Raw in this process's contextvars ...
+    assert context["email"] == "person@example.com"
+    # ... and masked in everything the processor chain hands to a renderer.
+    rendered = _redact_event_dict(None, "info", dict(context))
+    assert rendered["email"] == "pe...@example.com"
+    assert "person@example.com" not in repr(rendered)
 
 
 def test_multipart_form_authentication_reuses_the_parsed_form(api_client: TestClient) -> None:
