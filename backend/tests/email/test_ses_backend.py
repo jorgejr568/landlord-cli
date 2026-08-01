@@ -190,3 +190,65 @@ def test_send_passes_endpoint_url_when_provided(boto3_mock):
         endpoint_url="http://localstack:4566",
     )
     assert boto3_mock.client.call_args.kwargs["endpoint_url"] == "http://localstack:4566"
+
+
+@patch("rentivo.email.ses.logger")
+@patch("rentivo.email.ses.boto3")
+def test_send_logs_message_id_without_the_subject(boto3_mock, logger_mock):
+    """The subject is template-substituted and carries the tenant name and the
+    encrypted billing name (see services/audit_serializers.serialize_communication).
+    message_id is the identifier that actually traces a message in SES."""
+    client = MagicMock()
+    client.send_email.return_value = {"MessageId": "ses-message-1"}
+    boto3_mock.client.return_value = client
+
+    backend = SESEmailBackend(
+        region="us-east-1",
+        access_key_id="k",
+        secret_access_key="s",
+        from_address="noreply@rentivo.com.br",
+    )
+    backend.send(
+        EmailMessage(
+            to="tenant@example.com",
+            subject="Fatura de julho - Apto 101",
+            text_body="t",
+            html_body="<p>t</p>",
+            from_address="noreply@rentivo.com.br",
+        )
+    )
+
+    event, kwargs = logger_mock.info.call_args.args[0], logger_mock.info.call_args.kwargs
+    assert event == "email_ses_sent"
+    assert kwargs == {"to": "tenant@example.com", "message_id": "ses-message-1"}
+    assert "subject" not in kwargs
+
+
+@patch("rentivo.email.ses.logger")
+@patch("rentivo.email.ses.boto3")
+def test_send_raw_logs_message_id_without_the_subject(boto3_mock, logger_mock):
+    client = MagicMock()
+    client.send_raw_email.return_value = {"MessageId": "ses-message-2"}
+    boto3_mock.client.return_value = client
+
+    backend = SESEmailBackend(
+        region="us-east-1",
+        access_key_id="k",
+        secret_access_key="s",
+        from_address="noreply@rentivo.com.br",
+    )
+    backend.send(
+        EmailMessage(
+            to="tenant@example.com",
+            subject="Fatura de julho - Apto 101",
+            text_body="t",
+            html_body="<p>t</p>",
+            from_address="noreply@rentivo.com.br",
+            attachments=(EmailAttachment(filename="fatura.pdf", content=b"%PDF-", content_type="application/pdf"),),
+        )
+    )
+
+    event, kwargs = logger_mock.info.call_args.args[0], logger_mock.info.call_args.kwargs
+    assert event == "email_ses_sent_raw"
+    assert kwargs == {"to": "tenant@example.com", "message_id": "ses-message-2"}
+    assert "subject" not in kwargs

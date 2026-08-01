@@ -52,7 +52,9 @@ class SESEmailBackend(EmailBackend):
                 raw_kwargs["ConfigurationSetName"] = self.configuration_set
             response = self.client.send_raw_email(**raw_kwargs)
             message_id = response.get("MessageId", "")
-            logger.info("email_ses_sent_raw", to=message.to, subject=message.subject, message_id=message_id)
+            # The subject is template-substituted and carries the tenant name and
+            # the encrypted billing name; message_id is the traceable identifier.
+            logger.info("email_ses_sent_raw", to=message.to, message_id=message_id)
             return message_id
 
         kwargs = {
@@ -72,5 +74,5 @@ class SESEmailBackend(EmailBackend):
             kwargs["ReplyToAddresses"] = list(message.reply_to)
         response = self.client.send_email(**kwargs)
         message_id = response.get("MessageId", "")
-        logger.info("email_ses_sent", to=message.to, subject=message.subject, message_id=message_id)
+        logger.info("email_ses_sent", to=message.to, message_id=message_id)
         return message_id

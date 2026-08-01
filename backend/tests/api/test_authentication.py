@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Annotated, Any
 
 import pytest
+import structlog
 from fastapi import Depends, Form, Request
 from fastapi.testclient import TestClient
 
@@ -120,6 +121,12 @@ def api_client(services: Any) -> TestClient:
     ) -> dict[str, int | None]:
         return {"user_id": None if principal is None else principal.user.id}
 
+    @app.get("/api/v1/test/log-context")
+    async def log_context_endpoint(
+        principal: Principal = Depends(get_principal),
+    ) -> dict[str, object]:
+        return dict(structlog.contextvars.get_contextvars())
+
     @app.post("/api/v1/test/principal")
     async def principal_body_endpoint(
         payload: dict[str, str],
@@ -158,6 +165,26 @@ def _cookie_header(secret: str, *, csrf: str | None = None) -> str:
     if csrf is not None:
         values.append(f"{CSRF_COOKIE_NAME}={csrf}")
     return "; ".join(values)
+
+
+def test_request_log_context_carries_user_id_but_never_the_plaintext_email(
+    api_client: TestClient,
+) -> None:
+    """users.email is KMS-encrypted at rest. Binding it into contextvars put it
+    on every log line of the whole request (api/app.py clears contextvars only
+    at request start/end), in a stream governed by different IAM."""
+    response = api_client.get(
+        "/api/v1/test/log-context",
+        headers={"Cookie": _cookie_header(LOGIN_SECRET)},
+    )
+
+    assert response.status_code == 200
+    context = response.json()
+    assert context["user_id"] == 7
+    assert context["actor_source"] == "web"
+    assert context["api_key_class"] == "login"
+    assert "email" not in context
+    assert "person@example.com" not in repr(context)
 
 
 def test_multipart_form_authentication_reuses_the_parsed_form(api_client: TestClient) -> None:

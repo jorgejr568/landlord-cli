@@ -150,9 +150,12 @@ async def get_optional_principal(
     request.state.principal = principal
     request.state.actor = principal.actor
     request.state.auth_transport = "cookie" if cookie_credential is not None else "bearer"
+    # user_id identifies the user for every downstream log line. The plaintext
+    # email is deliberately NOT bound: contextvars are cleared only at request
+    # start/end (api/app.py), so binding it here stamped a KMS-encrypted value
+    # onto every log line of the whole request.
     structlog.contextvars.bind_contextvars(
         user_id=user.id,
-        email=user.email,
         actor_source=source,
         api_key_uuid=key.uuid,
         api_key_class="login" if key.is_login_token else "integration",
