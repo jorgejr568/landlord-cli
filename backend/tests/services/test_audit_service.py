@@ -118,6 +118,47 @@ class TestAuditServiceLog:
         assert created_log.new_state is None
         assert created_log.metadata == {}
 
+    def test_log_masks_plaintext_email_in_new_state(self):
+        """BE-1: audit_logs.new_state is a plain JSON column with no
+        EncryptedType wrapper, while users.email is KMS-encrypted at rest."""
+        self.mock_repo.create.side_effect = lambda log: log
+
+        result = self.service.log(
+            "user.login",
+            entity_type="user",
+            entity_id=7,
+            new_state={"user_id": 7, "email": "alice@example.com"},
+        )
+
+        assert result.new_state == {"user_id": 7, "email": "al...@example.com"}
+
+    def test_log_masks_pii_in_previous_state_and_metadata_recursively(self):
+        self.mock_repo.create.side_effect = lambda log: log
+
+        result = self.service.log(
+            "communication.sent",
+            previous_state={"recipients": [{"recipient_email": "bob@example.com"}]},
+            new_state={"billing_name": "Apto 101 - Maria Silva"},
+            metadata={"ip": "1.2.3.4", "to": "alice@example.com"},
+        )
+
+        assert result.previous_state == {"recipients": [{"recipient_email": "bo...@example.com"}]}
+        assert result.new_state == {"billing_name": "Apt...va"}
+        assert result.metadata == {"ip": "1.2.3.4", "to": "al...@example.com"}
+
+    def test_log_masks_an_attacker_supplied_non_email_login_failure_value(self):
+        """_audit_login_failure (api/routes/auth.py) passes whatever string was
+        submitted. Non-email input falls back to the PIX mask, not a crash."""
+        self.mock_repo.create.side_effect = lambda log: log
+
+        result = self.service.log(
+            "user.login_failed",
+            entity_type="user",
+            new_state={"email": "not-an-email"},
+        )
+
+        assert result.new_state == {"email": "not...il"}
+
 
 class TestAuditServiceSafeLog:
     def setup_method(self):
