@@ -20,30 +20,19 @@ RUN apk upgrade --no-cache
 
 COPY --from=builder --chown=101:101 /app/dist /usr/share/nginx/html
 
-# Serve Vite assets directly and return index.html for client-side routes.
-RUN printf '%s\n' \
-    'server {' \
-    '    listen 8080 default_server;' \
-    '    listen [::]:8080 default_server;' \
-    '    server_name _;' \
-    '    root /usr/share/nginx/html;' \
-    '    index index.html;' \
-    '' \
-    '    location /assets/ {' \
-    '        try_files $uri =404;' \
-    '        expires 1y;' \
-    '        add_header Cache-Control "public, immutable";' \
-    '    }' \
-    '' \
-    '    location = /index.html {' \
-    '        add_header Cache-Control "no-store";' \
-    '    }' \
-    '' \
-    '    location / {' \
-    '        try_files $uri $uri/ /index.html;' \
-    '    }' \
-    '}' \
-    > /etc/nginx/conf.d/default.conf
+# The server block and its security-header snippet live in the repository so
+# the Content-Security-Policy is reviewable as nginx source instead of an
+# escaped printf string. nginx -t fails the build on a malformed policy.
+COPY frontend/nginx/security-headers.conf /etc/nginx/rentivo-security-headers.conf
+COPY frontend/nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# nginx -t runs as root (this RUN executes before "USER 101" below) and, as a
+# side effect, creates /tmp/nginx.pid owned by root:root with mode 644. If
+# that file were left in the image layer, the unprivileged nginx user could
+# never open it for writing at startup and the container would fail to boot
+# entirely. Clear /tmp so nginx creates its runtime pid file and temp
+# directories fresh, owned by the user that actually runs the process.
+RUN nginx -t && rm -rf /tmp/*
 
 USER 101
 
