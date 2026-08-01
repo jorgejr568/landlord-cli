@@ -4,7 +4,7 @@ import structlog
 
 from rentivo.models.audit_log import AuditLog
 from rentivo.observability import traced
-from rentivo.pii_redaction import PIIKind, redact
+from rentivo.pii_redaction import PIIKind, redact, redact_pii
 from rentivo.repositories.base import AuditLogRepository
 
 logger = structlog.get_logger(__name__)
@@ -34,6 +34,13 @@ class AuditService:
         ``actor_username`` is partial-mask redacted (``PIIKind.EMAIL``) before
         persistence and before structlog emission so plaintext emails never
         land in audit_logs or stdout.
+
+        ``previous_state`` / ``new_state`` / ``metadata`` go through
+        ``redact_pii``: audit_logs stores them via ``json.dumps`` into plain
+        JSON columns with no ``EncryptedType`` wrapper, so any PII value they
+        carry would sit unencrypted next to KMS-encrypted columns. Masking here
+        rather than at each caller means a new ``new_state={"email": ...}``
+        cannot reintroduce the leak.
         """
         safe_actor = redact(actor_username or "", PIIKind.EMAIL)
         audit_log = AuditLog(
@@ -44,9 +51,9 @@ class AuditService:
             entity_type=entity_type,
             entity_id=entity_id,
             entity_uuid=entity_uuid,
-            previous_state=redact(previous_state) if previous_state is not None else None,
-            new_state=redact(new_state) if new_state is not None else None,
-            metadata=redact(metadata or {}),
+            previous_state=redact_pii(previous_state) if previous_state is not None else None,
+            new_state=redact_pii(new_state) if new_state is not None else None,
+            metadata=redact_pii(metadata or {}),
         )
         result = self.repo.create(audit_log)
         logger.info(

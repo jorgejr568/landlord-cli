@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from rentivo.email.base import EmailAttachment, EmailMessage
 from rentivo.email.ses import SESEmailBackend
+from rentivo.logging import _redact_event_dict
 
 
 @patch("rentivo.email.ses.boto3")
@@ -190,3 +191,83 @@ def test_send_passes_endpoint_url_when_provided(boto3_mock):
         endpoint_url="http://localstack:4566",
     )
     assert boto3_mock.client.call_args.kwargs["endpoint_url"] == "http://localstack:4566"
+
+
+@patch("rentivo.email.ses.logger")
+@patch("rentivo.email.ses.boto3")
+def test_send_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_mock):
+    """The subject is template-substituted and carries the tenant name and the
+    encrypted billing name, so its plaintext must never reach a renderer. It is
+    logged on purpose — the masked form still says which billing cycle a message
+    belongs to — and ``subject`` is registered in ``_PII_FIELDS``, so
+    ``logging._redact_event_dict`` masks it before stdout or CloudWatch see it."""
+    client = MagicMock()
+    client.send_email.return_value = {"MessageId": "ses-message-1"}
+    boto3_mock.client.return_value = client
+
+    backend = SESEmailBackend(
+        region="us-east-1",
+        access_key_id="k",
+        secret_access_key="s",
+        from_address="noreply@rentivo.com.br",
+    )
+    backend.send(
+        EmailMessage(
+            to="tenant@example.com",
+            subject="Fatura de julho - Apto 101",
+            text_body="t",
+            html_body="<p>t</p>",
+            from_address="noreply@rentivo.com.br",
+        )
+    )
+
+    event, kwargs = logger_mock.info.call_args.args[0], logger_mock.info.call_args.kwargs
+    assert event == "email_ses_sent"
+    assert kwargs == {
+        "to": "tenant@example.com",
+        "subject": "Fatura de julho - Apto 101",
+        "message_id": "ses-message-1",
+    }
+    rendered = _redact_event_dict(None, "info", {"event": event, **kwargs})
+    assert rendered["subject"] == "Fatu**** 101"
+    assert rendered["to"] == "t****t@example.com"
+    assert "Fatura de julho - Apto 101" not in repr(rendered)
+    assert "tenant@example.com" not in repr(rendered)
+
+
+@patch("rentivo.email.ses.logger")
+@patch("rentivo.email.ses.boto3")
+def test_send_raw_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_mock):
+    """Same contract as the non-attachment path: the subject is logged and the
+    processor chain is what keeps its plaintext out of every sink."""
+    client = MagicMock()
+    client.send_raw_email.return_value = {"MessageId": "ses-message-2"}
+    boto3_mock.client.return_value = client
+
+    backend = SESEmailBackend(
+        region="us-east-1",
+        access_key_id="k",
+        secret_access_key="s",
+        from_address="noreply@rentivo.com.br",
+    )
+    backend.send(
+        EmailMessage(
+            to="tenant@example.com",
+            subject="Fatura de julho - Apto 101",
+            text_body="t",
+            html_body="<p>t</p>",
+            from_address="noreply@rentivo.com.br",
+            attachments=(EmailAttachment(filename="fatura.pdf", content=b"%PDF-", content_type="application/pdf"),),
+        )
+    )
+
+    event, kwargs = logger_mock.info.call_args.args[0], logger_mock.info.call_args.kwargs
+    assert event == "email_ses_sent_raw"
+    assert kwargs == {
+        "to": "tenant@example.com",
+        "subject": "Fatura de julho - Apto 101",
+        "message_id": "ses-message-2",
+    }
+    rendered = _redact_event_dict(None, "info", {"event": event, **kwargs})
+    assert rendered["subject"] == "Fatu**** 101"
+    assert "Fatura de julho - Apto 101" not in repr(rendered)

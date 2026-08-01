@@ -55,10 +55,8 @@ class TestSerializeBilling:
         assert result["uuid"] == "abc123"
         assert result["name"] == "Apt 101"
         assert result["description"] == "Monthly"
-        # PIX redaction: short non-empty values collapse to '***'.
-        # The Billing in this test has pix_key="pix@test.com" (12 chars) and
-        # empty merchant fields.
-        assert result["pix_key"] == "pix...om"  # 'pix@test.com' → first 3 + ... + last 2
+        # 'pix@test.com' classifies as an email PIX key.
+        assert result["pix_key"] == "p****x@test.com"
         assert result["pix_merchant_name"] == ""  # empty → empty
         assert result["pix_merchant_city"] == ""
         assert result["owner_type"] == "user"
@@ -145,7 +143,7 @@ class TestSerializeUser:
         result = serialize_user(user)
 
         assert result["id"] == 1
-        assert result["email"] == "ad...@test.com"  # email is redacted
+        assert result["email"] == "a****n@test.com"  # email is redacted
         assert result["created_at"] == now.isoformat()
         assert "password_hash" not in result
         assert "username" not in result
@@ -165,10 +163,10 @@ class TestSerializeUser:
         )
         result = serialize_user(user)
 
-        # All PIX fields use the PIX mask (first 3 + '...' + last 2).
-        assert result["pix_key"] == "ali...om"  # 'alice@pix.com' (13 chars)
-        assert result["pix_merchant_name"] == "Ali...va"  # 'Alice da Silva' (14 chars)
-        assert result["pix_merchant_city"] == "Sao...lo"  # 'Sao Paulo' (9 chars)
+        # pix_key gets the type-aware PIX mask; merchant name/city are free text.
+        assert result["pix_key"] == "a****e@pix.com"  # classifies as an email PIX key
+        assert result["pix_merchant_name"] == "Alic****ilva"  # TEXT: first 4 + **** + last 4
+        assert result["pix_merchant_city"] == "****"  # TEXT: 9 chars, below the 12-char threshold
 
         # Plaintext, *_set, and *_hash forms are all gone.
         for prefix_key in ("pix_key", "pix_merchant_name", "pix_merchant_city"):
@@ -184,10 +182,10 @@ class TestSerializeUser:
         assert result["pix_merchant_city"] == ""
 
     def test_pix_short_value_collapses_to_stars(self):
-        # Less than 6 chars can't be partial-masked without exposing the value.
+        # 'Eve' does not classify as a PIX key and is below the TEXT threshold.
         user = User(email="x@x", password_hash="x", pix_key="Eve")  # 3 chars
         result = serialize_user(user)
-        assert result["pix_key"] == "***"
+        assert result["pix_key"] == "****"
 
     def test_pix_redaction_is_deterministic(self):
         """Same plaintext → same redacted form. Identity follows from the
@@ -196,7 +194,7 @@ class TestSerializeUser:
         b = serialize_user(User(email="b@x", password_hash="x", pix_key="alice@pix.com"))
         c = serialize_user(User(email="c@x", password_hash="x", pix_key="bob@pix.com"))
 
-        assert a["pix_key"] == b["pix_key"] == "ali...om"
+        assert a["pix_key"] == b["pix_key"] == "a****e@pix.com"
         assert a["pix_key"] != c["pix_key"]
 
     def test_email_redacted_to_partial_mask(self):
@@ -209,8 +207,8 @@ class TestSerializeUser:
             pix_merchant_city="",
         )
         result = serialize_user(user)
-        # Partial-mask: first 2 chars of local + ...@ + full domain.
-        assert result["email"] == "al...@example.com"
+        # EMAIL mask: first + **** + last char of the local part, full domain.
+        assert result["email"] == "a****e@example.com"
         # password_hash must NEVER appear.
         assert "password_hash" not in result
 
@@ -220,14 +218,14 @@ class TestSerializeUser:
         b = serialize_user(User(email="bob@example.com", password_hash="x"))
         c = serialize_user(User(email="alice@example.com", password_hash="y"))
 
-        assert a["email"] == c["email"] == "al...@example.com"
+        assert a["email"] == c["email"] == "a****e@example.com"
         assert a["email"] != b["email"]
 
     def test_email_short_local_collapses_to_stars(self):
         # Email with 1-char local part can't be partial-masked.
         user = User(email="a@example.com", password_hash="x")
         result = serialize_user(user)
-        assert result["email"] == "***@example.com"
+        assert result["email"] == "****@example.com"
 
     def test_email_empty_serializes_to_empty(self):
         """Empty email round-trips as empty — redact() returns "" on empty input."""
@@ -291,9 +289,9 @@ class TestSerializeOrganization:
         )
         result = serialize_organization(org)
 
-        assert result["pix_key"] == "123...90"
-        assert result["pix_merchant_name"] == "Acm...ia"
-        assert result["pix_merchant_city"] == "Sao...lo"
+        assert result["pix_key"] == "12.3**.***/****-90"
+        assert result["pix_merchant_name"] == "Acme****aria"
+        assert result["pix_merchant_city"] == "****"
 
 
 class TestSerializeInvite:
@@ -323,10 +321,10 @@ class TestSerializeInvite:
         # dedicated organization audit events via serialize_organization.
         assert "organization_name" not in result
         assert result["invited_user_id"] == 5
-        # first 2 chars of local + ...@ + full domain
-        assert result["invited_email"] == "bo...@example.com"
+        # EMAIL mask: first + **** + last char of the local part, full domain
+        assert result["invited_email"] == "b****b@example.com"
         assert result["invited_by_user_id"] == 1
-        assert result["invited_by_email"] == "al...@example.com"
+        assert result["invited_by_email"] == "a****e@example.com"
         assert result["role"] == "viewer"
         assert result["status"] == "pending"
         assert result["created_at"] == now.isoformat()
@@ -346,7 +344,7 @@ class TestSerializeInvite:
 
     def test_invite_short_local_collapses_and_empty_stays_empty(self):
         """Edge-case email values go through the same partial-mask rules
-        as ``serialize_user``: 1-char local-parts collapse to ``***@<domain>``
+        as ``serialize_user``: 1-char local-parts collapse to ``****@<domain>``
         and empty values round-trip as ``""``.
         """
         invite = Invite(
@@ -359,9 +357,9 @@ class TestSerializeInvite:
         result = serialize_invite(invite)
         # Empty email → "" (redact returns "" on empty input).
         assert result["invited_by_email"] == ""
-        # Short local-part collapses to "***@<domain>" — see
+        # A local part of two chars or fewer collapses to "****@<domain>" — see
         # rentivo.pii_redaction._mask_email.
-        assert result["invited_email"] == "***@b.co"
+        assert result["invited_email"] == "****@b.co"
         # And in no case do we leak the plaintext local-part.
         assert "a@b.co" not in result["invited_email"]
 
@@ -385,7 +383,7 @@ class TestSerializeInvite:
                 invited_by_email="dan@example.com",
             )
         )
-        assert a["invited_email"] == b["invited_email"] == "al...@example.com"
+        assert a["invited_email"] == b["invited_email"] == "a****e@example.com"
         assert a["invited_by_email"] != b["invited_by_email"]
 
 
@@ -401,7 +399,7 @@ class TestSerializeJobPayload:
         )
 
         assert result["event"] == "welcome"
-        assert result["to_email"] == "al...@example.com"  # first 2 + ...@ + domain
+        assert result["to_email"] == "a****e@example.com"  # first + **** + last of the local part + domain
         assert result["ctx_keys_count"] == 2
         assert "ctx" not in result
         assert "pix_setup_url" not in result
@@ -414,7 +412,7 @@ class TestSerializeJobPayload:
         )
         c = serialize_job_payload({"job_type": "email.send", "event": "welcome", "to_email": "bob@example.com"})
 
-        assert a["to_email"] == b["to_email"] == "al...@example.com"
+        assert a["to_email"] == b["to_email"] == "a****e@example.com"
         assert a["to_email"] != c["to_email"]
 
     def test_email_send_empty_to_email_yields_empty_string(self):

@@ -17,7 +17,7 @@ import structlog
 from structlog.stdlib import ProcessorFormatter
 
 from rentivo.observability import current_trace_ids
-from rentivo.pii_redaction import redact
+from rentivo.pii_redaction import redact_pii
 from rentivo.settings import settings
 
 
@@ -33,8 +33,17 @@ def _add_trace_context(logger, method_name, event_dict):
 
 
 def _redact_event_dict(logger, method_name, event_dict):
-    """Remove credential material before any renderer or exporter sees it."""
-    return redact(event_dict)
+    """Blank credential material and partially mask PII before any renderer or
+    exporter sees the event.
+
+    Both sinks live outside the KMS boundary that protects ``users.email`` and
+    ``billings.name`` at rest: stdout is readable by anyone with container or
+    host access, and the CloudWatch log group is governed by CloudWatch IAM
+    (and, per ``_cloudwatch_handler``, a separate AWS credential pair) rather
+    than by the KMS key policy. Masking here rather than at each call site
+    means a future ``logger.info(..., email=...)`` cannot reintroduce the leak.
+    """
+    return redact_pii(event_dict)
 
 
 def _shared_processors(json_output: bool) -> list:

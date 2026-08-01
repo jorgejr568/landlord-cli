@@ -150,6 +150,12 @@ async def get_optional_principal(
     request.state.principal = principal
     request.state.actor = principal.actor
     request.state.auth_transport = "cookie" if cookie_credential is not None else "bearer"
+    # user_id is the primary correlator. The email rides along because its
+    # masked form still tells an operator which account — and which mail
+    # provider — a request belongs to, which user_id alone does not.
+    # logging._redact_event_dict masks it before any renderer or exporter sees
+    # the event, so the plaintext never leaves this process; contextvars are
+    # cleared at request start/end in api/app.py.
     structlog.contextvars.bind_contextvars(
         user_id=user.id,
         email=user.email,
