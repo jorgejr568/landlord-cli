@@ -73,6 +73,14 @@ redact-audit-logs:
 redact-audit-logs-dry:
 	$(PYTHON) -m rentivo.scripts.redact_audit_logs --dry-run
 
+.PHONY: encrypt-job-payloads
+encrypt-job-payloads:
+	$(PYTHON) -m rentivo.scripts.encrypt_job_payloads
+
+.PHONY: encrypt-job-payloads-dry
+encrypt-job-payloads-dry:
+	$(PYTHON) -m rentivo.scripts.encrypt_job_payloads --dry-run
+
 .PHONY: seed
 seed:
 	$(PYTHON) -m rentivo.scripts.seed
