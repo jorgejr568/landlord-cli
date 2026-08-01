@@ -849,13 +849,17 @@ async def download_attachment(
     access = resolve_billing_access(principal, services, billing_uuid)
     attachment = _billing_attachment(access=access, services=services, attachment_uuid=attachment_uuid)
     reference = services.billing_attachment.get_attachment_ref(attachment)
+    response: Response
     if reference.kind == "local":
-        return FileResponse(
+        response = FileResponse(
             reference.location,
             media_type=attachment.content_type,
             filename=attachment.filename,
         )
-    return RedirectResponse(reference.location, status_code=302)
+    else:
+        response = RedirectResponse(reference.location, status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.delete("/{billing_uuid}/attachments/{attachment_uuid}", status_code=204)

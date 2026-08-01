@@ -1039,6 +1039,7 @@ def test_invoice_download_resolves_remote_and_local_files_through_storage(api: B
     remote = api.client.get(f"{_detail_url()}/invoice", headers=BEARER_HEADERS, follow_redirects=False)
     assert remote.status_code == 302
     assert remote.headers["location"] == "https://files.example/invoice.pdf"
+    assert remote.headers["cache-control"] == "no-store"
     api.services.bill.get_invoice_ref.assert_called_once_with(BILL)
 
     invoice = tmp_path / "invoice.pdf"
@@ -1048,6 +1049,7 @@ def test_invoice_download_resolves_remote_and_local_files_through_storage(api: B
     assert local.status_code == 200
     assert local.content == b"%PDF-local"
     assert local.headers["content-type"].startswith("application/pdf")
+    assert local.headers["cache-control"] == "no-store"
     assert "private/invoice.pdf" not in local.headers.get("content-disposition", "")
 
 
@@ -1107,6 +1109,7 @@ def test_recibo_download_handshake_returns_remote_url_and_audits_once(api: Bills
         "download_url": "https://files.example/recibo.pdf",
         "filename": f"recibo-{BILL.uuid}.pdf",
     }
+    assert response.headers["cache-control"] == "no-store"
     api.services.bill.get_recibo_ref.assert_called_once_with(paid)
     assert api.services.audit.safe_log_for.call_count == 1
     assert api.services.audit.safe_log_for.call_args.args[1] == AuditEventType.BILL_RECIBO_DOWNLOAD
@@ -1133,6 +1136,7 @@ def test_recibo_download_handshake_local_content_route_audits_once_end_to_end(
         "download_url": f"http://testserver{_detail_url()}/recibo/content",
         "filename": f"recibo-{BILL.uuid}.pdf",
     }
+    assert response.headers["cache-control"] == "no-store"
     assert str(local_file) not in response.text
     api.services.audit.safe_log_for.assert_not_called()
     assert _analytics_headers(response) == {
@@ -1142,6 +1146,7 @@ def test_recibo_download_handshake_local_content_route_audits_once_end_to_end(
     content = api.client.get(response.json()["download_url"], headers=BEARER_HEADERS)
     assert content.status_code == 200
     assert content.content == b"%PDF-local"
+    assert content.headers["cache-control"] == "no-store"
     assert content.headers["content-disposition"] == f'attachment; filename="recibo-{BILL.uuid}.pdf"'
     assert _analytics_headers(content) == {}
     assert api.services.audit.safe_log_for.call_count == 1
@@ -1159,6 +1164,7 @@ def test_recibo_content_route_audits_direct_url_storage_redirect(api: BillsAPI) 
 
     assert response.status_code == 302
     assert response.headers["location"] == "https://files.example/recibo.pdf"
+    assert response.headers["cache-control"] == "no-store"
     assert api.services.audit.safe_log_for.call_count == 1
     assert api.services.audit.safe_log_for.call_args.args[1] == AuditEventType.BILL_RECIBO_DOWNLOAD
     assert _analytics_headers(response) == {}
