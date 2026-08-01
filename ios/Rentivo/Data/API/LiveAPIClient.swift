@@ -160,6 +160,7 @@ actor LiveAPIClient {
   func logout() async {
     accessToken = nil
     try? await credentials.deleteAccessToken()
+    purgeLocalArtifacts()
   }
 
   /// Clears the in-memory token and the persisted credential, then notifies
@@ -167,7 +168,17 @@ actor LiveAPIClient {
   private func invalidateSession() async {
     accessToken = nil
     try? await credentials.deleteAccessToken()
+    purgeLocalArtifacts()
     NotificationCenter.default.post(name: .liveAPIClientSessionExpired, object: nil)
+  }
+
+  /// Drops what an authenticated session leaves behind on disk: documents the user downloaded
+  /// through the share sheet, and any response an earlier build stored in `URLCache.shared`.
+  /// `makeSession()` no longer uses that cache, but a build shipped before it stopped may have
+  /// written to it and nothing else would ever clear it.
+  private func purgeLocalArtifacts() {
+    URLCache.shared.removeAllCachedResponses()
+    downloads.purge()
   }
 
   func download(path: String, filename: String, mediaType: String = "application/pdf") async throws -> DownloadedFile {
