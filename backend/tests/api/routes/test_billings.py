@@ -1542,6 +1542,7 @@ def test_attachment_download_checks_parent_before_storage_resolution(billing_har
     assert local.status_code == 200
     assert local.content == b"%PDF-test"
     assert local.headers["content-type"] == "application/pdf"
+    assert local.headers["cache-control"] == "no-store"
 
 
 def test_attachment_download_redirects_url_refs(billing_harness: BillingHarness) -> None:
@@ -1557,6 +1558,7 @@ def test_attachment_download_redirects_url_refs(billing_harness: BillingHarness)
 
     assert response.status_code == 302
     assert response.headers["location"] == "https://storage.example.test/attachment"
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_attachment_delete_is_parent_scoped_and_enqueues_cleanup(billing_harness: BillingHarness) -> None:

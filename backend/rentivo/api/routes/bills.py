@@ -334,9 +334,13 @@ def _receipt_for_bill(access: BillAccess, services: RequestServices, receipt_uui
 
 
 def _file_response(ref: FileRef, *, content_type: str, filename: str) -> Response:
+    response: Response
     if ref.kind == "local":
-        return FileResponse(ref.location, media_type=content_type, filename=filename)
-    return RedirectResponse(ref.location, status_code=302)
+        response = FileResponse(ref.location, media_type=content_type, filename=filename)
+    else:
+        response = RedirectResponse(ref.location, status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _audit_recibo_download(access: BillAccess, services: RequestServices) -> None:
@@ -863,6 +867,7 @@ async def get_recibo_download(
         "rentivo_recibo_downloaded",
         bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
     )
+    response.headers["Cache-Control"] = "no-store"
     return ReciboDownloadResponse(download_url=download_url, filename=filename)
 
 
