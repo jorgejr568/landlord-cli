@@ -87,6 +87,32 @@ _CREDENTIAL_FIELDS = frozenset(
         "awssecretaccesskey",
     }
 )
+
+# Keys whose values are PII rather than credentials: they must be partially
+# masked, not blanked, so logs stay useful. Keys are ``_normalize_field``
+# normalized, so ``to_email`` / ``toEmail`` / ``To-Email`` all match.
+#
+# Why these must never appear in cleartext outside the process: ``users.email``
+# and ``billings.name`` are KMS-encrypted at rest (repositories/sqlalchemy/
+# user.py, billing.py) and production rejects the base64 encryption backend
+# (settings.py). stdout and the CloudWatch log group are governed by different
+# IAM than the KMS key policy, and audit_logs.new_state is a plain JSON column
+# with no EncryptedType wrapper — so a plaintext value in any of those places
+# defeats the encryption boundary entirely.
+_PII_FIELDS: dict[str, PIIKind] = {
+    "actorusername": PIIKind.EMAIL,
+    "billingname": PIIKind.PIX,
+    "email": PIIKind.EMAIL,
+    "invitedbyemail": PIIKind.EMAIL,
+    "invitedemail": PIIKind.EMAIL,
+    "pixkey": PIIKind.PIX,
+    "pixmerchantcity": PIIKind.PIX,
+    "pixmerchantname": PIIKind.PIX,
+    "recipientemail": PIIKind.EMAIL,
+    "subject": PIIKind.PIX,
+    "to": PIIKind.EMAIL,
+    "toemail": PIIKind.EMAIL,
+}
 _REDACTED = "[REDACTED]"
 _API_KEY_PATTERN = re.compile(r"rntv-v1-[A-Za-z0-9_-]{12,}")
 _BEARER_PATTERN = re.compile(r"(?i)(\bbearer\s+)(?P<value>\[REDACTED\]|[^\s,;\"')\]}]+)")
@@ -123,20 +149,60 @@ def redact(value: Any, kind: PIIKind | None = None) -> Any:
     raise ValueError(f"Unknown PII kind: {kind}")
 
 
-def _redact_credentials(value: Any) -> Any:
+def redact_pii(value: Any) -> Any:
+    """``redact()`` plus partial-masking of every known-PII key.
+
+    Use this at boundaries where an entire event or state dict is serialized
+    somewhere outside the KMS encryption boundary — the structlog processor
+    chain (stdout + CloudWatch) and ``AuditService.log`` (the unencrypted
+    ``audit_logs`` JSON columns). Masking at the boundary rather than at each
+    call site means a new ``logger.info(..., email=...)`` cannot reintroduce
+    the leak.
+
+    Credential fields still blank to ``[REDACTED]``; PII fields keep a
+    partial mask so logs remain operationally useful.
+    """
+    return _redact_credentials(value, mask_pii=True)
+
+
+def _redact_credentials(value: Any, *, mask_pii: bool = False) -> Any:
     if isinstance(value, dict):
-        return {
-            key: _REDACTED if _normalize_field(key) in _CREDENTIAL_FIELDS else _redact_credentials(item)
-            for key, item in value.items()
-        }
+        return {key: _redact_mapping_item(key, item, mask_pii=mask_pii) for key, item in value.items()}
     if isinstance(value, list):
-        return [_redact_credentials(item) for item in value]
+        return [_redact_credentials(item, mask_pii=mask_pii) for item in value]
     if isinstance(value, tuple):
-        return tuple(_redact_credentials(item) for item in value)
+        return tuple(_redact_credentials(item, mask_pii=mask_pii) for item in value)
     if isinstance(value, str):
         if _API_KEY_PATTERN.search(value):
             return _REDACTED
         return _redact_credential_string(value)
+    return value
+
+
+def _redact_mapping_item(key: Any, value: Any, *, mask_pii: bool) -> Any:
+    """Credential fields win over PII fields: blanking is stricter than masking."""
+    normalized = _normalize_field(key)
+    if normalized in _CREDENTIAL_FIELDS:
+        return _REDACTED
+    if mask_pii and normalized in _PII_FIELDS:
+        return _mask_pii_value(value, _PII_FIELDS[normalized])
+    return _redact_credentials(value, mask_pii=mask_pii)
+
+
+def _mask_pii_value(value: Any, kind: PIIKind) -> Any:
+    """Apply the ``kind`` partial mask to every string beneath a PII key.
+
+    Non-string scalars (ids, counts, ``None``, booleans) pass through with
+    their type intact so correlation identifiers are not degraded.
+    """
+    if isinstance(value, str):
+        return redact(value, kind)
+    if isinstance(value, dict):
+        return {key: _mask_pii_value(item, kind) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mask_pii_value(item, kind) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_mask_pii_value(item, kind) for item in value)
     return value
 
 
