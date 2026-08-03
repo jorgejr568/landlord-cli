@@ -54,7 +54,14 @@ struct HomeView: View {
         summary: summary,
         overdueBills: bills.filter { $0.status == .delayedPayment },
         upcomingBills: bills.filter { upcomingStatuses.contains($0.status) }.sorted {
-          $0.dueDate < $1.dueDate
+          // A bill with no due date has nothing to be "upcoming" against, so it sorts after
+          // every dated bill rather than ahead of them.
+          switch ($0.dueDate, $1.dueDate) {
+          case let (lhs?, rhs?): return lhs < rhs
+          case (_?, nil): return true
+          case (nil, _?): return false
+          case (nil, nil): return false
+          }
         },
         billingNames: names,
         activities: app.dependencies.activities.recentActivities,
@@ -240,8 +247,10 @@ private struct HomeContent: View {
                 StatusBadge(status: bill.status)
               }
               HStack {
-                Label("Vence em \(bill.dueDate.displayFormatted)", systemImage: "calendar")
-                  .font(.caption)
+                if let dueDate = bill.dueDate {
+                  Label("Vence em \(dueDate.displayFormatted)", systemImage: "calendar")
+                    .font(.caption)
+                }
                 Spacer()
                 MoneyText(money: bill.effectiveTotal)
               }

@@ -54,6 +54,7 @@ struct BillFormView: View {
   /// Set once the user touches the date picker. Until then the due date tracks the reference
   /// month pickers, so changing the competência moves a still-default vencimento along with it.
   @State private var dueDateEdited: Bool
+  @State private var hasDueDate: Bool
   @State private var notes: String
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
@@ -78,6 +79,8 @@ struct BillFormView: View {
     // An existing bill's stored due date is authoritative and must never be recomputed from
     // the reference month, so treat editing as "already user-chosen".
     _dueDateEdited = State(initialValue: bill != nil)
+    // A new bill always starts with a due date; an existing one keeps whatever the server has.
+    _hasDueDate = State(initialValue: bill?.dueDate != nil || bill == nil)
     _notes = State(initialValue: bill?.notes ?? "")
     let initialLines =
       bill?.lineItems.map(EditableBillLine.init)
@@ -99,8 +102,12 @@ struct BillFormView: View {
       }
 
       Section("Vencimento") {
-        DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
-          .accessibilityIdentifier("bill.form.dueDate")
+        Toggle("Definir vencimento", isOn: $hasDueDate)
+          .accessibilityIdentifier("bill.form.hasDueDate")
+        if hasDueDate {
+          DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
+            .accessibilityIdentifier("bill.form.dueDate")
+        }
         Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
           .font(.footnote)
           .foregroundStyle(RentivoColors.secondaryInk)
@@ -213,7 +220,7 @@ struct BillFormView: View {
     let draft = BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
-      dueDate: DateOnly(from: dueDate),
+      dueDate: hasDueDate ? DateOnly(from: dueDate) : nil,
       notes: notes,
       lineItems: lines.map(\.domain)
     )
@@ -315,8 +322,10 @@ struct BillDetailView: View {
               StatusBadge(status: bill.status)
             }
             MoneyText(money: bill.effectiveTotal)
-            Label("Vencimento: \(bill.dueDate.displayFormatted)", systemImage: "calendar")
-              .font(.subheadline)
+            if let dueDate = bill.dueDate {
+              Label("Vencimento: \(dueDate.displayFormatted)", systemImage: "calendar")
+                .font(.subheadline)
+            }
             if let paidAt = bill.paidAt {
               Label("Pago em \(paidAt.displayFormatted)", systemImage: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))
