@@ -76,11 +76,12 @@ struct BillFormView: View {
     _dueDate = State(
       initialValue: (bill?.dueDate ?? referenceMonth.defaultDueDate).resolvedDate()
     )
-    // An existing bill's stored due date is authoritative and must never be recomputed from
-    // the reference month, so treat editing as "already user-chosen".
-    _dueDateEdited = State(initialValue: bill != nil)
+    // An existing bill's *stored* due date is authoritative and must never be recomputed from
+    // the reference month. A bill with no stored date has nothing to protect, so it tracks the
+    // competência like a new bill until the user touches the picker.
+    _dueDateEdited = State(initialValue: bill?.dueDate != nil)
     // A new bill always starts with a due date; an existing one keeps whatever the server has.
-    _hasDueDate = State(initialValue: bill?.dueDate != nil || bill == nil)
+    _hasDueDate = State(initialValue: bill.map { $0.dueDate != nil } ?? true)
     _notes = State(initialValue: bill?.notes ?? "")
     let initialLines =
       bill?.lineItems.map(EditableBillLine.init)
@@ -107,10 +108,10 @@ struct BillFormView: View {
         if hasDueDate {
           DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
             .accessibilityIdentifier("bill.form.dueDate")
+          Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
         }
-        Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
-          .font(.footnote)
-          .foregroundStyle(RentivoColors.secondaryInk)
       }
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in

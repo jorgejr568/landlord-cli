@@ -95,6 +95,7 @@ private let utcCalendar: Calendar = {
   let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
   #expect(json["reference_month"] as? String == "2026-07")
   #expect(json["due_date"] as? String == "2026-08-10")
+  #expect(json["notes"] as? String == "")
 }
 
 @MainActor

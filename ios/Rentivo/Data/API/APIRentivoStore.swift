@@ -922,6 +922,8 @@ private struct RemoteBillingItemInput: Encodable {
   }
 }
 private struct RemoteBillCreateDraft: Encodable {
+  // Every stored property here must also have a corresponding `container.encode` line in
+  // `encode(to:)` below — the hand-written encoder is not kept in sync automatically.
   let referenceMonth: String; let dueDate: String?; let notes: String; let extras: [RemoteBillExtra]
   let variableAmounts: [String: Int]
   enum CodingKeys: String, CodingKey {
