@@ -396,7 +396,9 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID
   public var referenceMonth: ReferenceMonth
-  public var dueDate: DateOnly
+  /// `nil` when the server has no due date for this bill (`due_date: null` on the wire) —
+  /// distinct from a date, and never a sentinel.
+  public var dueDate: DateOnly?
   public var paidAt: DateOnly?
   public var notes: String
   public var status: BillStatus
@@ -415,7 +417,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     id: BillID,
     billingID: BillingID,
     referenceMonth: ReferenceMonth,
-    dueDate: DateOnly,
+    dueDate: DateOnly?,
     paidAt: DateOnly?,
     notes: String,
     status: BillStatus,
@@ -462,14 +464,14 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
 public struct BillDraft: Hashable, Sendable {
   public let billingID: BillingID
   public var referenceMonth: ReferenceMonth
-  public var dueDate: DateOnly
+  public var dueDate: DateOnly?
   public var notes: String
   public var lineItems: [BillLineItem]
 
   public init(
     billingID: BillingID,
     referenceMonth: ReferenceMonth,
-    dueDate: DateOnly,
+    dueDate: DateOnly?,
     notes: String,
     lineItems: [BillLineItem]
   ) {

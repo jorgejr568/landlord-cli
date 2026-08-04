@@ -50,7 +50,11 @@ struct BillFormView: View {
 
   @State private var year: Int
   @State private var month: Int
-  @State private var dueDay: Int
+  @State private var dueDate: Date
+  /// Set once the user touches the date picker. Until then the due date tracks the reference
+  /// month pickers, so changing the competência moves a still-default vencimento along with it.
+  @State private var dueDateEdited: Bool
+  @State private var hasDueDate: Bool
   @State private var notes: String
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
@@ -61,9 +65,23 @@ struct BillFormView: View {
     self.bill = bill
     self.onSaved = onSaved
     let currentComponents = Calendar.current.dateComponents([.year, .month], from: Date())
-    _year = State(initialValue: bill?.referenceMonth.year ?? currentComponents.year ?? 2026)
-    _month = State(initialValue: bill?.referenceMonth.month ?? currentComponents.month ?? 1)
-    _dueDay = State(initialValue: bill?.dueDate.day ?? 10)
+    let referenceMonth =
+      bill?.referenceMonth
+      ?? ReferenceMonth(
+        year: currentComponents.year ?? 2026,
+        month: currentComponents.month ?? 1
+      )
+    _year = State(initialValue: referenceMonth.year)
+    _month = State(initialValue: referenceMonth.month)
+    _dueDate = State(
+      initialValue: (bill?.dueDate ?? referenceMonth.defaultDueDate).resolvedDate()
+    )
+    // An existing bill's *stored* due date is authoritative and must never be recomputed from
+    // the reference month. A bill with no stored date has nothing to protect, so it tracks the
+    // competência like a new bill until the user touches the picker.
+    _dueDateEdited = State(initialValue: bill?.dueDate != nil)
+    // A new bill always starts with a due date; an existing one keeps whatever the server has.
+    _hasDueDate = State(initialValue: bill.map { $0.dueDate != nil } ?? true)
     _notes = State(initialValue: bill?.notes ?? "")
     let initialLines =
       bill?.lineItems.map(EditableBillLine.init)
@@ -75,12 +93,25 @@ struct BillFormView: View {
 
   var body: some View {
     Form {
-      Section("Competência e vencimento") {
+      Section("Competência") {
         Picker("Mês", selection: $month) {
           ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
         }
+        .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
         Stepper("Ano: \(year)", value: $year, in: 2024...2035)
-        Stepper("Dia do vencimento: \(dueDay)", value: $dueDay, in: 1...28)
+          .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
+      }
+
+      Section("Vencimento") {
+        Toggle("Definir vencimento", isOn: $hasDueDate)
+          .accessibilityIdentifier("bill.form.hasDueDate")
+        if hasDueDate {
+          DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
+            .accessibilityIdentifier("bill.form.dueDate")
+          Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
@@ -146,6 +177,24 @@ struct BillFormView: View {
     }
   }
 
+  /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
+  /// `.onChange(of: dueDate)` can't do this — it would also fire for the programmatic writes in
+  /// `syncDueDateWithReferenceMonth()` and immediately freeze the default.
+  private var dueDateBinding: Binding<Date> {
+    Binding(
+      get: { dueDate },
+      set: { newValue in
+        dueDate = newValue
+        dueDateEdited = true
+      }
+    )
+  }
+
+  private func syncDueDateWithReferenceMonth() {
+    guard !dueDateEdited else { return }
+    dueDate = ReferenceMonth(year: year, month: month).defaultDueDate.resolvedDate()
+  }
+
   private var total: Money {
     lines.map { Money(centavos: $0.centavos) }.reduce(.zero, +)
   }
@@ -172,7 +221,7 @@ struct BillFormView: View {
     let draft = BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
-      dueDate: DateOnly(year: year, month: month, day: dueDay),
+      dueDate: hasDueDate ? DateOnly(from: dueDate) : nil,
       notes: notes,
       lineItems: lines.map(\.domain)
     )
@@ -274,8 +323,10 @@ struct BillDetailView: View {
               StatusBadge(status: bill.status)
             }
             MoneyText(money: bill.effectiveTotal)
-            Label("Vencimento: \(bill.dueDate.displayFormatted)", systemImage: "calendar")
-              .font(.subheadline)
+            if let dueDate = bill.dueDate {
+              Label("Vencimento: \(dueDate.displayFormatted)", systemImage: "calendar")
+                .font(.subheadline)
+            }
             if let paidAt = bill.paidAt {
               Label("Pago em \(paidAt.displayFormatted)", systemImage: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))

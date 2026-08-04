@@ -195,9 +195,11 @@ struct BillingDetailView: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: RentivoSpacing.small) {
                   MoneyText(money: bill.effectiveTotal)
-                  Text("Vence \(bill.dueDate.displayFormatted)")
-                    .font(.caption)
-                    .foregroundStyle(RentivoColors.secondaryInk)
+                  if let dueDate = bill.dueDate {
+                    Text("Vence \(dueDate.displayFormatted)")
+                      .font(.caption)
+                      .foregroundStyle(RentivoColors.secondaryInk)
+                  }
                 }
               }
             }

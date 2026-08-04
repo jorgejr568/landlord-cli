@@ -203,10 +203,7 @@ private struct ExpenseFormView: View {
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 
-  private var selectedDate: DateOnly {
-    let components = Calendar.current.dateComponents([.year, .month, .day], from: incurredOn)
-    return DateOnly(year: components.year ?? 1970, month: components.month ?? 1, day: components.day ?? 1)
-  }
+  private var selectedDate: DateOnly { DateOnly(from: incurredOn) }
 }
 
 struct AttachmentListView: View {

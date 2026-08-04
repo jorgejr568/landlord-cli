@@ -160,6 +160,43 @@ public struct ReferenceMonth: Hashable, Codable, Sendable, Comparable {
   }
 }
 
+extension DateOnly {
+  /// Bridges a SwiftUI `DatePicker` selection into the calendar-agnostic domain
+  /// representation. Components extracted from a real `Date` are always in range, so this
+  /// cannot trip `init(year:month:day:)`'s preconditions.
+  public init(from date: Date, calendar: Calendar = .current) {
+    let components = calendar.dateComponents([.year, .month, .day], from: date)
+    self.init(
+      year: components.year ?? 1970,
+      month: components.month ?? 1,
+      day: components.day ?? 1
+    )
+  }
+
+  /// The reverse bridge, for seeding a `DatePicker`. `init(iso8601String:)` only range-checks
+  /// the day as 1...31 without consulting the month's length, so a wire value like "2026-02-31"
+  /// can reach here; `Calendar` normalizes such components rather than rejecting them, and the
+  /// epoch is a defensive fallback for the `Optional` it nonetheless returns.
+  public func resolvedDate(in calendar: Calendar = .current) -> Date {
+    calendar.date(from: DateComponents(year: year, month: month, day: day))
+      ?? Date(timeIntervalSince1970: 0)
+  }
+}
+
+extension ReferenceMonth {
+  /// The due date a new bill starts from: day 10 of the month *after* the reference month.
+  /// The reference month says which period the bill covers; the due date says when the money
+  /// is owed, and in practice that lands in the following month.
+  public var defaultDueDate: DateOnly {
+    let rollsOver = month == 12
+    return DateOnly(
+      year: rollsOver ? year + 1 : year,
+      month: rollsOver ? 1 : month + 1,
+      day: 10
+    )
+  }
+}
+
 public struct UserProfile: Hashable, Codable, Sendable {
   public let id: Int
   public var email: String
