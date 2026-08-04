@@ -11,7 +11,12 @@ import pytest
 import structlog
 from structlog.stdlib import ProcessorFormatter
 
-from rentivo.logging import _shared_processors, configure_logging
+from rentivo.logging import (
+    _OTLP_SPAN_EXPORTER_LOGGER,
+    _demote_span_export_errors,
+    _shared_processors,
+    configure_logging,
+)
 
 API_KEY = "rntv-v1-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789_-abc"
 
@@ -80,6 +85,31 @@ class TestConfigureLogging:
     def test_uvicorn_access_suppressed_to_warning(self):
         _capture(mode_json=False)
         assert logging.getLogger("uvicorn.access").level == logging.WARNING
+
+    def test_span_export_failure_is_logged_as_warning(self):
+        buf = _capture(mode_json=True)
+        logging.getLogger(_OTLP_SPAN_EXPORTER_LOGGER).error(
+            "Failed to export span batch code: %s, reason: %s", 503, "Service Unavailable"
+        )
+        parsed = json.loads(buf.getvalue().strip().splitlines()[-1])
+        assert parsed["level"] == "warning"
+        assert parsed["event"] == "Failed to export span batch code: 503, reason: Service Unavailable"
+
+    def test_span_exporter_non_error_levels_are_untouched(self):
+        buf = _capture(mode_json=True)
+        logging.getLogger(_OTLP_SPAN_EXPORTER_LOGGER).info("exporting")
+        assert json.loads(buf.getvalue().strip().splitlines()[-1])["level"] == "info"
+
+    def test_span_export_demotion_filter_is_not_stacked_by_reconfigure(self):
+        _capture(mode_json=True)
+        _capture(mode_json=True)
+        assert logging.getLogger(_OTLP_SPAN_EXPORTER_LOGGER).filters == [_demote_span_export_errors]
+
+    def test_demoted_logger_is_the_one_the_exporter_actually_uses(self):
+        """Guards against a silent no-op if opentelemetry moves the module."""
+        from opentelemetry.exporter.otlp.proto.http import trace_exporter
+
+        assert _OTLP_SPAN_EXPORTER_LOGGER == trace_exporter.__name__
 
     def test_contextvars_merged_into_event(self):
         buf = _capture(mode_json=True)
