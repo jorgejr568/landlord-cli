@@ -77,6 +77,12 @@ describe("MobileLogoutPage", () => {
     expect(openMobileAuthorizationCallback).toHaveBeenCalledWith(
       "rentivo://auth/logout?state=native-state"
     );
+    // The 401 clears the browser session, flipping auth status to anonymous. That must not
+    // restart the logout flow and open the app a second time.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
   });
 
   it("keeps the browser open and retries when logout fails", async () => {

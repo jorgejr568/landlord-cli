@@ -16,6 +16,9 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: "./src/test/setup.ts",
+    // The interaction-heavy suites take well under a second unloaded, but 60 files running in
+    // parallel starve each other enough to exceed the 5s default on busy machines and in CI.
+    testTimeout: 15_000,
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],
