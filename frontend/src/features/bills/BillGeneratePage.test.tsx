@@ -204,7 +204,8 @@ it("keeps bill generation available but omits receipt files without files:write"
 
   await waitFor(() => expect(submitted).toBeInstanceOf(FormData));
   expect(submitted?.has("receipt_files")).toBe(false);
-  expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-without-receipt");
+  // Navigation happens once the create response resolves, after the request is observable.
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-without-receipt"));
 });
 
 it("validates dates and extras locally, removes rows, and focuses nested API errors", async () => {
