@@ -82,6 +82,7 @@ _exports_create = require_scope(APIScope.EXPORTS_CREATE)
 
 _EDIT_ROLES = frozenset({"owner", "admin"})
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
+_PDF_RENDER_PENDING = "pending"
 
 _ATTACHMENT_UPLOAD_OPENAPI = {
     "requestBody": {
@@ -997,9 +998,14 @@ async def send_communication(
     bill = _communication_bill(access, services, payload.bill_uuid)
     if payload.save_scope == "owner":
         require_role(access.role, _EDIT_ROLES)
+    rendering = bill.pdf_render_status == _PDF_RENDER_PENDING
     if payload.comm_type == CommType.PAYMENT_RECEIPT.value:
+        if rendering:
+            raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
         if not bill.recibo_pdf_path:
             raise _conflict("receipt_unavailable", "O recibo ainda não está disponível para envio.")
+    elif rendering:
+        raise _conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
     elif not bill.pdf_path:
         raise _conflict("invoice_unavailable", "Gere o PDF da fatura antes de enviar a comunicação.")
     recipients = _selected_recipients(access, services, payload.recipient_uuids)

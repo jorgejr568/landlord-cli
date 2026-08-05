@@ -88,12 +88,11 @@ export function BillDetailPage() {
     !controller.signal.aborted && generation === routeGeneration.current
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    setLoading(true);
-    setLoadError("");
+    if (!silent) setLoading(true);
     try {
       const [billingResult, billResult] = await Promise.all([
         apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", {
@@ -107,11 +106,13 @@ export function BillDetailPage() {
       if (controller.signal.aborted) return;
       setBilling(billingResult.data);
       setBill(billResult.data);
+      setLoadError("");
       setLoading(false);
     } catch (caught) {
       /* v8 ignore next -- an aborted request is intentionally discarded */
       if (controller.signal.aborted) return;
-      setLoadError(errorMessage(caught, "Não foi possível carregar a fatura."));
+      // A silent poll keeps the loaded page instead of replacing it with the load-error state.
+      if (!silent) setLoadError(errorMessage(caught, "Não foi possível carregar a fatura."));
       setLoading(false);
     }
   }, [billUuid, billingUuid]);
@@ -120,6 +121,13 @@ export function BillDetailPage() {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+
+  const pdfRendering = bill?.pdf_render_status === "pending";
+  useEffect(() => {
+    if (!pdfRendering) return;
+    const timer = window.setInterval(() => { void load({ silent: true }); }, 3000);
+    return () => window.clearInterval(timer);
+  }, [pdfRendering, load]);
 
   const regenerate = async () => {
     /* v8 ignore next -- the action is only rendered after bill loading */
@@ -255,7 +263,9 @@ export function BillDetailPage() {
 
       {(bill.capabilities.can_transition || bill.capabilities.can_regenerate) && <div className="panel panel--menu-host"><div className="panel__head"><h3>Gerenciar fatura</h3></div><div className="panel__body"><div className="btn-row"><BillStatusActions billingUuid={billingUuid} bill={bill} onChange={setBill} onStale={() => void load()} />{bill.capabilities.can_regenerate && <button className="btn" disabled={regenerating} onClick={() => void regenerate()} type="button"><RefreshCw aria-hidden="true" size={16} />{regenerating ? "Regenerando..." : "Regenerar PDF"}</button>}</div>{bill.status_updated_at && <p className="muted mt-2 mb-0" style={{ fontSize: "0.84rem" }}>Status atualizado em {formatDateTime(bill.status_updated_at)}.</p>}</div></div>}
       {bill.notes && <div className="panel"><div className="panel__head"><h3>Observações</h3></div><div className="panel__body">{bill.notes}</div></div>}
-      <div className="panel"><div className="panel__head"><h3>Comprovantes</h3></div><div className="panel__body"><ReceiptManager billingUuid={billingUuid} billUuid={bill.uuid} capabilities={bill.capabilities} onChange={(receipts) => setBill((current) => ({ ...current!, receipts }))} receipts={bill.receipts} /></div></div>
+      {/* Receipt mutations re-queue the PDF server-side, so the optimistic receipt list is followed
+          by a silent reload that picks up the new render status and capabilities. */}
+      <div className="panel"><div className="panel__head"><h3>Comprovantes</h3></div><div className="panel__body"><ReceiptManager billingUuid={billingUuid} billUuid={bill.uuid} capabilities={bill.capabilities} onChange={(receipts) => { setBill((current) => ({ ...current!, receipts })); void load({ silent: true }); }} receipts={bill.receipts} /></div></div>
       <div className="panel"><div className="panel__head"><h3>Comunicações</h3></div><div className="panel__body">{bill.communications.length === 0 ? <p className="text-muted">Nenhuma comunicação enviada.</p> : <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Destinatário</th><th>Assunto</th><th className="center">Status</th></tr></thead><tbody>{bill.communications.map((communication) => <tr key={communication.uuid}><td className="mono" style={{ whiteSpace: "nowrap" }}>{formatDateTime(communication.created_at)}</td>{hasFullCommunication(communication) ? <><td className="table__primary">{communication.recipient_name} &lt;{communication.recipient_email}&gt;</td><td>{communication.subject}</td></> : <><td className="table__primary">Dados do destinatário protegidos</td><td>—</td></>}<td className="center"><span className={`tag ${communication.status === "sent" ? "tag--paid" : communication.status === "failed" ? "tag--cancelled" : "tag--draft"}`}>{communication.status === "sent" ? "Enviado" : communication.status === "failed" ? "Falhou" : "Na fila"}</span></td></tr>)}</tbody></table></div>}</div></div>
       {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}{success && <div className="toast toast--success" role="status">{success}</div>}
       <div className="btn-row"><Link className="btn btn--ghost" to={`/billings/${billingUuid}`}><ArrowLeft aria-hidden="true" size={16} /> Voltar</Link>{bill.capabilities.can_delete && <button className="btn btn--danger" disabled={deleting} onClick={() => setDeleteOpen(true)} type="button"><Trash2 aria-hidden="true" size={16} /> Excluir fatura</button>}</div>

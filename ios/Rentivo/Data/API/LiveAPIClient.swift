@@ -57,12 +57,13 @@ actor LiveAPIClient {
   /// It also opts out of `URLCache` completely. `URLSessionConfiguration.default` binds to the
   /// disk-backed `URLCache.shared`, so authenticated payloads — PIX details on a billing, tenant
   /// names and e-mail addresses on a contact, and downloaded documents — would be written into the
-  /// app container purely as a side effect of the transport. Nothing is lost by dropping it: these
-  /// routes send no `Cache-Control`, `ETag`, or `Last-Modified`, so their responses have no
-  /// freshness lifetime and could never have been served from cache anyway, and the app is a thin
-  /// client over a live API with no offline mode. `URLSessionConfiguration.ephemeral` is not used
-  /// instead because it still installs a (memory-backed) `URLCache` and would additionally move
-  /// cookie and credential storage — an unrelated behavior change.
+  /// app container purely as a side effect of the transport. Worse, because these routes send no
+  /// `Cache-Control`, `URLCache` applied heuristic freshness and *did* serve them: a poll for
+  /// `pdf_render_status` re-read its own cached "pending" response instead of the network and
+  /// never observed the render finishing. The app is a thin client over a live API with no
+  /// offline mode, so nothing is lost by dropping the cache. `URLSessionConfiguration.ephemeral`
+  /// is not used instead because it still installs a (memory-backed) `URLCache` and would
+  /// additionally move cookie and credential storage — an unrelated behavior change.
   static func makeSession() -> URLSession {
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = 30

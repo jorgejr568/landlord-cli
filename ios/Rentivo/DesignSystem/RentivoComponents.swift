@@ -25,6 +25,7 @@ struct RentivoCard<Content: View>: View {
 
 struct RentivoButtonStyle: ButtonStyle {
   var color = RentivoColors.emerald
+  @Environment(\.isEnabled) private var isEnabled
 
   /// Buttons render as a solid, saturated fill with a white label. The style is used only with
   /// saturated accent tokens (`emerald`, `blue`, and similar), which keep the white label at
@@ -50,6 +51,10 @@ struct RentivoButtonStyle: ButtonStyle {
       )
       .offset(x: configuration.isPressed ? 3 : 0, y: configuration.isPressed ? 3 : 0)
       .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+      // Match the system's disabled affordance: plain-style siblings (e.g. "Abrir recibo") dim
+      // automatically, but a custom ButtonStyle must read `isEnabled` itself.
+      .opacity(isEnabled ? 1 : 0.45)
+      .saturation(isEnabled ? 1 : 0.6)
   }
 }
 

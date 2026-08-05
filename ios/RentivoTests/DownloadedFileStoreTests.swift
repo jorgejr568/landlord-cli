@@ -40,11 +40,23 @@ func makeIsolatedDownloadsStore() -> DownloadedFileStore {
       == store.directory.standardizedFileURL.path
   )
   #expect(try Data(contentsOf: file.fileURL) == Data("%PDF-1.4".utf8))
-  // Darwin reports the applied data-protection class through `FileManager`. macOS applies it on
-  // APFS exactly as iOS does, so this assertion is meaningful on the platform `swift test` builds
-  // for as well as on the device.
-  let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
-  #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
+  // Whether Darwin honors data-protection classes depends on the environment, not just the OS:
+  // real devices enforce them, the iOS Simulator accepts the option but reports the container
+  // default, and macOS hosts vary (developer Macs honor them on APFS; GitHub's virtualized
+  // runners do not). Probe with a direct write using the same options in the same directory: when
+  // the environment honors them, hold the store's file to the full end-to-end contract; when it
+  // does not, the options the store passes are the only part that is the store's to guarantee.
+  let probe = store.directory.appendingPathComponent("protection-probe")
+  try Data("probe".utf8).write(to: probe, options: DownloadedFileStore.writingOptions)
+  let probeProtection =
+    try FileManager.default.attributesOfItem(atPath: probe.path)[.protectionKey]
+    as? FileProtectionType
+  if probeProtection == .completeUnlessOpen {
+    let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
+    #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
+  } else {
+    #expect(DownloadedFileStore.writingOptions.contains(.completeFileProtectionUnlessOpen))
+  }
 }
 
 private final class ProtectedDownloadURLProtocol: URLProtocol, @unchecked Sendable {

@@ -558,7 +558,21 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.
       availableTransitions: remote.availableTransitions.compactMap { BillStatus(rawValue: $0.target) },
-      serverTotal: Money(centavos: remote.totalAmount)
+      serverTotal: Money(centavos: remote.totalAmount),
+      // An unknown or absent render status means "not rendering" rather than a decode failure,
+      // and an absent capabilities object stays permissive so older payloads keep working.
+      pdfRenderStatus: remote.pdfRenderStatus.flatMap(PDFRenderStatus.init(rawValue:)),
+      hasInvoice: remote.hasInvoice ?? false, hasRecibo: remote.hasRecibo ?? false,
+      capabilities: billCapabilities(from: remote.capabilities)
+    )
+  }
+
+  private func billCapabilities(from remote: RemoteBillCapabilities?) -> BillCapabilities {
+    guard let remote else { return .permissive }
+    return BillCapabilities(
+      canDownloadInvoice: remote.canDownloadInvoice, canDownloadRecibo: remote.canDownloadRecibo,
+      canSendInvoice: remote.canSendInvoice, canSendRecibo: remote.canSendRecibo,
+      canRegenerate: remote.canRegenerate
     )
   }
 
@@ -1035,11 +1049,26 @@ private struct RemoteBill: Decodable {
   let lineItems: [RemoteBillLine]; let receipts: [RemoteReceipt]?
   let totalAmount: Int
   let availableTransitions: [RemoteAvailableTransition]
+  let pdfRenderStatus: String?
+  let hasInvoice, hasRecibo: Bool?
+  let capabilities: RemoteBillCapabilities?
   enum CodingKeys: String, CodingKey {
-    case uuid, notes, status, receipts
+    case uuid, notes, status, receipts, capabilities
     case referenceMonth = "reference_month"; case dueDate = "due_date"
     case statusUpdatedAt = "status_updated_at"; case lineItems = "line_items"
     case totalAmount = "total_amount"; case availableTransitions = "available_transitions"
+    case pdfRenderStatus = "pdf_render_status"
+    case hasInvoice = "has_invoice"; case hasRecibo = "has_recibo"
+  }
+}
+// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that
+// gate a button in the app are decoded; the rest follow the billing-level capabilities today.
+private struct RemoteBillCapabilities: Decodable {
+  let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
+  enum CodingKeys: String, CodingKey {
+    case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
+    case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
+    case canRegenerate = "can_regenerate"
   }
 }
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

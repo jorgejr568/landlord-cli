@@ -23,6 +23,10 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   private var viewerMode = false
   private var delayEnabled = false
   private var shouldFailNextOperation = false
+  /// Remaining `bill(billingID:id:)` fetches before a regenerated bill settles back to
+  /// `.succeeded`, keyed by bill.
+  private var pendingRenderTicks: [BillID: Int] = [:]
+  private static let pendingRenderTickCount = 2
 
   public init(fixtures: MockFixtures = .canonical) {
     baseline = fixtures.snapshot
@@ -51,6 +55,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     viewerMode = false
     delayEnabled = false
     shouldFailNextOperation = false
+    pendingRenderTicks = [:]
   }
 
   public func profile() async throws -> UserProfile {
@@ -163,11 +168,23 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   public func bill(billingID: BillingID, id: BillID) async throws -> Bill {
     try await prepareOperation()
-    guard let bill = snapshot.bills.first(where: { $0.billingID == billingID && $0.id == id })
-    else {
+    guard let index = billIndex(billingID: billingID, billID: id) else {
       throw DemoError.resourceNotFound
     }
-    return bill
+    advancePendingRender(at: index, billID: id)
+    return snapshot.bills[index]
+  }
+
+  /// Demo mode fakes the background render: each fetch consumes one tick of the countdown started
+  /// by `regenerateBill`, so the detail screen's poll loop runs for real before settling.
+  private func advancePendingRender(at index: Int, billID: BillID) {
+    guard let remaining = pendingRenderTicks[billID] else { return }
+    if remaining > 1 {
+      pendingRenderTicks[billID] = remaining - 1
+    } else {
+      pendingRenderTicks[billID] = nil
+      snapshot.bills[index].pdfRenderStatus = .succeeded
+    }
   }
 
   public func createBill(_ draft: BillDraft) async throws -> Bill {
@@ -258,6 +275,8 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill {
     try await prepareOperation()
     guard let index = billIndex(billingID: billingID, billID: billID) else { throw DemoError.resourceNotFound }
+    snapshot.bills[index].pdfRenderStatus = .pending
+    pendingRenderTicks[billID] = Self.pendingRenderTickCount
     return snapshot.bills[index]
   }
 

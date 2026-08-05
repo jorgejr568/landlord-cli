@@ -1785,6 +1785,50 @@ def test_communication_send_requires_the_selected_document(billing_harness: Bill
     assert receipt.json()["code"] == "receipt_unavailable"
 
 
+def test_communication_send_is_a_conflict_while_the_bill_pdf_is_being_rendered(
+    billing_harness: BillingHarness,
+) -> None:
+    bill = billing_harness.services.bill.get_bill_by_uuid(PERSONAL_BILL.uuid)
+    assert bill is not None
+    bill.recibo_pdf_path = "recibos/bill-personal.pdf"
+    bill.pdf_render_status = "pending"
+
+    invoice = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(),
+    )
+    receipt = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(comm_type="payment_receipt"),
+    )
+
+    assert invoice.status_code == 409
+    assert invoice.json()["code"] == "invoice_not_ready"
+    assert invoice.json()["detail"] == "A fatura ainda está sendo gerada."
+    assert receipt.status_code == 409
+    assert receipt.json()["code"] == "recibo_not_ready"
+    assert receipt.json()["detail"] == "O recibo ainda está sendo gerado."
+    assert billing_harness.services.communication.send_calls == []
+
+    bill.pdf_render_status = "succeeded"
+    rendered_invoice = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(),
+    )
+    rendered_receipt = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(comm_type="payment_receipt"),
+    )
+
+    assert rendered_invoice.status_code == 202
+    assert rendered_receipt.status_code == 202
+    assert len(billing_harness.services.communication.send_calls) == 2
+
+
 @pytest.mark.parametrize(
     ("scope", "method", "path", "kwargs"),
     [

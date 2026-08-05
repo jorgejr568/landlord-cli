@@ -386,7 +386,12 @@ public struct MockFixtures: Sendable {
           kind: .variable
         ),
       ],
-      receipts: receipts
+      receipts: receipts,
+      pdfRenderStatus: .succeeded,
+      hasInvoice: true,
+      // The recibo only exists once the bill has been paid.
+      hasRecibo: status == .paid,
+      capabilities: .permissive
     )
   }
 

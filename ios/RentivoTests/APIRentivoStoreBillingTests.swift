@@ -126,6 +126,61 @@ import Testing
 }
 
 @MainActor
+@Test func liveBillDecodesThePDFRenderStatusAndPerBillCapabilities() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billDetailSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let bill = try await store.bill(billingID: BillingID(rawValue: "billing-1"), id: BillID(rawValue: "bill-1"))
+
+  #expect(bill.pdfRenderStatus == .pending)
+  #expect(bill.isRenderingPDF)
+  #expect(bill.hasInvoice)
+  #expect(!bill.hasRecibo)
+  #expect(!bill.capabilities.canDownloadInvoice)
+  #expect(!bill.capabilities.canDownloadRecibo)
+  #expect(!bill.capabilities.canSendInvoice)
+  #expect(bill.capabilities.canSendRecibo)
+  #expect(bill.capabilities.canRegenerate)
+}
+
+@MainActor
+@Test func liveBillWithoutRenderMetadataStaysPermissive() async throws {
+  // A payload that omits `capabilities`/`has_*` must not strip the action buttons: an unknown or
+  // null render status is "never rendered", not "rendering".
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billDetailSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let bill = try await store.bill(
+    billingID: BillingID(rawValue: "billing-1"), id: BillID(rawValue: "bill-legacy"))
+
+  #expect(bill.pdfRenderStatus == nil)
+  #expect(!bill.isRenderingPDF)
+  #expect(!bill.hasInvoice)
+  #expect(!bill.hasRecibo)
+  #expect(bill.capabilities == .permissive)
+}
+
+@MainActor
+@Test func liveRegenerateBillReturnsTheQueuedPendingBill() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billDetailSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let bill = try await store.regenerateBill(
+    billingID: BillingID(rawValue: "billing-1"), billID: BillID(rawValue: "bill-1"))
+
+  #expect(bill.pdfRenderStatus == .pending)
+  #expect(bill.isRenderingPDF)
+  #expect(!bill.capabilities.canDownloadInvoice)
+  #expect(bill.capabilities.canRegenerate)
+}
+
+@MainActor
 @Test func liveBillWithMalformedReferenceMonthThrowsInsteadOfCrashing() async throws {
   // Regression test: `bill(from:)` used to build `ReferenceMonth`/`DateOnly` with their
   // precondition-enforcing initializers straight from unchecked server strings, so a malformed
@@ -246,16 +301,23 @@ private final class BillDetailURLProtocol: URLProtocol, @unchecked Sendable {
   override func startLoading() {
     let path = request.url?.path
     let body: String
+    var statusCode = 200
     switch path {
     case "/api/v1/auth/session":
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
     case "/api/v1/billings/billing-1/bills/bill-1":
-      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"total_amount":10000,"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
+      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":true},"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
+    case "/api/v1/billings/billing-1/bills/bill-legacy":
+      // An older payload that predates `pdf_render_status`/`capabilities` on the wire.
+      body = #"{"uuid":"bill-legacy","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":0,"pdf_render_status":null,"available_transitions":[]}"#
+    case "/api/v1/billings/billing-1/bills/bill-1/regenerate":
+      statusCode = 202
+      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":false},"available_transitions":[]}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }
     let response = HTTPURLResponse(
-      url: request.url!, statusCode: 200, httpVersion: nil,
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
       headerFields: ["Content-Type": "application/json"]
     )!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -495,10 +495,17 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
 
 it("regenerates and deletes from detail using backend capabilities", async () => {
   const user = userEvent.setup();
+  const uploaded = { content_type: "application/pdf", created_at: null, file_size: 3, filename: "detail.pdf", sort_order: 0, uuid: "01J00000000000000000000004" };
+  let attached = false;
   installFetch({
-    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+    // The silent reload that follows a receipt mutation sees the persisted upload.
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(attached ? { ...bill, receipts: [uploaded] } : bill),
     "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse({ ...bill, pdf_render_status: "pending" }, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" }),
-    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => jsonResponse({ attached: 1, items: [{ content_type: "application/pdf", created_at: null, file_size: 3, filename: "detail.pdf", sort_order: 0, uuid: "01J00000000000000000000004" }], skipped: 0, total_bytes: 3 }, 201, { "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded" }),
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => {
+      attached = true;
+      return jsonResponse({ attached: 1, items: [uploaded], skipped: 0, total_bytes: 3 }, 201, { "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded" });
+    },
     "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => new Response(null, { headers: { "X-Rentivo-Analytics-Event": "rentivo_bill_deleted" }, status: 204 })
   });
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
@@ -513,6 +520,168 @@ it("regenerates and deletes from detail using backend capabilities", async () =>
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(3);
+});
+
+const renderingCapabilities: components["schemas"]["BillCapabilitiesResponse"] = {
+  ...capabilities,
+  can_download_invoice: false, can_download_recibo: false,
+  can_send_invoice: false, can_send_recibo: false
+};
+const renderingBill: Bill = { ...bill, capabilities: renderingCapabilities, pdf_render_status: "pending" };
+const renderedBill: Bill = { ...bill, pdf_render_status: "succeeded" };
+const detailPath = "/billings/billing-public-uuid/bills/bill-public-uuid";
+const detailRoute = "/billings/:billingUuid/bills/:billUuid";
+
+const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+it("polls a rendering bill silently every five seconds and stops once the PDF is ready", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    let releasePoll = () => {};
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        if (billLoads === 2) return new Promise<Response>((resolve) => { releasePoll = () => resolve(jsonResponse(renderingBill)); });
+        return jsonResponse(billLoads === 1 ? renderingBill : renderedBill);
+      }
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
+    expect(billLoads).toBe(1);
+
+    await advance(2_999);
+    expect(billLoads).toBe(1);
+
+    await advance(1);
+    expect(billLoads).toBe(2);
+    expect(screen.queryByText("Carregando fatura...")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Fatura · Julho/2026" })).toBeVisible();
+    await act(async () => { releasePoll(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+
+    await advance(3_000);
+    expect(billLoads).toBe(3);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Baixar/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
+
+    await advance(20_000);
+    expect(billLoads).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("starts polling after a manual regeneration and stops when the render finishes", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        return jsonResponse(renderedBill);
+      },
+      "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse(renderingBill, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" })
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+
+    await advance(10_000);
+    expect(billLoads).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerar PDF" }));
+    await flush();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.getByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+    expect(billLoads).toBe(1);
+
+    await advance(3_000);
+    expect(billLoads).toBe(2);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+
+    await advance(20_000);
+    expect(billLoads).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps the loaded detail on screen when a silent poll fails", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        if (billLoads === 2) return problemResponse({ code: "offline", detail: "Falha ao atualizar a fatura.", fields: {}, request_id: "req", status: 503, title: "Erro", type: "problem" });
+        return jsonResponse(billLoads === 1 ? renderingBill : renderedBill);
+      }
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+
+    await advance(3_000);
+    expect(billLoads).toBe(2);
+    expect(screen.getByRole("heading", { name: "Fatura · Julho/2026" })).toBeVisible();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.queryByText("Falha ao atualizar a fatura.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tentar novamente" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Carregando fatura...")).not.toBeInTheDocument();
+
+    await advance(3_000);
+    expect(billLoads).toBe(3);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reloads the bill after a receipt change so a server-side render turns into a badge and polling", async () => {
+  vi.useFakeTimers();
+  try {
+    const receipt = { content_type: "application/pdf", created_at: null, file_size: 3, filename: "recibo.pdf", sort_order: 0, uuid: "01J00000000000000000000005" };
+    const billWithReceipt: Bill = { ...renderedBill, receipts: [receipt] };
+    let billLoads = 0;
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        // Deleting a receipt puts the bill back into `pending` server-side.
+        return jsonResponse(billLoads === 1 ? billWithReceipt : renderingBill);
+      },
+      "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts/01J00000000000000000000005": () => new Response(null, { headers: { "X-Rentivo-Analytics-Event": "rentivo_receipt_deleted" }, status: 204 })
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+    expect(screen.getByText("recibo.pdf")).toBeVisible();
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+    expect(billLoads).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remover recibo.pdf" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remover" }));
+    await flush();
+    await flush();
+
+    expect(billLoads).toBe(2);
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+
+    await advance(3_000);
+    expect(billLoads).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("keeps detail visible and reports regeneration and deletion failures", async () => {

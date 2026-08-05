@@ -442,8 +442,11 @@ struct CommunicationComposerView: View {
   private var hasMildWarnings: Bool { !(preview?.mildWarnings.isEmpty ?? true) }
 
   private var sendDisabled: Bool {
+    // Defense in depth: the detail screen already disables the entry point while the PDF renders,
+    // but a composer opened just before the render started must not attach a stale document.
     isSending || isLoadingPreview || preview == nil || hasSevereWarnings
       || (hasMildWarnings && !acknowledgedWarnings) || selectedRecipients.isEmpty
+      || bill.isRenderingPDF
   }
 
   private var attachmentDescription: String {
