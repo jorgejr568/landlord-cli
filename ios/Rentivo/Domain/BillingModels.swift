@@ -527,6 +527,21 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public func canTransition(to target: BillStatus) -> Bool {
     effectiveTransitions.contains(target)
   }
+
+  /// Folds a freshly returned *bill summary* into this loaded bill: render state, action gates and
+  /// status come from `updated`, while detail-only data (receipts, line items) stays as loaded.
+  /// `POST .../regenerate` answers with the summary shape, which carries no receipts at all, so
+  /// replacing the loaded bill with it would empty the receipt list until the next poll tick.
+  public func applyingRenderMetadata(from updated: Bill) -> Bill {
+    var merged = self
+    merged.pdfRenderStatus = updated.pdfRenderStatus
+    merged.capabilities = updated.capabilities
+    merged.hasInvoice = updated.hasInvoice
+    merged.hasRecibo = updated.hasRecibo
+    merged.status = updated.status
+    merged.availableTransitions = updated.availableTransitions
+    return merged
+  }
 }
 
 public struct BillDraft: Hashable, Sendable {

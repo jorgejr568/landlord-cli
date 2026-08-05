@@ -9,6 +9,10 @@ import Testing
 
 private func renderBill(
   status: PDFRenderStatus?,
+  billStatus: BillStatus = .sent,
+  lineItems: [BillLineItem] = [],
+  receipts: [Receipt] = [],
+  availableTransitions: [BillStatus]? = nil,
   hasInvoice: Bool = false,
   hasRecibo: Bool = false,
   capabilities: BillCapabilities = .permissive
@@ -20,9 +24,10 @@ private func renderBill(
     dueDate: nil,
     paidAt: nil,
     notes: "",
-    status: .sent,
-    lineItems: [],
-    receipts: [],
+    status: billStatus,
+    lineItems: lineItems,
+    receipts: receipts,
+    availableTransitions: availableTransitions,
     pdfRenderStatus: status,
     hasInvoice: hasInvoice,
     hasRecibo: hasRecibo,
@@ -66,6 +71,45 @@ private func renderBill(
   #expect(capabilities.canSendInvoice)
   #expect(capabilities.canSendRecibo)
   #expect(capabilities.canRegenerate)
+}
+
+@Test func applyingRenderMetadataKeepsTheDetailOnlyDataOfTheLoadedBill() {
+  // `POST .../regenerate` answers with the bill *summary* (no receipts), so applying that body
+  // wholesale would blank out the receipt list until the next poll tick.
+  let receipts = [
+    Receipt(id: ReceiptID(rawValue: "receipt-1"), name: "comprovante.pdf", sortOrder: 0),
+    Receipt(id: ReceiptID(rawValue: "receipt-2"), name: "boleto.pdf", sortOrder: 1),
+  ]
+  let lineItems = [
+    BillLineItem(
+      id: BillLineItemID(rawValue: "line-1"), description: "Aluguel",
+      amount: Money(centavos: 250_000), kind: .fixed
+    )
+  ]
+  let loaded = renderBill(
+    status: .succeeded, billStatus: .sent, lineItems: lineItems, receipts: receipts,
+    availableTransitions: [.paid], hasInvoice: true, hasRecibo: true, capabilities: .permissive
+  )
+  let blocked = BillCapabilities(
+    canDownloadInvoice: false, canDownloadRecibo: false, canSendInvoice: false,
+    canSendRecibo: false, canRegenerate: true
+  )
+  let queued = renderBill(
+    status: .pending, billStatus: .paid, availableTransitions: [],
+    hasInvoice: false, hasRecibo: false, capabilities: blocked
+  )
+
+  let merged = loaded.applyingRenderMetadata(from: queued)
+
+  #expect(merged.receipts == receipts)
+  #expect(merged.lineItems == lineItems)
+  #expect(merged.pdfRenderStatus == .pending)
+  #expect(merged.isRenderingPDF)
+  #expect(merged.capabilities == blocked)
+  #expect(!merged.hasInvoice)
+  #expect(!merged.hasRecibo)
+  #expect(merged.status == .paid)
+  #expect(merged.availableTransitions == [])
 }
 
 @Test func billDefaultsToPermissiveCapabilitiesAndNoRenderStatus() {

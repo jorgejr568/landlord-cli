@@ -368,11 +368,19 @@ struct BillDetailView: View {
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(billing?.capabilities.canManageBills != true)
             if bill.status == .paid {
+              // Gated on the pending render alone: iOS opens `GET .../recibo`, which renders the
+              // recibo inline when no file is stored yet, so `canDownloadRecibo` (a
+              // stored-file gate) would disable a button the endpoint would have served.
               Button("Abrir recibo") { Task { await downloadRecibo() } }
-                .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadRecibo)
+                .disabled(bill.isRenderingPDF)
             }
           }
           .buttonStyle(.bordered)
+          if bill.isRenderingPDF {
+            Text("Os documentos ficam disponíveis assim que a geração terminar.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
 
         ReceiptManagerView(
@@ -546,9 +554,10 @@ struct BillDetailView: View {
     do {
       let queued = try await app.dependencies.bills.regenerateBill(
         billingID: billingID, billID: bill.id)
-      // The 202 body is already the updated bill, so applying it flips the screen to
-      // "Renderizando…" without a round trip; bumping the generation restarts the poll loop.
-      state = .loaded(queued)
+      // The 202 body is the bill *summary* (no receipts), so merging only its render/status
+      // metadata flips the screen to "Renderizando…" without a round trip and without blanking
+      // the receipt list; bumping the generation restarts the poll loop.
+      state = .loaded(bill.applyingRenderMetadata(from: queued))
       pollGeneration += 1
       await onMutation()
       app.showNotice("Documento enfileirado para regeneração.")
