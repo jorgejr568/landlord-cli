@@ -46,6 +46,8 @@ jobs:
         run: uv sync --all-extras --frozen
       - name: Run iOS CI helper shell tests
         run: ./scripts/tests/ios-ci-test.sh
+      - name: Run changed-area helper shell tests
+        run: ./scripts/tests/ci-changed-areas-test.sh
       - name: Run App Store Connect script tests
         run: uv run --project backend --no-sync pytest scripts/tests/test_asc_builds.py -q
 
