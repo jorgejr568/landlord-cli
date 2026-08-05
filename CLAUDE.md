@@ -120,8 +120,11 @@ make ios-test                # if ios/ changed (requires full Xcode)
 
 The complete release gate also renders production/development Compose,
 round-trips migrations on MariaDB, boots functional and production-settings
-stacks, runs dependency/configuration/image scans, and builds all production
-images locally for exact-tag scanning.
+stacks, runs dependency and configuration scans, and builds all production
+images locally to catch Dockerfile breakage. Image vulnerability scanning is
+not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
+the production images weekly and keeps the `Weekly image vulnerability report`
+issue (label `image-vulnerability-report`) up to date.
 
 ## Compose and release
 

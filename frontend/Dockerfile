@@ -15,7 +15,7 @@ FROM nginxinc/nginx-unprivileged:1.30-alpine
 USER root
 
 # The upstream image lags Alpine security releases; pull in the patched
-# OS packages so exact-tag vulnerability scans track the Alpine repos.
+# OS packages so the weekly vulnerability scan tracks the Alpine repos.
 RUN apk upgrade --no-cache
 
 COPY --from=builder --chown=101:101 /app/dist /usr/share/nginx/html
