@@ -88,12 +88,11 @@ export function BillDetailPage() {
     !controller.signal.aborted && generation === routeGeneration.current
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    setLoading(true);
-    setLoadError("");
+    if (!silent) setLoading(true);
     try {
       const [billingResult, billResult] = await Promise.all([
         apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", {
@@ -107,11 +106,13 @@ export function BillDetailPage() {
       if (controller.signal.aborted) return;
       setBilling(billingResult.data);
       setBill(billResult.data);
+      setLoadError("");
       setLoading(false);
     } catch (caught) {
       /* v8 ignore next -- an aborted request is intentionally discarded */
       if (controller.signal.aborted) return;
-      setLoadError(errorMessage(caught, "Não foi possível carregar a fatura."));
+      // A silent poll keeps the loaded page instead of replacing it with the load-error state.
+      if (!silent) setLoadError(errorMessage(caught, "Não foi possível carregar a fatura."));
       setLoading(false);
     }
   }, [billUuid, billingUuid]);
@@ -120,6 +121,13 @@ export function BillDetailPage() {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+
+  const pdfRendering = bill?.pdf_render_status === "pending";
+  useEffect(() => {
+    if (!pdfRendering) return;
+    const timer = window.setInterval(() => { void load({ silent: true }); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [pdfRendering, load]);
 
   const regenerate = async () => {
     /* v8 ignore next -- the action is only rendered after bill loading */

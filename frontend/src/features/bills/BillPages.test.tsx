@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -513,6 +513,131 @@ it("regenerates and deletes from detail using backend capabilities", async () =>
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(3);
+});
+
+const renderingCapabilities: components["schemas"]["BillCapabilitiesResponse"] = {
+  ...capabilities,
+  can_download_invoice: false, can_download_recibo: false,
+  can_send_invoice: false, can_send_recibo: false
+};
+const renderingBill: Bill = { ...bill, capabilities: renderingCapabilities, pdf_render_status: "pending" };
+const renderedBill: Bill = { ...bill, pdf_render_status: "succeeded" };
+const detailPath = "/billings/billing-public-uuid/bills/bill-public-uuid";
+const detailRoute = "/billings/:billingUuid/bills/:billUuid";
+
+const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+it("polls a rendering bill silently every five seconds and stops once the PDF is ready", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    let releasePoll = () => {};
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        if (billLoads === 2) return new Promise<Response>((resolve) => { releasePoll = () => resolve(jsonResponse(renderingBill)); });
+        return jsonResponse(billLoads === 1 ? renderingBill : renderedBill);
+      }
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
+    expect(billLoads).toBe(1);
+
+    await advance(4_999);
+    expect(billLoads).toBe(1);
+
+    await advance(1);
+    expect(billLoads).toBe(2);
+    expect(screen.queryByText("Carregando fatura...")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Fatura · Julho/2026" })).toBeVisible();
+    await act(async () => { releasePoll(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+
+    await advance(5_000);
+    expect(billLoads).toBe(3);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Baixar/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
+
+    await advance(20_000);
+    expect(billLoads).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("starts polling after a manual regeneration and stops when the render finishes", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        return jsonResponse(renderedBill);
+      },
+      "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse(renderingBill, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" })
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+
+    await advance(10_000);
+    expect(billLoads).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerar PDF" }));
+    await flush();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.getByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+    expect(billLoads).toBe(1);
+
+    await advance(5_000);
+    expect(billLoads).toBe(2);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+
+    await advance(20_000);
+    expect(billLoads).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps the loaded detail on screen when a silent poll fails", async () => {
+  vi.useFakeTimers();
+  try {
+    let billLoads = 0;
+    installFetch({
+      "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
+      "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
+        billLoads += 1;
+        if (billLoads === 2) return problemResponse({ code: "offline", detail: "Falha ao atualizar a fatura.", fields: {}, request_id: "req", status: 503, title: "Erro", type: "problem" });
+        return jsonResponse(billLoads === 1 ? renderingBill : renderedBill);
+      }
+    });
+    renderAt(<BillDetailPage />, detailPath, detailRoute);
+    await flush();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+
+    await advance(5_000);
+    expect(billLoads).toBe(2);
+    expect(screen.getByRole("heading", { name: "Fatura · Julho/2026" })).toBeVisible();
+    expect(screen.getByText("Renderizando…")).toBeVisible();
+    expect(screen.queryByText("Falha ao atualizar a fatura.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tentar novamente" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Carregando fatura...")).not.toBeInTheDocument();
+
+    await advance(5_000);
+    expect(billLoads).toBe(3);
+    expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("keeps detail visible and reports regeneration and deletion failures", async () => {
