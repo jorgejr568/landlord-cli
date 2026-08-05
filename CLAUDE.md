@@ -140,11 +140,10 @@ Images are defined by:
 - `frontend/Dockerfile`
 
 The deployment workflow publishes API, worker, and frontend images for one Git
-SHA, scans each exact digest before attestation, resolves and verifies OCI
-labels/provenance, and tests the exact images without rebuilding. Protected
-deployment automation validates production configuration and real integration
-reachability before migration and rollout. See
-`docs/runbooks/production-release.md`.
+SHA, attests each exact digest, resolves and verifies OCI labels/provenance,
+and tests the exact images without rebuilding. Protected deployment automation
+validates production configuration and real integration reachability before
+migration and rollout. See `docs/runbooks/production-release.md`.
 
 The iOS app releases independently: changing `MARKETING_VERSION` in
 `ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
