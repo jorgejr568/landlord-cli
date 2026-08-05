@@ -556,7 +556,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
     expect(billLoads).toBe(1);
 
-    await advance(4_999);
+    await advance(2_999);
     expect(billLoads).toBe(1);
 
     await advance(1);
@@ -566,7 +566,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     await act(async () => { releasePoll(); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByText("Renderizando…")).toBeVisible();
 
-    await advance(5_000);
+    await advance(3_000);
     expect(billLoads).toBe(3);
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Baixar/ })).toBeVisible();
@@ -604,7 +604,7 @@ it("starts polling after a manual regeneration and stops when the render finishe
     expect(screen.getByText("O PDF será regenerado em segundo plano.")).toBeVisible();
     expect(billLoads).toBe(1);
 
-    await advance(5_000);
+    await advance(3_000);
     expect(billLoads).toBe(2);
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
 
@@ -631,7 +631,7 @@ it("keeps the loaded detail on screen when a silent poll fails", async () => {
     await flush();
     expect(screen.getByText("Renderizando…")).toBeVisible();
 
-    await advance(5_000);
+    await advance(3_000);
     expect(billLoads).toBe(2);
     expect(screen.getByRole("heading", { name: "Fatura · Julho/2026" })).toBeVisible();
     expect(screen.getByText("Renderizando…")).toBeVisible();
@@ -639,7 +639,7 @@ it("keeps the loaded detail on screen when a silent poll fails", async () => {
     expect(screen.queryByRole("button", { name: "Tentar novamente" })).not.toBeInTheDocument();
     expect(screen.queryByText("Carregando fatura...")).not.toBeInTheDocument();
 
-    await advance(5_000);
+    await advance(3_000);
     expect(billLoads).toBe(3);
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
   } finally {
@@ -677,7 +677,7 @@ it("reloads the bill after a receipt change so a server-side render turns into a
     expect(screen.getByText("Renderizando…")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
 
-    await advance(5_000);
+    await advance(3_000);
     expect(billLoads).toBe(3);
   } finally {
     vi.useRealTimers();

@@ -125,7 +125,7 @@ export function BillDetailPage() {
   const pdfRendering = bill?.pdf_render_status === "pending";
   useEffect(() => {
     if (!pdfRendering) return;
-    const timer = window.setInterval(() => { void load({ silent: true }); }, 5000);
+    const timer = window.setInterval(() => { void load({ silent: true }); }, 3000);
     return () => window.clearInterval(timer);
   }, [pdfRendering, load]);
 
