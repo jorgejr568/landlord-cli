@@ -267,6 +267,13 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
+  /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
+  /// the bill was already `pending`.
+  @State private var pollGeneration = 0
+
+  private var pollKey: String {
+    "\(app.dataRevision)-\(pollGeneration)-\(state.value?.isRenderingPDF == true)"
+  }
 
   var body: some View {
     PageStateView(state: state) { bill in
@@ -304,6 +311,7 @@ struct BillDetailView: View {
       Button("Cancelar", role: .cancel) {}
     }
     .task(id: app.dataRevision) { await load() }
+    .task(id: pollKey) { await pollWhileRendering() }
   }
 
   private func content(_ bill: Bill) -> some View {
@@ -346,17 +354,22 @@ struct BillDetailView: View {
 
         VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
           SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
+          renderStatus(bill)
           Button {
             Task { await downloadInvoice() }
           } label: {
             Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
           }
           .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice)
           HStack {
+            // Regenerating stays available while a render is pending: a re-trigger supersedes the
+            // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(billing?.capabilities.canManageBills != true)
             if bill.status == .paid {
               Button("Abrir recibo") { Task { await downloadRecibo() } }
+                .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadRecibo)
             }
           }
           .buttonStyle(.bordered)
@@ -375,6 +388,7 @@ struct BillDetailView: View {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
+          .disabled(bill.isRenderingPDF)
         }
 
         if billing?.capabilities.canManageBills == true {
@@ -388,6 +402,27 @@ struct BillDetailView: View {
         }
       }
       .padding(RentivoSpacing.page)
+    }
+  }
+
+  @ViewBuilder
+  private func renderStatus(_ bill: Bill) -> some View {
+    switch bill.pdfRenderStatus {
+    case .pending:
+      HStack(spacing: RentivoSpacing.small) {
+        Label("Renderizando…", systemImage: "clock.arrow.circlepath")
+        ProgressView()
+      }
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.secondaryInk)
+      .accessibilityIdentifier("bill.pdf.rendering")
+    case .failed:
+      Label("Falha no PDF", systemImage: "exclamationmark.triangle")
+        .font(.footnote)
+        .foregroundStyle(RentivoColors.coral)
+        .accessibilityIdentifier("bill.pdf.failed")
+    case .succeeded, nil:
+      EmptyView()
     }
   }
 
@@ -455,6 +490,32 @@ struct BillDetailView: View {
     }
   }
 
+  /// Re-fetches the bill without ever entering `.loading`, so a poll tick can never replace the
+  /// screen the user is reading with `PageStateView`'s spinner.
+  private func refreshQuietly() async {
+    do {
+      let refreshedBilling = try await app.dependencies.billings.billing(id: billingID)
+      let refreshedBill = try await app.dependencies.bills.bill(billingID: billingID, id: billID)
+      guard !Task.isCancelled else { return }
+      billing = refreshedBilling
+      state = .loaded(refreshedBill)
+    } catch {
+      // A failed silent refresh leaves the current state untouched; the loop retries on the next
+      // tick. Reporting it would put a warning banner on the screen for a poll the user never
+      // asked for.
+    }
+  }
+
+  private func pollWhileRendering() async {
+    while !Task.isCancelled, BillPDFPolling.shouldPoll(state.value) {
+      try? await Task.sleep(for: BillPDFPolling.interval)
+      // `Task.sleep` swallows its own cancellation above, so the flag is the only signal that the
+      // view went away while we waited.
+      if Task.isCancelled { return }
+      await refreshQuietly()
+    }
+  }
+
   private func refreshAll() async {
     await load()
     await onMutation()
@@ -483,9 +544,13 @@ struct BillDetailView: View {
 
   private func regenerate(_ bill: Bill) async {
     do {
-      _ = try await app.dependencies.bills.regenerateBill(billingID: billingID, billID: bill.id)
-      // `refreshAll()` already calls `onMutation()`; calling it again here made the parent reload twice.
-      await refreshAll()
+      let queued = try await app.dependencies.bills.regenerateBill(
+        billingID: billingID, billID: bill.id)
+      // The 202 body is already the updated bill, so applying it flips the screen to
+      // "Renderizando…" without a round trip; bumping the generation restarts the poll loop.
+      state = .loaded(queued)
+      pollGeneration += 1
+      await onMutation()
       app.showNotice("Documento enfileirado para regeneração.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }

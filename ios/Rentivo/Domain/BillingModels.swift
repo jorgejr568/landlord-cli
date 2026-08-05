@@ -392,6 +392,56 @@ public struct Attachment: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+/// The server's asynchronous PDF render state for a bill. The wire literals are exactly
+/// `"pending" | "succeeded" | "failed"`; anything else (including `null`) decodes to `nil`.
+public enum PDFRenderStatus: String, Hashable, Codable, Sendable {
+  case pending
+  case succeeded
+  case failed
+}
+
+/// Server-authoritative, per-bill action gates. The server folds the pending render state into
+/// these flags, so the UI can treat them as the single source of truth for what is allowed now.
+public struct BillCapabilities: Hashable, Codable, Sendable {
+  public var canDownloadInvoice: Bool
+  public var canDownloadRecibo: Bool
+  public var canSendInvoice: Bool
+  public var canSendRecibo: Bool
+  public var canRegenerate: Bool
+
+  public init(
+    canDownloadInvoice: Bool,
+    canDownloadRecibo: Bool,
+    canSendInvoice: Bool,
+    canSendRecibo: Bool,
+    canRegenerate: Bool
+  ) {
+    self.canDownloadInvoice = canDownloadInvoice
+    self.canDownloadRecibo = canDownloadRecibo
+    self.canSendInvoice = canSendInvoice
+    self.canSendRecibo = canSendRecibo
+    self.canRegenerate = canRegenerate
+  }
+
+  /// Used when no server capabilities are available (older payloads, the mock store). Gating is a
+  /// server concern; without an answer the client must not invent restrictions of its own.
+  public static let permissive = BillCapabilities(
+    canDownloadInvoice: true, canDownloadRecibo: true, canSendInvoice: true,
+    canSendRecibo: true, canRegenerate: true
+  )
+}
+
+/// Poll cadence for a bill whose PDF is still rendering.
+public enum BillPDFPolling {
+  public static let interval: Duration = .seconds(5)
+
+  /// Poll only while the loaded bill reports a pending render; stop on success, failure, an
+  /// unknown status, or no bill at all.
+  public static func shouldPoll(_ bill: Bill?) -> Bool {
+    bill?.isRenderingPDF == true
+  }
+}
+
 public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID
@@ -412,6 +462,12 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   /// `nil` means "not provided by this response" — callers should fall back
   /// to the locally computed `total` (see `effectiveTotal`).
   public var serverTotal: Money?
+  /// `nil` means the bill was never rendered, or the server reported a status this client does
+  /// not model — either way, not "rendering".
+  public var pdfRenderStatus: PDFRenderStatus?
+  public var hasInvoice: Bool
+  public var hasRecibo: Bool
+  public var capabilities: BillCapabilities
 
   public init(
     id: BillID,
@@ -424,7 +480,11 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     lineItems: [BillLineItem],
     receipts: [Receipt],
     availableTransitions: [BillStatus]? = nil,
-    serverTotal: Money? = nil
+    serverTotal: Money? = nil,
+    pdfRenderStatus: PDFRenderStatus? = nil,
+    hasInvoice: Bool = false,
+    hasRecibo: Bool = false,
+    capabilities: BillCapabilities = .permissive
   ) {
     self.id = id
     self.billingID = billingID
@@ -437,7 +497,15 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     self.receipts = receipts
     self.availableTransitions = availableTransitions
     self.serverTotal = serverTotal
+    self.pdfRenderStatus = pdfRenderStatus
+    self.hasInvoice = hasInvoice
+    self.hasRecibo = hasRecibo
+    self.capabilities = capabilities
   }
+
+  /// The PDF for this bill is being (re)generated in the background, so any document already on
+  /// the server may be stale and must not be opened or e-mailed yet.
+  public var isRenderingPDF: Bool { pdfRenderStatus == .pending }
 
   public var total: Money {
     lineItems.map(\.amount).reduce(.zero, +)

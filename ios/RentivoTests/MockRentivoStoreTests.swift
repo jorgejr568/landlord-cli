@@ -537,3 +537,49 @@ import Testing
   #expect(blocked.severeWarnings == ["vou te matar"])
   #expect(blocked.mildWarnings.isEmpty)
 }
+
+@Test @MainActor func mockFixtureBillsExposeRenderedDocuments() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let sent = try await store.bill(billingID: StableID.billingAurora202, id: StableID.billSent)
+  let paid = try await store.bill(billingID: StableID.billingAurora101, id: StableID.billPaid)
+
+  #expect(sent.pdfRenderStatus == .succeeded)
+  #expect(sent.hasInvoice)
+  #expect(!sent.hasRecibo)
+  #expect(sent.capabilities == .permissive)
+  #expect(paid.hasRecibo)
+}
+
+@Test @MainActor func mockRegenerateQueuesTheRenderAndSettlesAfterTwoFetches() async throws {
+  // Demo mode has to exercise the whole poll cycle: the bill comes back `pending`, stays pending
+  // for the first poll tick, and flips to `succeeded` on the second one.
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let queued = try await store.regenerateBill(
+    billingID: StableID.billingAurora202, billID: StableID.billSent)
+  #expect(queued.pdfRenderStatus == .pending)
+
+  let firstPoll = try await store.bill(
+    billingID: StableID.billingAurora202, id: StableID.billSent)
+  #expect(firstPoll.pdfRenderStatus == .pending)
+
+  let secondPoll = try await store.bill(
+    billingID: StableID.billingAurora202, id: StableID.billSent)
+  #expect(secondPoll.pdfRenderStatus == .succeeded)
+
+  // The countdown is consumed, so later fetches stay settled.
+  let thirdPoll = try await store.bill(
+    billingID: StableID.billingAurora202, id: StableID.billSent)
+  #expect(thirdPoll.pdfRenderStatus == .succeeded)
+}
+
+@Test @MainActor func mockResetClearsAPendingRenderCountdown() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  _ = try await store.regenerateBill(billingID: StableID.billingAurora202, billID: StableID.billSent)
+
+  store.reset()
+
+  let bill = try await store.bill(billingID: StableID.billingAurora202, id: StableID.billSent)
+  #expect(bill.pdfRenderStatus == .succeeded)
+}
