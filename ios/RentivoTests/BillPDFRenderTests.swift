@@ -60,7 +60,7 @@ private func renderBill(
 }
 
 @Test func billPDFPollingUsesTheFiveSecondInterval() {
-  #expect(BillPDFPolling.interval == .seconds(5))
+  #expect(BillPDFPolling.interval == .seconds(3))
 }
 
 @Test func permissiveCapabilitiesAllowEveryBillAction() {

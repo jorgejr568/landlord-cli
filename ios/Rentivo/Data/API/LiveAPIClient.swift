@@ -48,10 +48,16 @@ actor LiveAPIClient {
   /// so a stalled connection (e.g. the iOS Simulator's flaky HTTP/3 path, or a
   /// dropped mobile network) fails fast and stays retryable instead of freezing
   /// the UI on the system default timeout. Tests inject their own stubbed session.
-  private static func makeSession() -> URLSession {
+  static func makeSession() -> URLSession {
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = 30
     configuration.waitsForConnectivity = false
+    // The API sends no Cache-Control headers, so URLCache heuristically caches GET
+    // responses — a poll for `pdf_render_status` then reads its own stale `pending`
+    // copy forever instead of the network. Every response here is private, dynamic
+    // JSON: never cache it (also keeps billing data off the simulator/device disk).
+    configuration.urlCache = nil
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     return URLSession(configuration: configuration)
   }
 

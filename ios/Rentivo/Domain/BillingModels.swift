@@ -433,7 +433,7 @@ public struct BillCapabilities: Hashable, Codable, Sendable {
 
 /// Poll cadence for a bill whose PDF is still rendering.
 public enum BillPDFPolling {
-  public static let interval: Duration = .seconds(5)
+  public static let interval: Duration = .seconds(3)
 
   /// Poll only while the loaded bill reports a pending render; stop on success, failure, an
   /// unknown status, or no bill at all.

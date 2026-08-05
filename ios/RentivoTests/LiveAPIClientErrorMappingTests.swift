@@ -286,6 +286,16 @@ private final class DownloadPDFURLProtocol: URLProtocol, @unchecked Sendable {
   }
 }
 
+@Test func defaultSessionNeverUsesTheHTTPCache() {
+  // The API sends no Cache-Control, so a caching session would heuristically serve stale
+  // GET responses — the pdf_render_status poll would re-read its own cached "pending"
+  // forever. The default session must bypass the URL cache entirely.
+  let session = LiveAPIClient.makeSession()
+
+  #expect(session.configuration.urlCache == nil)
+  #expect(session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+}
+
 private final class TimeoutURLProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
