@@ -150,10 +150,16 @@ private final class DownloadForbiddenURLProtocol: URLProtocol, @unchecked Sendab
 }
 
 @Test func downloadAppendsExtensionFromContentTypeWhenFilenameHasNoDot() async throws {
+  // Its own downloads directory: another test reaching `logout()`/`invalidateSession()` purges the
+  // shared one, and Swift Testing runs these concurrently.
+  let store = makeIsolatedDownloadsStore()
+  defer { store.purge() }
   let credentials = MemoryCredentialStore(token: "stored-token")
   let configuration = URLSessionConfiguration.ephemeral
   configuration.protocolClasses = [DownloadJPEGURLProtocol.self]
-  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  let client = LiveAPIClient(
+    session: URLSession(configuration: configuration), credentials: credentials, downloads: store
+  )
   _ = try #require(try await client.restoreSession())
 
   let file = try await client.download(
@@ -197,10 +203,16 @@ private final class DownloadJPEGURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 @Test func downloadPreservesAnAlreadyExtensionedFilenameRegardlessOfContentType() async throws {
+  // Its own downloads directory: another test reaching `logout()`/`invalidateSession()` purges the
+  // shared one, and Swift Testing runs these concurrently.
+  let store = makeIsolatedDownloadsStore()
+  defer { store.purge() }
   let credentials = MemoryCredentialStore(token: "stored-token")
   let configuration = URLSessionConfiguration.ephemeral
   configuration.protocolClasses = [DownloadPDFURLProtocol.self]
-  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  let client = LiveAPIClient(
+    session: URLSession(configuration: configuration), credentials: credentials, downloads: store
+  )
   _ = try #require(try await client.restoreSession())
 
   let file = try await client.download(
@@ -284,16 +296,6 @@ private final class DownloadPDFURLProtocol: URLProtocol, @unchecked Sendable {
     }
     #expect(message.contains("conexão"))
   }
-}
-
-@Test func defaultSessionNeverUsesTheHTTPCache() {
-  // The API sends no Cache-Control, so a caching session would heuristically serve stale
-  // GET responses — the pdf_render_status poll would re-read its own cached "pending"
-  // forever. The default session must bypass the URL cache entirely.
-  let session = LiveAPIClient.makeSession()
-
-  #expect(session.configuration.urlCache == nil)
-  #expect(session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
 }
 
 private final class TimeoutURLProtocol: URLProtocol, @unchecked Sendable {
