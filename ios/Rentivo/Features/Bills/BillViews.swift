@@ -291,7 +291,7 @@ struct BillDetailView: View {
         }
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .sheet(isPresented: $showingCommunication) {
       if let billing, let bill = state.value {
         NavigationStack {
@@ -564,7 +564,7 @@ private struct ReceiptManagerView: View {
         .buttonStyle(.bordered)
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],
