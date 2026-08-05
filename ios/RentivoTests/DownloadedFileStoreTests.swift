@@ -42,9 +42,16 @@ func makeIsolatedDownloadsStore() -> DownloadedFileStore {
   #expect(try Data(contentsOf: file.fileURL) == Data("%PDF-1.4".utf8))
   // Darwin reports the applied data-protection class through `FileManager`. macOS applies it on
   // APFS exactly as iOS does, so this assertion is meaningful on the platform `swift test` builds
-  // for as well as on the device.
-  let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
-  #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
+  // for as well as on the device. The iOS *Simulator* does not enforce data protection: it
+  // accepts the write option and reports the container default
+  // (`.completeUntilFirstUserAuthentication`), so asserting the attribute there would test the
+  // simulator, not the store — assert the store's writing options instead.
+  #if targetEnvironment(simulator)
+    #expect(DownloadedFileStore.writingOptions.contains(.completeFileProtectionUnlessOpen))
+  #else
+    let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
+    #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
+  #endif
 }
 
 private final class ProtectedDownloadURLProtocol: URLProtocol, @unchecked Sendable {
