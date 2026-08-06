@@ -12,6 +12,7 @@ import { LoginPage } from "../features/auth/LoginPage";
 import { MobileLogoutPage } from "../features/auth/MobileLogoutPage";
 import { MfaSetupGuard } from "../features/auth/MfaSetupGuard";
 import { MfaVerifyPage } from "../features/auth/MfaVerifyPage";
+import { MobileHandoffProvider } from "../features/auth/mobileHandoff";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { SignupPage } from "../features/auth/SignupPage";
 import { BillingCreatePage } from "../features/billings/BillingCreatePage";
@@ -37,12 +38,19 @@ import { SupportPage } from "../features/support/SupportPage";
 import { ThemePage } from "../features/themes/ThemePage";
 import { LandingPage } from "../features/landing/LandingPage";
 
+export const PUBLIC_AUTH_ROUTE_ID = "public-auth";
+
 // eslint-disable-next-line react-refresh/only-export-components
 function PublicAuthLayout() {
+  // Wraps every anonymous route, so mounting the handoff provider here covers
+  // the whole surface reachable inside the iOS authentication sheet — including
+  // routes added later. See docs/superpowers/specs/2026-08-06-ios-google-login-gate-design.md.
   return (
-    <main className="wrapper main-content">
-      <Outlet />
-    </main>
+    <MobileHandoffProvider>
+      <main className="wrapper main-content">
+        <Outlet />
+      </main>
+    </MobileHandoffProvider>
   );
 }
 
@@ -130,7 +138,11 @@ export function createAppRouter(children: RouteObject[] = []) {
             { element: <TermsPage />, path: "/terms" },
             { element: <SupportPage />, path: "/support" }
           ],
-          element: <PublicAuthLayout />
+          element: <PublicAuthLayout />,
+          // Named so the guideline 4.8 regression test can walk every route
+          // reachable inside the iOS authentication sheet without a
+          // hand-maintained list.
+          id: PUBLIC_AUTH_ROUTE_ID
         },
         { element: <HomeRoute />, path: "/" },
         { children: authenticatedRoutes, element: <ProtectedApp /> }

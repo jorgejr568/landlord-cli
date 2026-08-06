@@ -1,14 +1,21 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AuthError,
   GoogleAuthLink,
+  GoogleAuthOption,
   LoginAuthHeader,
   RentivoTitle,
   StandardAuthPanel,
   SubmitButton
 } from "./AuthComponents";
+import { MobileHandoffProvider } from "./mobileHandoff";
+
+afterEach(() => {
+  sessionStorage.clear();
+});
 
 describe("authentication components", () => {
   it("preserves the standard legacy panel and Rentivo title", () => {
@@ -59,5 +66,47 @@ describe("authentication components", () => {
       "/api/v1/auth/google/start"
     );
     expect(document.querySelector(".google-icon")).toBeInTheDocument();
+  });
+
+  it("shows the Google option with its separator when the flag is on", () => {
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <MobileHandoffProvider>
+          <GoogleAuthOption enabled />
+        </MobileHandoffProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("link", { name: "Continuar com Google" })).toBeVisible();
+    expect(screen.getByText("ou")).toBeVisible();
+  });
+
+  it("hides the Google option, separator included, when the flag is off", () => {
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <MobileHandoffProvider>
+          <GoogleAuthOption enabled={false} />
+        </MobileHandoffProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole("link", { name: "Continuar com Google" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ou")).not.toBeInTheDocument();
+  });
+
+  it("hides the Google option inside the iOS handoff even when the flag is on", () => {
+    // App Store guideline 4.8: a third-party login service reachable from
+    // inside the app requires an equivalent alternative. Rentivo offers none,
+    // so the app must expose only its own email and password login.
+    render(
+      <MemoryRouter initialEntries={["/login?mobile_state=native-state"]}>
+        <MobileHandoffProvider>
+          <GoogleAuthOption enabled />
+        </MobileHandoffProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole("link", { name: "Continuar com Google" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ou")).not.toBeInTheDocument();
   });
 });

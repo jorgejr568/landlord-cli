@@ -12,6 +12,7 @@ import {
 } from "./AuthComponents";
 import { postLoginPath, useAuth } from "./AuthProvider";
 import { pushAnalyticsEvent } from "./analytics";
+import { useMobileHandoff } from "./mobileHandoff";
 import { Turnstile, type TurnstileHandle } from "./Turnstile";
 
 type PasswordForgotRequest = components["schemas"]["PasswordForgotRequest"];
@@ -19,6 +20,7 @@ type PasswordForgotRequest = components["schemas"]["PasswordForgotRequest"];
 export function ForgotPasswordPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const { withHandoff } = useMobileHandoff();
   const [email, setEmail] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export function ForgotPasswordPage() {
             </>
           )}
           <p style={{ marginTop: "1rem", textAlign: "center" }}>
-            <Link to="/login">Voltar para o login</Link>
+            <Link to={withHandoff("/login")}>Voltar para o login</Link>
           </p>
         </StandardAuthPanel>
       )}
