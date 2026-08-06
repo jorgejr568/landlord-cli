@@ -218,7 +218,8 @@ class TestBillRepoCRUD:
         with pytest.raises(RuntimeError, match="database failed"):
             repo.update_status_and_clear_recibo(1, "paid", None, "sent", datetime.now(SP_TZ))
 
-        conn.rollback.assert_called_once_with()
+        # Once to drop a stale read view at entry, once to undo the failed transaction.
+        assert conn.rollback.call_count == 2
 
     def test_leaving_paid_atomic_clear_handles_lost_update_after_read(self, fake_encryption):
         conn = MagicMock()
@@ -760,12 +761,12 @@ class TestBillRepoSnapshotConflictRetry:
         selected = MagicMock()
         selected.mappings.return_value.fetchone.return_value = {
             "pdf_path": "old.pdf",
-            "pdf_render_operation_id": "01JRENDEROPERATION000000001",
+            "pdf_render_operation_id": "01JRENDEROPERATION00000001",
         }
         conn.execute.side_effect = [_snapshot_conflict(), selected, MagicMock(rowcount=1)]
         repo = SQLAlchemyBillRepository(conn, fake_encryption)
 
-        assert repo.publish_pdf_render(1, "01JRENDEROPERATION000000001", "candidate.pdf") == (True, "old.pdf")
+        assert repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf") == (True, "old.pdf")
         assert conn.execute.call_count == 3
         conn.commit.assert_called_once_with()
 
@@ -776,7 +777,7 @@ class TestBillRepoSnapshotConflictRetry:
         repo = SQLAlchemyBillRepository(conn, fake_encryption)
 
         with pytest.raises(OperationalError):
-            repo.publish_pdf_render(1, "01JRENDEROPERATION000000001", "candidate.pdf")
+            repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf")
 
         assert conn.execute.call_count == 3
 
@@ -794,7 +795,7 @@ class TestBillRepoSnapshotConflictRetry:
         repo = SQLAlchemyBillRepository(conn, fake_encryption)
 
         with pytest.raises(OperationalError):
-            repo.publish_pdf_render(1, "01JRENDEROPERATION000000001", "candidate.pdf")
+            repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf")
 
         assert conn.execute.call_count == 1
 
@@ -853,8 +854,8 @@ def _seed_mariadb_render_bill(engine, operation_id: str) -> None:
 def test_publish_pdf_render_survives_concurrent_recibo_write_on_mariadb() -> None:
     operation_id = "01JRENDEROPERATION00000001"
     engine = create_engine(os.environ["RENTIVO_TEST_MARIADB_URL"], pool_size=2, max_overflow=0)
-    _seed_mariadb_render_bill(engine, operation_id)
     try:
+        _seed_mariadb_render_bill(engine, operation_id)
         with engine.connect() as render_connection:
             repository = SQLAlchemyBillRepository(render_connection, FakeEncryptingBackend())
             # The render job reads the bill, then spends seconds building the PDF.
@@ -890,8 +891,8 @@ def test_stale_render_snapshot_observes_concurrent_regenerate_on_mariadb() -> No
     stale_operation_id = "01JRENDEROPERATION00000001"
     fresh_operation_id = "01JRENDEROPERATION00000002"
     engine = create_engine(os.environ["RENTIVO_TEST_MARIADB_URL"], pool_size=2, max_overflow=0)
-    _seed_mariadb_render_bill(engine, stale_operation_id)
     try:
+        _seed_mariadb_render_bill(engine, stale_operation_id)
         with engine.connect() as render_connection:
             repository = SQLAlchemyBillRepository(render_connection, FakeEncryptingBackend())
             render_connection.execute(text("SELECT * FROM bills WHERE id = 1 AND deleted_at IS NULL")).all()

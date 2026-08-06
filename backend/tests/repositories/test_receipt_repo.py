@@ -319,7 +319,8 @@ class TestReceiptRepoCRUD:
         receipt = Receipt(id=1, uuid="receipt", bill_id=1, filename="restore.pdf")
 
         assert repo.restore_after_failed_render(receipt, "operation", "old.pdf", "succeeded") is False
-        conn.rollback.assert_called_once_with()
+        # Once to drop a stale read view at entry, once to undo the lost update.
+        assert conn.rollback.call_count == 2
 
     def test_restore_after_failed_render_rolls_back_repository_error(self, encryption):
         conn = MagicMock()
@@ -335,7 +336,7 @@ class TestReceiptRepoCRUD:
                 "succeeded",
             )
 
-        conn.rollback.assert_called_once_with()
+        assert conn.rollback.call_count == 2
 
     def test_create_runtime_error(self, receipt_repo, billing_with_bill):
         _, bill = billing_with_bill

@@ -22,9 +22,11 @@ from rentivo.repositories.sqlalchemy._common import _group_rows_by, _now
 # the transaction's read view. The render pipeline holds a single connection
 # across seconds of PDF and storage I/O, so the read that starts the job
 # freezes a read view that a concurrent render of the same bill (``pdf.render``
-# next to ``recibo.render``) invalidates. Every render-state method therefore
-# rolls back at entry to start from a fresh read view; rolling back is safe
-# because repository methods always commit or roll back before returning.
+# next to ``recibo.render``) invalidates. Web requests hit the same problem: they
+# resolve bill access with plain reads before mutating. Every render-state and
+# mutating method therefore rolls back at entry to start from a fresh read view;
+# rolling back is safe because repository methods always commit or roll back
+# before returning.
 _SNAPSHOT_CONFLICT_ERRNO = 1020
 _SNAPSHOT_CONFLICT_ATTEMPTS = 3
 
@@ -257,6 +259,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.update")
     def update(self, bill: Bill) -> Bill:
+        self.conn.rollback()
         self.conn.execute(
             text(
                 "UPDATE bills SET reference_month = :reference_month, "
@@ -322,6 +325,7 @@ class SQLAlchemyBillRepository(BillRepository):
         status: str,
         status_updated_at: datetime | None,
     ) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text(
                 "UPDATE bills SET status = :status, status_updated_at = :status_updated_at "
@@ -350,6 +354,7 @@ class SQLAlchemyBillRepository(BillRepository):
         status: str,
         status_updated_at: datetime | None,
     ) -> tuple[bool, str | None]:
+        self.conn.rollback()
         params = {
             "id": bill_id,
             "expected_status": expected_status,
@@ -404,6 +409,7 @@ class SQLAlchemyBillRepository(BillRepository):
         status_updated_at: datetime | None,
         recibo_pdf_path: str | None,
     ) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text(
                 "UPDATE bills SET status = :status, status_updated_at = :status_updated_at, "
@@ -756,6 +762,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.delete")
     def delete(self, bill_id: int) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text("UPDATE bills SET deleted_at = :deleted_at WHERE id = :id AND deleted_at IS NULL"),
             {"deleted_at": _now(), "id": bill_id},
