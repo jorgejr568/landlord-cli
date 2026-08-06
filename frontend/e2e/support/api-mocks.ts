@@ -49,6 +49,8 @@ interface ApiKeyRecord {
 
 export interface ApiMockOptions {
   apiKeys?: ApiKeyRecord[];
+  /** Mirrors the production `google_auth` feature flag, which is on. */
+  googleAuth?: boolean;
   pendingInviteCount?: number;
   security?: SecuritySummary;
   session?: SessionMode;
@@ -320,7 +322,13 @@ export async function installApiMocks(
     state.requests.push({ body, headers: request.headers(), method, path });
 
     if (path === "/auth/config" && method === "GET") {
-      await fulfillJson(route, authConfig);
+      await fulfillJson(route, {
+        ...authConfig,
+        feature_flags: {
+          ...authConfig.feature_flags,
+          google_auth: options.googleAuth ?? authConfig.feature_flags.google_auth
+        }
+      });
       return;
     }
     if (path === "/auth/session" && method === "GET") {

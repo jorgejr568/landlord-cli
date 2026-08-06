@@ -6,12 +6,13 @@ import type { components } from "../../lib/api/schema";
 import {
   AuthConfigGate,
   AuthError,
-  GoogleAuthLink,
+  GoogleAuthOption,
   RentivoTitle,
   StandardAuthPanel,
   SubmitButton
 } from "./AuthComponents";
 import { postLoginPath, useAuth } from "./AuthProvider";
+import { useMobileHandoff } from "./mobileHandoff";
 import { Turnstile, type TurnstileHandle } from "./Turnstile";
 
 type SignupRequest = components["schemas"]["SignupRequest"];
@@ -19,6 +20,7 @@ type SignupRequest = components["schemas"]["SignupRequest"];
 export function SignupPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const { withHandoff } = useMobileHandoff();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -142,41 +144,9 @@ export function SignupPage() {
               Criar Conta
             </SubmitButton>
           </form>
-          {config.feature_flags.google_auth ? (
-            <>
-              <div
-                style={{
-                  alignItems: "center",
-                  display: "flex",
-                  gap: "0.75rem",
-                  margin: "1.25rem 0"
-                }}
-              >
-                <hr
-                  style={{
-                    border: "none",
-                    borderTop: "1px solid var(--border, #ddd)",
-                    flex: 1,
-                    margin: 0
-                  }}
-                />
-                <span className="muted" style={{ fontSize: "0.85rem" }}>
-                  ou
-                </span>
-                <hr
-                  style={{
-                    border: "none",
-                    borderTop: "1px solid var(--border, #ddd)",
-                    flex: 1,
-                    margin: 0
-                  }}
-                />
-              </div>
-              <GoogleAuthLink />
-            </>
-          ) : null}
+          <GoogleAuthOption enabled={config.feature_flags.google_auth} />
           <p style={{ marginTop: "1rem", textAlign: "center" }}>
-            Já tem conta? <Link to="/login">Entrar</Link>
+            Já tem conta? <Link to={withHandoff("/login")}>Entrar</Link>
           </p>
         </StandardAuthPanel>
       )}
