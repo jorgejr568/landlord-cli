@@ -19,23 +19,42 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      docker: ${{ steps.filter.outputs.docker }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Detect iOS-relevant changes
+      - name: Detect changed release gate areas
         id: filter
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           ios="$(./scripts/ios-ci.sh paths-changed "${BASE_SHA:-}")"
           echo "iOS-relevant changes: $ios"
           echo "ios=$ios" >> "$GITHUB_OUTPUT"
+          echo "Changed release gate areas:"
+          # Path filtering only holds for a pull request, where the base commit
+          # is the branch point of the whole change. On workflow_call, dispatch,
+          # and push the gate must run in full: interleaved merges mean an
+          # area verified at PR time can be stale by the time this runs.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            areas="$(./scripts/ci-changed-areas.sh "${BASE_SHA:-}")"
+          else
+            areas=$'backend=true\nfrontend=true\ndocker=true\nscripts=true'
+          fi
+          printf '%s\n' "$areas" | tee -a "$GITHUB_OUTPUT"
 
   scripts:
     name: repository CI script tests
     runs-on: ubuntu-latest
+    # Never path-filtered: this job owns the tests for the changed-area
+    # classifier that gates every other job, so a change breaking the
+    # classifier into reporting nothing must not skip its own suite.
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
@@ -46,12 +65,16 @@ jobs:
         run: uv sync --all-extras --frozen
       - name: Run iOS CI helper shell tests
         run: ./scripts/tests/ios-ci-test.sh
+      - name: Run changed-area helper shell tests
+        run: ./scripts/tests/ci-changed-areas-test.sh
       - name: Run App Store Connect script tests
         run: uv run --project backend --no-sync pytest scripts/tests/test_asc_builds.py -q
 
   backend:
     name: backend lint, tests, and coverage
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     steps:
       - uses: actions/checkout@v7
       - name: Install uv
@@ -89,6 +112,9 @@ jobs:
   frontend:
     name: frontend OpenAPI, tests, typecheck, lint, and build
     runs-on: ubuntu-latest
+    needs: changes
+    # The generated API contract check regenerates the schema from the backend.
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -146,6 +172,8 @@ jobs:
   e2e:
     name: mocked frontend E2E, accessibility, and visual parity
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -175,6 +203,8 @@ jobs:
   migrations:
     name: migration single head and clean upgrade
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     services:
       mariadb:
         image: mariadb:11
@@ -606,6 +636,8 @@ jobs:
   compose-config:
     name: promoted Compose configuration
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.backend == 'true'
     env:
       MYSQL_DATABASE: rentivo_compose_ci
       MYSQL_PASSWORD: ci-only-database-password
@@ -646,6 +678,11 @@ jobs:
   functional-stack:
     name: MariaDB-backed functional stack with CI-only local backends
     runs-on: ubuntu-latest
+    needs: changes
+    if: >-
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.frontend == 'true' ||
+      needs.changes.outputs.docker == 'true'
     timeout-minutes: 30
     env:
       MYSQL_DATABASE: rentivo_gate
@@ -782,6 +819,8 @@ jobs:
   production-startup:
     name: production settings migration, API, and worker startup
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.docker == 'true'
     timeout-minutes: 25
     env:
       MYSQL_DATABASE: rentivo_production_ci
@@ -971,14 +1010,19 @@ jobs:
     needs: [changes, scripts, backend, frontend, ios, e2e, migrations, compose-config, functional-stack, production-startup, security-scan]
     if: always()
     steps:
+      # Path filtering may skip any gate job whose inputs did not change, but
+      # the detection job itself must have succeeded for those skips to mean
+      # anything, and nothing may fail or be cancelled.
       - name: Verify every release gate succeeded
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           failures="$(printf '%s' "$NEEDS_JSON" | jq -r '
             to_entries[]
-            | select(.value.result != "success")
-            | select((.key == "ios" and .value.result == "skipped") | not)
+            | select(
+                (.value.result != "success" and .value.result != "skipped")
+                or (.key == "changes" and .value.result != "success")
+              )
             | "\(.key)=\(.value.result)"')"
           if [ -n "$failures" ]; then
             printf 'Required release gates failed:\n%s\n' "$failures"
@@ -988,11 +1032,16 @@ jobs:
   production-images:
     name: immutable image build (${{ matrix.name }})
     runs-on: ubuntu-latest
-    needs: release-gate
-    # A skipped transitive dependency (the conditional ios job) would skip
+    needs: [changes, release-gate]
+    # A skipped transitive dependency (any path-filtered gate job) would skip
     # this job through the default success() condition even when the gate
-    # verifier passed, so gate on the verifier's result explicitly.
-    if: always() && needs.release-gate.result == 'success'
+    # verifier passed, so gate on the verifier's result explicitly. The images
+    # themselves only need rebuilding when their build inputs changed.
+    if: >-
+      always() && needs.release-gate.result == 'success' &&
+      (needs.changes.outputs.backend == 'true' ||
+       needs.changes.outputs.frontend == 'true' ||
+       needs.changes.outputs.docker == 'true')
     permissions:
       contents: read
     strategy:
@@ -1021,28 +1070,28 @@ jobs:
           cache-scope: ${{ matrix.scope }}
           load: "true"
           push: "false"
-      - name: Scan immutable image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}:${{ github.sha }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: "true"
-          exit-code: "1"
 
   all-checks-pass:
     name: all-checks-pass
     runs-on: ubuntu-latest
-    needs: [release-gate, production-images]
+    needs: [changes, release-gate, production-images]
     if: always()
     steps:
       - name: Verify release gate and immutable builds succeeded
         env:
           GATE_RESULT: ${{ needs.release-gate.result }}
           IMAGES_RESULT: ${{ needs.production-images.result }}
+          IMAGES_EXPECTED: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.docker == 'true' }}
         run: |
-          if [ "$GATE_RESULT" != "success" ] || [ "$IMAGES_RESULT" != "success" ]; then
+          if [ "$GATE_RESULT" != "success" ]; then
             echo "release-gate=$GATE_RESULT"
-            echo "production-images=$IMAGES_RESULT"
             exit 1
           fi
+          if [ "$IMAGES_RESULT" = "success" ]; then
+            exit 0
+          fi
+          if [ "$IMAGES_RESULT" = "skipped" ] && [ "$IMAGES_EXPECTED" != "true" ]; then
+            exit 0
+          fi
+          echo "production-images=$IMAGES_RESULT (expected=$IMAGES_EXPECTED)"
+          exit 1

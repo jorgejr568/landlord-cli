@@ -41,9 +41,16 @@ Complete every item before announcing the maintenance window:
 
 1. Confirm the protected release gate passed for the exact release SHA: backend
    and frontend tests, 100% coverage, lint, OpenAPI freshness, production
-   Compose validation, image builds, exact-tag vulnerability scans, the
+   Compose validation, dependency and configuration scans, image builds, the
    real-stack smoke/E2E suite, and the populated production migration rehearsal
-   from `55dc25bae00d` to the repository's single Alembic head.
+   from `55dc25bae00d` to the repository's single Alembic head. Gate jobs are
+   path-filtered by `scripts/ci-changed-areas.sh`, so jobs whose input areas
+   are untouched by the push show as skipped and still count as passing;
+   `publish-images` in `deploy.yml` builds and publishes the release images
+   itself regardless. Production images are built and published without a
+   blocking vulnerability scan; see
+   [Weekly image vulnerability scan](#weekly-image-vulnerability-scan) for the
+   scheduled workflow that covers them instead.
 2. Confirm the release SHA is the commit being deployed. Do not rebuild from a
    moving branch or retag an image after the gate.
 3. Validate production configuration with secret-managed files:
@@ -164,7 +171,25 @@ docker buildx imagetools inspect "${REGISTRY}/frontend:${RELEASE_SHA}"
 Verify the deployment manifest resolves to those exact digests. The API and
 migration use the same API artifact. Do not continue if an image is mutable,
 missing, built from another SHA, or was not produced by the complete gate.
-The workflow tests and scans these exact images; they are never rebuilt after verification.
+The workflow tests these exact images; they are never rebuilt after
+verification. Image vulnerability scanning is not part of this path — it runs
+on the weekly schedule described below.
+
+## Weekly image vulnerability scan
+
+`.github/workflows/image-vulnerability-scan.yml` runs every Monday at 06:00 UTC
+and can also be started manually with `workflow_dispatch`. It rebuilds the API,
+worker, and frontend production images, scans each one with Trivy for fixed
+HIGH and CRITICAL vulnerabilities, and maintains a single open issue titled
+`Weekly image vulnerability report` carrying the `image-vulnerability-report`
+label. The scan never blocks a build: when findings exist the issue is created
+or refreshed with the full table per image, and when a run finds nothing the
+issue is closed.
+
+Review that issue before a release. Findings are not an automatic release
+blocker, but a CRITICAL finding reachable from production traffic should be
+patched — usually by bumping the base image in the affected Dockerfile — before
+the rollout rather than after.
 
 ## Migrate and roll out exactly once
 
