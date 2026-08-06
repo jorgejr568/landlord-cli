@@ -121,7 +121,11 @@ make ios-test                # if ios/ changed (requires full Xcode)
 The complete release gate also renders production/development Compose,
 round-trips migrations on MariaDB, boots functional and production-settings
 stacks, runs dependency and configuration scans, and builds all production
-images locally to catch Dockerfile breakage. Image vulnerability scanning is
+images locally to catch Dockerfile breakage. Gate jobs are path-filtered by
+`scripts/ci-changed-areas.sh`, which classifies the diff into `backend`,
+`frontend`, `docker`, and `scripts` areas; a job whose input areas are
+untouched is skipped and counts as passing, and any `.github/` change or an
+unusable base runs everything. Image vulnerability scanning is
 not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
 the production images weekly and keeps the `Weekly image vulnerability report`
 issue (label `image-vulnerability-report`) up to date.

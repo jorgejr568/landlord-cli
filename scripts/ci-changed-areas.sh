@@ -8,9 +8,14 @@ set -euo pipefail
 # Each pattern must cover every input of the jobs it gates. Changes under
 # .github/ force every area to true because workflow and action edits can
 # change any job's behavior.
-BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$)'
-FRONTEND_PATH_PATTERN='^frontend/'
-DOCKER_PATH_PATTERN='^(backend/Dockerfile|frontend/Dockerfile$|docker-compose[^/]*\.yml$|\.dockerignore$)'
+# .python-version selects the interpreter every uv-based job installs.
+BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|\.python-version$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$)'
+# The frontend job verifies the iOS OpenAPI copy against frontend/openapi.json
+# with scripts/sync-ios-openapi.sh, so that copy is a frontend input too.
+FRONTEND_PATH_PATTERN='^(frontend/|ios/Rentivo/openapi\.json$)'
+# infra/ holds the configuration docker-compose.yml bind-mounts into services
+# (today infra/proxy/nginx.conf for the Nginx edge).
+DOCKER_PATH_PATTERN='^(backend/Dockerfile|frontend/Dockerfile$|docker-compose[^/]*\.yml$|\.dockerignore$|infra/)'
 SCRIPTS_PATH_PATTERN='^scripts/'
 WORKFLOWS_PATH_PATTERN='^\.github/'
 
@@ -28,8 +33,10 @@ changed_areas() {
   # The file list is materialised before matching: piping `git diff` into
   # `grep -q` lets grep exit on its first match, killing `git diff` with
   # SIGPIPE, which `pipefail` would report as "nothing changed".
+  # core.quotePath=false keeps non-ASCII paths (PT-BR copy) literal; the
+  # default renders them as "\303\241"-style escapes that match no pattern.
   local changed
-  changed=$(git diff --name-only "$merge_base" HEAD)
+  changed=$(git -c core.quotePath=false diff --name-only "$merge_base" HEAD)
   if grep -qE "$WORKFLOWS_PATH_PATTERN" <<<"$changed"; then
     printf 'backend=true\nfrontend=true\ndocker=true\nscripts=true\n'
     return 0

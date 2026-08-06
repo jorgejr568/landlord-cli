@@ -43,8 +43,12 @@ Complete every item before announcing the maintenance window:
    and frontend tests, 100% coverage, lint, OpenAPI freshness, production
    Compose validation, dependency and configuration scans, image builds, the
    real-stack smoke/E2E suite, and the populated production migration rehearsal
-   from `55dc25bae00d` to the repository's single Alembic head. Production
-   images are built and published without a blocking vulnerability scan; see
+   from `55dc25bae00d` to the repository's single Alembic head. Gate jobs are
+   path-filtered by `scripts/ci-changed-areas.sh`, so jobs whose input areas
+   are untouched by the push show as skipped and still count as passing;
+   `publish-images` in `deploy.yml` builds and publishes the release images
+   itself regardless. Production images are built and published without a
+   blocking vulnerability scan; see
    [Weekly image vulnerability scan](#weekly-image-vulnerability-scan) for the
    scheduled workflow that covers them instead.
 2. Confirm the release SHA is the commit being deployed. Do not rebuild from a

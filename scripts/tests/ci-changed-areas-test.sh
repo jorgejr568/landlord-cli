@@ -34,13 +34,17 @@ git init -q "$REPO"
 cd "$REPO"
 git config user.email tests@example.test
 git config user.name 'Rentivo Tests'
-mkdir -p ios backend/rentivo/api frontend/src scripts .github/workflows
+mkdir -p ios/Rentivo backend/rentivo/api frontend/src infra/proxy scripts .github/workflows
 printf 'a\n' > ios/Foo.swift
+printf 'a\n' > ios/Rentivo/openapi.json
 printf 'a\n' > backend/rentivo/api/app.py
 printf 'a\n' > backend/Dockerfile.api
 printf 'a\n' > frontend/src/main.tsx
+printf 'a\n' > frontend/src/Página.tsx
 printf 'a\n' > docker-compose.yml
+printf 'a\n' > infra/proxy/nginx.conf
 printf 'a\n' > uv.lock
+printf 'a\n' > .python-version
 printf 'a\n' > scripts/ios-ci.sh
 printf 'a\n' > scripts/asc_builds.py
 printf 'a\n' > .github/workflows/test-pr.yaml
@@ -98,9 +102,44 @@ areas_for_change uv.lock
 assert_areas 'lockfile change' "$ROOT_COMMIT" \
   $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
 
+# The interpreter pin drives every uv-based job.
+areas_for_change .python-version
+assert_areas 'python version change' "$ROOT_COMMIT" \
+  $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
+
+# docker-compose.yml bind-mounts infra/proxy/nginx.conf into the edge proxy.
+areas_for_change infra/proxy/nginx.conf
+assert_areas 'proxy configuration change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=false\ndocker=true\nscripts=false'
+
+# The frontend job compares this copy against frontend/openapi.json, so an
+# edit to it alone must not skip that check.
+areas_for_change ios/Rentivo/openapi.json
+assert_areas 'iOS OpenAPI copy change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=true\ndocker=false\nscripts=false'
+
+# Non-ASCII paths arrive escaped unless core.quotePath is disabled.
+areas_for_change 'frontend/src/Página.tsx'
+assert_areas 'accented frontend path change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=true\ndocker=false\nscripts=false'
+
 # Workflow edits can change any job's behavior, so every area runs.
 areas_for_change .github/workflows/test-pr.yaml
 assert_areas 'workflow change' "$ROOT_COMMIT" "$ALL_TRUE"
+
+# A base branch that diverged is compared through the merge base, so only the
+# files changed on the HEAD side count.
+git checkout -q -B diverged-base "$ROOT_COMMIT"
+printf 'diverged\n' > docker-compose.yml
+git add -A
+git commit -qm 'compose change on the base branch'
+DIVERGED_BASE=$(git rev-parse HEAD)
+git checkout -q -B diverged-head "$ROOT_COMMIT"
+printf 'diverged\n' > backend/rentivo/api/app.py
+git add -A
+git commit -qm 'backend change on the head branch'
+assert_areas 'divergent base branch' "$DIVERGED_BASE" \
+  $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
 
 cd "$ROOT_DIR"
 printf 'changed-area helper shell tests passed\n'

@@ -99,6 +99,14 @@ git commit -qm 'unrelated script change'
 actual=$(paths_changed "$BASE")
 [[ "$actual" == "false" ]] || fail "unrelated script change reported $actual"
 
+# Non-ASCII paths arrive escaped unless core.quotePath is disabled.
+BASE=$(git rev-parse HEAD)
+printf 'a\n' > 'ios/Configuração.swift'
+git add -A
+git commit -qm 'accented ios path change'
+actual=$(paths_changed "$BASE")
+[[ "$actual" == "true" ]] || fail "accented iOS path change reported $actual"
+
 actual=$(paths_changed "")
 [[ "$actual" == "true" ]] || fail "empty base reported $actual"
 
