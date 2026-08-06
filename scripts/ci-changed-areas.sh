@@ -11,8 +11,10 @@ set -euo pipefail
 # .python-version selects the interpreter every uv-based job installs.
 BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|\.python-version$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$)'
 # The frontend job verifies the iOS OpenAPI copy against frontend/openapi.json
-# with scripts/sync-ios-openapi.sh, so that copy is a frontend input too.
-FRONTEND_PATH_PATTERN='^(frontend/|ios/Rentivo/openapi\.json$)'
+# with scripts/sync-ios-openapi.sh, and the frontend and functional-stack jobs
+# execute the smoke helper plus its suite (through the package's pretest hook),
+# so those scripts are frontend inputs even though `scripts` also matches them.
+FRONTEND_PATH_PATTERN='^(frontend/|ios/Rentivo/openapi\.json$|scripts/(sync-ios-openapi|smoke-production-stack)\.sh$|scripts/tests/smoke-production-stack-test\.sh$)'
 # infra/ holds the configuration docker-compose.yml bind-mounts into services
 # (today infra/proxy/nginx.conf for the Nginx edge).
 DOCKER_PATH_PATTERN='^(backend/Dockerfile|frontend/Dockerfile$|docker-compose[^/]*\.yml$|\.dockerignore$|infra/)'

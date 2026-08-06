@@ -47,6 +47,10 @@ printf 'a\n' > uv.lock
 printf 'a\n' > .python-version
 printf 'a\n' > scripts/ios-ci.sh
 printf 'a\n' > scripts/asc_builds.py
+printf 'a\n' > scripts/smoke-production-stack.sh
+printf 'a\n' > scripts/sync-ios-openapi.sh
+mkdir -p scripts/tests
+printf 'a\n' > scripts/tests/smoke-production-stack-test.sh
 printf 'a\n' > .github/workflows/test-pr.yaml
 git add -A
 git commit -qm 'base'
@@ -97,6 +101,23 @@ assert_areas 'shell script change' "$ROOT_COMMIT" \
 areas_for_change scripts/asc_builds.py
 assert_areas 'python script change' "$ROOT_COMMIT" \
   $'backend=true\nfrontend=false\ndocker=false\nscripts=true'
+
+# The `scripts` job only runs the helper suites. Scripts the frontend and
+# functional-stack jobs execute must also mark frontend so their only consumer
+# is not skipped: functional-stack runs the smoke helper directly and the
+# frontend package's pretest hook runs its suite.
+areas_for_change scripts/smoke-production-stack.sh
+assert_areas 'smoke helper change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=true\ndocker=false\nscripts=true'
+
+areas_for_change scripts/tests/smoke-production-stack-test.sh
+assert_areas 'smoke helper suite change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=true\ndocker=false\nscripts=true'
+
+# The frontend job verifies the iOS OpenAPI copy with this script.
+areas_for_change scripts/sync-ios-openapi.sh
+assert_areas 'openapi sync script change' "$ROOT_COMMIT" \
+  $'backend=false\nfrontend=true\ndocker=false\nscripts=true'
 
 areas_for_change uv.lock
 assert_areas 'lockfile change' "$ROOT_COMMIT" \
