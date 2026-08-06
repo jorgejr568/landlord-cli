@@ -125,7 +125,7 @@ images locally to catch Dockerfile breakage. Gate jobs are path-filtered by
 `scripts/ci-changed-areas.sh`, which classifies the diff into `backend`,
 `frontend`, `docker`, and `scripts` areas; a job whose input areas are
 untouched is skipped and counts as passing, and any `.github/` change or an
-unusable base runs everything. Image vulnerability scanning is
+unusable base marks every gate area as changed. Image vulnerability scanning is
 not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
 the production images weekly and keeps the `Weekly image vulnerability report`
 issue (label `image-vulnerability-report`) up to date.

@@ -9,7 +9,12 @@ set -euo pipefail
 # .github/ force every area to true because workflow and action edits can
 # change any job's behavior.
 # .python-version selects the interpreter every uv-based job installs.
-BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|\.python-version$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$)'
+# The backend suite also asserts on repository-root deployment configuration:
+# backend/tests/test_production_infrastructure.py reads docker-compose*.yml,
+# frontend/Dockerfile, infra/proxy/nginx.conf, the Makefile, and both env
+# examples, and backend/tests/test_env_example.py reads .env.example, so those
+# paths are backend inputs even though other areas match them too.
+BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|\.python-version$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$|docker-compose[^/]*\.yml$|frontend/Dockerfile$|infra/|Makefile$|\.env(\.db)?\.example$)'
 # The frontend job verifies the iOS OpenAPI copy against frontend/openapi.json
 # with scripts/sync-ios-openapi.sh, and the frontend and functional-stack jobs
 # execute the smoke helper plus its suite (through the package's pretest hook),

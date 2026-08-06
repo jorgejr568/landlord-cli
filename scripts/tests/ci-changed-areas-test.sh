@@ -42,7 +42,11 @@ printf 'a\n' > backend/Dockerfile.api
 printf 'a\n' > frontend/src/main.tsx
 printf 'a\n' > frontend/src/Página.tsx
 printf 'a\n' > docker-compose.yml
+printf 'a\n' > frontend/Dockerfile
 printf 'a\n' > infra/proxy/nginx.conf
+printf 'a\n' > Makefile
+printf 'a\n' > .env.example
+printf 'a\n' > .env.db.example
 printf 'a\n' > uv.lock
 printf 'a\n' > .python-version
 printf 'a\n' > scripts/ios-ci.sh
@@ -84,9 +88,30 @@ areas_for_change frontend/src/main.tsx
 assert_areas 'frontend source change' "$ROOT_COMMIT" \
   $'backend=false\nfrontend=true\ndocker=false\nscripts=false'
 
+# backend/tests/test_production_infrastructure.py asserts on the Compose
+# topology, so a compose-only edit must still run the backend suite.
 areas_for_change docker-compose.yml
 assert_areas 'compose change' "$ROOT_COMMIT" \
-  $'backend=false\nfrontend=false\ndocker=true\nscripts=false'
+  $'backend=true\nfrontend=false\ndocker=true\nscripts=false'
+
+# The same suite reads the frontend image definition.
+areas_for_change frontend/Dockerfile
+assert_areas 'frontend Dockerfile change' "$ROOT_COMMIT" \
+  $'backend=true\nfrontend=true\ndocker=true\nscripts=false'
+
+# The Makefile is a runtime configuration input of the infrastructure suite.
+areas_for_change Makefile
+assert_areas 'Makefile change' "$ROOT_COMMIT" \
+  $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
+
+# backend/tests/test_env_example.py compares .env.example against Settings.
+areas_for_change .env.example
+assert_areas 'application env example change' "$ROOT_COMMIT" \
+  $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
+
+areas_for_change .env.db.example
+assert_areas 'database env example change' "$ROOT_COMMIT" \
+  $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
 
 # The API image lives under backend/, so it is both a Docker and a backend input.
 areas_for_change backend/Dockerfile.api
@@ -128,10 +153,11 @@ areas_for_change .python-version
 assert_areas 'python version change' "$ROOT_COMMIT" \
   $'backend=true\nfrontend=false\ndocker=false\nscripts=false'
 
-# docker-compose.yml bind-mounts infra/proxy/nginx.conf into the edge proxy.
+# docker-compose.yml bind-mounts infra/proxy/nginx.conf into the edge proxy,
+# and the backend infrastructure suite asserts on that configuration.
 areas_for_change infra/proxy/nginx.conf
 assert_areas 'proxy configuration change' "$ROOT_COMMIT" \
-  $'backend=false\nfrontend=false\ndocker=true\nscripts=false'
+  $'backend=true\nfrontend=false\ndocker=true\nscripts=false'
 
 # The frontend job compares this copy against frontend/openapi.json, so an
 # edit to it alone must not skip that check.
