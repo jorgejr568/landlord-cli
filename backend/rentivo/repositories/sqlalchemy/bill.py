@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
 
+import structlog
 from sqlalchemy import Connection, bindparam, text
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.exc import OperationalError
@@ -16,6 +17,8 @@ from rentivo.models.billing import ItemType
 from rentivo.observability import traced
 from rentivo.repositories.base import BillRepository
 from rentivo.repositories.sqlalchemy._common import _group_rows_by, _now
+
+logger = structlog.get_logger(__name__)
 
 # MariaDB's ``innodb_snapshot_isolation`` (on by default since 11.6) raises
 # ER_CHECKREAD when a locking read or DML would touch a row version newer than
@@ -39,10 +42,13 @@ def _is_snapshot_conflict(error: OperationalError) -> bool:
 def _retry_on_snapshot_conflict(method: Callable[..., Any]) -> Callable[..., Any]:
     """Replay a compare-and-set render transaction that lost its read view.
 
-    A fresh read view is taken when the statement starts, so another
-    transaction can still commit while this one waits for the row lock. The
-    wrapped bodies roll back at entry and re-check their expected values on
-    every attempt, which makes replaying them idempotent.
+    Load-bearing for ``restore_after_failed_render``, whose line-item hydration
+    reads under a read view its first ``SELECT ... FOR UPDATE`` already
+    established, so a commit landing in between still raises 1020. For the
+    single-statement compare-and-sets the entry rollback already makes the
+    locking statement the first of its transaction, so this is belt-and-braces
+    there. Replaying is safe because the wrapped bodies roll back at entry and
+    re-check their expected values on every attempt.
     """
 
     @functools.wraps(method)
@@ -54,6 +60,12 @@ def _retry_on_snapshot_conflict(method: Callable[..., Any]) -> Callable[..., Any
             except OperationalError as error:
                 if attempt >= _SNAPSHOT_CONFLICT_ATTEMPTS or not _is_snapshot_conflict(error):
                     raise
+                logger.warning(
+                    "bill_snapshot_conflict_retry",
+                    method=method.__name__,
+                    attempt=attempt,
+                    max_attempts=_SNAPSHOT_CONFLICT_ATTEMPTS,
+                )
                 attempt += 1
 
     return wrapper
