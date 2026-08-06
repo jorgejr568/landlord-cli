@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import functools
+from collections.abc import Callable, Iterator
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Connection, bindparam, text
 from sqlalchemy.engine import RowMapping
+from sqlalchemy.exc import OperationalError
 from ulid import ULID
 
 from rentivo.encryption.base import EncryptionBackend
@@ -13,6 +16,45 @@ from rentivo.models.billing import ItemType
 from rentivo.observability import traced
 from rentivo.repositories.base import BillRepository
 from rentivo.repositories.sqlalchemy._common import _group_rows_by, _now
+
+# MariaDB's ``innodb_snapshot_isolation`` (on by default since 11.6) raises
+# ER_CHECKREAD when a locking read or DML would touch a row version newer than
+# the transaction's read view. The render pipeline holds a single connection
+# across seconds of PDF and storage I/O, so the read that starts the job
+# freezes a read view that a concurrent render of the same bill (``pdf.render``
+# next to ``recibo.render``) invalidates. Every render-state method therefore
+# rolls back at entry to start from a fresh read view; rolling back is safe
+# because repository methods always commit or roll back before returning.
+_SNAPSHOT_CONFLICT_ERRNO = 1020
+_SNAPSHOT_CONFLICT_ATTEMPTS = 3
+
+
+def _is_snapshot_conflict(error: OperationalError) -> bool:
+    args = getattr(error.orig, "args", ())
+    return bool(args) and args[0] == _SNAPSHOT_CONFLICT_ERRNO
+
+
+def _retry_on_snapshot_conflict(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Replay a compare-and-set render transaction that lost its read view.
+
+    A fresh read view is taken when the statement starts, so another
+    transaction can still commit while this one waits for the row lock. The
+    wrapped bodies roll back at entry and re-check their expected values on
+    every attempt, which makes replaying them idempotent.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: SQLAlchemyBillRepository, *args: Any, **kwargs: Any) -> Any:
+        attempt = 1
+        while True:
+            try:
+                return method(self, *args, **kwargs)
+            except OperationalError as error:
+                if attempt >= _SNAPSHOT_CONFLICT_ATTEMPTS or not _is_snapshot_conflict(error):
+                    raise
+                attempt += 1
+
+    return wrapper
 
 
 class SQLAlchemyBillRepository(BillRepository):
@@ -383,6 +425,7 @@ class SQLAlchemyBillRepository(BillRepository):
         return result.rowcount == 1
 
     @traced("bill_repo.replace_recibo_pdf_path_if_paid_version")
+    @_retry_on_snapshot_conflict
     def replace_recibo_pdf_path_if_paid_version(
         self,
         bill_id: int,
@@ -390,6 +433,7 @@ class SQLAlchemyBillRepository(BillRepository):
         expected_recibo_pdf_path: str | None,
         recibo_pdf_path: str,
     ) -> tuple[bool, str | None]:
+        self.conn.rollback()
         params = {
             "id": bill_id,
             "expected_status_updated_at": expected_status_updated_at,
@@ -437,6 +481,7 @@ class SQLAlchemyBillRepository(BillRepository):
         bill_id: int,
         expected_status_updated_at: datetime | None,
     ) -> tuple[bool, str | None]:
+        self.conn.rollback()
         row = (
             self.conn.execute(
                 text(
@@ -459,6 +504,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.update_pdf_render_status")
     def update_pdf_render_status(self, bill_id: int, status: str | None) -> None:
+        self.conn.rollback()
         self.conn.execute(
             text("UPDATE bills SET pdf_render_status = :status, pdf_render_operation_id = NULL WHERE id = :id"),
             {"status": status, "id": bill_id},
@@ -467,6 +513,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.begin_pdf_render")
     def begin_pdf_render(self, bill_id: int, operation_id: str) -> None:
+        self.conn.rollback()
         self.conn.execute(
             text(
                 "UPDATE bills SET pdf_render_status = 'pending', pdf_render_operation_id = :operation_id "
@@ -478,6 +525,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.claim_pending_pdf_render")
     def claim_pending_pdf_render(self, bill_id: int, operation_id: str) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text(
                 "UPDATE bills SET pdf_render_operation_id = :operation_id "
@@ -492,6 +540,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.finish_pdf_render")
     def finish_pdf_render(self, bill_id: int, operation_id: str, status: str | None) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text(
                 "UPDATE bills SET pdf_render_status = :status, pdf_render_operation_id = NULL "
@@ -521,6 +570,7 @@ class SQLAlchemyBillRepository(BillRepository):
         )
 
     @traced("bill_repo.restore_after_failed_render")
+    @_retry_on_snapshot_conflict
     def restore_after_failed_render(
         self,
         previous: Bill,
@@ -529,6 +579,7 @@ class SQLAlchemyBillRepository(BillRepository):
     ) -> bool:
         if previous.id is None:
             raise ValueError("Cannot restore bill without an id")
+        self.conn.rollback()
         params = {"id": previous.id, "operation_id": operation_id}
         select_bill = text("SELECT * FROM bills WHERE id = :id AND deleted_at IS NULL")
         if self.conn.dialect.name != "sqlite":
@@ -618,6 +669,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.get_pdf_render_state")
     def get_pdf_render_state(self, bill_id: int) -> tuple[str | None, str | None, str | None]:
+        self.conn.rollback()
         row = (
             self.conn.execute(
                 text(
@@ -634,12 +686,14 @@ class SQLAlchemyBillRepository(BillRepository):
         return row["pdf_render_operation_id"], row["pdf_render_status"], row["pdf_path"]
 
     @traced("bill_repo.publish_pdf_render")
+    @_retry_on_snapshot_conflict
     def publish_pdf_render(
         self,
         bill_id: int,
         operation_id: str,
         pdf_path: str,
     ) -> tuple[bool, str | None]:
+        self.conn.rollback()
         params = {
             "id": bill_id,
             "operation_id": operation_id,
@@ -688,6 +742,7 @@ class SQLAlchemyBillRepository(BillRepository):
 
     @traced("bill_repo.fail_pending_pdf_render_without_operation")
     def fail_pending_pdf_render_without_operation(self, bill_id: int) -> bool:
+        self.conn.rollback()
         result = self.conn.execute(
             text(
                 "UPDATE bills SET pdf_render_status = 'failed' "
