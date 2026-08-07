@@ -98,7 +98,9 @@ it("creates an integer-centavo personal billing while omitting untouched contact
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-created"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
   expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(document.title).toBe("Anterior");
+  // The title is restored by an unmount effect cleanup, which React flushes after the
+  // routed DOM update, so this cannot be asserted synchronously.
+  await waitFor(() => expect(document.title).toBe("Anterior"));
   view.unmount();
   expect(document.title).toBe("Anterior");
 });

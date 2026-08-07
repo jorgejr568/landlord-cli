@@ -73,6 +73,14 @@ redact-audit-logs:
 redact-audit-logs-dry:
 	$(PYTHON) -m rentivo.scripts.redact_audit_logs --dry-run
 
+.PHONY: encrypt-job-payloads
+encrypt-job-payloads:
+	$(PYTHON) -m rentivo.scripts.encrypt_job_payloads
+
+.PHONY: encrypt-job-payloads-dry
+encrypt-job-payloads-dry:
+	$(PYTHON) -m rentivo.scripts.encrypt_job_payloads --dry-run
+
 .PHONY: seed
 seed:
 	$(PYTHON) -m rentivo.scripts.seed
@@ -158,6 +166,7 @@ ios-test:
 .PHONY: scripts-test
 scripts-test:
 	./scripts/tests/ios-ci-test.sh
+	./scripts/tests/ci-changed-areas-test.sh
 	$(PYTEST) scripts/tests/test_asc_builds.py -q
 
 # --- Worker (local) ---

@@ -36,6 +36,34 @@ def test_method_not_allowed_uses_problem_json():
     assert response.json()["code"] == "http_error"
 
 
+def test_api_responses_are_marked_no_store():
+    with TestClient(create_app()) as client:
+        health = client.get("/api/v1/health")
+        problem = client.get("/api/v1/missing")
+
+    assert health.headers["Cache-Control"] == "no-store"
+    assert problem.headers["Cache-Control"] == "no-store"
+
+
+def test_no_store_respects_route_cache_control_and_skips_non_api_paths():
+    app = create_app()
+
+    @app.get("/api/v1/explicitly-cached")
+    async def explicitly_cached() -> JSONResponse:
+        return JSONResponse({}, headers={"Cache-Control": "private, max-age=60"})
+
+    @app.get("/outside-the-api")
+    async def outside_the_api() -> JSONResponse:
+        return JSONResponse({})
+
+    with TestClient(app) as client:
+        cached = client.get("/api/v1/explicitly-cached")
+        outside = client.get("/outside-the-api")
+
+    assert cached.headers["Cache-Control"] == "private, max-age=60"
+    assert "cache-control" not in outside.headers
+
+
 def test_problem_exception_uses_problem_json():
     app = create_app()
 

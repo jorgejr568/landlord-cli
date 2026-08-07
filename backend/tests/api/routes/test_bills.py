@@ -508,19 +508,56 @@ def test_communication_capabilities_require_both_scopes_and_ready_artifacts(api:
     )
 
     api.set_scopes(APIScope.BILLS_READ, APIScope.FILES_READ, APIScope.COMMUNICATIONS_READ, APIScope.COMMUNICATIONS_SEND)
-    rendering = BILL.model_copy(update={"status": "paid", "recibo_pdf_path": None, "pdf_render_status": "pending"})
-    ready = rendering.model_copy(update={"recibo_pdf_path": "private/recibo.pdf", "pdf_render_status": "succeeded"})
-    api.services.bill.get_bill_by_uuid.side_effect = lambda _uuid: rendering
-    pending_response = api.client.get(_detail_url(), headers=BEARER_HEADERS)
+    missing_recibo = BILL.model_copy(update={"status": "paid", "recibo_pdf_path": None})
+    ready = missing_recibo.model_copy(update={"recibo_pdf_path": "private/recibo.pdf"})
+    api.services.bill.get_bill_by_uuid.side_effect = lambda _uuid: missing_recibo
+    missing_response = api.client.get(_detail_url(), headers=BEARER_HEADERS)
     api.services.bill.get_bill_by_uuid.side_effect = lambda _uuid: ready
     ready_response = api.client.get(_detail_url(), headers=BEARER_HEADERS)
 
-    assert pending_response.json()["capabilities"]["can_compose"] is True
-    assert pending_response.json()["capabilities"]["can_send_invoice"] is True
-    assert pending_response.json()["capabilities"]["can_download_recibo"] is False
-    assert pending_response.json()["capabilities"]["can_send_recibo"] is False
+    assert missing_response.json()["capabilities"]["can_compose"] is True
+    assert missing_response.json()["capabilities"]["can_send_invoice"] is True
+    assert missing_response.json()["capabilities"]["can_download_recibo"] is False
+    assert missing_response.json()["capabilities"]["can_send_recibo"] is False
     assert ready_response.json()["capabilities"]["can_download_recibo"] is True
     assert ready_response.json()["capabilities"]["can_send_recibo"] is True
+
+
+@pytest.mark.parametrize(
+    ("render_status", "available"),
+    [("pending", False), ("succeeded", True), (None, True), ("failed", True)],
+)
+def test_document_capabilities_are_disabled_only_while_the_pdf_renders(
+    api: BillsAPI,
+    render_status: str | None,
+    available: bool,
+) -> None:
+    bill = _updated_bill(
+        BILL,
+        status="paid",
+        recibo_pdf_path="private/recibo.pdf",
+        pdf_render_status=render_status,
+    )
+    api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: bill if uuid == BILL.uuid else None
+
+    capabilities = api.client.get(_detail_url(), headers=BEARER_HEADERS).json()["capabilities"]
+
+    assert capabilities["can_download_invoice"] is available
+    assert capabilities["can_send_invoice"] is available
+    assert capabilities["can_download_recibo"] is available
+    assert capabilities["can_send_recibo"] is available
+
+
+def test_capabilities_still_require_stored_documents_when_no_render_is_pending(api: BillsAPI) -> None:
+    bill = _updated_bill(BILL, status="paid", pdf_path=None, recibo_pdf_path=None, pdf_render_status="succeeded")
+    api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: bill if uuid == BILL.uuid else None
+
+    capabilities = api.client.get(_detail_url(), headers=BEARER_HEADERS).json()["capabilities"]
+
+    assert capabilities["can_download_invoice"] is False
+    assert capabilities["can_send_invoice"] is False
+    assert capabilities["can_download_recibo"] is False
+    assert capabilities["can_send_recibo"] is False
 
 
 def test_create_bill_accepts_integer_centavos_and_renders_once(api: BillsAPI) -> None:
@@ -1035,10 +1072,23 @@ def test_invoice_download_requires_file_scope_and_existing_pdf(api: BillsAPI) ->
     api.services.bill.get_invoice_ref.assert_not_called()
 
 
+def test_invoice_download_is_a_conflict_while_the_pdf_is_being_rendered(api: BillsAPI) -> None:
+    rendering = _updated_bill(BILL, pdf_render_status="pending")
+    api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: rendering if uuid == BILL.uuid else None
+
+    response = api.client.get(f"{_detail_url()}/invoice", headers=BEARER_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "invoice_not_ready"
+    assert response.json()["detail"] == "A fatura ainda está sendo gerada."
+    api.services.bill.get_invoice_ref.assert_not_called()
+
+
 def test_invoice_download_resolves_remote_and_local_files_through_storage(api: BillsAPI, tmp_path) -> None:
     remote = api.client.get(f"{_detail_url()}/invoice", headers=BEARER_HEADERS, follow_redirects=False)
     assert remote.status_code == 302
     assert remote.headers["location"] == "https://files.example/invoice.pdf"
+    assert remote.headers["cache-control"] == "no-store"
     api.services.bill.get_invoice_ref.assert_called_once_with(BILL)
 
     invoice = tmp_path / "invoice.pdf"
@@ -1048,6 +1098,7 @@ def test_invoice_download_resolves_remote_and_local_files_through_storage(api: B
     assert local.status_code == 200
     assert local.content == b"%PDF-local"
     assert local.headers["content-type"].startswith("application/pdf")
+    assert local.headers["cache-control"] == "no-store"
     assert "private/invoice.pdf" not in local.headers.get("content-disposition", "")
 
 
@@ -1096,6 +1147,31 @@ def test_recibo_falls_back_to_inline_render_when_stored_file_is_pending(api: Bil
     api.services.bill.render_recibo.assert_called_once_with(paid, BILLING)
 
 
+@pytest.mark.parametrize("suffix", ["/recibo", "/recibo/download", "/recibo/content"])
+@pytest.mark.parametrize("recibo_pdf_path", ["private/recibo.pdf", None])
+def test_recibo_routes_are_a_conflict_while_the_pdf_is_being_rendered(
+    api: BillsAPI,
+    suffix: str,
+    recibo_pdf_path: str | None,
+) -> None:
+    rendering = _updated_bill(
+        BILL,
+        status="paid",
+        recibo_pdf_path=recibo_pdf_path,
+        pdf_render_status="pending",
+    )
+    api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: rendering if uuid == BILL.uuid else None
+
+    response = api.client.get(f"{_detail_url()}{suffix}", headers=BEARER_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "recibo_not_ready"
+    assert response.json()["detail"] == "O recibo ainda está sendo gerado."
+    api.services.bill.get_recibo_ref.assert_not_called()
+    api.services.bill.render_recibo.assert_not_called()
+    api.services.audit.safe_log_for.assert_not_called()
+
+
 def test_recibo_download_handshake_returns_remote_url_and_audits_once(api: BillsAPI) -> None:
     paid = _updated_bill(BILL, status="paid", recibo_pdf_path="private/recibo.pdf")
     api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: paid if uuid == BILL.uuid else None
@@ -1107,6 +1183,7 @@ def test_recibo_download_handshake_returns_remote_url_and_audits_once(api: Bills
         "download_url": "https://files.example/recibo.pdf",
         "filename": f"recibo-{BILL.uuid}.pdf",
     }
+    assert response.headers["cache-control"] == "no-store"
     api.services.bill.get_recibo_ref.assert_called_once_with(paid)
     assert api.services.audit.safe_log_for.call_count == 1
     assert api.services.audit.safe_log_for.call_args.args[1] == AuditEventType.BILL_RECIBO_DOWNLOAD
@@ -1133,6 +1210,7 @@ def test_recibo_download_handshake_local_content_route_audits_once_end_to_end(
         "download_url": f"http://testserver{_detail_url()}/recibo/content",
         "filename": f"recibo-{BILL.uuid}.pdf",
     }
+    assert response.headers["cache-control"] == "no-store"
     assert str(local_file) not in response.text
     api.services.audit.safe_log_for.assert_not_called()
     assert _analytics_headers(response) == {
@@ -1142,6 +1220,7 @@ def test_recibo_download_handshake_local_content_route_audits_once_end_to_end(
     content = api.client.get(response.json()["download_url"], headers=BEARER_HEADERS)
     assert content.status_code == 200
     assert content.content == b"%PDF-local"
+    assert content.headers["cache-control"] == "no-store"
     assert content.headers["content-disposition"] == f'attachment; filename="recibo-{BILL.uuid}.pdf"'
     assert _analytics_headers(content) == {}
     assert api.services.audit.safe_log_for.call_count == 1
@@ -1159,6 +1238,7 @@ def test_recibo_content_route_audits_direct_url_storage_redirect(api: BillsAPI) 
 
     assert response.status_code == 302
     assert response.headers["location"] == "https://files.example/recibo.pdf"
+    assert response.headers["cache-control"] == "no-store"
     assert api.services.audit.safe_log_for.call_count == 1
     assert api.services.audit.safe_log_for.call_args.args[1] == AuditEventType.BILL_RECIBO_DOWNLOAD
     assert _analytics_headers(response) == {}

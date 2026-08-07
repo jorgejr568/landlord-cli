@@ -203,10 +203,7 @@ private struct ExpenseFormView: View {
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 
-  private var selectedDate: DateOnly {
-    let components = Calendar.current.dateComponents([.year, .month, .day], from: incurredOn)
-    return DateOnly(year: components.year ?? 1970, month: components.month ?? 1, day: components.day ?? 1)
-  }
+  private var selectedDate: DateOnly { DateOnly(from: incurredOn) }
 }
 
 struct AttachmentListView: View {
@@ -272,7 +269,7 @@ struct AttachmentListView: View {
         }
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],
@@ -445,8 +442,11 @@ struct CommunicationComposerView: View {
   private var hasMildWarnings: Bool { !(preview?.mildWarnings.isEmpty ?? true) }
 
   private var sendDisabled: Bool {
+    // Defense in depth: the detail screen already disables the entry point while the PDF renders,
+    // but a composer opened just before the render started must not attach a stale document.
     isSending || isLoadingPreview || preview == nil || hasSevereWarnings
       || (hasMildWarnings && !acknowledgedWarnings) || selectedRecipients.isEmpty
+      || bill.isRenderingPDF
   }
 
   private var attachmentDescription: String {

@@ -477,14 +477,20 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return PixConfiguration(key: key, merchantName: name, merchantCity: city)
   }
 
-  // Absent dates (a legitimate `null` from the server) fall back to the epoch default, as before.
-  // A *present but malformed* date string, however, now surfaces as a decode error via `DateOnly`'s
-  // failable wire initializer instead of reaching the precondition-enforcing `DateOnly.init(year:month:day:)`
-  // and trapping the process on out-of-range components.
-  private func dateOnly(_ value: String?) throws -> DateOnly {
-    guard let value else { return DateOnly(year: 1970, month: 1, day: 1) }
+  // A present but malformed date string surfaces as a decode error via `DateOnly`'s failable
+  // wire initializer instead of reaching the precondition-enforcing
+  // `DateOnly.init(year:month:day:)` and trapping the process on out-of-range components.
+  private func dateOnly(_ value: String) throws -> DateOnly {
     guard let parsed = DateOnly(iso8601String: value) else { throw LiveAPIError.invalidResponse }
     return parsed
+  }
+
+  // `due_date` is nullable on the wire. A `null` means the bill genuinely has no due date yet,
+  // so it stays `nil` rather than collapsing to an epoch sentinel that would surface in the UI
+  // as "Vence 01/01/1970".
+  private func optionalDateOnly(_ value: String?) throws -> DateOnly? {
+    guard let value else { return nil }
+    return try dateOnly(value)
   }
 
   // The backend emits fractional-second timestamps (microseconds); try that format first and
@@ -540,7 +546,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return Bill(
       id: BillID(rawValue: remote.uuid), billingID: billingID,
       referenceMonth: referenceMonth,
-      dueDate: try dateOnly(remote.dueDate), paidAt: try paidAt(from: remote),
+      dueDate: try optionalDateOnly(remote.dueDate), paidAt: try paidAt(from: remote),
       notes: remote.notes, status: BillStatus(rawValue: remote.status) ?? .draft,
       lineItems: remote.lineItems.enumerated().map { index, line in
         BillLineItem(id: BillLineItemID(rawValue: "\(remote.uuid)-\(index)"), description: line.description,
@@ -552,7 +558,21 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.
       availableTransitions: remote.availableTransitions.compactMap { BillStatus(rawValue: $0.target) },
-      serverTotal: Money(centavos: remote.totalAmount)
+      serverTotal: Money(centavos: remote.totalAmount),
+      // An unknown or absent render status means "not rendering" rather than a decode failure,
+      // and an absent capabilities object stays permissive so older payloads keep working.
+      pdfRenderStatus: remote.pdfRenderStatus.flatMap(PDFRenderStatus.init(rawValue:)),
+      hasInvoice: remote.hasInvoice ?? false, hasRecibo: remote.hasRecibo ?? false,
+      capabilities: billCapabilities(from: remote.capabilities)
+    )
+  }
+
+  private func billCapabilities(from remote: RemoteBillCapabilities?) -> BillCapabilities {
+    guard let remote else { return .permissive }
+    return BillCapabilities(
+      canDownloadInvoice: remote.canDownloadInvoice, canDownloadRecibo: remote.canDownloadRecibo,
+      canSendInvoice: remote.canSendInvoice, canSendRecibo: remote.canSendRecibo,
+      canRegenerate: remote.canRegenerate
     )
   }
 
@@ -916,14 +936,16 @@ private struct RemoteBillingItemInput: Encodable {
   }
 }
 private struct RemoteBillCreateDraft: Encodable {
-  let referenceMonth: String; let dueDate: String; let notes: String; let extras: [RemoteBillExtra]
+  // Every stored property here must also have a corresponding `container.encode` line in
+  // `encode(to:)` below — the hand-written encoder is not kept in sync automatically.
+  let referenceMonth: String; let dueDate: String?; let notes: String; let extras: [RemoteBillExtra]
   let variableAmounts: [String: Int]
   enum CodingKeys: String, CodingKey {
     case referenceMonth = "reference_month"; case dueDate = "due_date"; case notes, extras
     case variableAmounts = "variable_amounts"
   }
   init(draft: BillDraft) {
-    referenceMonth = draft.referenceMonth.apiValue; dueDate = draft.dueDate.iso8601; notes = draft.notes
+    referenceMonth = draft.referenceMonth.apiValue; dueDate = draft.dueDate?.iso8601; notes = draft.notes
     extras = draft.lineItems.filter { $0.kind == .extra }.map(RemoteBillExtra.init)
     // The server requires the variable_amounts key set to exactly match the billing's own
     // variable BillingItem uuids, so only line items whose id is already a real ULID (i.e. one
@@ -935,12 +957,34 @@ private struct RemoteBillCreateDraft: Encodable {
     }
     variableAmounts = amounts
   }
+
+  // Synthesized `Encodable` uses `encodeIfPresent` for optionals and would drop a nil
+  // `due_date` from the body entirely. Write the key unconditionally so nil reaches the server
+  // as an explicit JSON null — see `RemoteBillUpdateDraft` for why that distinction matters.
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(referenceMonth, forKey: .referenceMonth)
+    try container.encode(dueDate, forKey: .dueDate)
+    try container.encode(notes, forKey: .notes)
+    try container.encode(extras, forKey: .extras)
+    try container.encode(variableAmounts, forKey: .variableAmounts)
+  }
 }
 private struct RemoteBillExtra: Encodable { let description: String; let amount: Int; init(_ item: BillLineItem) { description = item.description; amount = item.amount.centavos } }
 private struct RemoteBillUpdateDraft: Encodable {
-  let dueDate: String; let notes: String; let lineItems: [RemoteBillLineItemInput]
+  let dueDate: String?; let notes: String; let lineItems: [RemoteBillLineItemInput]
   enum CodingKeys: String, CodingKey { case dueDate = "due_date"; case notes; case lineItems = "line_items" }
-  init(draft: BillDraft) { dueDate = draft.dueDate.iso8601; notes = draft.notes; lineItems = draft.lineItems.map(RemoteBillLineItemInput.init) }
+  init(draft: BillDraft) { dueDate = draft.dueDate?.iso8601; notes = draft.notes; lineItems = draft.lineItems.map(RemoteBillLineItemInput.init) }
+
+  // The server's PATCH handler treats an *absent* `due_date` as "leave unchanged" and an
+  // explicit `null` as "clear it". Synthesized `Encodable` would omit a nil optional and make
+  // clearing a due date impossible, so the key is always written.
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(dueDate, forKey: .dueDate)
+    try container.encode(notes, forKey: .notes)
+    try container.encode(lineItems, forKey: .lineItems)
+  }
 }
 private struct RemoteBillLineItemInput: Encodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" }; init(_ item: BillLineItem) { description = item.description; amount = item.amount.centavos; itemType = item.kind.rawValue } }
 private struct RemoteBillTransition: Encodable { let target: String }
@@ -1005,11 +1049,26 @@ private struct RemoteBill: Decodable {
   let lineItems: [RemoteBillLine]; let receipts: [RemoteReceipt]?
   let totalAmount: Int
   let availableTransitions: [RemoteAvailableTransition]
+  let pdfRenderStatus: String?
+  let hasInvoice, hasRecibo: Bool?
+  let capabilities: RemoteBillCapabilities?
   enum CodingKeys: String, CodingKey {
-    case uuid, notes, status, receipts
+    case uuid, notes, status, receipts, capabilities
     case referenceMonth = "reference_month"; case dueDate = "due_date"
     case statusUpdatedAt = "status_updated_at"; case lineItems = "line_items"
     case totalAmount = "total_amount"; case availableTransitions = "available_transitions"
+    case pdfRenderStatus = "pdf_render_status"
+    case hasInvoice = "has_invoice"; case hasRecibo = "has_recibo"
+  }
+}
+// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that
+// gate a button in the app are decoded; the rest follow the billing-level capabilities today.
+private struct RemoteBillCapabilities: Decodable {
+  let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
+  enum CodingKeys: String, CodingKey {
+    case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
+    case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
+    case canRegenerate = "can_regenerate"
   }
 }
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Annotated, Any
 
 import pytest
+import structlog
 from fastapi import Depends, Form, Request
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,7 @@ from rentivo.api.authentication import ACCESS_COOKIE_NAME, get_optional_principa
 from rentivo.api.csrf import CSRF_COOKIE_NAME
 from rentivo.api.dependencies import get_services
 from rentivo.api.principal import Principal
+from rentivo.logging import _redact_event_dict
 from rentivo.models.api_key import APIKey
 from rentivo.models.user import User
 
@@ -120,6 +122,12 @@ def api_client(services: Any) -> TestClient:
     ) -> dict[str, int | None]:
         return {"user_id": None if principal is None else principal.user.id}
 
+    @app.get("/api/v1/test/log-context")
+    async def log_context_endpoint(
+        principal: Principal = Depends(get_principal),
+    ) -> dict[str, object]:
+        return dict(structlog.contextvars.get_contextvars())
+
     @app.post("/api/v1/test/principal")
     async def principal_body_endpoint(
         payload: dict[str, str],
@@ -158,6 +166,32 @@ def _cookie_header(secret: str, *, csrf: str | None = None) -> str:
     if csrf is not None:
         values.append(f"{CSRF_COOKIE_NAME}={csrf}")
     return "; ".join(values)
+
+
+def test_request_log_context_binds_the_email_and_the_processor_masks_it(
+    api_client: TestClient,
+) -> None:
+    """users.email is KMS-encrypted at rest, so its plaintext must never be
+    *rendered*. It is bound into contextvars on purpose — the masked address
+    identifies the account and its provider on every log line of the request —
+    and logging._redact_event_dict masks it before any renderer or exporter
+    runs. The raw value never leaves this process's memory."""
+    response = api_client.get(
+        "/api/v1/test/log-context",
+        headers={"Cookie": _cookie_header(LOGIN_SECRET)},
+    )
+
+    assert response.status_code == 200
+    context = response.json()
+    assert context["user_id"] == 7
+    assert context["actor_source"] == "web"
+    assert context["api_key_class"] == "login"
+    # Raw in this process's contextvars ...
+    assert context["email"] == "person@example.com"
+    # ... and masked in everything the processor chain hands to a renderer.
+    rendered = _redact_event_dict(None, "info", dict(context))
+    assert rendered["email"] == "p****n@example.com"
+    assert "person@example.com" not in repr(rendered)
 
 
 def test_multipart_form_authentication_reuses_the_parsed_form(api_client: TestClient) -> None:

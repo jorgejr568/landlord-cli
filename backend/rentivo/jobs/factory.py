@@ -22,11 +22,16 @@ def get_job_backend(conn: "Connection") -> JobBackend:
     """
     backend = settings.job_backend
     if backend == "database":
+        from rentivo.encryption.factory import get_encryption
         from rentivo.jobs.sqlalchemy import SQLAlchemyJobRepository
 
         logger.info("job_backend_selected", backend="database")
         return DatabaseJobBackend(
-            SQLAlchemyJobRepository(conn, stuck_after_seconds=settings.job_worker_stuck_after_seconds)
+            SQLAlchemyJobRepository(
+                conn,
+                get_encryption(),
+                stuck_after_seconds=settings.job_worker_stuck_after_seconds,
+            )
         )
     if backend == "temporal":
         from rentivo.jobs.temporal.backend import build_temporal_backend

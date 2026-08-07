@@ -140,6 +140,46 @@ without request interception against the MariaDB-backed Compose topology.
 Treat snapshot changes as product changes: inspect desktop and mobile images
 before committing them.
 
+## HTTP security headers
+
+The frontend Nginx image owns the browser-facing security headers. They live in
+`frontend/nginx/security-headers.conf` and are `include`d by every block of
+`frontend/nginx/default.conf`, because Nginx discards the whole inherited
+`add_header` set as soon as a block declares an `add_header` of its own — and
+both the `/assets/` and the `= /index.html` blocks set `Cache-Control`. The
+`= /index.html` block is what serves the SPA document for every client-side
+route, via the `try_files` internal redirect in `location /`.
+
+The proxy (`infra/proxy/nginx.conf`) deliberately sets no response headers:
+`docker-compose.dev.yml` replaces the frontend service with the Vite dev
+server, so a policy applied at the proxy would break hot reload, and two layers
+emitting a `Content-Security-Policy` would make the browser enforce the
+intersection of both.
+
+Two policies ship together:
+
+- `Content-Security-Policy` enforces only `base-uri`, `object-src`,
+  `frame-ancestors`, and `form-action`. The application has no `<base>`
+  element, no `<object>`/`<embed>`, no cross-origin form action, and is never
+  framed, so these cannot break a working page.
+- `Content-Security-Policy-Report-Only` carries the full resource policy
+  (`script-src`, `style-src`, `font-src`, `img-src`, `connect-src`,
+  `frame-src`). It stays report-only because Cloudflare Turnstile and Google
+  Tag Manager are disabled in every automated environment and therefore
+  untested, and because the Tag Manager container's contents are configured
+  outside this repository.
+
+To promote the resource policy to enforcing: confirm a production observation
+window with no report-only violations for the Turnstile and Tag Manager flows,
+then move the directives into the enforced `add_header` in
+`frontend/nginx/security-headers.conf` and update the expected values in
+`frontend/e2e/security.spec.ts` and `frontend/e2e/production-stack.spec.ts`.
+
+`frontend/e2e/security.spec.ts` locks the committed Nginx source on every
+`make e2e` run. The live headers and a zero-violation assertion are covered by
+the `production-stack` Playwright project, which is the only suite that
+exercises the real Nginx image.
+
 ## Tests, lint, and hooks
 
 ```bash

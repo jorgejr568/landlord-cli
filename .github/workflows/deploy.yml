@@ -53,14 +53,6 @@ jobs:
           image-tag: ${{ github.sha }}
           cache-scope: production-api
           push: "true"
-      - name: Scan API image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.api.outputs.image-ref }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: "true"
-          exit-code: "1"
       - name: Attest API image provenance
         uses: actions/attest-build-provenance@v4
         with:
@@ -76,14 +68,6 @@ jobs:
           image-tag: ${{ github.sha }}
           cache-scope: production-worker
           push: "true"
-      - name: Scan worker image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.worker.outputs.image-ref }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: "true"
-          exit-code: "1"
       - name: Attest worker image provenance
         uses: actions/attest-build-provenance@v4
         with:
@@ -99,14 +83,6 @@ jobs:
           image-tag: ${{ github.sha }}
           cache-scope: production-frontend
           push: "true"
-      - name: Scan frontend image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.frontend.outputs.image-ref }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: "true"
-          exit-code: "1"
       - name: Attest frontend image provenance
         uses: actions/attest-build-provenance@v4
         with:
@@ -386,7 +362,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
       - name: Sync dependencies

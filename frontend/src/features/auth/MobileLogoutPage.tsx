@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
@@ -13,6 +13,7 @@ export function MobileLogoutPage() {
   const mobileState = searchParams.get("state");
   const [attempt, setAttempt] = useState(0);
   const [phase, setPhase] = useState<LogoutPhase>("checking");
+  const startedAttempt = useRef(-1);
 
   const returnToApp = useCallback(() => {
     openMobileAuthorizationCallback(
@@ -28,6 +29,12 @@ export function MobileLogoutPage() {
     if (!mobileState || status === "error" || status === "loading") {
       return;
     }
+    // Logging out clears the session, so `status` changes while this flow runs. Each attempt
+    // must run exactly once: re-entering would return to the app a second time.
+    if (startedAttempt.current === attempt) {
+      return;
+    }
+    startedAttempt.current = attempt;
     let active = true;
     setPhase("logging-out");
     void (async () => {

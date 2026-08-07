@@ -50,7 +50,11 @@ struct BillFormView: View {
 
   @State private var year: Int
   @State private var month: Int
-  @State private var dueDay: Int
+  @State private var dueDate: Date
+  /// Set once the user touches the date picker. Until then the due date tracks the reference
+  /// month pickers, so changing the competência moves a still-default vencimento along with it.
+  @State private var dueDateEdited: Bool
+  @State private var hasDueDate: Bool
   @State private var notes: String
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
@@ -61,9 +65,23 @@ struct BillFormView: View {
     self.bill = bill
     self.onSaved = onSaved
     let currentComponents = Calendar.current.dateComponents([.year, .month], from: Date())
-    _year = State(initialValue: bill?.referenceMonth.year ?? currentComponents.year ?? 2026)
-    _month = State(initialValue: bill?.referenceMonth.month ?? currentComponents.month ?? 1)
-    _dueDay = State(initialValue: bill?.dueDate.day ?? 10)
+    let referenceMonth =
+      bill?.referenceMonth
+      ?? ReferenceMonth(
+        year: currentComponents.year ?? 2026,
+        month: currentComponents.month ?? 1
+      )
+    _year = State(initialValue: referenceMonth.year)
+    _month = State(initialValue: referenceMonth.month)
+    _dueDate = State(
+      initialValue: (bill?.dueDate ?? referenceMonth.defaultDueDate).resolvedDate()
+    )
+    // An existing bill's *stored* due date is authoritative and must never be recomputed from
+    // the reference month. A bill with no stored date has nothing to protect, so it tracks the
+    // competência like a new bill until the user touches the picker.
+    _dueDateEdited = State(initialValue: bill?.dueDate != nil)
+    // A new bill always starts with a due date; an existing one keeps whatever the server has.
+    _hasDueDate = State(initialValue: bill.map { $0.dueDate != nil } ?? true)
     _notes = State(initialValue: bill?.notes ?? "")
     let initialLines =
       bill?.lineItems.map(EditableBillLine.init)
@@ -75,12 +93,25 @@ struct BillFormView: View {
 
   var body: some View {
     Form {
-      Section("Competência e vencimento") {
+      Section("Competência") {
         Picker("Mês", selection: $month) {
           ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
         }
+        .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
         Stepper("Ano: \(year)", value: $year, in: 2024...2035)
-        Stepper("Dia do vencimento: \(dueDay)", value: $dueDay, in: 1...28)
+          .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
+      }
+
+      Section("Vencimento") {
+        Toggle("Definir vencimento", isOn: $hasDueDate)
+          .accessibilityIdentifier("bill.form.hasDueDate")
+        if hasDueDate {
+          DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
+            .accessibilityIdentifier("bill.form.dueDate")
+          Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
@@ -146,6 +177,24 @@ struct BillFormView: View {
     }
   }
 
+  /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
+  /// `.onChange(of: dueDate)` can't do this — it would also fire for the programmatic writes in
+  /// `syncDueDateWithReferenceMonth()` and immediately freeze the default.
+  private var dueDateBinding: Binding<Date> {
+    Binding(
+      get: { dueDate },
+      set: { newValue in
+        dueDate = newValue
+        dueDateEdited = true
+      }
+    )
+  }
+
+  private func syncDueDateWithReferenceMonth() {
+    guard !dueDateEdited else { return }
+    dueDate = ReferenceMonth(year: year, month: month).defaultDueDate.resolvedDate()
+  }
+
   private var total: Money {
     lines.map { Money(centavos: $0.centavos) }.reduce(.zero, +)
   }
@@ -172,7 +221,7 @@ struct BillFormView: View {
     let draft = BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
-      dueDate: DateOnly(year: year, month: month, day: dueDay),
+      dueDate: hasDueDate ? DateOnly(from: dueDate) : nil,
       notes: notes,
       lineItems: lines.map(\.domain)
     )
@@ -218,6 +267,13 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
+  /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
+  /// the bill was already `pending`.
+  @State private var pollGeneration = 0
+
+  private var pollKey: String {
+    "\(app.dataRevision)-\(pollGeneration)-\(state.value?.isRenderingPDF == true)"
+  }
 
   var body: some View {
     PageStateView(state: state) { bill in
@@ -242,7 +298,7 @@ struct BillDetailView: View {
         }
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .sheet(isPresented: $showingCommunication) {
       if let billing, let bill = state.value {
         NavigationStack {
@@ -255,6 +311,7 @@ struct BillDetailView: View {
       Button("Cancelar", role: .cancel) {}
     }
     .task(id: app.dataRevision) { await load() }
+    .task(id: pollKey) { await pollWhileRendering() }
   }
 
   private func content(_ bill: Bill) -> some View {
@@ -274,8 +331,10 @@ struct BillDetailView: View {
               StatusBadge(status: bill.status)
             }
             MoneyText(money: bill.effectiveTotal)
-            Label("Vencimento: \(bill.dueDate.displayFormatted)", systemImage: "calendar")
-              .font(.subheadline)
+            if let dueDate = bill.dueDate {
+              Label("Vencimento: \(dueDate.displayFormatted)", systemImage: "calendar")
+                .font(.subheadline)
+            }
             if let paidAt = bill.paidAt {
               Label("Pago em \(paidAt.displayFormatted)", systemImage: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))
@@ -295,20 +354,33 @@ struct BillDetailView: View {
 
         VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
           SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
+          renderStatus(bill)
           Button {
             Task { await downloadInvoice() }
           } label: {
             Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
           }
           .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice)
           HStack {
+            // Regenerating stays available while a render is pending: a re-trigger supersedes the
+            // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(billing?.capabilities.canManageBills != true)
             if bill.status == .paid {
+              // Gated on the pending render alone: iOS opens `GET .../recibo`, which renders the
+              // recibo inline when no file is stored yet, so `canDownloadRecibo` (a
+              // stored-file gate) would disable a button the endpoint would have served.
               Button("Abrir recibo") { Task { await downloadRecibo() } }
+                .disabled(bill.isRenderingPDF)
             }
           }
           .buttonStyle(.bordered)
+          if bill.isRenderingPDF {
+            Text("Os documentos ficam disponíveis assim que a geração terminar.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
 
         ReceiptManagerView(
@@ -324,6 +396,7 @@ struct BillDetailView: View {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
+          .disabled(bill.isRenderingPDF)
         }
 
         if billing?.capabilities.canManageBills == true {
@@ -337,6 +410,27 @@ struct BillDetailView: View {
         }
       }
       .padding(RentivoSpacing.page)
+    }
+  }
+
+  @ViewBuilder
+  private func renderStatus(_ bill: Bill) -> some View {
+    switch bill.pdfRenderStatus {
+    case .pending:
+      HStack(spacing: RentivoSpacing.small) {
+        Label("Renderizando…", systemImage: "clock.arrow.circlepath")
+        ProgressView()
+      }
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.secondaryInk)
+      .accessibilityIdentifier("bill.pdf.rendering")
+    case .failed:
+      Label("Falha no PDF", systemImage: "exclamationmark.triangle")
+        .font(.footnote)
+        .foregroundStyle(RentivoColors.coral)
+        .accessibilityIdentifier("bill.pdf.failed")
+    case .succeeded, nil:
+      EmptyView()
     }
   }
 
@@ -404,6 +498,32 @@ struct BillDetailView: View {
     }
   }
 
+  /// Re-fetches the bill without ever entering `.loading`, so a poll tick can never replace the
+  /// screen the user is reading with `PageStateView`'s spinner.
+  private func refreshQuietly() async {
+    do {
+      let refreshedBilling = try await app.dependencies.billings.billing(id: billingID)
+      let refreshedBill = try await app.dependencies.bills.bill(billingID: billingID, id: billID)
+      guard !Task.isCancelled else { return }
+      billing = refreshedBilling
+      state = .loaded(refreshedBill)
+    } catch {
+      // A failed silent refresh leaves the current state untouched; the loop retries on the next
+      // tick. Reporting it would put a warning banner on the screen for a poll the user never
+      // asked for.
+    }
+  }
+
+  private func pollWhileRendering() async {
+    while !Task.isCancelled, BillPDFPolling.shouldPoll(state.value) {
+      try? await Task.sleep(for: BillPDFPolling.interval)
+      // `Task.sleep` swallows its own cancellation above, so the flag is the only signal that the
+      // view went away while we waited.
+      if Task.isCancelled { return }
+      await refreshQuietly()
+    }
+  }
+
   private func refreshAll() async {
     await load()
     await onMutation()
@@ -432,9 +552,14 @@ struct BillDetailView: View {
 
   private func regenerate(_ bill: Bill) async {
     do {
-      _ = try await app.dependencies.bills.regenerateBill(billingID: billingID, billID: bill.id)
-      // `refreshAll()` already calls `onMutation()`; calling it again here made the parent reload twice.
-      await refreshAll()
+      let queued = try await app.dependencies.bills.regenerateBill(
+        billingID: billingID, billID: bill.id)
+      // The 202 body is the bill *summary* (no receipts), so merging only its render/status
+      // metadata flips the screen to "Renderizando…" without a round trip and without blanking
+      // the receipt list; bumping the generation restarts the poll loop.
+      state = .loaded(bill.applyingRenderMetadata(from: queued))
+      pollGeneration += 1
+      await onMutation()
       app.showNotice("Documento enfileirado para regeneração.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
@@ -513,7 +638,7 @@ private struct ReceiptManagerView: View {
         .buttonStyle(.bordered)
       }
     }
-    .sheet(item: $downloadedFile) { file in DownloadShareView(file: file) }
+    .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],

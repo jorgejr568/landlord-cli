@@ -105,6 +105,32 @@ class _RequestContextMiddleware:
             structlog.contextvars.clear_contextvars()
 
 
+class _APINoStoreMiddleware:
+    """Stamp `Cache-Control: no-store` on every `/api/` response that does not set its own.
+
+    API responses are private, dynamic state. Without an explicit directive, HTTP caches fall
+    back to heuristic freshness — a client polling `pdf_render_status` then re-reads its own
+    cached "pending" response instead of the network and never observes the render finishing.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if "cache-control" not in headers:
+                    headers["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_with_no_store)
+
+
 class _LegacySessionCookieExpiryMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -176,6 +202,7 @@ def create_app() -> FastAPI:
     app.add_middleware(_RequestContextMiddleware)
     app.add_middleware(TracingMiddleware)
     app.add_middleware(_LegacySessionCookieExpiryMiddleware)
+    app.add_middleware(_APINoStoreMiddleware)
 
     @app.exception_handler(ProblemException)
     async def problem_exception_handler(request: Request, exc: ProblemException):

@@ -42,8 +42,10 @@ paths_changed() {
   # The file list is materialised before matching: piping `git diff` into
   # `grep -q` lets grep exit on its first match, killing `git diff` with
   # SIGPIPE, which `pipefail` would report as "no iOS changes".
+  # core.quotePath=false keeps non-ASCII paths (PT-BR copy) literal; the
+  # default renders them as "\303\241"-style escapes that match no pattern.
   local changed
-  changed=$(git diff --name-only "$merge_base" HEAD)
+  changed=$(git -c core.quotePath=false diff --name-only "$merge_base" HEAD)
   if grep -qE "$IOS_PATH_PATTERN" <<<"$changed"; then
     printf 'true\n'
   else

@@ -120,8 +120,15 @@ make ios-test                # if ios/ changed (requires full Xcode)
 
 The complete release gate also renders production/development Compose,
 round-trips migrations on MariaDB, boots functional and production-settings
-stacks, runs dependency/configuration/image scans, and builds all production
-images locally for exact-tag scanning.
+stacks, runs dependency and configuration scans, and builds all production
+images locally to catch Dockerfile breakage. Gate jobs are path-filtered by
+`scripts/ci-changed-areas.sh`, which classifies the diff into `backend`,
+`frontend`, `docker`, and `scripts` areas; a job whose input areas are
+untouched is skipped and counts as passing, and any `.github/` change or an
+unusable base marks every gate area as changed. Image vulnerability scanning is
+not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
+the production images weekly and keeps the `Weekly image vulnerability report`
+issue (label `image-vulnerability-report`) up to date.
 
 ## Compose and release
 
@@ -137,11 +144,10 @@ Images are defined by:
 - `frontend/Dockerfile`
 
 The deployment workflow publishes API, worker, and frontend images for one Git
-SHA, scans each exact digest before attestation, resolves and verifies OCI
-labels/provenance, and tests the exact images without rebuilding. Protected
-deployment automation validates production configuration and real integration
-reachability before migration and rollout. See
-`docs/runbooks/production-release.md`.
+SHA, attests each exact digest, resolves and verifies OCI labels/provenance,
+and tests the exact images without rebuilding. Protected deployment automation
+validates production configuration and real integration reachability before
+migration and rollout. See `docs/runbooks/production-release.md`.
 
 The iOS app releases independently: changing `MARKETING_VERSION` in
 `ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers

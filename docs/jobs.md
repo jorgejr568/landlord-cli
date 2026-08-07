@@ -23,6 +23,42 @@ Tunables (see [`configuration.md`](configuration.md) for the full reference):
 | `RENTIVO_JOB_WORKER_IDLE_SLEEP_SECONDS` | `5.0` | Sleep when the queue is empty |
 | `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS` | `600` | Reclaim window for jobs left `running` by a dead worker |
 
+### Payload encryption at rest
+
+`jobs.payload` is encrypted through the configured encryption backend
+(`RENTIVO_ENCRYPTION_BACKEND`, KMS in production) before it is written. The
+stored value is a JSON envelope:
+
+```json
+{"__enc": "enc:v1:<base64 KMS ciphertext>"}
+```
+
+The envelope is a JSON *object* rather than a bare ciphertext string because
+MariaDB renders the `sa.JSON` column as `longtext ... CHECK (json_valid(...))`;
+a bare ciphertext fails that constraint with `ERROR 4025`, while SQLite (the
+test suite) would accept it. Encryption and decryption happen inside
+`SQLAlchemyJobRepository`, so handlers always receive a plaintext dict and no
+producer needs to know about it.
+
+Payloads carry third-party recipient addresses, client IPs, user agents, and —
+for `password_reset` — a reset URL, none of which belong in a database backup
+that a low-privilege operator or read replica can read.
+
+Reads accept both shapes, so encrypted and legacy plaintext rows coexist and
+no flag day is needed. To encrypt the historical backlog:
+
+```bash
+make encrypt-job-payloads-dry   # report only
+make encrypt-job-payloads       # apply
+```
+
+If the encryption backend is unavailable, the worker declines to claim the
+affected rows: they stay `pending` with their attempt count untouched, and the
+worker retries on the next poll. A row that can never be decrypted (for example
+after key destruction) is skipped on every poll and logged as
+`job_payload_decode_failed` with its `job_id` and `ulid`; quarantine it with
+`UPDATE jobs SET status='failed', last_error='undecryptable payload' WHERE id = ...`.
+
 Run the worker:
 
 ```bash

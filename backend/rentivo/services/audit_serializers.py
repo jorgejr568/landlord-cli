@@ -46,7 +46,8 @@ def _serialize_line_item(item) -> dict:
 def serialize_billing(billing: Billing) -> dict:
     """Serialize a Billing (with items) for audit state.
 
-    PIX fields are partial-mask redacted (first 3 chars + ``...`` + last 2 chars).
+    ``pix_key`` gets the type-aware PIX mask; the merchant name and city are
+    free text and get the ``TEXT`` mask (first 4 + ``****`` + last 4).
     """
     return {
         "id": billing.id,
@@ -54,8 +55,8 @@ def serialize_billing(billing: Billing) -> dict:
         "name": billing.name,
         "description": billing.description,
         "pix_key": redact(billing.pix_key or "", PIIKind.PIX),
-        "pix_merchant_name": redact(billing.pix_merchant_name or "", PIIKind.PIX),
-        "pix_merchant_city": redact(billing.pix_merchant_city or "", PIIKind.PIX),
+        "pix_merchant_name": redact(billing.pix_merchant_name or "", PIIKind.TEXT),
+        "pix_merchant_city": redact(billing.pix_merchant_city or "", PIIKind.TEXT),
         "owner_type": billing.owner_type,
         "owner_id": billing.owner_id,
         "items": [_serialize_line_item(item) for item in billing.items],
@@ -129,19 +130,18 @@ def serialize_billing_attachment(attachment: BillingAttachment, *, billing_uuid:
 def serialize_user(user: User) -> dict:
     """Serialize a User for audit state.
 
-    Excludes ``password_hash``. Email is partial-mask redacted via
-    :func:`rentivo.pii_redaction.redact` with ``PIIKind.EMAIL`` — first 2 chars
-    of local-part + ``...@`` + full domain (e.g. ``jo...@gmail.com``). PIX fields
-    (``pix_key``, ``pix_merchant_name``, ``pix_merchant_city``) are also
-    partial-mask redacted — first 3 chars + ``...`` + last 2 chars. Empty values
-    redact to ``""``. The mask is one-way and key-less.
+    Excludes ``password_hash``. ``email`` gets the ``EMAIL`` mask (first +
+    ``****`` + last char of the local part, domain kept whole, e.g.
+    ``a****e@gmail.com``). ``pix_key`` gets the type-aware PIX mask; the
+    merchant name and city are free text and get the ``TEXT`` mask. Empty
+    values redact to ``""``. The mask is one-way and key-less.
     """
     return {
         "id": user.id,
         "email": redact(user.email or "", PIIKind.EMAIL),
         "pix_key": redact(user.pix_key or "", PIIKind.PIX),
-        "pix_merchant_name": redact(user.pix_merchant_name or "", PIIKind.PIX),
-        "pix_merchant_city": redact(user.pix_merchant_city or "", PIIKind.PIX),
+        "pix_merchant_name": redact(user.pix_merchant_name or "", PIIKind.TEXT),
+        "pix_merchant_city": redact(user.pix_merchant_city or "", PIIKind.TEXT),
         "created_at": _dt(user.created_at),
     }
 
@@ -149,7 +149,8 @@ def serialize_user(user: User) -> dict:
 def serialize_organization(org: Organization) -> dict:
     """Serialize an Organization for audit state.
 
-    PIX fields are partial-mask redacted (first 3 chars + ``...`` + last 2 chars).
+    ``pix_key`` gets the type-aware PIX mask; the merchant name and city are
+    free text and get the ``TEXT`` mask.
     """
     return {
         "id": org.id,
@@ -158,8 +159,8 @@ def serialize_organization(org: Organization) -> dict:
         "created_by": org.created_by,
         "enforce_mfa": org.enforce_mfa,
         "pix_key": redact(org.pix_key or "", PIIKind.PIX),
-        "pix_merchant_name": redact(org.pix_merchant_name or "", PIIKind.PIX),
-        "pix_merchant_city": redact(org.pix_merchant_city or "", PIIKind.PIX),
+        "pix_merchant_name": redact(org.pix_merchant_name or "", PIIKind.TEXT),
+        "pix_merchant_city": redact(org.pix_merchant_city or "", PIIKind.TEXT),
         "created_at": _dt(org.created_at),
         "updated_at": _dt(org.updated_at),
     }
@@ -169,7 +170,7 @@ def serialize_invite(invite: Invite) -> dict:
     """Serialize an Invite for audit state.
 
     Email fields are partial-mask redacted via :func:`rentivo.pii_redaction.redact`
-    with ``PIIKind.EMAIL`` (first 2 chars of local-part + ``...@`` + full domain).
+    with ``PIIKind.EMAIL`` (first + ``****`` + last char of the local part, full domain).
     ``organization_name`` is dropped — the row already references the org by id,
     and the org's name is captured under the dedicated organization audit events
     via :func:`serialize_organization`.
@@ -244,9 +245,9 @@ def serialize_job_payload(payload: dict) -> dict:
     """Audit-safe view of a queued job's payload.
 
     For email.send: keeps ``event``, a partial-mask redaction of ``to_email``
-    (e.g. ``jo...@gmail.com`` — first 2 chars of local + full domain) so
-    reviewers can recognize the recipient domain without seeing the address,
-    and a count of ctx keys, but drops every ctx value (templates can carry
+    (e.g. ``a****e@gmail.com`` — first and last char of the local part plus the
+    full domain) so reviewers can recognize the recipient domain without seeing
+    the address, and a count of ctx keys, but drops every ctx value (templates can carry
     org names, IPs, reset URLs — none belong in audit rows). For s3.delete:
     keeps ``key`` (a ULID-only storage path; safe to log). For unknown job
     types we keep only a sorted index of top-level keys.

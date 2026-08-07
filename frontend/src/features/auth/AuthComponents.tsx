@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import type { components } from "../../lib/api/schema";
 import { useAuth } from "./AuthProvider";
+import { useMobileHandoff } from "./mobileHandoff";
 
 type AuthConfig = components["schemas"]["AuthConfigResponse"];
 
@@ -113,6 +114,41 @@ export function GoogleAuthLink() {
       </svg>
       Continuar com Google
     </a>
+  );
+}
+
+/**
+ * Google sign-in, with its separator, gated on both the server feature flag
+ * and the iOS authentication handoff.
+ *
+ * The handoff check lives here rather than at the call sites so there is no
+ * call site left to forget: App Store guideline 4.8 forbids offering a
+ * third-party login service inside the app without an equivalent alternative,
+ * and a Google button reachable from the app's authentication sheet is what
+ * got version 1.0.1 rejected.
+ */
+export function GoogleAuthOption({ enabled }: { enabled: boolean }) {
+  const { isHandoff } = useMobileHandoff();
+  if (!enabled || isHandoff) {
+    return null;
+  }
+  return (
+    <>
+      <div
+        style={{ alignItems: "center", display: "flex", gap: "0.75rem", margin: "1.25rem 0" }}
+      >
+        <hr
+          style={{ border: "none", borderTop: "1px solid var(--border, #ddd)", flex: 1, margin: 0 }}
+        />
+        <span className="muted" style={{ fontSize: "0.85rem" }}>
+          ou
+        </span>
+        <hr
+          style={{ border: "none", borderTop: "1px solid var(--border, #ddd)", flex: 1, margin: 0 }}
+        />
+      </div>
+      <GoogleAuthLink />
+    </>
   );
 }
 

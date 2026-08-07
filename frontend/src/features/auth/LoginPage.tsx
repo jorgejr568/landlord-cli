@@ -6,7 +6,7 @@ import type { components } from "../../lib/api/schema";
 import {
   AuthConfigGate,
   AuthError,
-  GoogleAuthLink,
+  GoogleAuthOption,
   LoginAuthHeader,
   SubmitButton
 } from "./AuthComponents";
@@ -14,6 +14,7 @@ import { postLoginPath, useAuth } from "./AuthProvider";
 import { pushAnalyticsFromResponse } from "./analytics";
 import { saveMfaChallenge, takeAuthFlash } from "./authStorage";
 import { openMobileAuthorizationCallback } from "./mobileAuthorization";
+import { useMobileHandoff } from "./mobileHandoff";
 import { Turnstile, type TurnstileHandle } from "./Turnstile";
 
 type LoginRequest = components["schemas"]["LoginRequest"];
@@ -24,7 +25,11 @@ export function LoginPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Read from the URL, not from the sticky handoff marker: this value drives
+  // the mobile authorization request, and a stale state would authorize a
+  // session the app is no longer waiting on.
   const mobileState = searchParams.get("mobile_state");
+  const { withHandoff } = useMobileHandoff();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -181,7 +186,7 @@ export function LoginPage() {
                   />
                 </div>
                 <p style={{ fontSize: "0.85rem", margin: "-0.4rem 0 1rem", textAlign: "right" }}>
-                  <Link to="/forgot-password">Esqueceu sua senha?</Link>
+                  <Link to={withHandoff("/forgot-password")}>Esqueceu sua senha?</Link>
                 </p>
                 <Turnstile
                   enabled={config.feature_flags.turnstile}
@@ -196,20 +201,9 @@ export function LoginPage() {
                   Entrar
                 </SubmitButton>
               </form>
-              {config.feature_flags.google_auth ? (
-                <>
-                  <div style={{ alignItems: "center", display: "flex", gap: "0.75rem", margin: "1.25rem 0" }}>
-                    <hr style={{ border: "none", borderTop: "1px solid var(--border, #ddd)", flex: 1, margin: 0 }} />
-                    <span className="muted" style={{ fontSize: "0.85rem" }}>
-                      ou
-                    </span>
-                    <hr style={{ border: "none", borderTop: "1px solid var(--border, #ddd)", flex: 1, margin: 0 }} />
-                  </div>
-                  <GoogleAuthLink />
-                </>
-              ) : null}
+              <GoogleAuthOption enabled={config.feature_flags.google_auth} />
               <p className="muted" style={{ fontSize: "0.88rem", margin: "1.25rem 0 0", textAlign: "center" }}>
-                Não tem conta? <Link to="/signup">Criar conta</Link>
+                Não tem conta? <Link to={withHandoff("/signup")}>Criar conta</Link>
               </p>
             </div>
           </div>

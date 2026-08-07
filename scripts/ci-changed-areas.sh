@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Classify changes since a base SHA into release-gate areas so
+# .github/workflows/test-pr.yaml can skip jobs whose inputs did not change.
+# Source with RENTIVO_CI_AREAS_LIB_ONLY=1 to load the functions without
+# dispatching.
+set -euo pipefail
+
+# Each pattern must cover every input of the jobs it gates. Changes under
+# .github/ force every area to true because workflow and action edits can
+# change any job's behavior.
+# .python-version selects the interpreter every uv-based job installs.
+# The backend suite also asserts on repository-root deployment configuration:
+# backend/tests/test_production_infrastructure.py reads docker-compose*.yml,
+# frontend/Dockerfile, infra/proxy/nginx.conf, the Makefile, and both env
+# examples, and backend/tests/test_env_example.py reads .env.example, so those
+# paths are backend inputs even though other areas match them too.
+BACKEND_PATH_PATTERN='^(backend/|uv\.lock$|pyproject\.toml$|\.python-version$|scripts/[^/]+\.py$|scripts/tests/[^/]*\.py$|docker-compose[^/]*\.yml$|frontend/Dockerfile$|infra/|Makefile$|\.env(\.db)?\.example$)'
+# The frontend job verifies the iOS OpenAPI copy against frontend/openapi.json
+# with scripts/sync-ios-openapi.sh, and the frontend and functional-stack jobs
+# execute the smoke helper plus its suite (through the package's pretest hook),
+# so those scripts are frontend inputs even though `scripts` also matches them.
+FRONTEND_PATH_PATTERN='^(frontend/|ios/Rentivo/openapi\.json$|scripts/(sync-ios-openapi|smoke-production-stack)\.sh$|scripts/tests/smoke-production-stack-test\.sh$)'
+# infra/ holds the configuration docker-compose.yml bind-mounts into services
+# (today infra/proxy/nginx.conf for the Nginx edge).
+DOCKER_PATH_PATTERN='^(backend/Dockerfile|frontend/Dockerfile$|docker-compose[^/]*\.yml$|\.dockerignore$|infra/)'
+SCRIPTS_PATH_PATTERN='^scripts/'
+WORKFLOWS_PATH_PATTERN='^\.github/'
+
+# Print area=true/false lines for changes between <base-sha> and HEAD.
+# An unusable base (first push, tag push, force push) reports every area
+# as true so the checks run rather than silently vanish.
+changed_areas() {
+  local base=${1:-}
+  if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+    printf 'backend=true\nfrontend=true\ndocker=true\nscripts=true\n'
+    return 0
+  fi
+  local merge_base
+  merge_base=$(git merge-base "$base" HEAD 2>/dev/null || printf '%s' "$base")
+  # The file list is materialised before matching: piping `git diff` into
+  # `grep -q` lets grep exit on its first match, killing `git diff` with
+  # SIGPIPE, which `pipefail` would report as "nothing changed".
+  # core.quotePath=false keeps non-ASCII paths (PT-BR copy) literal; the
+  # default renders them as "\303\241"-style escapes that match no pattern.
+  local changed
+  changed=$(git -c core.quotePath=false diff --name-only "$merge_base" HEAD)
+  if grep -qE "$WORKFLOWS_PATH_PATTERN" <<<"$changed"; then
+    printf 'backend=true\nfrontend=true\ndocker=true\nscripts=true\n'
+    return 0
+  fi
+  local area pattern
+  for area in backend frontend docker scripts; do
+    case "$area" in
+      backend) pattern="$BACKEND_PATH_PATTERN" ;;
+      frontend) pattern="$FRONTEND_PATH_PATTERN" ;;
+      docker) pattern="$DOCKER_PATH_PATTERN" ;;
+      scripts) pattern="$SCRIPTS_PATH_PATTERN" ;;
+    esac
+    if grep -qE "$pattern" <<<"$changed"; then
+      printf '%s=true\n' "$area"
+    else
+      printf '%s=false\n' "$area"
+    fi
+  done
+}
+
+if [[ -n "${RENTIVO_CI_AREAS_LIB_ONLY:-}" ]]; then
+  return 0
+fi
+
+changed_areas "${1:-}"

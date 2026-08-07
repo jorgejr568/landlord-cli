@@ -60,6 +60,7 @@ _files_read = require_scope(APIScope.FILES_READ)
 _files_write = require_scope(APIScope.FILES_WRITE)
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
 _DELETE_ROLES = frozenset({"owner", "admin"})
+_PDF_RENDER_PENDING = "pending"
 _BILL_CREATE_OPENAPI = {
     "requestBody": {
         "required": True,
@@ -207,6 +208,8 @@ def _capabilities(
     )
     pix_ready = not services.pix.billing_needs_setup(billing)
     can_compose = can_manage and communications_ready
+    # A queued render may replace both documents, so treat either one as stale until it finishes.
+    rendering = bill.pdf_render_status == _PDF_RENDER_PENDING
     return BillCapabilitiesResponse(
         can_edit=can_manage and bills_write,
         can_delete=can_delete and bills_write,
@@ -215,11 +218,15 @@ def _capabilities(
         can_upload_receipts=can_manage and files_write and pix_ready,
         can_delete_receipts=can_manage and files_write,
         can_reorder_receipts=can_manage and files_write,
-        can_download_invoice=files_read and bool(bill.pdf_path),
-        can_download_recibo=(files_read and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path)),
+        can_download_invoice=files_read and bool(bill.pdf_path) and not rendering,
+        can_download_recibo=(
+            files_read and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path) and not rendering
+        ),
         can_compose=can_compose,
-        can_send_invoice=can_compose and bool(bill.pdf_path),
-        can_send_recibo=(can_compose and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path)),
+        can_send_invoice=can_compose and bool(bill.pdf_path) and not rendering,
+        can_send_recibo=(
+            can_compose and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path) and not rendering
+        ),
     )
 
 
@@ -334,9 +341,13 @@ def _receipt_for_bill(access: BillAccess, services: RequestServices, receipt_uui
 
 
 def _file_response(ref: FileRef, *, content_type: str, filename: str) -> Response:
+    response: Response
     if ref.kind == "local":
-        return FileResponse(ref.location, media_type=content_type, filename=filename)
-    return RedirectResponse(ref.location, status_code=302)
+        response = FileResponse(ref.location, media_type=content_type, filename=filename)
+    else:
+        response = RedirectResponse(ref.location, status_code=302)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _audit_recibo_download(access: BillAccess, services: RequestServices) -> None:
@@ -777,7 +788,9 @@ async def regenerate_bill(
     return _bill_response(access.bill, access.billing, access.role, principal, services)
 
 
-@router.get("/{bill_uuid}/invoice", responses={403: {"model": Problem}, 404: {"model": Problem}})
+@router.get(
+    "/{bill_uuid}/invoice", responses={403: {"model": Problem}, 404: {"model": Problem}, 409: {"model": Problem}}
+)
 async def download_invoice(
     billing_uuid: str,
     bill_uuid: str,
@@ -787,6 +800,8 @@ async def download_invoice(
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
     if not access.bill.pdf_path:
         raise ProblemException.not_found()
+    if access.bill.pdf_render_status == _PDF_RENDER_PENDING:
+        raise _conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
     ref = services.bill.get_invoice_ref(access.bill)
     return _file_response(ref, content_type="application/pdf", filename=f"fatura-{access.bill.uuid}.pdf")
 
@@ -803,6 +818,8 @@ async def download_recibo(
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
     if access.bill.status != BillStatus.PAID.value:
         raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
+    if access.bill.pdf_render_status == _PDF_RENDER_PENDING:
+        raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
     filename = f"recibo-{access.bill.uuid}.pdf"
     if access.bill.recibo_pdf_path:
         response = _file_response(
@@ -842,7 +859,7 @@ async def get_recibo_download(
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
     if access.bill.status != BillStatus.PAID.value:
         raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
-    if not access.bill.recibo_pdf_path:
+    if access.bill.pdf_render_status == _PDF_RENDER_PENDING or not access.bill.recibo_pdf_path:
         raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
 
     ref = services.bill.get_recibo_ref(access.bill)
@@ -863,6 +880,7 @@ async def get_recibo_download(
         "rentivo_recibo_downloaded",
         bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
     )
+    response.headers["Cache-Control"] = "no-store"
     return ReciboDownloadResponse(download_url=download_url, filename=filename)
 
 
@@ -879,7 +897,7 @@ async def download_recibo_content(
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
     if access.bill.status != BillStatus.PAID.value:
         raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
-    if not access.bill.recibo_pdf_path:
+    if access.bill.pdf_render_status == _PDF_RENDER_PENDING or not access.bill.recibo_pdf_path:
         raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
     ref = services.bill.get_recibo_ref(access.bill)
     _audit_recibo_download(access, services)

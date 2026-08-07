@@ -19,6 +19,7 @@ from __future__ import annotations
 import structlog
 
 from rentivo.db import get_engine
+from rentivo.encryption.factory import get_encryption
 from rentivo.jobs import handlers  # noqa: F401 — registers handlers
 from rentivo.jobs.sqlalchemy import SQLAlchemyJobRepository
 from rentivo.jobs.worker import Worker
@@ -51,7 +52,11 @@ def main() -> None:
     )
     engine = get_engine()
     with engine.connect() as conn:
-        repo = SQLAlchemyJobRepository(conn, stuck_after_seconds=settings.job_worker_stuck_after_seconds)
+        repo = SQLAlchemyJobRepository(
+            conn,
+            get_encryption(),
+            stuck_after_seconds=settings.job_worker_stuck_after_seconds,
+        )
         audit = AuditService(SQLAlchemyAuditLogRepository(conn))
         worker = Worker(
             repo,
