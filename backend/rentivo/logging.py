@@ -79,6 +79,31 @@ def _pick_renderer(cli: bool):
     return structlog.processors.JSONRenderer()
 
 
+class _DemoteErrorsToWarning(logging.Filter):
+    """Rewrite ERROR records to WARNING before any handler formats them.
+
+    Attached to a logger (not a handler) so it applies to every sink — stdout
+    and the CloudWatch copy alike — and only to records emitted through that
+    logger.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.ERROR:
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+        return True
+
+
+# Span export failures ("Failed to export span batch code: ...") are emitted by
+# the OTLP exporter at ERROR. A collector that is unreachable, throttling, or
+# rejecting a batch costs us traces, not correctness: the request already
+# succeeded and no application state is wrong. Logging it as ERROR puts a
+# degraded-observability condition in the same bucket as real faults and trips
+# error-rate alarms, so demote the whole exporter logger to WARNING.
+_OTLP_SPAN_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
+_demote_span_export_errors = _DemoteErrorsToWarning()
+
+
 def _cloudwatch_handler() -> logging.Handler:
     """A watchtower handler shipping JSON logs to CloudWatch Logs.
 
@@ -155,6 +180,11 @@ def configure_logging(cli: bool = False) -> None:
     # Quiet noisy libraries — the app logs requests/queries explicitly.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+    # Idempotent: `reconfigure` must not stack duplicate filters.
+    exporter_logger = logging.getLogger(_OTLP_SPAN_EXPORTER_LOGGER)
+    if _demote_span_export_errors not in exporter_logger.filters:
+        exporter_logger.addFilter(_demote_span_export_errors)
 
 
 # Alias used after Alembic ``fileConfig`` may have wiped the root logger.
