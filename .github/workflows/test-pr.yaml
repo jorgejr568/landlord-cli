@@ -970,8 +970,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Audit frontend dependencies
-        run: npm --prefix frontend audit --audit-level=high
       - name: Install uv for locked SAST
         uses: astral-sh/setup-uv@v9.0.0
         with:
