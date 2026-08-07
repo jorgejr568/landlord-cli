@@ -41,16 +41,18 @@ Complete every item before announcing the maintenance window:
 
 1. Confirm the protected release gate passed for the exact release SHA: backend
    and frontend tests, 100% coverage, lint, OpenAPI freshness, production
-   Compose validation, dependency and configuration scans, image builds, the
-   real-stack smoke/E2E suite, and the populated production migration rehearsal
-   from `55dc25bae00d` to the repository's single Alembic head. Gate jobs are
-   path-filtered by `scripts/ci-changed-areas.sh`, so jobs whose input areas
-   are untouched by the push show as skipped and still count as passing;
-   `publish-images` in `deploy.yml` builds and publishes the release images
-   itself regardless. Production images are built and published without a
-   blocking vulnerability scan; see
-   [Weekly image vulnerability scan](#weekly-image-vulnerability-scan) for the
-   scheduled workflow that covers them instead.
+   Compose validation, backend dependency, secret, and configuration scans,
+   image builds, the real-stack smoke/E2E suite, and the populated production
+   migration rehearsal from `55dc25bae00d` to the repository's single Alembic
+   head. Gate jobs are path-filtered by `scripts/ci-changed-areas.sh`, so jobs
+   whose input areas are untouched by the push show as skipped and still count
+   as passing; `publish-images` in `deploy.yml` builds and publishes the
+   release images itself regardless. Production images are built and published
+   without a blocking vulnerability scan, and frontend dependency auditing is
+   not part of the gate either; see
+   [Weekly image vulnerability scan](#weekly-image-vulnerability-scan) and
+   [Weekly npm audit report](#weekly-npm-audit-report) for the scheduled
+   workflows that cover them instead.
 2. Confirm the release SHA is the commit being deployed. Do not rebuild from a
    moving branch or retag an image after the gate.
 3. Validate production configuration with secret-managed files:
@@ -190,6 +192,21 @@ Review that issue before a release. Findings are not an automatic release
 blocker, but a CRITICAL finding reachable from production traffic should be
 patched — usually by bumping the base image in the affected Dockerfile — before
 the rollout rather than after.
+
+## Weekly npm audit report
+
+`.github/workflows/npm-audit-report.yml` runs every Monday at 06:00 UTC and can
+also be started manually with `workflow_dispatch`. It audits
+`frontend/package-lock.json` and maintains a single open issue titled
+`Weekly npm audit report` carrying the `npm-audit-report` label. It reports
+every HIGH and CRITICAL finding, including the ones with no fix available, and
+never blocks a build: when findings exist the issue is created or refreshed
+with the full table, and when a run finds nothing the issue is closed.
+
+Review that issue before a release. Findings are not an automatic release
+blocker, but a CRITICAL finding in a dependency that reaches the browser bundle
+should be patched — usually by bumping the affected package in
+`frontend/package-lock.json` — before the rollout rather than after.
 
 ## Migrate and roll out exactly once
 
