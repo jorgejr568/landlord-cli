@@ -15,10 +15,6 @@ jobs:
     permissions:
       contents: read
       issues: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      REPORT_LABEL: npm-audit-report
-      REPORT_TITLE: Weekly npm audit report
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -31,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          count="$(jq '.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical' npm-audit.json)"
+          count="$(jq '(.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical) // 0' npm-audit.json)"
           {
             printf 'Weekly npm audit of frontend/package-lock.json at %s.\n\n' "${GITHUB_SHA}"
             printf 'HIGH/CRITICAL findings: **%s**. ' "$count"
@@ -40,7 +36,7 @@ jobs:
               printf '| Package | Severity | Direct | Range | Fix available | Advisories |\n'
               printf '| --- | --- | --- | --- | --- | --- |\n'
               jq -r '
-                def cell: tostring | gsub("\\|"; "\\|");
+                def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
                 def fix:
                   if (.fixAvailable | type) == "object"
                   then "\(.fixAvailable.name)@\(.fixAvailable.version)"
@@ -50,9 +46,11 @@ jobs:
                   end;
                 def advisories:
                   [.via[] | select(type == "object")] as $found
+                  | [.via[] | select(type == "string") | cell] as $names
                   | if ($found | length) > 0
                     then [$found[] | "[\(.title | cell)](\(.url))"] | join("<br>")
-                    else "via " + ([.via[] | select(type == "string") | cell] | join(", "))
+                    elif ($names | length) > 0 then "via " + ($names | join(", "))
+                    else "-"
                     end;
                 .vulnerabilities[]
                 | select(.severity == "high" or .severity == "critical")
@@ -66,6 +64,10 @@ jobs:
           printf '%s\n' "$count" > npm-audit.count
       - name: Create or update the report issue
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_LABEL: npm-audit-report
+          REPORT_TITLE: Weekly npm audit report
         run: |
           set -euo pipefail
           count="$(cat npm-audit.count)"
