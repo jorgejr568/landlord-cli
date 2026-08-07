@@ -128,7 +128,10 @@ untouched is skipped and counts as passing, and any `.github/` change or an
 unusable base marks every gate area as changed. Image vulnerability scanning is
 not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
 the production images weekly and keeps the `Weekly image vulnerability report`
-issue (label `image-vulnerability-report`) up to date.
+issue (label `image-vulnerability-report`) up to date. The frontend npm audit
+works the same way: `.github/workflows/npm-audit-report.yml` audits
+`frontend/package-lock.json` weekly and keeps the `Weekly npm audit report`
+issue (label `npm-audit-report`) up to date.
 
 ## Compose and release
 

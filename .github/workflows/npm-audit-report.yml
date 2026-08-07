@@ -1,0 +1,92 @@
+name: Weekly npm Audit Report
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit frontend dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Audit frontend dependencies
+        shell: bash
+        run: npm --prefix frontend audit --json --audit-level=none > npm-audit.json
+      - name: Render audit report
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(jq '(.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical) // 0' npm-audit.json)"
+          {
+            printf 'Weekly npm audit of frontend/package-lock.json at %s.\n\n' "${GITHUB_SHA}"
+            printf 'HIGH/CRITICAL findings: **%s**. ' "$count"
+            printf 'Workflow run: %s/%s/actions/runs/%s\n\n' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            if [ "$count" -gt 0 ]; then
+              printf '| Package | Severity | Direct | Range | Fix available | Advisories |\n'
+              printf '| --- | --- | --- | --- | --- | --- |\n'
+              jq -r '
+                def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
+                def fix:
+                  if (.fixAvailable | type) == "object"
+                  then "\(.fixAvailable.name)@\(.fixAvailable.version)"
+                    + (if .fixAvailable.isSemVerMajor then " (major)" else "" end)
+                  elif .fixAvailable then "yes"
+                  else "no"
+                  end;
+                def advisories:
+                  [.via[] | select(type == "object")] as $found
+                  | [.via[] | select(type == "string") | cell] as $names
+                  | if ($found | length) > 0
+                    then [$found[] | "[\(.title | cell)](\(.url))"] | join("<br>")
+                    elif ($names | length) > 0 then "via " + ($names | join(", "))
+                    else "-"
+                    end;
+                .vulnerabilities[]
+                | select(.severity == "high" or .severity == "critical")
+                | "| \(.name | cell) | \(.severity) | \(if .isDirect then "yes" else "no" end)"
+                  + " | \(.range | cell) | \(fix | cell) | \(advisories) |"
+              ' npm-audit.json
+            else
+              printf 'No HIGH or CRITICAL vulnerabilities found.\n'
+            fi
+          } > issue-body.md
+          printf '%s\n' "$count" > npm-audit.count
+      - name: Create or update the report issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_LABEL: npm-audit-report
+          REPORT_TITLE: Weekly npm audit report
+        run: |
+          set -euo pipefail
+          count="$(cat npm-audit.count)"
+          gh label create "$REPORT_LABEL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --description "Automated weekly npm audit for frontend dependencies" \
+            --color B60205 --force
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$REPORT_LABEL" \
+            --state open --json number --jq '.[0].number // empty')"
+          if [ "$count" -gt 0 ]; then
+            if [ -n "$issue" ]; then
+              gh issue edit "$issue" --repo "$GITHUB_REPOSITORY" --body-file issue-body.md
+              gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" \
+                --body "Updated with the audit results from ${GITHUB_SHA}."
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" \
+                --title "$REPORT_TITLE" --label "$REPORT_LABEL" --body-file issue-body.md
+            fi
+          elif [ -n "$issue" ]; then
+            gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
+              --comment "The weekly npm audit of ${GITHUB_SHA} found no HIGH or CRITICAL vulnerabilities."
+          fi
