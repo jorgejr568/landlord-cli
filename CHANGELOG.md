@@ -8,12 +8,50 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-06
+### Added
+- Mobile authorization exchange and browser logout handoff, so a native client can complete login and logout through the web session and receive a scoped API token (#152, #155). The handoff is preserved through MFA and for already-authenticated sessions (#153, #156).
+- The iOS app is connected to the production API and ships to the App Store: generated client from the OpenAPI contract, live billing/bill/organization/account workflows, native session lifecycle, app launcher icon, and light-only appearance (#154, #157, #158, #168).
+- App Store submission prerequisites — public privacy policy, terms of use, and support pages linked from the landing footer and the iOS account screen; export-compliance declaration; and password-confirmed **account deletion** with an atomic user wipe, audit event, and confirmation email. `organizations.created_by` becomes nullable (`ON DELETE SET NULL`) and `invites.invited_by_user_id` becomes `ON DELETE CASCADE` so a user can be hard-deleted (#159).
+- Automated iOS App Store releases triggered by a `MARKETING_VERSION` change on `main`: archive, sign, upload, wait for `VALID`, and attach the build to its TestFlight beta group (#170, #178). Includes App Store Connect build-query helpers and a release runbook.
+- Bill detail is reachable directly from the iOS home dashboard's "Próximas faturas" cards (#177), and the iOS communication composer reaches every billing recipient with web-parity templates, live preview sizing, and moderation warnings (#179).
+- Bill document actions are gated while a PDF render is pending: the API clears the download/send capability flags and answers `409 invoice_not_ready` / `recibo_not_ready` instead of serving a stale render, and the web and iOS clients poll every 3 seconds until the render settles (#196).
+- Baseline HTTP security response headers served from the frontend image, locked by an e2e contract test asserting live headers and zero CSP violations (#187).
+- `scripts/ci-changed-areas.sh` classifies a diff into `backend`, `frontend`, `docker`, and `scripts` areas so release-gate jobs whose inputs are untouched are skipped; it fails open on an unusable base and on any `.github/` change (#197).
+
+### Changed
+- Image vulnerability scanning and the frontend npm audit moved off the blocking release gate into weekly scheduled workflows that maintain the `Weekly image vulnerability report` and `Weekly npm audit report` issues. The gate still builds every production image so Dockerfile breakage is caught (#197, #201).
+- Document downloads and API responses are marked `Cache-Control: no-store`, aligning them with the convention already used for credential-bearing responses and stopping clients from polling their own cache (#183, #196).
+- The iOS app no longer persists authenticated responses or downloads on disk: the API session opts out of `URLCache`, downloads are written to a dedicated protected temporary directory, and both are purged on session end (#185).
+- The iOS bill form collects a full due date instead of a day of the reference month, and treats a missing due date as optional rather than an epoch sentinel (#193).
+- Span export failures are logged as warnings rather than errors (#194).
+- The iOS API-keys screen is rebuilt as cards so "Editar" and "Revogar" are individually tappable; previously the whole row was one tap target and revoking a key was impossible (#180).
+
+### Security
+- Job payloads are encrypted at rest. `jobs.payload` was written as raw JSON, persisting third-party email addresses, client IPs, user agents, and live password-reset URLs in cleartext indefinitely. Payloads now route through the encryption factory at the repository boundary using a `{"__enc": "…"}` JSON envelope; the read path still accepts legacy plaintext rows, so there is no flag day. `make encrypt-job-payloads` backfills existing rows (#184).
+- PII is masked at the logging and audit boundaries: a shared `redact_pii` key set applied in the structlog processor chain and to `audit_logs` state columns, plus a backfill for bare `email`/`to` keys in existing rows (#182).
+- `cryptography` 48.0.1 → 50.0.0 for CVE-2026-69247 and CVE-2026-69249, which required moving `webauthn` 2.7.1 → 3.0.0 and `pyopenssl` 26.2.0 → 26.4.0 together. New passkeys may now be created as Ed25519 (registration advertises EdDSA ahead of ES256/RS256); existing credentials are unaffected, since verification uses each credential's stored public key (#195).
+- `js-yaml` bumped to 4.3.1 for CVE-2026-59870 (#200), and `brace-expansion` resolved to the patched 5.0.9 for GHSA-rgw5-rvv9-x895 (#195).
+
+### Fixed
+- Bill render publishing survives MariaDB snapshot-isolation conflicts (#199).
+- Passkey timestamps serialize with a timezone offset. MariaDB returned naive `DATETIME` values, so `PasskeyResponse` emitted a designator-less string that the iOS `ISO8601DateFormatter` refused, blanking the Segurança tab. Naive rows are relabelled rather than converted, so no data migration is needed and the OpenAPI snapshot is unchanged. The SQLite test suite missed this because it returns those columns as offset-carrying strings (#169).
+- Google sign-in is hidden inside the iOS auth handoff (#198).
+- The exact-image deploy stack receives the `RENTIVO_PUBLIC_ORIGIN` and `RENTIVO_WEBAUTHN_RP_ID` variables `docker-compose.yml` requires (#176), and the API healthcheck is simplified (#150).
+- CI repairs: action tags that actually resolve, an Xcode selection that excludes betas and has simulators, `runner.temp` moved out of job-level env so workflows parse, a repo-root ruff config, and a guarded `RentivoCore` import (#171, #172, #174).
+
 ## [5.0.0] - 2026-07-19
 ### Added
 - API keys with `rntv-v1-` token formatting, hashed secret storage, safe prefix/suffix references, explicit scopes, selectable organization grants, revocation, expiration, and last-used tracking.
 - Browser authentication now uses hidden API keys as login tokens. Login tokens expire after one day by default, are carried by secure cookies, and are revoked on logout; integration keys remain visible and independently managed.
 - React/Vite routes for the public landing page and the complete authenticated billing, invoice, organization, configuration, API-key, and security workflows. Fresh accounts render intentional empty states throughout the application.
 - Dependency-aware API readiness, public health aliases, crawler metadata, compatibility downloads/redirects, a MariaDB-backed production-stack gate, and an operator release/recovery runbook.
+- Named billing-level document attachments (#103).
+- CSV/XLSX export of a billing's bills (#107), delivered by email to the requesting account through a storage-backed job chain (#111).
+- Payment receipt (recibo de pagamento) PDF (#106), regenerated alongside the invoice whenever a bill is paid (#114).
+- Expense tracking with net income (#108).
+- Bill status-change guard with server-side lifecycle enforcement (#128).
+- Native iOS demonstration app (#139).
 
 ### Changed
 - **BREAKING:** Production is replaced in one deployment by the React/Vite frontend, versioned FastAPI API, background worker, MariaDB, one-shot Alembic migration, and Nginx proxy. The default Compose and deployment paths now describe only this topology.
@@ -21,6 +59,18 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 - Organization-required MFA is enforced on every login-token request, with only the setup, confirmation, recovery, authentication, and logout routes needed to complete the flow exempted.
 - API authorization is consistently the intersection of key scopes, API-key organization grants, and the user's current organization membership/role.
 - Release artifacts are tied to one immutable source SHA and migration runs before API and worker startup.
+- The bill's separate send buttons are merged into one "Enviar comunicação" dropdown (#113).
+- Python tooling is invoked through `uv run` rather than `.venv/bin` (#110).
+- `DEPLOY_TRIGGER_URL` accepts multiple comma-separated endpoints (#112).
+- PR merges are documented as human-only; automated contributors open PRs but never merge them (#125).
+
+### Fixed
+- Uploading receipts rendered the bill PDF once per file instead of once per upload batch (#104).
+- The payment receipt no longer spills onto a second page (#115).
+- The landing hero mockup no longer overflows horizontally on mobile (#118).
+- White CTA/badge text is paired with `--accent-dark`, and `.fcard--accent` white text meets WCAG AA contrast (#120, #127).
+- Divergent recibo and expenses Alembic heads are merged, and CI now guards against more than one head (#132, #133).
+- The bill status menu is no longer clipped by panel overflow (#136).
 
 ### Removed
 - **BREAKING:** The server-rendered application, Jinja browser templates, copied static assets, old route package, old container image, old Compose service, and their tests. There is no legacy-application rollback path; recovery redeploys the previous React/FastAPI release, applies a forward fix, or restores a verified backup.
@@ -263,7 +313,15 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 ### Added
 - Initial commit: apartment billing generator with SQLAlchemy repositories.
 
-[Unreleased]: https://github.com/jorgejr568/rentivo/compare/v3.9.0...HEAD
+[Unreleased]: https://github.com/jorgejr568/rentivo/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/jorgejr568/rentivo/compare/v5.0.0...v5.1.0
+[5.0.0]: https://github.com/jorgejr568/rentivo/compare/v4.0.0...v5.0.0
+[4.0.0]: https://github.com/jorgejr568/rentivo/compare/v3.12.1...v4.0.0
+[3.12.1]: https://github.com/jorgejr568/rentivo/compare/v3.12.0...v3.12.1
+[3.12.0]: https://github.com/jorgejr568/rentivo/compare/v3.11.0...v3.12.0
+[3.11.0]: https://github.com/jorgejr568/rentivo/compare/v3.10.1...v3.11.0
+[3.10.1]: https://github.com/jorgejr568/rentivo/compare/v3.10.0...v3.10.1
+[3.10.0]: https://github.com/jorgejr568/rentivo/compare/v3.9.0...v3.10.0
 [3.9.0]: https://github.com/jorgejr568/rentivo/compare/v3.8.0...v3.9.0
 [3.8.0]: https://github.com/jorgejr568/rentivo/compare/v3.7.1...v3.8.0
 [3.7.1]: https://github.com/jorgejr568/rentivo/compare/v3.7.0...v3.7.1
