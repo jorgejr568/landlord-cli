@@ -238,12 +238,12 @@ jobs:
             echo "Expected exactly one Alembic head; found $count."
             exit 1
           fi
-      - name: Verify MariaDB authentication concurrency contracts
+      - name: Verify MariaDB repository concurrency contracts
         env:
           RENTIVO_TEST_MARIADB_URL: ${{ env.RENTIVO_DB_URL }}
         run: >-
           uv run --project backend --no-sync pytest
-          backend/tests/repositories/test_mfa_repos.py
+          backend/tests/repositories/
           -k mariadb -q
       - name: Upgrade to the legacy production revision
         run: uv run --project backend --no-sync alembic -c backend/alembic.ini upgrade 55dc25bae00d

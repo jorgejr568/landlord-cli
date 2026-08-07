@@ -1,13 +1,16 @@
+import os
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 
 from rentivo.constants import SP_TZ
 from rentivo.models.bill import Bill, BillLineItem
 from rentivo.models.billing import ItemType
 from rentivo.repositories.sqlalchemy import SQLAlchemyBillRepository
+from tests.conftest import FakeEncryptingBackend
 
 
 class TestBillRepoCRUD:
@@ -215,7 +218,8 @@ class TestBillRepoCRUD:
         with pytest.raises(RuntimeError, match="database failed"):
             repo.update_status_and_clear_recibo(1, "paid", None, "sent", datetime.now(SP_TZ))
 
-        conn.rollback.assert_called_once_with()
+        # Once to drop a stale read view at entry, once to undo the failed transaction.
+        assert conn.rollback.call_count == 2
 
     def test_leaving_paid_atomic_clear_handles_lost_update_after_read(self, fake_encryption):
         conn = MagicMock()
@@ -271,7 +275,8 @@ class TestBillRepoCRUD:
         with pytest.raises(RuntimeError, match="database failed"):
             repo.replace_recibo_pdf_path_if_paid_version(1, None, None, "candidate.pdf")
 
-        conn.rollback.assert_called_once_with()
+        # Once to drop a stale read view at entry, once to undo the failed transaction.
+        assert conn.rollback.call_count == 2
 
     def test_soft_delete(self, bill_repo, billing_repo, sample_billing, sample_bill):
         billing = self._create_billing(billing_repo, sample_billing)
@@ -402,7 +407,7 @@ class TestBillRepoPdfRenderStatus:
         changed.total_amount = 321
         changed.line_items = [BillLineItem(description="changed", amount=321, item_type=ItemType.EXTRA, sort_order=0)]
         candidate = bill_repo.update(changed)
-        operation_id = "01JRENDEROPERATION000000001"
+        operation_id = "01JRENDEROPERATION00000001"
         bill_repo.begin_pdf_render(previous.id, operation_id)
 
         assert bill_repo.restore_after_failed_render(previous, candidate, operation_id) is True
@@ -440,7 +445,7 @@ class TestBillRepoPdfRenderStatus:
         ]
         candidate.total_amount = 321
         candidate = bill_repo.update(candidate)
-        operation_id = "01JRENDEROPERATION000000001"
+        operation_id = "01JRENDEROPERATION00000001"
         bill_repo.begin_pdf_render(previous.id, operation_id)
 
         newer = candidate.model_copy(deep=True)
@@ -474,7 +479,7 @@ class TestBillRepoPdfRenderStatus:
         changed = previous.model_copy(deep=True)
         changed.notes = "same candidate"
         candidate_a = bill_repo.update(changed)
-        operation_id = "01JRENDEROPERATION000000001"
+        operation_id = "01JRENDEROPERATION00000001"
         bill_repo.begin_pdf_render(previous.id, operation_id)
 
         candidate_b = bill_repo.update(candidate_a.model_copy(deep=True))
@@ -578,7 +583,7 @@ class TestBillRepoPdfRenderStatus:
                 )
                 is False
             )
-        conn.rollback.assert_called_once_with()
+        assert conn.rollback.call_count == 2
 
     def test_restore_after_failed_render_rejects_content_mismatch_at_same_revision(self, fake_encryption):
         conn = MagicMock()
@@ -623,7 +628,7 @@ class TestBillRepoPdfRenderStatus:
                 "operation",
             )
 
-        conn.rollback.assert_called_once_with()
+        assert conn.rollback.call_count == 2
 
     def test_publish_pdf_render_atomically_replaces_path_for_owned_operation(
         self,
@@ -669,7 +674,7 @@ class TestBillRepoPdfRenderStatus:
         with pytest.raises(RuntimeError, match="database failed"):
             repo.publish_pdf_render(1, "01JRENDEROPERATION000000001", "candidate.pdf")
 
-        conn.rollback.assert_called_once_with()
+        assert conn.rollback.call_count == 2
 
     def test_publish_pdf_render_handles_lost_update_after_locked_read(self, fake_encryption):
         conn = MagicMock()
@@ -735,6 +740,180 @@ class TestBillRepoPdfRenderStatus:
         )
         assert bill_repo.fail_pending_pdf_render_without_operation(created.id) is True
         assert bill_repo.get_by_id(created.id).pdf_render_status == "failed"
+
+
+def _operational_error(*orig_args: object) -> OperationalError:
+    return OperationalError("SELECT pdf_path FROM bills", {}, Exception(*orig_args))
+
+
+def _snapshot_conflict() -> OperationalError:
+    return _operational_error(1020, "Record has changed since last read in table 'bills'")
+
+
+class TestBillRepoSnapshotConflictRetry:
+    """MariaDB raises ER_CHECKREAD (1020) when a locking read or DML meets a row version
+    newer than the transaction's read view. The compare-and-set render transactions replay
+    instead of failing the render job."""
+
+    def test_publish_pdf_render_replays_after_snapshot_conflict(self, fake_encryption):
+        conn = MagicMock()
+        conn.dialect.name = "mysql"
+        selected = MagicMock()
+        selected.mappings.return_value.fetchone.return_value = {
+            "pdf_path": "old.pdf",
+            "pdf_render_operation_id": "01JRENDEROPERATION00000001",
+        }
+        conn.execute.side_effect = [_snapshot_conflict(), selected, MagicMock(rowcount=1)]
+        repo = SQLAlchemyBillRepository(conn, fake_encryption)
+
+        assert repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf") == (True, "old.pdf")
+        assert conn.execute.call_count == 3
+        conn.commit.assert_called_once_with()
+
+    def test_publish_pdf_render_gives_up_after_bounded_attempts(self, fake_encryption):
+        conn = MagicMock()
+        conn.dialect.name = "mysql"
+        conn.execute.side_effect = [_snapshot_conflict(), _snapshot_conflict(), _snapshot_conflict()]
+        repo = SQLAlchemyBillRepository(conn, fake_encryption)
+
+        with pytest.raises(OperationalError):
+            repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf")
+
+        assert conn.execute.call_count == 3
+
+    @pytest.mark.parametrize(
+        "orig_args",
+        [
+            pytest.param((1213, "Deadlock found when trying to get lock"), id="other-errno"),
+            pytest.param((), id="no-errno"),
+        ],
+    )
+    def test_publish_pdf_render_does_not_replay_other_operational_errors(self, fake_encryption, orig_args):
+        conn = MagicMock()
+        conn.dialect.name = "mysql"
+        conn.execute.side_effect = _operational_error(*orig_args)
+        repo = SQLAlchemyBillRepository(conn, fake_encryption)
+
+        with pytest.raises(OperationalError):
+            repo.publish_pdf_render(1, "01JRENDEROPERATION00000001", "candidate.pdf")
+
+        assert conn.execute.call_count == 1
+
+    def test_recibo_path_replacement_replays_after_snapshot_conflict(self, fake_encryption):
+        conn = MagicMock()
+        conn.dialect.name = "mysql"
+        conn.execute.side_effect = [_snapshot_conflict(), MagicMock(rowcount=1)]
+        repo = SQLAlchemyBillRepository(conn, fake_encryption)
+
+        assert repo.replace_recibo_pdf_path_if_paid_version(1, None, "old.pdf", "new.pdf") == (True, "old.pdf")
+        assert conn.execute.call_count == 2
+
+    def test_restore_after_failed_render_replays_after_snapshot_conflict(self, fake_encryption):
+        conn = MagicMock()
+        conn.dialect.name = "mysql"
+        selected = MagicMock()
+        selected.mappings.return_value.fetchone.return_value = None
+        conn.execute.side_effect = [_snapshot_conflict(), selected]
+        repo = SQLAlchemyBillRepository(conn, fake_encryption)
+
+        assert (
+            repo.restore_after_failed_render(
+                Bill(id=1, billing_id=1, reference_month="2026-07"),
+                Bill(id=1, billing_id=1, reference_month="2026-07"),
+                "operation",
+            )
+            is False
+        )
+        assert conn.execute.call_count == 2
+
+
+_MARIADB_BILLS_DDL = (
+    "CREATE TABLE bills (id INTEGER PRIMARY KEY, pdf_path VARCHAR(255) NULL, "
+    "recibo_pdf_path VARCHAR(255) NULL, pdf_render_status VARCHAR(32) NULL, "
+    "pdf_render_operation_id VARCHAR(26) NULL, deleted_at DATETIME NULL) ENGINE=InnoDB"
+)
+
+
+def _seed_mariadb_render_bill(engine, operation_id: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS bills"))
+        connection.execute(text(_MARIADB_BILLS_DDL))
+        connection.execute(
+            text(
+                "INSERT INTO bills (id, pdf_path, pdf_render_status, pdf_render_operation_id) "
+                "VALUES (1, 'old.pdf', 'pending', :operation_id)"
+            ),
+            {"operation_id": operation_id},
+        )
+
+
+@pytest.mark.skipif(
+    not os.getenv("RENTIVO_TEST_MARIADB_URL"),
+    reason="Set RENTIVO_TEST_MARIADB_URL to run the real MariaDB concurrency contract",
+)
+def test_publish_pdf_render_survives_concurrent_recibo_write_on_mariadb() -> None:
+    operation_id = "01JRENDEROPERATION00000001"
+    engine = create_engine(os.environ["RENTIVO_TEST_MARIADB_URL"], pool_size=2, max_overflow=0)
+    try:
+        _seed_mariadb_render_bill(engine, operation_id)
+        with engine.connect() as render_connection:
+            repository = SQLAlchemyBillRepository(render_connection, FakeEncryptingBackend())
+            # The render job reads the bill, then spends seconds building the PDF.
+            render_connection.execute(text("SELECT * FROM bills WHERE id = 1 AND deleted_at IS NULL")).all()
+            with engine.connect() as recibo_connection:
+                recibo_connection.execute(text("UPDATE bills SET recibo_pdf_path = 'recibo.pdf' WHERE id = 1"))
+                recibo_connection.commit()
+
+            assert repository.publish_pdf_render(1, operation_id, "new.pdf") == (True, "old.pdf")
+
+        with engine.connect() as connection:
+            stored = connection.execute(
+                text(
+                    "SELECT pdf_path, recibo_pdf_path, pdf_render_status, pdf_render_operation_id "
+                    "FROM bills WHERE id = 1"
+                )
+            ).one()
+        assert stored.pdf_path == "new.pdf"
+        assert stored.recibo_pdf_path == "recibo.pdf"
+        assert stored.pdf_render_status == "succeeded"
+        assert stored.pdf_render_operation_id is None
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS bills"))
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("RENTIVO_TEST_MARIADB_URL"),
+    reason="Set RENTIVO_TEST_MARIADB_URL to run the real MariaDB concurrency contract",
+)
+def test_stale_render_snapshot_observes_concurrent_regenerate_on_mariadb() -> None:
+    stale_operation_id = "01JRENDEROPERATION00000001"
+    fresh_operation_id = "01JRENDEROPERATION00000002"
+    engine = create_engine(os.environ["RENTIVO_TEST_MARIADB_URL"], pool_size=2, max_overflow=0)
+    try:
+        _seed_mariadb_render_bill(engine, stale_operation_id)
+        with engine.connect() as render_connection:
+            repository = SQLAlchemyBillRepository(render_connection, FakeEncryptingBackend())
+            render_connection.execute(text("SELECT * FROM bills WHERE id = 1 AND deleted_at IS NULL")).all()
+            with engine.connect() as regenerate_connection:
+                regenerate_connection.execute(
+                    text("UPDATE bills SET pdf_render_operation_id = :operation_id WHERE id = 1"),
+                    {"operation_id": fresh_operation_id},
+                )
+                regenerate_connection.commit()
+
+            assert repository.get_pdf_render_state(1) == (fresh_operation_id, "pending", "old.pdf")
+            assert repository.publish_pdf_render(1, stale_operation_id, "stale.pdf") == (False, "old.pdf")
+
+        with engine.connect() as connection:
+            stored = connection.execute(text("SELECT pdf_path, pdf_render_operation_id FROM bills WHERE id = 1")).one()
+        assert stored.pdf_path == "old.pdf"
+        assert stored.pdf_render_operation_id == fresh_operation_id
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS bills"))
+        engine.dispose()
 
 
 class TestBillRepoEncryptionWiring:

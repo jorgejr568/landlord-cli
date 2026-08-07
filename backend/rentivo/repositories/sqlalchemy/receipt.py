@@ -166,6 +166,9 @@ class SQLAlchemyReceiptRepository(ReceiptRepository):
     ) -> bool:
         if receipt.id is None:
             raise ValueError("Cannot restore receipt without an id")
+        # Drop a stale read view before the locking read; MariaDB's
+        # ``innodb_snapshot_isolation`` raises ER_CHECKREAD otherwise.
+        self.conn.rollback()
         params = {
             "bill_id": receipt.bill_id,
             "operation_id": operation_id,
