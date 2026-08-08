@@ -2,17 +2,21 @@ package app.rentivo.features.account
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -20,9 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.VpnKey
@@ -32,14 +34,10 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
@@ -53,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -60,14 +60,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoLargeTopBar
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.ptBRCount
-import app.rentivo.designsystem.rentivoPage
+import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
 import app.rentivo.domain.APIKeyMetadata
@@ -84,6 +86,9 @@ import java.time.Instant
 
 /** One year in seconds — the default validity a freshly drafted key gets. */
 private const val DEFAULT_VALIDITY_SECONDS = 31_536_000L
+
+/** A `Switch` at iOS `UISwitch` proportions: Material draws its own noticeably larger. */
+private const val SWITCH_SCALE = 0.85f
 
 /**
  * The integration-key list. Port of `APIKeyListView` in
@@ -164,93 +169,82 @@ fun APIKeyListScreen(onBack: () -> Unit) {
 
   LaunchedEffect(app.dataRevision) { load() }
 
-  Box(modifier = Modifier.fillMaxSize()) {
-    Scaffold(
-      containerColor = RentivoColors.paper,
-      topBar = {
-        TopAppBar(
-          title = { Text(text = "Chaves de integração") },
-          navigationIcon = {
-            IconButton(onClick = onBack) {
-              Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-            }
-          },
-          actions = {
-            if (!isDemoViewerLocked) {
-              IconButton(
-                onClick = { showingCreate = true },
-                modifier = Modifier.testTag("api-key.create"),
-              ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Criar chave")
-              }
-            }
-          },
-          colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = RentivoColors.paper,
-            titleContentColor = RentivoColors.ink,
-          ),
-        )
+  AccountScaffold(
+    title = "Chaves de integração",
+    onBack = onBack,
+    actions = {
+      if (!isDemoViewerLocked) {
+        IconButton(
+          onClick = { showingCreate = true },
+          modifier = Modifier.testTag("api-key.create"),
+        ) {
+          Icon(
+            imageVector = Icons.Filled.Add,
+            contentDescription = "Criar chave",
+            tint = RentivoColors.emerald,
+          )
+        }
+      }
+    },
+  ) { padding ->
+    PullToRefreshBox(
+      isRefreshing = isRefreshing,
+      onRefresh = {
+        scope.launch {
+          isRefreshing = true
+          load()
+          isRefreshing = false
+        }
       },
-    ) { padding ->
-      PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-          scope.launch {
-            isRefreshing = true
-            load()
-            isRefreshing = false
-          }
-        },
-        modifier = Modifier.fillMaxSize().padding(padding),
-      ) {
-        PageStateView(
-          state = state,
-          emptyTitle = "Nenhuma chave de integração",
-          emptyMessage =
-            "Crie uma chave de API para conectar integrações externas com escopos e acessos " +
-              "controlados.",
-          emptyIcon = Icons.Filled.VpnKey,
-          emptyActionTitle = if (canCreate) "Criar chave" else null,
-          emptyAction = if (canCreate) ({ showingCreate = true }) else null,
-          retry = { scope.launch { load() } },
-        ) { keys ->
-          LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(RentivoSpacing.page),
-            verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
-          ) {
-            items(items = keys, key = { it.id.rawValue }) { key ->
-              APIKeyCard(
-                key = key,
-                showsActions = !isDemoViewerLocked,
-                onEdit = { editingKey = key },
-                onRevoke = { keyPendingRevoke = key },
-              )
-            }
+      modifier = Modifier.fillMaxSize().padding(padding),
+    ) {
+      PageStateView(
+        state = state,
+        emptyTitle = "Nenhuma chave de integração",
+        emptyMessage =
+          "Crie uma chave de API para conectar integrações externas com escopos e acessos " +
+            "controlados.",
+        emptyIcon = Icons.Filled.VpnKey,
+        emptyActionTitle = if (canCreate) "Criar chave" else null,
+        emptyAction = if (canCreate) ({ showingCreate = true }) else null,
+        retry = { scope.launch { load() } },
+      ) { keys ->
+        LazyColumn(
+          modifier = Modifier.fillMaxSize(),
+          contentPadding = PaddingValues(RentivoSpacing.page),
+          verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
+        ) {
+          items(items = keys, key = { it.id.rawValue }) { key ->
+            APIKeyCard(
+              key = key,
+              showsActions = !isDemoViewerLocked,
+              onEdit = { editingKey = key },
+              onRevoke = { keyPendingRevoke = key },
+            )
           }
         }
       }
     }
+  }
 
-    if (showingCreate) {
-      APIKeyFormScreen(
-        existing = null,
-        onDismiss = { showingCreate = false },
-        onSubmit = { draft -> scope.launch { create(draft) } },
-      )
-    }
+  if (showingCreate) {
+    APIKeyFormScreen(
+      existing = null,
+      onDismiss = { showingCreate = false },
+      onSubmit = { draft -> scope.launch { create(draft) } },
+    )
+  }
 
-    editingKey?.let { key ->
-      APIKeyFormScreen(
-        existing = key,
-        onDismiss = { editingKey = null },
-        onSubmit = { draft -> scope.launch { update(key, draft) } },
-      )
-    }
+  editingKey?.let { key ->
+    APIKeyFormScreen(
+      existing = key,
+      onDismiss = { editingKey = null },
+      onSubmit = { draft -> scope.launch { update(key, draft) } },
+    )
+  }
 
-    createdSecret?.let { secret ->
-      APIKeySecretScreen(created = secret, onDismiss = { createdSecret = null })
-    }
+  createdSecret?.let { secret ->
+    APIKeySecretScreen(created = secret, onDismiss = { createdSecret = null })
   }
 
   keyPendingRevoke?.let { key ->
@@ -271,7 +265,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
           },
           modifier = Modifier.testTag("api-key.revoke.confirm"),
         ) {
-          Text(text = "Revogar chave", color = RentivoColors.coral)
+          Text(text = "Revogar chave", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -287,6 +281,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
   }
 }
 
+/** The one place on this tab that keeps the brutalist card: iOS draws a `RentivoCard` here too. */
 @Composable
 private fun APIKeyCard(
   key: APIKeyMetadata,
@@ -428,9 +423,8 @@ private fun APIKeyFormScreen(
   var organizations by remember { mutableStateOf<List<Organization>>(emptyList()) }
   var showingDatePicker by remember { mutableStateOf(false) }
 
-  // The form is an overlay above the list, not a pushed route, so it has to claim the system back
-  // press itself; otherwise the enclosing tab's handler pops the whole API-key screen out from under
-  // it. Registered here — after the list screen composes — this callback takes precedence.
+  // The sheet installs its own back handler, but this one is registered later and therefore wins;
+  // either way back dismisses only the form, never the API-key screen underneath it.
   BackHandler { onDismiss() }
 
   LaunchedEffect(Unit) {
@@ -462,15 +456,18 @@ private fun APIKeyFormScreen(
     )
   }
 
-  Surface(modifier = Modifier.fillMaxSize(), color = RentivoColors.paper) {
+  FullScreenSheet(onDismissRequest = onDismiss) {
     Scaffold(
+      modifier = Modifier
+        .fillMaxSize()
+        .consumeWindowInsets(WindowInsets.statusBars),
       containerColor = RentivoColors.paper,
       topBar = {
-        TopAppBar(
-          title = { Text(text = if (existing == null) "Nova chave" else "Editar chave") },
+        RentivoLargeTopBar(
+          title = if (existing == null) "Nova chave" else "Editar chave",
           navigationIcon = {
             TextButton(onClick = onDismiss) {
-              Text(text = "Cancelar", color = RentivoColors.ink)
+              Text(text = "Cancelar", color = RentivoColors.emerald)
             }
           },
           actions = {
@@ -482,10 +479,6 @@ private fun APIKeyFormScreen(
               Text(text = if (existing == null) "Criar" else "Salvar")
             }
           },
-          colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = RentivoColors.paper,
-            titleContentColor = RentivoColors.ink,
-          ),
         )
       },
     ) { padding ->
@@ -497,97 +490,136 @@ private fun APIKeyFormScreen(
           .padding(RentivoSpacing.page),
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
       ) {
-        FormSection(title = "Identificação") {
-          OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text(text = "Nome") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("api-key.name"),
-          )
-        }
-
-        FormSection(title = "Escopos seguros") {
-          APIKeyScope.integrationCases.forEach { scope ->
-            ToggleRow(
-              label = scope.label,
-              checked = scopes.contains(scope),
-              onCheckedChange = { enabled ->
-                if (enabled) {
-                  if (!scopes.contains(scope)) scopes.add(scope)
-                } else {
-                  scopes.remove(scope)
-                }
-              },
+        AccountSection(
+          title = "Identificação",
+          rows = listOf({
+            AccountFieldRow(
+              placeholder = "Nome",
+              value = name,
+              onValueChange = { name = it },
+              modifier = Modifier.testTag("api-key.name"),
             )
-          }
-        }
+          }),
+        )
 
-        FormSection(title = "Acesso") {
-          ResourceToggle(
-            label = "Conta pessoal",
-            id = WorkspaceID.personal,
-            grantIDs = grantIDs,
-          )
-          organizations.forEach { organization ->
-            ResourceToggle(
-              label = organization.name,
-              id = WorkspaceID(rawValue = organization.id.rawValue),
-              grantIDs = grantIDs,
-            )
-          }
-        }
-
-        FormSection(title = "Validade") {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Text(
-              text = "Expira em",
-              style = RentivoTypography.body,
-              color = RentivoColors.ink,
-              modifier = Modifier.weight(1f),
-            )
-            TextButton(
-              onClick = { showingDatePicker = true },
-              modifier = Modifier.testTag("api-key.expires-at"),
-            ) {
-              Icon(
-                imageVector = Icons.Filled.Event,
-                contentDescription = null,
-                tint = RentivoColors.blue,
-                modifier = Modifier.size(18.dp),
+        AccountSection(
+          title = "Escopos seguros",
+          rows = APIKeyScope.integrationCases.map { scope ->
+            {
+              ToggleRow(
+                label = scope.label,
+                checked = scopes.contains(scope),
+                onCheckedChange = { enabled ->
+                  if (enabled) {
+                    if (!scopes.contains(scope)) scopes.add(scope)
+                  } else {
+                    scopes.remove(scope)
+                  }
+                },
               )
-              Spacer(modifier = Modifier.size(RentivoSpacing.tiny))
-              Text(text = expiresAt.formattedPTBR(), color = RentivoColors.blue)
             }
-          }
-        }
+          },
+        )
+
+        AccountSection(
+          title = "Acesso",
+          rows = buildList {
+            add({
+              ResourceToggle(
+                label = "Conta pessoal",
+                id = WorkspaceID.personal,
+                grantIDs = grantIDs,
+              )
+            })
+            organizations.forEach { organization ->
+              add({
+                ResourceToggle(
+                  label = organization.name,
+                  id = WorkspaceID(rawValue = organization.id.rawValue),
+                  grantIDs = grantIDs,
+                )
+              })
+            }
+          },
+        )
+
+        AccountSection(
+          title = "Validade",
+          rows = listOf({
+            ExpiryRow(
+              value = expiresAt,
+              onClick = { showingDatePicker = true },
+            )
+          }),
+        )
       }
     }
   }
 
   if (showingDatePicker) {
-    val pickerState = rememberDatePickerState(initialSelectedDateMillis = expiresAt.toEpochMilli())
-    DatePickerDialog(
-      onDismissRequest = { showingDatePicker = false },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            pickerState.selectedDateMillis?.let { expiresAt = Instant.ofEpochMilli(it) }
-            showingDatePicker = false
-          }
-        ) {
-          Text(text = "OK")
+    ExpiryDatePicker(
+      initial = expiresAt,
+      onDismiss = { showingDatePicker = false },
+      onSelect = { expiresAt = it },
+    )
+  }
+}
+
+/** The iOS compact `DatePicker` row: a plain label with the date sitting in a recessed chip. */
+@Composable
+private fun ExpiryRow(value: Instant, onClick: () -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clickable(onClick = onClick)
+      .heightIn(min = AccountRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium)
+      .testTag("api-key.expires-at"),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = "Expira em",
+      style = RentivoTypography.body,
+      color = RentivoColors.ink,
+      modifier = Modifier.weight(1f),
+    )
+    Text(
+      text = value.formattedPTBR(),
+      style = RentivoTypography.body,
+      color = RentivoColors.ink,
+      modifier = Modifier
+        .clip(RoundedCornerShape(8.dp))
+        .background(RentivoColors.paper)
+        .padding(horizontal = RentivoSpacing.small, vertical = RentivoSpacing.tiny + 2.dp),
+    )
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpiryDatePicker(
+  initial: Instant,
+  onDismiss: () -> Unit,
+  onSelect: (Instant) -> Unit,
+) {
+  val pickerState = rememberDatePickerState(initialSelectedDateMillis = initial.toEpochMilli())
+  DatePickerDialog(
+    onDismissRequest = onDismiss,
+    confirmButton = {
+      TextButton(
+        onClick = {
+          pickerState.selectedDateMillis?.let { onSelect(Instant.ofEpochMilli(it)) }
+          onDismiss()
         }
-      },
-      dismissButton = {
-        TextButton(onClick = { showingDatePicker = false }) { Text(text = "Cancelar") }
-      },
-    ) {
-      DatePicker(state = pickerState)
-    }
+      ) {
+        Text(text = "OK")
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) { Text(text = "Cancelar") }
+    },
+  ) {
+    DatePicker(state = pickerState)
   }
 }
 
@@ -610,10 +642,14 @@ private fun ResourceToggle(
   )
 }
 
+/** One iOS `Toggle` row: label on the left, a scaled-down switch on the right. */
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
   Row(
-    modifier = Modifier.fillMaxWidth().padding(vertical = RentivoSpacing.tiny),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = AccountRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.tiny),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Text(
@@ -622,21 +658,16 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
       color = RentivoColors.ink,
       modifier = Modifier.weight(1f),
     )
-    Switch(checked = checked, onCheckedChange = onCheckedChange)
-  }
-}
-
-/** The Compose stand-in for a SwiftUI `Form` section: a titled card of rows. */
-@Composable
-private fun FormSection(title: String, content: @Composable () -> Unit) {
-  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    Text(text = title, style = RentivoTypography.metadata, color = RentivoColors.secondaryInk)
-    RentivoCard { content() }
+    Switch(
+      checked = checked,
+      onCheckedChange = onCheckedChange,
+      colors = rentivoSwitchColors(),
+      modifier = Modifier.scale(SWITCH_SCALE),
+    )
   }
 }
 
 /** Port of the iOS `APIKeySecretView` sheet: the one and only time the secret is readable. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Unit) {
   // Without this the system back press reaches the enclosing tab's handler and pops the entire
@@ -644,22 +675,15 @@ private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Un
   // only this overlay — the same thing "Já copiei" does, matching the iOS sheet-dismiss semantics.
   BackHandler { onDismiss() }
 
-  Surface(modifier = Modifier.fillMaxSize(), color = RentivoColors.paper) {
-    Scaffold(
-      containerColor = RentivoColors.paper,
-      topBar = {
-        TopAppBar(
-          title = { Text(text = "Segredo da chave") },
-          colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = RentivoColors.paper,
-            titleContentColor = RentivoColors.ink,
-          ),
-        )
-      },
+  FullScreenSheet(onDismissRequest = onDismiss) {
+    AccountScaffold(
+      title = "Segredo da chave",
+      onBack = null,
+      modifier = Modifier.consumeWindowInsets(WindowInsets.statusBars),
     ) { padding ->
       Column(
         modifier = Modifier
-          .rentivoPage()
+          .fillMaxSize()
           .padding(padding)
           .padding(RentivoSpacing.page),
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),

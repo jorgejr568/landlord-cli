@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -17,21 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.AltRoute
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,9 +43,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.LocalAppModel
-import app.rentivo.designsystem.RentivoButton
-import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.domain.DemoError
@@ -63,6 +56,15 @@ import app.rentivo.domain.ThemeValues
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+/** The swatch beside a hex field, at the same 24pt diameter iOS uses. */
+private val SwatchSize = 24.dp
+
+/**
+ * The preview breathes 4dp tighter than a list row: iOS uses the stock `.padding()` (16pt) here,
+ * not the 20pt page rhythm.
+ */
+private val PreviewPadding = RentivoSpacing.large - 4.dp
+
 /**
  * The document-theme editor. Port of `ThemeEditorView` in
  * `ios/Rentivo/Features/Account/ThemeViews.swift`.
@@ -70,7 +72,6 @@ import kotlinx.coroutines.launch
  * The only screen that surfaces failures through an alert instead of the app notice banner: the
  * user is mid-edit on a form, and a banner that scrolls away would be missed.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
   val app = LocalAppModel.current
@@ -129,31 +130,18 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
     load()
   }
 
-  Scaffold(
-    containerColor = RentivoColors.paper,
-    topBar = {
-      TopAppBar(
-        title = { Text(text = "Aparência") },
-        navigationIcon = {
-          IconButton(onClick = onBack) {
-            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-          }
-        },
-        actions = {
-          if (record?.canEdit == true) {
-            TextButton(
-              onClick = { scope.launch { save() } },
-              modifier = Modifier.testTag("theme.save"),
-            ) {
-              Text(text = "Salvar")
-            }
-          }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = RentivoColors.paper,
-          titleContentColor = RentivoColors.ink,
-        ),
-      )
+  AccountScaffold(
+    title = "Aparência",
+    onBack = onBack,
+    actions = {
+      if (record?.canEdit == true) {
+        TextButton(
+          onClick = { scope.launch { save() } },
+          modifier = Modifier.testTag("theme.save"),
+        ) {
+          Text(text = "Salvar", color = RentivoColors.emerald)
+        }
+      }
     },
   ) { padding ->
     Column(
@@ -165,93 +153,123 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
       record?.let { loaded ->
-        ThemeSection(title = "Herança") {
-          LabeledContent(label = "Responsável", value = loaded.ownerName)
-          LabeledContent(
-            label = "Origem efetiva",
-            value = loaded.effectiveSource.label,
-            modifier = Modifier.testTag("theme.source"),
-          )
-          if (loaded.stored == null) {
-            Row(
-              modifier = Modifier.padding(top = RentivoSpacing.small),
-              horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.AltRoute,
-                contentDescription = null,
-                tint = RentivoColors.secondaryInk,
-                modifier = Modifier.size(16.dp),
+        AccountSection(
+          title = "Herança",
+          rows = buildList {
+            add({ AccountLabeledRow(label = "Responsável", value = loaded.ownerName) })
+            add({
+              AccountLabeledRow(
+                label = "Origem efetiva",
+                value = loaded.effectiveSource.label,
+                modifier = Modifier.testTag("theme.source"),
               )
-              Text(
-                text = "Este nível herda o tema de ${loaded.effectiveSource.label.lowercase()}.",
-                style = RentivoTypography.caption,
-                color = RentivoColors.secondaryInk,
-              )
+            })
+            if (loaded.stored == null) {
+              add({
+                AccountFootnote(
+                  text = "Este nível herda o tema de ${loaded.effectiveSource.label.lowercase()}.",
+                  icon = Icons.AutoMirrored.Filled.CallSplit,
+                )
+              })
             }
+          },
+        )
+      }
+
+      AccountSection(
+        title = "Tipografia",
+        rows = listOf(
+          {
+            ThemeFontPicker(
+              label = "Fonte de títulos",
+              selected = values.headerFont,
+              testTag = "theme.header-font",
+              onSelect = { values = values.copy(headerFont = it) },
+            )
+          },
+          {
+            ThemeFontPicker(
+              label = "Fonte de texto",
+              selected = values.textFont,
+              testTag = "theme.text-font",
+              onSelect = { values = values.copy(textFont = it) },
+            )
+          },
+        ),
+      )
+
+      AccountSection(
+        title = "Cores da API",
+        rows = listOf(
+          {
+            ThemeColorField(
+              title = "Primária",
+              value = values.primary,
+              onValueChange = { values = values.copy(primary = it) },
+            )
+          },
+          {
+            ThemeColorField(
+              title = "Primária clara",
+              value = values.primaryLight,
+              onValueChange = { values = values.copy(primaryLight = it) },
+            )
+          },
+          {
+            ThemeColorField(
+              title = "Secundária",
+              value = values.secondary,
+              onValueChange = { values = values.copy(secondary = it) },
+            )
+          },
+          {
+            ThemeColorField(
+              title = "Secundária escura",
+              value = values.secondaryDark,
+              onValueChange = { values = values.copy(secondaryDark = it) },
+            )
+          },
+          {
+            ThemeColorField(
+              title = "Texto",
+              value = values.textColor,
+              onValueChange = { values = values.copy(textColor = it) },
+            )
+          },
+          {
+            ThemeColorField(
+              title = "Texto de contraste",
+              value = values.textContrast,
+              onValueChange = { values = values.copy(textContrast = it) },
+            )
+          },
+        ),
+      )
+
+      AccountSection(
+        title = "Prévia",
+        rows = listOf({
+          Box(
+            modifier = Modifier.padding(
+              horizontal = RentivoSpacing.large,
+              vertical = RentivoSpacing.medium,
+            ),
+          ) {
+            ThemePreview(values = values)
           }
-        }
-      }
-
-      ThemeSection(title = "Tipografia") {
-        ThemeFontPicker(
-          label = "Fonte de títulos",
-          selected = values.headerFont,
-          testTag = "theme.header-font",
-          onSelect = { values = values.copy(headerFont = it) },
-        )
-        ThemeFontPicker(
-          label = "Fonte de texto",
-          selected = values.textFont,
-          testTag = "theme.text-font",
-          onSelect = { values = values.copy(textFont = it) },
-        )
-      }
-
-      ThemeSection(title = "Cores da API") {
-        ThemeColorField(
-          title = "Primária",
-          value = values.primary,
-          onValueChange = { values = values.copy(primary = it) },
-        )
-        ThemeColorField(
-          title = "Primária clara",
-          value = values.primaryLight,
-          onValueChange = { values = values.copy(primaryLight = it) },
-        )
-        ThemeColorField(
-          title = "Secundária",
-          value = values.secondary,
-          onValueChange = { values = values.copy(secondary = it) },
-        )
-        ThemeColorField(
-          title = "Secundária escura",
-          value = values.secondaryDark,
-          onValueChange = { values = values.copy(secondaryDark = it) },
-        )
-        ThemeColorField(
-          title = "Texto",
-          value = values.textColor,
-          onValueChange = { values = values.copy(textColor = it) },
-        )
-        ThemeColorField(
-          title = "Texto de contraste",
-          value = values.textContrast,
-          onValueChange = { values = values.copy(textContrast = it) },
-        )
-      }
-
-      ThemeSection(title = "Prévia") {
-        ThemePreview(values = values)
-      }
+        }),
+      )
 
       if (record?.canReset == true) {
-        RentivoButton(
-          text = "Restaurar herança",
-          onClick = { scope.launch { reset() } },
-          modifier = Modifier.testTag("theme.reset"),
-          color = RentivoColors.coral,
+        AccountSection(
+          rows = listOf({
+            AccountTextButtonRow(
+              title = "Restaurar herança",
+              destructive = true,
+              modifier = Modifier.testTag("theme.reset"),
+              onClick = { scope.launch { reset() } },
+            )
+          }),
         )
       }
     }
@@ -272,30 +290,7 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
   }
 }
 
-@Composable
-private fun ThemeSection(title: String, content: @Composable () -> Unit) {
-  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    Text(text = title, style = RentivoTypography.metadata, color = RentivoColors.secondaryInk)
-    RentivoCard { content() }
-  }
-}
-
-@Composable
-private fun LabeledContent(label: String, value: String, modifier: Modifier = Modifier) {
-  Row(
-    modifier = modifier.fillMaxWidth().padding(vertical = RentivoSpacing.tiny),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Text(
-      text = label,
-      style = RentivoTypography.body,
-      color = RentivoColors.ink,
-      modifier = Modifier.weight(1f),
-    )
-    Text(text = value, style = RentivoTypography.body, color = RentivoColors.secondaryInk)
-  }
-}
-
+/** The iOS `Picker` row: label, the selected value in the accent tint, and an up/down chevron. */
 @Composable
 private fun ThemeFontPicker(
   label: String,
@@ -310,8 +305,10 @@ private fun ThemeFontPicker(
       modifier = Modifier
         .fillMaxWidth()
         .clickable { expanded = true }
-        .padding(vertical = RentivoSpacing.small)
+        .heightIn(min = AccountRowMinHeight)
+        .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium)
         .testTag(testTag),
+      horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
       verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
@@ -320,11 +317,12 @@ private fun ThemeFontPicker(
         color = RentivoColors.ink,
         modifier = Modifier.weight(1f),
       )
-      Text(text = selected.wire, style = RentivoTypography.body, color = RentivoColors.secondaryInk)
+      Text(text = selected.wire, style = RentivoTypography.body, color = RentivoColors.emerald)
       Icon(
-        imageVector = Icons.Filled.ArrowDropDown,
+        imageVector = Icons.Filled.UnfoldMore,
         contentDescription = null,
-        tint = RentivoColors.secondaryInk,
+        tint = RentivoColors.emerald,
+        modifier = Modifier.size(16.dp),
       )
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -345,26 +343,31 @@ private fun ThemeFontPicker(
  * A hex field with a live swatch. Deliberately not a system color picker: the API stores plain hex
  * strings, and round-tripping through a platform picker would silently rewrite values the user
  * pasted from a brand guide.
+ *
+ * The field is borderless like every other list row; the color name is its placeholder, exactly as
+ * the iOS `TextField(title, text:)` renders it.
  */
 @Composable
 private fun ThemeColorField(title: String, value: String, onValueChange: (String) -> Unit) {
   Row(
-    modifier = Modifier.fillMaxWidth().padding(vertical = RentivoSpacing.tiny),
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = AccountRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Box(
       modifier = Modifier
-        .size(24.dp)
+        .size(SwatchSize)
         .background(colorFromHex(value) ?: Color.Transparent, CircleShape)
         .border(1.dp, RentivoColors.ink.copy(alpha = 0.4f), CircleShape)
     )
-    OutlinedTextField(
+    RentivoListField(
       value = value,
       onValueChange = onValueChange,
-      label = { Text(text = title) },
-      singleLine = true,
-      textStyle = RentivoTypography.body.copy(fontFamily = FontFamily.Monospace),
+      placeholder = title,
+      monospace = true,
       keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
       modifier = Modifier.weight(1f),
     )
@@ -383,7 +386,7 @@ private fun ThemePreview(values: ThemeValues) {
         colorFromHex(values.primaryLight) ?: RentivoColors.emeraldLight,
         RoundedCornerShape(16.dp),
       )
-      .padding(RentivoSpacing.large),
+      .padding(PreviewPadding),
     verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
   ) {
     Text(
@@ -410,7 +413,7 @@ private fun ThemePreview(values: ThemeValues) {
           colorFromHex(values.primary) ?: RentivoColors.emerald,
           RoundedCornerShape(12.dp),
         )
-        .padding(RentivoSpacing.large),
+        .padding(PreviewPadding),
     )
   }
 }

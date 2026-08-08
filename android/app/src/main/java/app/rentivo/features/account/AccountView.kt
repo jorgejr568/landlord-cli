@@ -2,31 +2,29 @@ package app.rentivo.features.account
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PrivacyTip
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
@@ -40,8 +38,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,17 +51,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.BrandMark
-import app.rentivo.designsystem.RentivoButton
-import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.ProfilePIXForm
 import kotlin.coroutines.cancellation.CancellationException
@@ -77,6 +77,13 @@ import kotlinx.coroutines.launch
  * spelled out here exactly as the contract fixes it.
  */
 private const val PRODUCTION_URL = "https://rentivo.com.br"
+
+/** The minimum height of a tappable list row, i.e. the iOS 44pt hit target. */
+internal val AccountRowMinHeight = 44.dp
+
+/** The disclosure chevron: iOS draws it small and washed out, not at full secondary ink. */
+private val ChevronSize = 16.dp
+private const val CHEVRON_ALPHA = 0.45f
 
 /**
  * The account root. Port of `ios/Rentivo/Features/Account/AccountView.swift`.
@@ -107,132 +114,163 @@ fun AccountView(
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      RentivoCard {
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          BrandMark(compact = true)
-          Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
-            Text(
-              text = if (app.usesLiveAPI) "Sua conta" else "Conta de demonstração",
-              style = RentivoTypography.cardTitle,
-              color = RentivoColors.ink,
-            )
-            Text(
-              text = app.currentUser.email,
-              style = RentivoTypography.subheadline,
-              color = RentivoColors.secondaryInk,
-            )
+      AccountSection(
+        rows = listOf({
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+            horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            BrandMark(compact = true)
+            Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
+              Text(
+                text = if (app.usesLiveAPI) "Sua conta" else "Conta de demonstração",
+                style = RentivoTypography.cardTitle,
+                color = RentivoColors.ink,
+              )
+              Text(
+                text = app.currentUser.email,
+                style = RentivoTypography.subheadline,
+                color = RentivoColors.secondaryInk,
+              )
+            }
           }
-        }
-      }
+        }),
+      )
 
-      AccountSection(title = "Perfil") {
-        AccountRow(
-          title = "Dados e PIX",
-          subtitle = "Chave e dados do recebedor",
-          icon = Icons.Filled.QrCode,
-          onClick = onOpenProfilePix,
-        )
-        AccountRow(
-          title = "Segurança",
-          subtitle = "Senha, TOTP e chaves de acesso",
-          icon = Icons.Filled.Security,
-          onClick = onOpenSecurity,
-        )
-      }
+      AccountSection(
+        title = "Perfil",
+        rows = listOf(
+          {
+            AccountRow(
+              title = "Dados e PIX",
+              subtitle = "Chave e dados do recebedor",
+              icon = Icons.Filled.QrCode,
+              onClick = onOpenProfilePix,
+            )
+          },
+          {
+            AccountRow(
+              title = "Segurança",
+              subtitle = "Senha, TOTP e chaves de acesso",
+              icon = Icons.Filled.Security,
+              onClick = onOpenSecurity,
+            )
+          },
+        ),
+      )
 
-      AccountSection(title = "Personalização e integrações") {
-        AccountRow(
-          title = "Chaves de integração",
-          subtitle = "Escopos e acessos",
-          icon = Icons.Filled.VpnKey,
-          onClick = onOpenAPIKeys,
-        )
-        AccountRow(
-          title = "Aparência",
-          subtitle = "Fontes, cores e prévia",
-          icon = Icons.Filled.Palette,
-          onClick = onOpenTheme,
-        )
-      }
+      AccountSection(
+        title = "Personalização e integrações",
+        rows = listOf(
+          {
+            AccountRow(
+              title = "Chaves de integração",
+              subtitle = "Escopos e acessos",
+              icon = Icons.Filled.VpnKey,
+              onClick = onOpenAPIKeys,
+            )
+          },
+          {
+            AccountRow(
+              title = "Aparência",
+              subtitle = "Fontes, cores e prévia",
+              icon = Icons.Filled.Palette,
+              onClick = onOpenTheme,
+            )
+          },
+        ),
+      )
 
       if (!app.usesLiveAPI) {
-        AccountSection(title = "Demonstração") {
-          AccountRow(
-            title = "Cenários do app",
-            subtitle = "Atraso, falha, vazio e permissões",
-            icon = Icons.Filled.Tune,
-            modifier = Modifier.testTag("account.demo"),
-            onClick = onOpenDemoScenarios,
-          )
-        }
-      }
-
-      AccountSection(title = "Sobre e suporte") {
-        AccountRow(
-          title = "Suporte",
-          subtitle = "Fale com a gente",
-          icon = Icons.AutoMirrored.Filled.HelpOutline,
-          trailing = Icons.AutoMirrored.Filled.OpenInNew,
-          onClick = { uriHandler.openUri("$PRODUCTION_URL/support") },
-        )
-        AccountRow(
-          title = "Política de privacidade",
-          subtitle = "Como tratamos seus dados",
-          icon = Icons.Filled.PrivacyTip,
-          trailing = Icons.AutoMirrored.Filled.OpenInNew,
-          onClick = { uriHandler.openUri("$PRODUCTION_URL/privacy") },
-        )
-        AccountRow(
-          title = "Termos de uso",
-          subtitle = "Regras do serviço",
-          icon = Icons.Filled.Description,
-          trailing = Icons.AutoMirrored.Filled.OpenInNew,
-          onClick = { uriHandler.openUri("$PRODUCTION_URL/terms") },
-        )
-      }
-
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-        RentivoButton(
-          onClick = { scope.launch { app.signOut() } },
-          color = RentivoColors.coral,
-          enabled = !app.isSigningOut,
-        ) {
-          if (app.isSigningOut) {
-            CircularProgressIndicator(
-              modifier = Modifier.size(18.dp),
-              color = Color.White,
-              strokeWidth = 2.dp,
+        AccountSection(
+          title = "Demonstração",
+          rows = listOf({
+            AccountRow(
+              title = "Cenários do app",
+              subtitle = "Atraso, falha, vazio e permissões",
+              icon = Icons.Filled.Tune,
+              modifier = Modifier.testTag("account.demo"),
+              onClick = onOpenDemoScenarios,
             )
-            Spacer(modifier = Modifier.width(RentivoSpacing.small))
-            Text(text = "Saindo...", style = RentivoTypography.cardTitle, color = Color.White)
-          } else {
-            Icon(
-              imageVector = Icons.AutoMirrored.Filled.Logout,
-              contentDescription = null,
-              tint = Color.White,
-            )
-            Spacer(modifier = Modifier.width(RentivoSpacing.small))
-            Text(text = "Sair", style = RentivoTypography.cardTitle, color = Color.White)
-          }
-        }
-
-        RentivoButton(
-          onClick = { showDeleteAccountAlert = true },
-          color = RentivoColors.coral,
-          enabled = !app.isDeletingAccount,
-        ) {
-          Icon(
-            imageVector = Icons.Filled.Delete,
-            contentDescription = null,
-            tint = Color.White,
-          )
-          Spacer(modifier = Modifier.width(RentivoSpacing.small))
-          Text(text = "Excluir conta", style = RentivoTypography.cardTitle, color = Color.White)
-        }
+          }),
+        )
       }
+
+      // The website links are iOS `Link`s, not `NavigationLink`s: the title takes the accent tint
+      // and the row carries no disclosure indicator, because the destination is outside the app.
+      AccountSection(
+        title = "Sobre e suporte",
+        rows = listOf(
+          {
+            AccountRow(
+              title = "Suporte",
+              subtitle = "Fale com a gente",
+              icon = Icons.AutoMirrored.Filled.Help,
+              titleColor = RentivoColors.emerald,
+              trailing = null,
+              onClick = { uriHandler.openUri("$PRODUCTION_URL/support") },
+            )
+          },
+          {
+            AccountRow(
+              title = "Política de privacidade",
+              subtitle = "Como tratamos seus dados",
+              icon = Icons.Filled.PanTool,
+              titleColor = RentivoColors.emerald,
+              trailing = null,
+              onClick = { uriHandler.openUri("$PRODUCTION_URL/privacy") },
+            )
+          },
+          {
+            AccountRow(
+              title = "Termos de uso",
+              subtitle = "Regras do serviço",
+              icon = Icons.Filled.Description,
+              titleColor = RentivoColors.emerald,
+              trailing = null,
+              onClick = { uriHandler.openUri("$PRODUCTION_URL/terms") },
+            )
+          },
+        ),
+      )
+
+      AccountSection(
+        rows = listOf(
+          {
+            if (app.isSigningOut) {
+              AccountTextButtonRow(
+                title = "Saindo...",
+                destructive = true,
+                centered = true,
+                enabled = false,
+                loading = true,
+                onClick = {},
+              )
+            } else {
+              AccountTextButtonRow(
+                title = "Sair",
+                icon = Icons.AutoMirrored.Filled.Logout,
+                destructive = true,
+                centered = true,
+                onClick = { scope.launch { app.signOut() } },
+              )
+            }
+          },
+          {
+            AccountTextButtonRow(
+              title = "Excluir conta",
+              icon = Icons.Filled.Delete,
+              destructive = true,
+              centered = true,
+              enabled = !app.isDeletingAccount,
+              onClick = { showDeleteAccountAlert = true },
+            )
+          },
+        ),
+      )
     }
   }
 
@@ -269,7 +307,7 @@ fun AccountView(
             scope.launch { app.deleteAccount(password = password) }
           },
         ) {
-          Text(text = "Excluir conta", color = RentivoColors.coral)
+          Text(text = "Excluir conta", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -347,62 +385,69 @@ fun ProfilePixView(onBack: () -> Unit) {
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      AccountSection(title = "Conta") {
-        AccountLabeledRow(label = "E-mail", value = app.currentUser.email)
-        AccountLabeledRow(
-          label = "Ambiente",
-          value = if (app.usesLiveAPI) "Rentivo" else "Demonstração local",
-        )
-      }
+      AccountSection(
+        title = "Conta",
+        rows = listOf(
+          { AccountLabeledRow(label = "E-mail", value = app.currentUser.email) },
+          {
+            AccountLabeledRow(
+              label = "Ambiente",
+              value = if (app.usesLiveAPI) "Rentivo" else "Demonstração local",
+            )
+          },
+        ),
+      )
 
-      AccountSection(title = "PIX pessoal") {
-        Column(
-          modifier = Modifier.padding(
-            horizontal = RentivoSpacing.large,
-            vertical = RentivoSpacing.small,
-          ),
-          verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
-        ) {
-          OutlinedTextField(
-            value = form.key,
-            onValueChange = { form = form.copy(key = it) },
-            label = { Text(text = "Chave PIX") },
-            enabled = !isDemoViewerLocked,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
-            modifier = Modifier.fillMaxWidth(),
-          )
-          OutlinedTextField(
-            value = form.merchantName,
-            onValueChange = { form = form.copy(merchantName = it) },
-            label = { Text(text = "Nome do recebedor") },
-            enabled = !isDemoViewerLocked,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-          )
-          OutlinedTextField(
-            value = form.merchantCity,
-            onValueChange = { form = form.copy(merchantCity = it) },
-            label = { Text(text = "Cidade") },
-            enabled = !isDemoViewerLocked,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-            modifier = Modifier.fillMaxWidth(),
-          )
-        }
-      }
+      // iOS renders these as plain `TextField`s in a `Form`: the PT-BR label is the placeholder,
+      // and the typed value replaces it. There is no notched outline and no floating label.
+      AccountSection(
+        title = "PIX pessoal",
+        rows = listOf(
+          {
+            AccountFieldRow(
+              placeholder = "Chave PIX",
+              value = form.key,
+              onValueChange = { form = form.copy(key = it) },
+              enabled = !isDemoViewerLocked,
+              keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+            )
+          },
+          {
+            AccountFieldRow(
+              placeholder = "Nome do recebedor",
+              value = form.merchantName,
+              onValueChange = { form = form.copy(merchantName = it) },
+              enabled = !isDemoViewerLocked,
+            )
+          },
+          {
+            AccountFieldRow(
+              placeholder = "Cidade",
+              value = form.merchantCity,
+              onValueChange = { form = form.copy(merchantCity = it) },
+              enabled = !isDemoViewerLocked,
+              keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+            )
+          },
+        ),
+      )
 
-      AccountSection {
-        AccountFootnote(
-          text = "Cobranças pessoais sem PIX próprio herdam esta configuração.",
-          icon = Icons.Filled.AccountTree,
-        )
-      }
+      AccountSection(
+        rows = listOf({
+          AccountFootnote(
+            text = "Cobranças pessoais sem PIX próprio herdam esta configuração.",
+            icon = Icons.AutoMirrored.Filled.CallSplit,
+          )
+        }),
+      )
     }
   }
 }
 
-/** The chrome every account screen shares: paper background, PT-BR title, optional back arrow. */
+/**
+ * The chrome every account screen shares: paper background, a large PT-BR navigation title and an
+ * optional back chevron sitting in the iOS 26 toolbar chip.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AccountScaffold(
@@ -416,35 +461,41 @@ internal fun AccountScaffold(
     modifier = modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
     topBar = {
-      TopAppBar(
-        title = {
-          Text(text = title, style = RentivoTypography.title, color = RentivoColors.ink)
-        },
+      RentivoLargeTopBar(
+        title = title,
         navigationIcon = {
           if (onBack != null) {
-            IconButton(onClick = onBack) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Voltar",
-                tint = RentivoColors.ink,
-              )
+            TopBarChip {
+              IconButton(onClick = onBack) {
+                Icon(
+                  imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                  contentDescription = "Voltar",
+                  tint = RentivoColors.ink,
+                )
+              }
             }
           }
         },
         actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = RentivoColors.paper),
       )
     },
     content = content,
   )
 }
 
-/** One iOS `Section`: an optional header above a card holding the section's rows. */
+/**
+ * One iOS `Section`: an optional gray header, an inset-grouped white plate holding the rows, and an
+ * optional footer sentence underneath it.
+ *
+ * Rows are passed as a list rather than as a slot so [RentivoListGroup] can place the hairlines
+ * itself; build the list with `buildList` when a row is conditional.
+ */
 @Composable
 internal fun AccountSection(
-  title: String? = null,
+  rows: List<@Composable () -> Unit>,
   modifier: Modifier = Modifier,
-  content: @Composable ColumnScope.() -> Unit,
+  title: String? = null,
+  footer: String? = null,
 ) {
   Column(
     modifier = modifier,
@@ -457,13 +508,23 @@ internal fun AccountSection(
         color = RentivoColors.secondaryInk,
       )
     }
-    RentivoCard(contentPadding = PaddingValues(vertical = RentivoSpacing.small), content = content)
+    RentivoListGroup(rows = rows)
+    if (footer != null) {
+      Text(
+        text = footer,
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+    }
   }
 }
 
 /**
- * A menu row: emerald leading symbol, title, caption subtitle and a trailing affordance —
- * [Icons.Filled.ChevronRight] for pushes, an external-link glyph for the website links.
+ * A menu row: emerald leading symbol, title, caption subtitle and — for rows that push a screen — a
+ * small, washed-out disclosure chevron.
+ *
+ * [titleColor] carries the accent tint an iOS `Link` gives its label; pass `trailing = null`
+ * alongside it, because a `Link` shows no disclosure indicator.
  */
 @Composable
 internal fun AccountRow(
@@ -471,6 +532,8 @@ internal fun AccountRow(
   icon: ImageVector,
   modifier: Modifier = Modifier,
   subtitle: String? = null,
+  titleColor: Color = RentivoColors.ink,
+  titleStyle: TextStyle = RentivoTypography.cardTitle,
   trailing: ImageVector? = Icons.Filled.ChevronRight,
   onClick: () -> Unit,
 ) {
@@ -478,6 +541,7 @@ internal fun AccountRow(
     modifier = modifier
       .fillMaxWidth()
       .clickable(onClick = onClick)
+      .heightIn(min = AccountRowMinHeight)
       .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
     verticalAlignment = Alignment.CenterVertically,
@@ -487,7 +551,7 @@ internal fun AccountRow(
       modifier = Modifier.weight(1f),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
     ) {
-      Text(text = title, style = RentivoTypography.cardTitle, color = RentivoColors.ink)
+      Text(text = title, style = titleStyle, color = titleColor)
       if (subtitle != null) {
         Text(text = subtitle, style = RentivoTypography.caption, color = RentivoColors.secondaryInk)
       }
@@ -496,7 +560,8 @@ internal fun AccountRow(
       Icon(
         imageVector = trailing,
         contentDescription = null,
-        tint = RentivoColors.secondaryInk,
+        tint = RentivoColors.secondaryInk.copy(alpha = CHEVRON_ALPHA),
+        modifier = Modifier.size(ChevronSize),
       )
     }
   }
@@ -512,6 +577,7 @@ internal fun AccountLabeledRow(
   Row(
     modifier = modifier
       .fillMaxWidth()
+      .heightIn(min = AccountRowMinHeight)
       .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
     verticalAlignment = Alignment.CenterVertically,
@@ -526,23 +592,91 @@ internal fun AccountLabeledRow(
   }
 }
 
-/** A full-width text action inside a section card, coral when it destroys something. */
+/**
+ * A borderless text field filling one row of a section, the way an iOS `TextField` sits directly on
+ * a `Form` row: the label is the placeholder, and nothing outlines the field.
+ */
+@Composable
+internal fun AccountFieldRow(
+  placeholder: String,
+  value: String,
+  onValueChange: (String) -> Unit,
+  modifier: Modifier = Modifier,
+  enabled: Boolean = true,
+  monospace: Boolean = false,
+  keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+  visualTransformation: VisualTransformation = VisualTransformation.None,
+) {
+  Box(
+    modifier = modifier
+      .fillMaxWidth()
+      .heightIn(min = AccountRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+    contentAlignment = Alignment.CenterStart,
+  ) {
+    RentivoListField(
+      value = value,
+      onValueChange = onValueChange,
+      placeholder = placeholder,
+      enabled = enabled,
+      monospace = monospace,
+      keyboardOptions = keyboardOptions,
+      visualTransformation = visualTransformation,
+    )
+  }
+}
+
+/**
+ * A text action occupying a whole row of a section: the platform red when it destroys something,
+ * emerald otherwise, always at body weight like an iOS `Button` inside a `List`.
+ *
+ * [centered] mirrors the `.frame(maxWidth: .infinity)` iOS puts on the account-level actions, and
+ * [loading] swaps the leading symbol for a spinner while the action is in flight.
+ */
 @Composable
 internal fun AccountTextButtonRow(
   title: String,
   modifier: Modifier = Modifier,
+  icon: ImageVector? = null,
   destructive: Boolean = false,
+  enabled: Boolean = true,
+  centered: Boolean = false,
+  loading: Boolean = false,
   onClick: () -> Unit,
 ) {
-  Text(
-    text = title,
-    style = RentivoTypography.cardTitle,
-    color = if (destructive) RentivoColors.coral else RentivoColors.emerald,
+  val color = when {
+    !enabled -> RentivoColors.secondaryInk
+    destructive -> RentivoColors.destructiveText
+    else -> RentivoColors.emerald
+  }
+  Row(
     modifier = modifier
       .fillMaxWidth()
-      .clickable(onClick = onClick)
+      .clickable(enabled = enabled, onClick = onClick)
+      .heightIn(min = AccountRowMinHeight)
       .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
-  )
+    horizontalArrangement = Arrangement.spacedBy(
+      space = RentivoSpacing.small,
+      alignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+    ),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (loading) {
+      CircularProgressIndicator(
+        modifier = Modifier.size(18.dp),
+        color = color,
+        strokeWidth = 2.dp,
+      )
+    } else if (icon != null) {
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = color,
+        modifier = Modifier.size(20.dp),
+      )
+    }
+    Text(text = title, style = RentivoTypography.body, color = color)
+  }
 }
 
 /** Small explanatory copy, optionally introduced by a symbol like the iOS `Label` footnotes. */
@@ -555,12 +689,17 @@ internal fun AccountFootnote(
   Row(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.small),
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     if (icon != null) {
-      Icon(imageVector = icon, contentDescription = null, tint = RentivoColors.secondaryInk)
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = RentivoColors.emerald,
+        modifier = Modifier.size(18.dp),
+      )
     }
     Text(
       text = text,
@@ -571,7 +710,7 @@ internal fun AccountFootnote(
   }
 }
 
-/** The masked field every password-collecting dialog and form on this tab reuses. */
+/** The masked field every password-collecting dialog on this tab reuses. */
 @Composable
 internal fun AccountPasswordField(
   label: String,

@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -40,11 +43,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoColors
@@ -130,71 +133,98 @@ fun SecurityView(onBack: () -> Unit) {
             .padding(RentivoSpacing.page),
           verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
         ) {
-          AccountSection(title = "Senha") {
-            AccountRow(
-              title = "Alterar senha",
-              icon = Icons.Filled.VpnKey,
-              onClick = { changingPassword = true },
-            )
-          }
-
-          AccountSection(title = "Autenticação em duas etapas") {
-            AccountLabeledRow(
-              label = "Aplicativo autenticador",
-              value = if (summary.totpEnabled) "Ativado" else "Desativado",
-            )
-            if (!isDemoViewerLocked) {
-              if (summary.totpEnabled) {
-                AccountTextButtonRow(
-                  title = "Desativar",
-                  destructive = true,
-                  onClick = { showingDisableTOTP = true },
-                )
-              } else {
-                AccountTextButtonRow(
-                  title = "Configurar aplicativo autenticador",
-                  onClick = {
-                    scope.launch {
-                      warnOnFailure {
-                        enrollment = app.dependencies.security.beginTOTPEnrollment()
-                      }
-                    }
-                  },
-                )
-              }
-              AccountTextButtonRow(
-                title = "Gerar novos códigos de recuperação",
-                onClick = {
-                  scope.launch {
-                    warnOnFailure {
-                      recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
-                      load()
-                      showingRecoveryCodes = true
-                    }
-                  }
-                },
+          AccountSection(
+            title = "Senha",
+            rows = listOf({
+              AccountRow(
+                title = "Alterar senha",
+                icon = Icons.Filled.VpnKey,
+                titleStyle = RentivoTypography.body,
+                onClick = { changingPassword = true },
               )
-            }
-            AccountLabeledRow(label = "Códigos disponíveis", value = "${summary.recoveryCodeCount}")
-          }
+            }),
+          )
 
-          AccountSection(title = "Chaves de acesso") {
-            if (summary.passkeys.isEmpty()) {
-              AccountFootnote(text = "Nenhuma chave de acesso registrada ainda.")
-            } else {
-              summary.passkeys.forEach { passkey ->
-                PasskeyRow(
-                  passkey = passkey,
-                  canDelete = !isDemoViewerLocked,
-                  onDelete = { passkeyPendingDelete = passkey },
+          AccountSection(
+            title = "Autenticação em duas etapas",
+            rows = buildList {
+              add({
+                AccountLabeledRow(
+                  label = "Aplicativo autenticador",
+                  value = if (summary.totpEnabled) "Ativado" else "Desativado",
                 )
+              })
+              if (!isDemoViewerLocked) {
+                if (summary.totpEnabled) {
+                  add({
+                    AccountTextButtonRow(
+                      title = "Desativar",
+                      destructive = true,
+                      onClick = { showingDisableTOTP = true },
+                    )
+                  })
+                } else {
+                  add({
+                    AccountTextButtonRow(
+                      title = "Configurar aplicativo autenticador",
+                      onClick = {
+                        scope.launch {
+                          warnOnFailure {
+                            enrollment = app.dependencies.security.beginTOTPEnrollment()
+                          }
+                        }
+                      },
+                    )
+                  })
+                }
+                add({
+                  AccountTextButtonRow(
+                    title = "Gerar novos códigos de recuperação",
+                    onClick = {
+                      scope.launch {
+                        warnOnFailure {
+                          recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
+                          load()
+                          showingRecoveryCodes = true
+                        }
+                      }
+                    },
+                  )
+                })
               }
-            }
-            AccountFootnote(
-              text = "Para registrar uma nova chave de acesso, entre pelo navegador do Rentivo. " +
-                "Ela ficará disponível automaticamente neste aplicativo.",
-            )
-          }
+              add({
+                AccountLabeledRow(
+                  label = "Códigos disponíveis",
+                  value = "${summary.recoveryCodeCount}",
+                )
+              })
+            },
+          )
+
+          AccountSection(
+            title = "Chaves de acesso",
+            rows = buildList {
+              if (summary.passkeys.isEmpty()) {
+                add({ AccountFootnote(text = "Nenhuma chave de acesso registrada ainda.") })
+              } else {
+                summary.passkeys.forEach { passkey ->
+                  add({
+                    PasskeyRow(
+                      passkey = passkey,
+                      canDelete = !isDemoViewerLocked,
+                      onDelete = { passkeyPendingDelete = passkey },
+                    )
+                  })
+                }
+              }
+              add({
+                AccountFootnote(
+                  text = "Para registrar uma nova chave de acesso, entre pelo navegador do " +
+                    "Rentivo. Ela ficará disponível automaticamente neste aplicativo.",
+                )
+              })
+            },
+          )
         }
       }
     }
@@ -256,7 +286,7 @@ fun SecurityView(onBack: () -> Unit) {
             }
           },
         ) {
-          Text(text = "Desativar", color = RentivoColors.coral)
+          Text(text = "Desativar", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -298,7 +328,7 @@ fun SecurityView(onBack: () -> Unit) {
           },
           modifier = Modifier.testTag("security.passkey.delete.confirm"),
         ) {
-          Text(text = "Excluir chave de acesso", color = RentivoColors.coral)
+          Text(text = "Excluir chave de acesso", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -336,7 +366,7 @@ private fun PasskeyRow(
       Text(
         text = "Excluir",
         style = RentivoTypography.metadata,
-        color = RentivoColors.coral,
+        color = RentivoColors.destructiveText,
         modifier = Modifier
           .testTag("security.passkey.delete")
           .clickable(onClick = onDelete),
@@ -398,32 +428,36 @@ private fun ChangePasswordView(onBack: () -> Unit) {
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      AccountSection(title = "Alterar senha") {
-        Column(
-          modifier = Modifier.padding(
-            horizontal = RentivoSpacing.large,
-            vertical = RentivoSpacing.small,
-          ),
-          verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
-        ) {
-          AccountPasswordField(
-            label = "Senha atual",
-            value = currentPassword,
-            onValueChange = { currentPassword = it },
-          )
-          AccountPasswordField(
-            label = "Nova senha",
-            value = newPassword,
-            onValueChange = { newPassword = it },
-          )
-          AccountPasswordField(
-            label = "Confirmar nova senha",
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-          )
-        }
-        AccountFootnote(text = "Use uma senha forte e exclusiva para sua conta Rentivo.")
-      }
+      AccountSection(
+        title = "Alterar senha",
+        footer = "Use uma senha forte e exclusiva para sua conta Rentivo.",
+        rows = listOf(
+          {
+            AccountFieldRow(
+              placeholder = "Senha atual",
+              value = currentPassword,
+              onValueChange = { currentPassword = it },
+              visualTransformation = PasswordVisualTransformation(),
+            )
+          },
+          {
+            AccountFieldRow(
+              placeholder = "Nova senha",
+              value = newPassword,
+              onValueChange = { newPassword = it },
+              visualTransformation = PasswordVisualTransformation(),
+            )
+          },
+          {
+            AccountFieldRow(
+              placeholder = "Confirmar nova senha",
+              value = confirmPassword,
+              onValueChange = { confirmPassword = it },
+              visualTransformation = PasswordVisualTransformation(),
+            )
+          },
+        ),
+      )
 
       validationMessage?.let { message ->
         Row(
@@ -559,7 +593,13 @@ private fun SheetHeader(title: String, icon: ImageVector) {
   }
 }
 
-/** A full-screen stand-in for the iOS `.sheet`: page chrome plus a single trailing toolbar action. */
+/**
+ * The iOS `.sheet`: a full-screen surface rising over everything, including the tab bar, with page
+ * chrome and a single trailing toolbar action.
+ *
+ * The sheet's own layer already sits below the status bar, so the scaffold inside it must not add
+ * that inset a second time — hence the explicit consumption.
+ */
 @Composable
 private fun AccountSheet(
   title: String,
@@ -568,29 +608,25 @@ private fun AccountSheet(
   onDismiss: () -> Unit,
   content: @Composable () -> Unit,
 ) {
-  Dialog(
-    onDismissRequest = onDismiss,
-    properties = DialogProperties(usePlatformDefaultWidth = false),
-  ) {
-    Box(modifier = Modifier.fillMaxSize().background(RentivoColors.paper)) {
-      AccountScaffold(
-        title = title,
-        onBack = null,
-        actions = {
-          TextButton(onClick = onAction) {
-            Text(text = actionTitle, color = RentivoColors.emerald)
-          }
-        },
-      ) { padding ->
-        Column(
-          modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .verticalScroll(rememberScrollState())
-            .padding(RentivoSpacing.page),
-        ) {
-          content()
+  FullScreenSheet(onDismissRequest = onDismiss) {
+    AccountScaffold(
+      title = title,
+      onBack = null,
+      modifier = Modifier.consumeWindowInsets(WindowInsets.statusBars),
+      actions = {
+        TextButton(onClick = onAction) {
+          Text(text = actionTitle, color = RentivoColors.emerald)
         }
+      },
+    ) { padding ->
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(padding)
+          .verticalScroll(rememberScrollState())
+          .padding(RentivoSpacing.page),
+      ) {
+        content()
       }
     }
   }
