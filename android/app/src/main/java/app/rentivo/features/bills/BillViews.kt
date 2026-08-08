@@ -1,8 +1,8 @@
 package app.rentivo.features.bills
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,40 +10,41 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -51,17 +52,12 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,26 +71,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.data.api.fileUploadFromUri
-import app.rentivo.designsystem.CurrencyCentavosField
+import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoInlineTopBar
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoProminentButton
 import app.rentivo.designsystem.RentivoSpacing
+import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
@@ -305,223 +307,205 @@ fun BillFormSheet(
 
   val total = lines.fold(Money.zero) { running, line -> running + Money(centavos = line.centavos) }
 
-  Scaffold(
-    modifier = Modifier.fillMaxSize(),
-    containerColor = RentivoColors.paper,
-    topBar = {
-      TopAppBar(
-        title = { Text(text = if (existing == null) "Gerar fatura" else "Editar fatura") },
-        navigationIcon = {
-          TextButton(onClick = onDismiss) {
-            Text(text = "Cancelar", color = RentivoColors.ink)
-          }
-        },
-        actions = {
-          TextButton(
-            onClick = { scope.launch { save() } },
-            enabled = !saving,
-            modifier = Modifier.testTag("bill.form.save"),
-          ) {
-            Text(text = "Salvar", color = RentivoColors.emerald)
-          }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = RentivoColors.surface,
-          titleContentColor = RentivoColors.ink,
-        ),
-      )
-    },
-  ) { padding ->
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(padding)
-        .verticalScroll(rememberScrollState())
-        .padding(RentivoSpacing.page),
-      verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
-    ) {
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-        SectionTitle(title = "Competência", icon = Icons.Filled.DateRange)
-        RentivoCard {
-          Box {
-            FormRow(
-              label = "Mês",
-              modifier = Modifier
-                .clickable { monthMenuExpanded = true }
-                .testTag("bill.form.month"),
+  // A `Dialog`-backed sheet, not an in-tab surface: the form is presented modally on iOS, and only
+  // a dialog can rise over the floating tab bar the way that sheet does. Dismissal is gated while a
+  // save is in flight, so back cannot abandon a request the server is already handling.
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !saving) {
+    Scaffold(
+      modifier = Modifier.fillMaxSize(),
+      containerColor = RentivoColors.paper,
+      topBar = {
+        SheetTopBar(
+          title = if (existing == null) "Gerar fatura" else "Editar fatura",
+          onCancel = onDismiss,
+          cancelEnabled = !saving,
+        ) {
+          TopBarChip {
+            TextButton(
+              onClick = { scope.launch { save() } },
+              enabled = !saving,
+              modifier = Modifier.testTag("bill.form.save"),
             ) {
-              Text(
-                text = monthName(year = year, month = month),
-                style = RentivoTypography.subheadlineEmphasized,
-                color = RentivoColors.ink,
-              )
-              Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = RentivoColors.secondaryInk,
-              )
+              Text(text = "Salvar", color = RentivoColors.emerald)
             }
-            DropdownMenu(
-              expanded = monthMenuExpanded,
-              onDismissRequest = { monthMenuExpanded = false },
-            ) {
-              (1..12).forEach { candidate ->
-                DropdownMenuItem(
-                  text = { Text(text = monthName(year = year, month = candidate)) },
-                  onClick = {
-                    month = candidate
-                    monthMenuExpanded = false
-                    syncDueDateWithReferenceMonth(nextYear = year, nextMonth = candidate)
-                  },
+          }
+        }
+      },
+    ) { padding ->
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(padding)
+          .verticalScroll(rememberScrollState())
+          .padding(RentivoSpacing.page),
+        verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
+      ) {
+        FormSectionColumn(header = "Competência") {
+          RentivoCard {
+            Box {
+              FormRow(
+                label = "Mês",
+                modifier = Modifier
+                  .clickable { monthMenuExpanded = true }
+                  .testTag("bill.form.month"),
+              ) {
+                Text(
+                  text = monthName(year = year, month = month),
+                  style = RentivoTypography.subheadlineEmphasized,
+                  color = RentivoColors.ink,
+                )
+                Icon(
+                  imageVector = Icons.Filled.KeyboardArrowDown,
+                  contentDescription = null,
+                  tint = RentivoColors.secondaryInk,
                 )
               }
-            }
-          }
-          FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
-            IconButton(
-              onClick = {
-                val next = year - 1
-                year = next
-                syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-              },
-              enabled = year > YEAR_RANGE.first,
-            ) {
-              Icon(imageVector = Icons.Filled.Remove, contentDescription = "Diminuir ano")
-            }
-            IconButton(
-              onClick = {
-                val next = year + 1
-                year = next
-                syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-              },
-              enabled = year < YEAR_RANGE.last,
-            ) {
-              Icon(imageVector = Icons.Filled.Add, contentDescription = "Aumentar ano")
-            }
-          }
-        }
-      }
-
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-        SectionTitle(title = "Vencimento", icon = Icons.Filled.Event)
-        RentivoCard {
-          FormRow(label = "Definir vencimento") {
-            Switch(
-              checked = hasDueDate,
-              onCheckedChange = { hasDueDate = it },
-              modifier = Modifier.testTag("bill.form.hasDueDate"),
-            )
-          }
-          if (hasDueDate) {
-            FormRow(
-              label = "Data de vencimento",
-              modifier = Modifier
-                .clickable { showingDatePicker = true }
-                .testTag("bill.form.dueDate"),
-            ) {
-              Text(
-                text = DateOnly.from(dueDate).displayFormatted,
-                style = RentivoTypography.subheadlineEmphasized,
-                color = RentivoColors.ink,
-              )
-            }
-            Text(
-              text = "A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.",
-              style = RentivoTypography.caption,
-              color = RentivoColors.secondaryInk,
-            )
-          }
-        }
-      }
-
-      BillLineItemKind.entries.forEach { kind ->
-        Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-          SectionTitle(title = kind.sectionTitle, icon = Icons.Filled.Receipt)
-          val kindLines = lines.filter { it.kind == kind }
-          if (kindLines.isNotEmpty()) {
-            RentivoCard {
-              kindLines.forEachIndexed { position, line ->
-                if (position > 0) HorizontalDivider(color = RentivoColors.secondaryInk)
-                // `key` ties each row's composition — and with it the text field's cursor, focus and
-                // IME state — to the line's identity rather than to its position, so deleting a row
-                // above does not shift the one below into its slot. The callbacks resolve the index
-                // at event time for the same reason: an index captured at composition time goes
-                // stale the moment the list changes and would write to (or delete) another line.
-                key(line.id.rawValue) {
-                  BillLineRow(
-                    line = line,
-                    onDescriptionChange = { description ->
-                      lines.updateLine(line.id) { it.copy(description = description) }
-                    },
-                    onCentavosChange = { centavos ->
-                      lines.updateLine(line.id) { it.copy(centavos = centavos) }
-                    },
-                    // Fixed lines mirror the billing's own recurring items and aren't deletable
-                    // here; only user-added variable/extra lines can be removed.
-                    onDelete = if (kind == BillLineItemKind.FIXED) {
-                      null
-                    } else {
-                      {
-                        val index = lines.indexOfFirst { it.id == line.id }
-                        if (index >= 0) lines.removeAt(index)
-                      }
+              DropdownMenu(
+                expanded = monthMenuExpanded,
+                onDismissRequest = { monthMenuExpanded = false },
+              ) {
+                (1..12).forEach { candidate ->
+                  DropdownMenuItem(
+                    text = { Text(text = monthName(year = year, month = candidate)) },
+                    onClick = {
+                      month = candidate
+                      monthMenuExpanded = false
+                      syncDueDateWithReferenceMonth(nextYear = year, nextMonth = candidate)
                     },
                   )
                 }
               }
             }
-          }
-          if (kind == BillLineItemKind.EXTRA) {
-            // Only extras get an "add new line" affordance here: extras are the server's mechanism
-            // for ad-hoc per-bill lines. Variable items are defined by the billing (cobrança)
-            // itself, seeded above from `billing.items`; the live store's `variable_amounts` only
-            // accepts the billing's own ULID-keyed variable items, so a client-minted UUID for a
-            // brand-new variable line would silently be dropped on save. Previously seeded variable
-            // lines still render and remain editable and deletable above.
-            OutlinedButton(
-              onClick = { lines.add(EditableBillLine.new(kind = kind)) },
-              modifier = Modifier.testTag("bill.form.addExtra"),
-            ) {
-              Icon(imageVector = Icons.Filled.AddCircle, contentDescription = null)
-              Text(
-                text = "Adicionar ${kind.actionLabel}",
-                modifier = Modifier.padding(start = RentivoSpacing.small),
+            FormRowDivider()
+            FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
+              YearStepper(
+                canDecrease = year > YEAR_RANGE.first,
+                canIncrease = year < YEAR_RANGE.last,
+                onDecrease = {
+                  val next = year - 1
+                  year = next
+                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                },
+                onIncrease = {
+                  val next = year + 1
+                  year = next
+                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                },
               )
             }
           }
         }
-      }
 
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-        SectionTitle(title = "Observações", icon = Icons.AutoMirrored.Filled.Comment)
-        OutlinedTextField(
-          value = notes,
-          onValueChange = { notes = it },
-          modifier = Modifier
-            .fillMaxWidth()
-            .testTag("bill.form.notes"),
-          label = { Text(text = "Mensagem opcional") },
-          minLines = 3,
-          maxLines = 6,
-          keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-        )
-      }
-
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-        SectionTitle(title = "Total", icon = Icons.Filled.AttachMoney)
-        RentivoCard { MoneyText(money = total) }
-      }
-
-      if (issues.isNotEmpty()) {
-        Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-          SectionTitle(title = "Revise a fatura", icon = Icons.Filled.Error)
+        FormSectionColumn(header = "Vencimento") {
           RentivoCard {
-            issues.forEach { issue ->
-              IconLabel(
-                text = issue.message,
-                icon = Icons.Filled.Error,
-                color = RentivoColors.coral,
+            FormRow(label = "Definir vencimento") {
+              Switch(
+                checked = hasDueDate,
+                onCheckedChange = { hasDueDate = it },
+                modifier = Modifier.testTag("bill.form.hasDueDate"),
               )
+            }
+            if (hasDueDate) {
+              FormRowDivider()
+              FormRow(
+                label = "Data de vencimento",
+                modifier = Modifier
+                  .clickable { showingDatePicker = true }
+                  .testTag("bill.form.dueDate"),
+              ) {
+                DueDateChip(label = dueDate.dueDateLabel())
+              }
+              Text(
+                text = "A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.",
+                style = RentivoTypography.caption,
+                color = RentivoColors.secondaryInk,
+              )
+            }
+          }
+        }
+
+        BillLineItemKind.entries.forEach { kind ->
+          FormSectionColumn(header = kind.sectionTitle) {
+            val kindLines = lines.filter { it.kind == kind }
+            if (kindLines.isNotEmpty()) {
+              RentivoCard {
+                kindLines.forEachIndexed { position, line ->
+                  if (position > 0) FormRowDivider()
+                  // `key` ties each row's composition — and with it the text field's cursor, focus
+                  // and IME state — to the line's identity rather than to its position, so deleting
+                  // a row above does not shift the one below into its slot. The callbacks resolve
+                  // the index at event time for the same reason: an index captured at composition
+                  // time goes stale the moment the list changes and would write to another line.
+                  key(line.id.rawValue) {
+                    BillLineRow(
+                      line = line,
+                      onDescriptionChange = { description ->
+                        lines.updateLine(line.id) { it.copy(description = description) }
+                      },
+                      onCentavosChange = { centavos ->
+                        lines.updateLine(line.id) { it.copy(centavos = centavos) }
+                      },
+                      // Fixed lines mirror the billing's own recurring items and aren't deletable
+                      // here; only user-added variable/extra lines can be removed.
+                      onDelete = if (kind == BillLineItemKind.FIXED) {
+                        null
+                      } else {
+                        {
+                          val index = lines.indexOfFirst { it.id == line.id }
+                          if (index >= 0) lines.removeAt(index)
+                        }
+                      },
+                    )
+                  }
+                }
+              }
+            }
+            if (kind == BillLineItemKind.EXTRA) {
+              // Only extras get an "add new line" affordance here: extras are the server's
+              // mechanism for ad-hoc per-bill lines. Variable items are defined by the billing
+              // (cobrança) itself, seeded above from `billing.items`; the live store's
+              // `variable_amounts` only accepts the billing's own ULID-keyed variable items, so a
+              // client-minted UUID for a brand-new variable line would silently be dropped on save.
+              // Previously seeded variable lines still render and remain editable above.
+              AddLineRow(
+                label = "Adicionar ${kind.actionLabel}",
+                onClick = { lines.add(EditableBillLine.new(kind = kind)) },
+                modifier = Modifier.testTag("bill.form.addExtra"),
+              )
+            }
+          }
+        }
+
+        FormSectionColumn(header = "Observações") {
+          RentivoCard {
+            RentivoListField(
+              value = notes,
+              onValueChange = { notes = it },
+              modifier = Modifier
+                .heightIn(min = NotesFieldMinHeight)
+                .testTag("bill.form.notes"),
+              placeholder = "Mensagem opcional",
+              singleLine = false,
+              keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            )
+          }
+        }
+
+        FormSectionColumn(header = "Total") {
+          RentivoCard { MoneyText(money = total) }
+        }
+
+        if (issues.isNotEmpty()) {
+          FormSectionColumn(header = "Revise a fatura") {
+            RentivoCard {
+              issues.forEach { issue ->
+                IconLabel(
+                  text = issue.message,
+                  icon = Icons.Filled.Error,
+                  style = RentivoTypography.body,
+                  tint = RentivoColors.coral,
+                )
+              }
             }
           }
         }
@@ -556,6 +540,12 @@ fun BillFormSheet(
   }
 }
 
+/** The multi-line notes field's floor, i.e. the `lineLimit(3...6)` minimum the iOS form sets. */
+private val NotesFieldMinHeight = 72.dp
+
+/** The removal glyph's own size; the tap target grows past it via the surrounding padding. */
+private val LineDeleteGlyphSize = 20.dp
+
 @Composable
 private fun BillLineRow(
   line: EditableBillLine,
@@ -565,38 +555,135 @@ private fun BillLineRow(
 ) {
   Column(
     modifier = Modifier.padding(vertical = RentivoSpacing.small),
-    verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+    verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
   ) {
-    OutlinedTextField(
-      value = line.description,
-      onValueChange = onDescriptionChange,
-      modifier = Modifier.fillMaxWidth(),
-      label = { Text(text = "Descrição") },
-      singleLine = true,
-      keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-    )
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      CurrencyCentavosField(
-        label = "Valor em centavos",
-        centavos = line.centavos,
-        onCentavosChange = onCentavosChange,
+      RentivoListField(
+        value = line.description,
+        onValueChange = onDescriptionChange,
         modifier = Modifier.weight(1f),
+        placeholder = "Descrição",
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
       )
       if (onDelete != null) {
-        IconButton(onClick = onDelete) {
-          Icon(
-            imageVector = Icons.Filled.Delete,
-            contentDescription = "Remover ${line.description}",
-            tint = RentivoColors.coral,
-          )
-        }
+        // A hairline minus glyph in secondary ink, not a filled red trash can: iOS reveals removal
+        // behind a swipe, so an always-visible destructive control on every row read far louder
+        // than the form it sits in.
+        Icon(
+          imageVector = Icons.Outlined.RemoveCircleOutline,
+          contentDescription = "Remover ${line.description}",
+          tint = RentivoColors.secondaryInk,
+          modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onDelete)
+            .padding(RentivoSpacing.tiny)
+            .size(LineDeleteGlyphSize),
+        )
       }
     }
+    CurrencyRowField(centavos = line.centavos, onCentavosChange = onCentavosChange)
   }
+}
+
+/**
+ * The "add another line" affordance: a full-width row led by a filled emerald plus-circle, i.e.
+ * SwiftUI's `Label(_, systemImage: "plus.circle.fill")` sitting as the last row of a form section.
+ */
+@Composable
+private fun AddLineRow(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(RentivoSpacing.medium))
+      .clickable(onClick = onClick)
+      .padding(vertical = RentivoSpacing.medium),
+    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(
+      imageVector = Icons.Filled.AddCircle,
+      contentDescription = null,
+      tint = RentivoColors.emerald,
+    )
+    Text(text = label, style = RentivoTypography.body, color = RentivoColors.emerald)
+  }
+}
+
+/** The stepper's recessed capsule, matching the segmented control's groove radius. */
+private val StepperShape = RoundedCornerShape(9.dp)
+private val StepperDividerHeight = 22.dp
+private val StepperButtonSize = 40.dp
+
+/**
+ * SwiftUI's `Stepper` control: the two buttons share one recessed capsule, split by a hairline,
+ * rather than floating as a pair of loose icon buttons.
+ */
+@Composable
+private fun YearStepper(
+  canDecrease: Boolean,
+  canIncrease: Boolean,
+  onDecrease: () -> Unit,
+  onIncrease: () -> Unit,
+) {
+  Row(
+    modifier = Modifier
+      .clip(StepperShape)
+      .background(RentivoColors.segmentedTrack),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    StepperButton(
+      icon = Icons.Filled.Remove,
+      description = "Diminuir ano",
+      enabled = canDecrease,
+      onClick = onDecrease,
+    )
+    Box(
+      modifier = Modifier
+        .width(1.dp)
+        .height(StepperDividerHeight)
+        .background(RentivoColors.separator),
+    )
+    StepperButton(
+      icon = Icons.Filled.Add,
+      description = "Aumentar ano",
+      enabled = canIncrease,
+      onClick = onIncrease,
+    )
+  }
+}
+
+@Composable
+private fun StepperButton(
+  icon: ImageVector,
+  description: String,
+  enabled: Boolean,
+  onClick: () -> Unit,
+) {
+  IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(StepperButtonSize)) {
+    Icon(
+      imageVector = icon,
+      contentDescription = description,
+      tint = if (enabled) RentivoColors.ink else RentivoColors.secondaryInk,
+    )
+  }
+}
+
+/** The tappable date value: a paper capsule, i.e. the plate iOS puts behind a compact `DatePicker`. */
+@Composable
+private fun DueDateChip(label: String) {
+  Text(
+    text = label,
+    style = RentivoTypography.subheadlineEmphasized,
+    color = RentivoColors.ink,
+    modifier = Modifier
+      .clip(CircleShape)
+      .background(RentivoColors.paper)
+      .padding(horizontal = RentivoSpacing.medium, vertical = 6.dp),
+  )
 }
 
 // MARK: - Detail
@@ -747,41 +834,17 @@ fun BillDetailScreen(
   }
 
   val loaded = state.value
-  BackHandler(enabled = showingEdit || showingCommunication) {
-    showingEdit = false
-    showingCommunication = false
-  }
 
-  when {
-    showingEdit && loaded != null -> BillFormSheet(
-      billing = currentBilling,
-      existing = loaded,
-      onSaved = { refreshAll() },
-      onDismiss = { showingEdit = false },
-    )
-
-    showingCommunication && loaded != null -> CommunicationComposerSheet(
-      billing = currentBilling,
-      bill = loaded,
-      onDismiss = { showingCommunication = false },
-    )
-
-    else -> Scaffold(
-      modifier = Modifier.fillMaxSize(),
-      containerColor = RentivoColors.paper,
-      topBar = {
-        TopAppBar(
-          title = { Text(text = "Fatura") },
-          navigationIcon = {
-            IconButton(onClick = onBack) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Voltar",
-              )
-            }
-          },
-          actions = {
-            if (loaded?.status == BillStatus.DRAFT && currentBilling.capabilities.canManageBills) {
+  Scaffold(
+    modifier = Modifier.fillMaxSize(),
+    containerColor = RentivoColors.paper,
+    topBar = {
+      RentivoInlineTopBar(
+        title = "Fatura",
+        onBack = onBack,
+        actions = {
+          if (loaded?.status == BillStatus.DRAFT && currentBilling.capabilities.canManageBills) {
+            TopBarChip {
               TextButton(
                 onClick = { showingEdit = true },
                 modifier = Modifier.testTag("bill.edit"),
@@ -789,33 +852,48 @@ fun BillDetailScreen(
                 Text(text = "Editar", color = RentivoColors.emerald)
               }
             }
-          },
-          colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = RentivoColors.surface,
-            titleContentColor = RentivoColors.ink,
-          ),
-        )
-      },
-    ) { padding ->
-      PageStateView(
-        state = state,
+          }
+        },
+      )
+    },
+  ) { padding ->
+    PageStateView(
+      state = state,
+      modifier = Modifier.padding(padding),
+      retry = { scope.launch { load() } },
+    ) { bill ->
+      BillDetailContent(
+        billing = currentBilling,
+        bill = bill,
         modifier = Modifier.padding(padding),
-        retry = { scope.launch { load() } },
-      ) { bill ->
-        BillDetailContent(
-          billing = currentBilling,
-          bill = bill,
-          modifier = Modifier.padding(padding),
-          onTransition = { status -> scope.launch { transition(status) } },
-          onOpenInvoice = { scope.launch { downloadInvoice() } },
-          onOpenRecibo = { scope.launch { downloadRecibo() } },
-          onRegenerate = { scope.launch { regenerate(bill) } },
-          onCompose = { showingCommunication = true },
-          onDelete = { confirmingDelete = true },
-          onMutation = { refreshAll() },
-        )
-      }
+        onTransition = { status -> scope.launch { transition(status) } },
+        onOpenInvoice = { scope.launch { downloadInvoice() } },
+        onOpenRecibo = { scope.launch { downloadRecibo() } },
+        onRegenerate = { scope.launch { regenerate(bill) } },
+        onCompose = { showingCommunication = true },
+        onDelete = { confirmingDelete = true },
+        onMutation = { refreshAll() },
+      )
     }
+  }
+
+  // Both are sheets, so they rise *over* the detail screen rather than replacing it — and each owns
+  // its own back handling, which is why there is no screen-level `BackHandler` here.
+  if (showingEdit && loaded != null) {
+    BillFormSheet(
+      billing = currentBilling,
+      existing = loaded,
+      onSaved = { refreshAll() },
+      onDismiss = { showingEdit = false },
+    )
+  }
+
+  if (showingCommunication && loaded != null) {
+    CommunicationComposerSheet(
+      billing = currentBilling,
+      bill = loaded,
+      onDismiss = { showingCommunication = false },
+    )
   }
 
   DownloadedFileSheet(file = downloadedFile, onDismiss = { downloadedFile = null })
@@ -888,14 +966,15 @@ private fun BillDetailContent(
             text = "Vencimento: ${dueDate.displayFormatted}",
             icon = Icons.Filled.CalendarMonth,
             style = RentivoTypography.subheadline,
+            tint = RentivoColors.ink,
           )
         }
         bill.paidAt?.let { paidAt ->
           IconLabel(
             text = "Pago em ${paidAt.displayFormatted}",
-            icon = Icons.Filled.CheckCircle,
-            color = RentivoColors.emerald,
+            icon = Icons.Filled.Verified,
             style = RentivoTypography.subheadlineEmphasized,
+            tint = RentivoColors.emerald,
           )
         }
       }
@@ -909,7 +988,6 @@ private fun BillDetailContent(
       IconLabel(
         text = "Ciclo disponível somente para quem pode gerenciar faturas.",
         icon = Icons.Filled.Visibility,
-        color = RentivoColors.secondaryInk,
         style = RentivoTypography.caption,
       )
     }
@@ -947,22 +1025,16 @@ private fun BillDetailContent(
           modifier = Modifier.padding(start = RentivoSpacing.small),
         )
       }
-      OutlinedButton(
+      // Tinted, not destructive-red: iOS renders this as a plain `.bordered` button, and the
+      // confirmation dialog behind it is what carries the destructive weight.
+      RentivoTonalButton(
         onClick = onDelete,
         modifier = Modifier
           .fillMaxWidth()
           .testTag("bill.delete"),
       ) {
-        Icon(
-          imageVector = Icons.Filled.Delete,
-          contentDescription = null,
-          tint = RentivoColors.coral,
-        )
-        Text(
-          text = "Excluir fatura",
-          color = RentivoColors.coral,
-          modifier = Modifier.padding(start = RentivoSpacing.small),
-        )
+        Icon(imageVector = Icons.Filled.Delete, contentDescription = null)
+        Text(text = "Excluir fatura", style = RentivoTypography.body)
       }
     }
   }
@@ -971,7 +1043,7 @@ private fun BillDetailContent(
 @Composable
 private fun BillLineItemsSection(bill: Bill) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-    SectionTitle(title = "Composição", icon = Icons.Filled.Receipt)
+    SectionTitle(title = "Composição", icon = Icons.AutoMirrored.Filled.FormatListBulleted)
     RentivoCard {
       Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
         bill.lineItems.forEach { line ->
@@ -992,7 +1064,7 @@ private fun BillLineItemsSection(bill: Bill) {
           }
         }
         if (bill.notes.isNotEmpty()) {
-          HorizontalDivider(color = RentivoColors.secondaryInk)
+          FormRowDivider()
           Text(
             text = bill.notes,
             style = RentivoTypography.caption,
@@ -1014,20 +1086,22 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit)
       IconLabel(
         text = "Esta fatura está em um estado final.",
         icon = Icons.Filled.CheckCircle,
-        color = RentivoColors.secondaryInk,
+        style = RentivoTypography.body,
       )
     } else {
       bill.effectiveTransitions.sortedBy { it.wire }.forEach { status ->
-        RentivoButton(
+        // `.borderedProminent`, not the brutalist plate: the lifecycle actions are a stack of
+        // equally weighted system buttons, and outlining each one turned the section into a wall.
+        RentivoProminentButton(
           onClick = { onTransition(status) },
-          modifier = Modifier.testTag("bill.transition.${status.wire}"),
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("bill.transition.${status.wire}"),
         ) {
-          Icon(imageVector = status.icon, contentDescription = null, tint = Color.White)
+          Icon(imageVector = status.icon, contentDescription = null)
           Text(
             text = "Marcar como ${status.label.lowercase()}",
-            style = RentivoTypography.cardTitle,
-            color = Color.White,
-            modifier = Modifier.padding(start = RentivoSpacing.small),
+            style = RentivoTypography.body,
           )
         }
       }
@@ -1044,7 +1118,7 @@ private fun BillDocumentSection(
   onRegenerate: () -> Unit,
 ) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-    SectionTitle(title = "Documento", icon = Icons.Filled.PictureAsPdf)
+    SectionTitle(title = "Documento", icon = Icons.AutoMirrored.Filled.Article)
     when (bill.pdfRenderStatus) {
       PDFRenderStatus.PENDING -> Row(
         modifier = Modifier.testTag("bill.pdf.rendering"),
@@ -1054,7 +1128,6 @@ private fun BillDocumentSection(
         IconLabel(
           text = "Renderizando…",
           icon = Icons.Filled.Schedule,
-          color = RentivoColors.secondaryInk,
           style = RentivoTypography.caption,
         )
         CircularProgressIndicator(
@@ -1067,8 +1140,8 @@ private fun BillDocumentSection(
       PDFRenderStatus.FAILED -> IconLabel(
         text = "Falha no PDF",
         icon = Icons.Filled.Warning,
-        color = RentivoColors.coral,
         style = RentivoTypography.caption,
+        tint = RentivoColors.coral,
         modifier = Modifier.testTag("bill.pdf.failed"),
       )
 
@@ -1094,28 +1167,26 @@ private fun BillDocumentSection(
     ) {
       // Regenerating stays available while a render is pending: a re-trigger supersedes the
       // in-flight render server-side.
-      OutlinedButton(
+      RentivoTonalButton(
+        text = "Regenerar documento",
         onClick = onRegenerate,
         enabled = canManageBills,
         modifier = Modifier
           .weight(1f)
           .testTag("bill.pdf.regenerate"),
-      ) {
-        Text(text = "Regenerar documento")
-      }
+      )
       if (bill.status == BillStatus.PAID) {
         // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
         // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
         // would disable a button the endpoint would have served.
-        OutlinedButton(
+        RentivoTonalButton(
+          text = "Abrir recibo",
           onClick = onOpenRecibo,
           enabled = !bill.isRenderingPDF,
           modifier = Modifier
             .weight(1f)
             .testTag("bill.recibo.open"),
-        ) {
-          Text(text = "Abrir recibo")
-        }
+        )
       }
     }
     if (bill.isRenderingPDF) {
@@ -1247,7 +1318,8 @@ private fun ReceiptManagerSection(
           // renders inside a `RentivoCard` on a scrolling column. Kept as an explicit action
           // instead of restructuring the whole detail screen's layout.
           if (bill.receipts.size > 1 && canWrite) {
-            OutlinedButton(
+            RentivoTonalButton(
+              text = "Inverter ordem",
               onClick = {
                 scope.launch {
                   try {
@@ -1265,23 +1337,18 @@ private fun ReceiptManagerSection(
                 }
               },
               modifier = Modifier.testTag("bill.receipts.reverse"),
-            ) {
-              Text(text = "Inverter ordem")
-            }
+            )
           }
         }
       }
     }
     if (canWrite) {
-      OutlinedButton(
+      RentivoTonalButton(
         onClick = { picker.launch(arrayOf("application/pdf", "image/*")) },
         modifier = Modifier.testTag("bill.receipts.add"),
       ) {
         Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-        Text(
-          text = "Adicionar comprovante",
-          modifier = Modifier.padding(start = RentivoSpacing.small),
-        )
+        Text(text = "Adicionar comprovante", style = RentivoTypography.body)
       }
     }
   }
@@ -1326,22 +1393,16 @@ private fun ReceiptManagerSection(
 
 // MARK: - Shared pieces
 
-/** The Compose analog of SwiftUI's `Label(title, systemImage:)`. */
+/**
+ * A titled block of the form: the plain secondary header the shared [SectionHeader] draws, above
+ * the section's card. Deliberately without a [SectionTitle] glyph — an iOS `Form` section header is
+ * unadorned text, and a 28dp icon per section turned the form into a list of headlines.
+ */
 @Composable
-private fun IconLabel(
-  text: String,
-  icon: ImageVector,
-  modifier: Modifier = Modifier,
-  color: Color = RentivoColors.ink,
-  style: TextStyle = RentivoTypography.body,
-) {
-  Row(
-    modifier = modifier,
-    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Icon(imageVector = icon, contentDescription = null, tint = color)
-    Text(text = text, style = style, color = color)
+private fun FormSectionColumn(header: String, content: @Composable () -> Unit) {
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
+    SectionHeader(header)
+    content()
   }
 }
 
@@ -1368,6 +1429,21 @@ private fun FormRow(
 private fun monthName(year: Int, month: Int): String =
   ReferenceMonth(year = year, month = month).label.substringBefore(" de ").capitalizedPTBR()
 
+/**
+ * The label a compact pt-BR `DatePicker` shows, e.g. "10 de set. de 2026".
+ *
+ * The abbreviation is the month name's first three letters, which is exactly how pt-BR shortens all
+ * twelve; deriving it from [ReferenceMonth.label] keeps the names in one place rather than seeding a
+ * second table here, and keeps them independent of the device locale's CLDR data.
+ */
+private fun LocalDate.dueDateLabel(): String {
+  val abbreviation = ReferenceMonth(year = year, month = monthValue)
+    .label
+    .substringBefore(" de ")
+    .take(3)
+  return "$dayOfMonth de $abbreviation. de $year"
+}
+
 private val BillLineItemKind.sectionTitle: String
   get() = when (this) {
     BillLineItemKind.FIXED -> "Itens fixos"
@@ -1387,7 +1463,7 @@ private val BillStatus.icon: ImageVector
     BillStatus.DRAFT -> Icons.Filled.Edit
     BillStatus.PUBLISHED -> Icons.Filled.Campaign
     BillStatus.SENT -> Icons.AutoMirrored.Filled.Send
-    BillStatus.PAID -> Icons.Filled.VerifiedUser
+    BillStatus.PAID -> Icons.Filled.Verified
     BillStatus.CANCELLED -> Icons.Filled.Cancel
     BillStatus.DELAYED_PAYMENT -> Icons.Filled.Schedule
   }

@@ -1,6 +1,7 @@
 package app.rentivo.features.bills
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,24 +19,25 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -44,7 +47,11 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -54,17 +61,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -83,24 +85,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.rentivo.app.AppModel
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.data.api.fileUploadFromUri
-import app.rentivo.designsystem.CurrencyCentavosField
+import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.MoneyText
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoInlineTopBar
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoSegmentedPicker
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
+import app.rentivo.designsystem.TopBarChip
+import app.rentivo.designsystem.centavosFromInput
+import app.rentivo.designsystem.displayText
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.Bill
@@ -145,11 +154,11 @@ fun BillingOperationsLinks(
         OperationRow(title = "Despesas", icon = Icons.Filled.Build, onClick = onOpenExpenses)
       }
       if (capabilities.canReadAttachments) {
-        HorizontalDivider(color = RentivoColors.secondaryInk)
+        FormRowDivider()
         OperationRow(title = "Arquivos", icon = Icons.Filled.Folder, onClick = onOpenAttachments)
       }
       if (capabilities.canCreateExports) {
-        HorizontalDivider(color = RentivoColors.secondaryInk)
+        FormRowDivider()
         OperationRow(
           title = "Exportar dados",
           icon = Icons.Filled.FileUpload,
@@ -212,8 +221,10 @@ fun ExpenseListScreen(billing: Billing, onBack: () -> Unit) {
     onBack = onBack,
     actions = {
       if (canWrite) {
-        IconButton(onClick = { showingAdd = true }) {
-          Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar")
+        TopBarChip {
+          IconButton(onClick = { showingAdd = true }) {
+            Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar")
+          }
         }
       }
     },
@@ -262,7 +273,8 @@ fun ExpenseListScreen(billing: Billing, onBack: () -> Unit) {
 
 @Composable
 private fun ExpenseRow(expense: Expense) {
-  RentivoCard {
+  // Flat: the row sits on a list of identical rows, where a second outline per row only adds noise.
+  RentivoCard(flat = true) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(
         text = expense.description,
@@ -321,28 +333,34 @@ private fun ExpenseFormSheet(
     }
   }
 
+  // The title lives in the content, not the bar: iOS leaves this screen on the default (large)
+  // display mode, so "Nova despesa" reads at display size above the form rather than inline.
   FormSheet(
-    title = "Nova despesa",
+    title = "",
     onDismiss = onDismiss,
     saveEnabled = description.isNotEmpty() && centavos > 0,
     onSave = { scope.launch { save() } },
   ) {
+    Text(
+      text = "Nova despesa",
+      style = RentivoTypography.display,
+      color = RentivoColors.ink,
+      modifier = Modifier.padding(bottom = RentivoSpacing.large),
+    )
     RentivoCard {
-      OutlinedTextField(
+      RentivoListField(
         value = description,
         onValueChange = { description = it },
-        label = { Text(text = "Descrição") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.padding(vertical = FormRowPadding),
+        placeholder = "Descrição",
       )
-      Spacer(modifier = Modifier.height(RentivoSpacing.medium))
-      CurrencyCentavosField(
-        label = "Valor em centavos",
+      FormRowDivider()
+      CurrencyRowField(
         centavos = centavos,
         onCentavosChange = { centavos = it },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.padding(vertical = FormRowPadding),
       )
-      Spacer(modifier = Modifier.height(RentivoSpacing.medium))
+      FormRowDivider()
       PickerRow(
         label = "Categoria",
         options = ExpenseCategory.entries,
@@ -350,7 +368,7 @@ private fun ExpenseFormSheet(
         optionLabel = { it.label },
         onSelect = { category = it },
       )
-      HorizontalDivider(color = RentivoColors.secondaryInk)
+      FormRowDivider()
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -463,8 +481,10 @@ fun AttachmentListScreen(billing: Billing, onBack: () -> Unit) {
     onBack = onBack,
     actions = {
       if (canWrite) {
-        IconButton(onClick = { picker.launch(UploadMimeTypes) }) {
-          Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar")
+        TopBarChip {
+          IconButton(onClick = { picker.launch(UploadMimeTypes) }) {
+            Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar")
+          }
         }
       }
     },
@@ -513,7 +533,7 @@ private val UploadMimeTypes = arrayOf("application/pdf", "image/*")
 @Composable
 private fun AttachmentRow(attachment: Attachment, onOpen: () -> Unit) {
   val context = LocalContext.current
-  RentivoCard {
+  RentivoCard(flat = true) {
     Row(
       horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
       verticalAlignment = Alignment.CenterVertically,
@@ -521,7 +541,7 @@ private fun AttachmentRow(attachment: Attachment, onOpen: () -> Unit) {
       Icon(
         imageVector = Icons.Filled.Description,
         contentDescription = null,
-        tint = RentivoColors.ink,
+        tint = RentivoColors.emerald,
       )
       Column(modifier = Modifier.weight(1f)) {
         Text(
@@ -530,23 +550,43 @@ private fun AttachmentRow(attachment: Attachment, onOpen: () -> Unit) {
           color = RentivoColors.ink,
         )
         Text(
-          text = Formatter.formatFileSize(context, attachment.byteCount.toLong()),
+          text = fileSizeLabel(context = context, byteCount = attachment.byteCount),
           style = RentivoTypography.caption,
           color = RentivoColors.secondaryInk,
         )
       }
       // A single-action menu behind an unlabeled "..." icon added an extra tap for no reason; this
-      // is the only action, so it is a direct, accessibly-labeled button.
+      // is the only action, so it is a direct, accessibly-labeled button. The stroked circle is the
+      // Android stand-in for SF Symbols' `arrow.down.circle`, whose ring is part of the glyph.
       IconButton(onClick = onOpen) {
-        Icon(
-          imageVector = Icons.Filled.Download,
-          contentDescription = "Abrir",
-          tint = RentivoColors.blue,
-        )
+        Box(
+          modifier = Modifier
+            .size(DownloadRingSize)
+            .border(width = 1.5.dp, color = RentivoColors.emerald, shape = CircleShape),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            imageVector = Icons.Filled.Download,
+            contentDescription = "Abrir",
+            tint = RentivoColors.emerald,
+            modifier = Modifier.size(DownloadGlyphSize),
+          )
+        }
       }
     }
   }
 }
+
+private val DownloadRingSize = 28.dp
+private val DownloadGlyphSize = 16.dp
+
+/**
+ * Android's [Formatter] renders the kilobyte unit lowercase ("12 kB"), where iOS's
+ * `ByteCountFormatter` renders "12 KB". Only that one unit differs — MB, GB and TB already come back
+ * uppercase — so the two apps agree once it is normalized.
+ */
+private fun fileSizeLabel(context: Context, byteCount: Int): String =
+  Formatter.formatFileSize(context, byteCount.toLong()).replace(oldValue = "kB", newValue = "KB")
 
 /** Queues a server-side export of the billing's data. */
 @Composable
@@ -570,17 +610,25 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      SegmentedPicker(
-        options = ExportFormats,
-        selected = format,
-        optionLabel = { it },
-        onSelect = { format = it },
-      )
-      FormSection(header = "Conteúdo") {
-        ContentRow(title = "Faturas", icon = Icons.Filled.Description)
-        ContentRow(title = "Despesas", icon = Icons.Filled.Build)
-        ContentRow(title = "Resumo financeiro", icon = Icons.Filled.BarChart)
+      // The picker sits on a flat plate rather than a bordered card: a recessed groove inside a
+      // 2dp-outlined box reads as two nested containers for one control.
+      RentivoCard(flat = true, contentPadding = PaddingValues(RentivoSpacing.small)) {
+        RentivoSegmentedPicker(
+          options = ExportFormats,
+          selectedIndex = ExportFormats.indexOf(format),
+          onSelect = { index -> format = ExportFormats[index] },
+        )
       }
+      FormSection(header = "Conteúdo") {
+        ContentRow(title = "Faturas", icon = Icons.Outlined.Description)
+        FormRowDivider()
+        ContentRow(title = "Despesas", icon = Icons.Outlined.Build)
+        FormRowDivider()
+        ContentRow(title = "Resumo financeiro", icon = Icons.Outlined.BarChart)
+      }
+      // The call to action is a block of its own, so it gets section spacing rather than the
+      // large spacing that separates the picker from the content list.
+      Spacer(modifier = Modifier.height(RentivoSpacing.section - RentivoSpacing.large))
       RentivoButton(
         text = "Solicitar exportação",
         onClick = { scope.launch { requestExport() } },
@@ -592,14 +640,22 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
 
 private val ExportFormats = listOf("CSV", "XLSX")
 
+/** The outlined glyph a `Label` in an iOS form row draws, sized to the row's 20pt symbol. */
+private val ContentRowIconSize = 26.dp
+
 @Composable
 private fun ContentRow(title: String, icon: ImageVector) {
   Row(
-    modifier = Modifier.padding(vertical = RentivoSpacing.small),
-    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+    modifier = Modifier.padding(vertical = RentivoSpacing.medium),
+    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Icon(imageVector = icon, contentDescription = null, tint = RentivoColors.ink)
+    Icon(
+      imageVector = icon,
+      contentDescription = null,
+      tint = RentivoColors.emerald,
+      modifier = Modifier.size(ContentRowIconSize),
+    )
     Text(text = title, style = RentivoTypography.body, color = RentivoColors.ink)
   }
 }
@@ -626,10 +682,10 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        ComposerTopBar(
+        SheetTopBar(
           title = "Enviar ${state.commType.label.lowercase()}",
-          cancelEnabled = !state.isSending,
           onCancel = onDismiss,
+          cancelEnabled = !state.isSending,
         )
       },
     ) { padding ->
@@ -658,32 +714,17 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
   }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ComposerTopBar(title: String, cancelEnabled: Boolean, onCancel: () -> Unit) {
-  TopAppBar(
-    title = { Text(text = title, style = RentivoTypography.cardTitle) },
-    navigationIcon = {
-      TextButton(onClick = onCancel, enabled = cancelEnabled) { Text(text = "Cancelar") }
-    },
-    colors = TopAppBarDefaults.topAppBarColors(
-      containerColor = RentivoColors.paper,
-      titleContentColor = RentivoColors.ink,
-      navigationIconContentColor = RentivoColors.ink,
-      actionIconContentColor = RentivoColors.ink,
-    ),
-  )
-}
-
 @Composable
 private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) {
   if (state.availableTypes.size > 1) {
-    SegmentedPicker(
-      options = state.availableTypes,
-      selected = state.commType,
-      optionLabel = { it.label },
-      onSelect = { state.commType = it },
-    )
+    val typeLabels = state.availableTypes.map { it.label }
+    RentivoCard(flat = true, contentPadding = PaddingValues(RentivoSpacing.small)) {
+      RentivoSegmentedPicker(
+        options = typeLabels,
+        selectedIndex = state.availableTypes.indexOf(state.commType),
+        onSelect = { index -> state.commType = state.availableTypes[index] },
+      )
+    }
   }
 
   FormSection(
@@ -691,8 +732,12 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
     footer = "Cada destinatário recebe um e-mail separado com o " +
       "${state.attachmentDescription} anexado.",
   ) {
-    state.billing.recipients.forEach { recipient ->
-      Row(verticalAlignment = Alignment.CenterVertically) {
+    state.billing.recipients.forEachIndexed { position, recipient ->
+      if (position > 0) FormRowDivider()
+      Row(
+        modifier = Modifier.padding(vertical = RentivoSpacing.small),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
         Column(modifier = Modifier.weight(1f)) {
           Text(
             text = recipient.name,
@@ -717,22 +762,30 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
     header = "Mensagem",
     footer = "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.",
   ) {
-    OutlinedTextField(
+    RentivoListField(
       value = state.subject,
       onValueChange = state::updateSubject,
-      label = { Text(text = "Assunto") },
-      singleLine = true,
-      modifier = Modifier.fillMaxWidth(),
+      modifier = Modifier.padding(vertical = FormRowPadding),
+      placeholder = "Assunto",
     )
-    Spacer(modifier = Modifier.height(RentivoSpacing.medium))
-    OutlinedTextField(
+    FormRowDivider()
+    // The body's full title is a caption under the field rather than a label inside it: as a
+    // floating label it stole a line of an already narrow multi-line editor, and it explains the
+    // format rather than naming the value, which is what a footnote is for.
+    RentivoListField(
       value = state.message,
       onValueChange = state::updateMessage,
-      label = { Text(text = "Corpo (Markdown — HTML não é permitido)") },
-      minLines = 5,
-      maxLines = 12,
+      modifier = Modifier
+        .padding(vertical = FormRowPadding)
+        .heightIn(min = MessageFieldMinHeight),
+      placeholder = "Corpo da mensagem",
+      singleLine = false,
       keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-      modifier = Modifier.fillMaxWidth(),
+    )
+    Text(
+      text = "Corpo (Markdown — HTML não é permitido)",
+      style = RentivoTypography.caption,
+      color = RentivoColors.secondaryInk,
     )
     Spacer(modifier = Modifier.height(RentivoSpacing.medium))
     RefreshPreviewButton(
@@ -815,19 +868,22 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
   }
 }
 
+/** The multi-line body editor's floor, i.e. the `lineLimit(5...12)` minimum the iOS composer sets. */
+private val MessageFieldMinHeight = 110.dp
+
 @Composable
 private fun RefreshPreviewButton(isLoading: Boolean, enabled: Boolean, onClick: () -> Unit) {
   TextButton(onClick = onClick, enabled = enabled) {
     if (isLoading) {
-      Text(text = "Atualizando...", color = RentivoColors.blue)
+      Text(text = "Atualizando...", color = RentivoColors.emerald)
     } else {
       Icon(
         imageVector = Icons.Filled.Visibility,
         contentDescription = null,
-        tint = RentivoColors.blue,
+        tint = RentivoColors.emerald,
       )
       Spacer(modifier = Modifier.width(RentivoSpacing.small))
-      Text(text = "Atualizar pré-visualização", color = RentivoColors.blue)
+      Text(text = "Atualizar pré-visualização", color = RentivoColors.emerald)
     }
   }
 }
@@ -1158,44 +1214,23 @@ private fun previewDocument(html: String): String {
 
 // --- Shared building blocks -------------------------------------------------------------------
 
-/** Every pushed operations screen renders the same paper page under a plain top bar. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Every pushed operations screen renders the same paper page under the shared inline top bar. */
 @Composable
 private fun OperationScaffold(
   title: String,
   onBack: () -> Unit,
-  actions: @Composable () -> Unit = {},
+  actions: @Composable RowScope.() -> Unit = {},
   content: @Composable () -> Unit,
 ) {
   Scaffold(
     containerColor = RentivoColors.paper,
-    topBar = {
-      TopAppBar(
-        title = { Text(text = title, style = RentivoTypography.cardTitle) },
-        navigationIcon = {
-          IconButton(onClick = onBack) {
-            Icon(
-              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-              contentDescription = "Voltar",
-            )
-          }
-        },
-        actions = { actions() },
-        colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = RentivoColors.paper,
-          titleContentColor = RentivoColors.ink,
-          navigationIconContentColor = RentivoColors.ink,
-          actionIconContentColor = RentivoColors.ink,
-        ),
-      )
-    },
+    topBar = { RentivoInlineTopBar(title = title, onBack = onBack, actions = actions) },
   ) { padding ->
     Box(modifier = Modifier.fillMaxSize().padding(padding)) { content() }
   }
 }
 
 /** The iOS sheet-with-navigation-stack form: full screen, "Cancelar" left and "Salvar" right. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FormSheet(
   title: String,
@@ -1208,21 +1243,11 @@ private fun FormSheet(
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        TopAppBar(
-          title = { Text(text = title, style = RentivoTypography.cardTitle) },
-          navigationIcon = {
-            TextButton(onClick = onDismiss) { Text(text = "Cancelar") }
-          },
-          actions = {
+        SheetTopBar(title = title, onCancel = onDismiss) {
+          TopBarChip {
             TextButton(onClick = onSave, enabled = saveEnabled) { Text(text = "Salvar") }
-          },
-          colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = RentivoColors.paper,
-            titleContentColor = RentivoColors.ink,
-            navigationIconContentColor = RentivoColors.ink,
-            actionIconContentColor = RentivoColors.ink,
-          ),
-        )
+          }
+        }
       },
     ) { padding ->
       Column(
@@ -1237,21 +1262,33 @@ private fun FormSheet(
   }
 }
 
-/** The Android stand-in for an iOS `.sheet`: a full-size surface above the tab content. */
+/**
+ * The navigation bar of a presented sheet: the same centered inline title and paper band as
+ * [RentivoInlineTopBar], but with iOS's textual "Cancelar" in the leading slot instead of a back
+ * chevron — a modal is dismissed, not popped, and the word is the shipped PT-BR copy.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FullScreenSheet(
-  onDismissRequest: () -> Unit,
-  dismissEnabled: Boolean = true,
-  content: @Composable () -> Unit,
+internal fun SheetTopBar(
+  title: String,
+  onCancel: () -> Unit,
+  cancelEnabled: Boolean = true,
+  actions: @Composable RowScope.() -> Unit = {},
 ) {
-  Dialog(
-    onDismissRequest = onDismissRequest,
-    properties = DialogProperties(
-      usePlatformDefaultWidth = false,
-      dismissOnBackPress = dismissEnabled,
-      dismissOnClickOutside = false,
+  CenterAlignedTopAppBar(
+    title = { Text(text = title, style = RentivoTypography.cardTitle, color = RentivoColors.ink) },
+    navigationIcon = {
+      TopBarChip {
+        TextButton(onClick = onCancel, enabled = cancelEnabled) { Text(text = "Cancelar") }
+      }
+    },
+    actions = actions,
+    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+      containerColor = RentivoColors.paper,
+      titleContentColor = RentivoColors.ink,
+      navigationIconContentColor = RentivoColors.ink,
+      actionIconContentColor = RentivoColors.emerald,
     ),
-    content = content,
   )
 }
 
@@ -1296,9 +1333,50 @@ private fun FormSection(
   }
 }
 
+/**
+ * An iOS `Form` section header: plain secondary copy, no glyph. `subheadline` rather than the
+ * smaller `metadata`, which set section titles a full step below the rows they introduce and let
+ * them disappear against the page.
+ *
+ * `internal` so the bill form's sections read identically — the two screens are the same form
+ * language and must not drift.
+ */
 @Composable
-private fun SectionHeader(title: String) {
-  Text(text = title, style = RentivoTypography.metadata, color = RentivoColors.secondaryInk)
+internal fun SectionHeader(title: String) {
+  Text(text = title, style = RentivoTypography.subheadline, color = RentivoColors.secondaryInk)
+}
+
+/** The hairline between two rows of a form card, at the list separator's weight. */
+@Composable
+internal fun FormRowDivider() {
+  HorizontalDivider(color = RentivoColors.separator)
+}
+
+/**
+ * The vertical breathing room a borderless field needs to read as its own row, now that it no
+ * longer brings an outlined container's padding with it.
+ */
+internal val FormRowPadding = RentivoSpacing.small
+
+/**
+ * The borderless twin of `CurrencyCentavosField`: the same centavos masking, but rendered as a bare
+ * value on a form row instead of an outlined box with a floating label. The mask always renders an
+ * amount, so iOS's "Valor em centavos" placeholder is never actually visible there — it survives
+ * here as the accessibility label instead of becoming Android-only chrome.
+ */
+@Composable
+internal fun CurrencyRowField(
+  centavos: Int,
+  onCentavosChange: (Int) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  RentivoListField(
+    value = displayText(centavos),
+    onValueChange = { onCentavosChange(centavosFromInput(it)) },
+    modifier = modifier.semantics { contentDescription = "Valor em centavos" },
+    monospace = true,
+    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+  )
 }
 
 /** The iOS `Picker` inside a form row: the current value, a chevron, and a dropdown of options. */
@@ -1346,26 +1424,6 @@ private fun <T> PickerRow(
           },
         )
       }
-    }
-  }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun <T> SegmentedPicker(
-  options: List<T>,
-  selected: T,
-  optionLabel: (T) -> String,
-  onSelect: (T) -> Unit,
-) {
-  SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-    options.forEachIndexed { index, option ->
-      SegmentedButton(
-        selected = option == selected,
-        onClick = { onSelect(option) },
-        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-        label = { Text(text = optionLabel(option)) },
-      )
     }
   }
 }
