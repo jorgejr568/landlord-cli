@@ -119,6 +119,30 @@ class TestNeedsSetup:
         assert service.resolve_for_billing(billing) is None
 
 
+class TestResolveOwnerDisplayName:
+    def test_organization_owner_uses_name(self):
+        service = _make_service(org=Organization(id=5, name="Imobiliária Central"))
+        billing = Billing(id=10, name="Apt", owner_type="organization", owner_id=5)
+        assert service.resolve_owner_display_name(billing) == "Imobiliária Central"
+
+    def test_user_owner_uses_email(self):
+        service = _make_service(user=User(id=1, email="dono@example.com"))
+        billing = Billing(id=10, name="Apt", owner_type="user", owner_id=1)
+        assert service.resolve_owner_display_name(billing) == "dono@example.com"
+
+    def test_missing_owner_returns_none(self):
+        service = _make_service()
+        billing = Billing(id=10, name="Apt", owner_type="user", owner_id=1)
+        assert service.resolve_owner_display_name(billing) is None
+
+    def test_blank_label_returns_none(self):
+        """An owner row with no usable label is as good as no owner — the
+        caller needs to fall back rather than render an empty issuer."""
+        service = _make_service(org=Organization(id=5, name=""))
+        billing = Billing(id=10, name="Apt", owner_type="organization", owner_id=5)
+        assert service.resolve_owner_display_name(billing) is None
+
+
 class TestOwnerConfigMemoization:
     def test_repeated_owner_resolution_queries_once(self):
         """N billings sharing an owner must not refetch the owner N times."""

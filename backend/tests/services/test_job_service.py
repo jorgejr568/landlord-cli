@@ -110,6 +110,33 @@ class TestEnqueueFor:
         assert kwargs["actor_id"] is None
         assert kwargs["actor_username"] == ""
 
+    def test_enqueue_for_without_actor_records_empty_attribution(self):
+        """actor=None is not the anonymous actor: unattributed callers such as
+        the CLI must keep writing an empty source, not "anonymous"."""
+        repo = MagicMock()
+        repo.enqueue.return_value = _make_job()
+        audit = MagicMock()
+        svc = JobService(repo, audit)
+
+        svc.enqueue_for(None, "email.send", {"event": "welcome"})
+
+        repo.enqueue.assert_called_once_with("email.send", {"event": "welcome"}, None, 5)
+        kwargs = audit.safe_log.call_args.kwargs
+        assert kwargs["source"] == ""
+        assert kwargs["actor_id"] is None
+        assert kwargs["actor_username"] == ""
+
+    def test_enqueue_for_without_actor_passes_run_after_and_max_attempts(self):
+        repo = MagicMock()
+        repo.enqueue.return_value = _make_job(max_attempts=3)
+        audit = MagicMock()
+        svc = JobService(repo, audit)
+
+        when = datetime(2030, 1, 1, 12, 0, 0)
+        svc.enqueue_for(None, "email.send", {"event": "welcome"}, run_after=when, max_attempts=3)
+
+        repo.enqueue.assert_called_once_with("email.send", {"event": "welcome"}, when, 3)
+
     def test_enqueue_for_passes_run_after_and_max_attempts(self):
         repo = MagicMock()
         repo.enqueue.return_value = _make_job(max_attempts=3)
