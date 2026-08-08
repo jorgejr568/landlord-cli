@@ -4,7 +4,8 @@ A single render job produces both the invoice and the recibo, so a queued render
 leaves either document stale until it finishes. These helpers are pure: they
 describe the document state and let each endpoint map it onto its own conflict
 code, since the same state is a 404, a 409 or an on-the-fly render depending on
-the route.
+the route. Download endpoints consume the ordered *_state machines; capability
+flags read the raw predicates because they carry no HTTP-code precedence.
 """
 
 from __future__ import annotations

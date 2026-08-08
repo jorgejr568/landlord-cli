@@ -94,6 +94,8 @@ def session_response(principal: Principal, bootstrap: dict[str, Any]) -> JSONRes
     bootstrap_payload, csrf_cookie = _bootstrap(principal, bootstrap, analytics_event=None)
     payload = SessionResponse(bootstrap=bootstrap_payload)
     response = JSONResponse(payload.model_dump(mode="json"))
+    # principal.source is the credential transport's proxy: only mobile (bearer)
+    # sessions skip the CSRF cookie. A new principal source must pick a side here.
     if principal.source != "mobile":
         copy_set_cookies(csrf_cookie, response)
     return _no_store(response)
