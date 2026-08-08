@@ -5,6 +5,7 @@ import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
 import { formatBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 
 type BillingList = components["schemas"]["BillingListResponse"];
 type Stats = components["schemas"]["BillingStatsResponse"];
@@ -52,12 +53,11 @@ export function BillingListPage() {
   }, []);
 
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
-    document.title = "Minhas Cobranças - Rentivo";
     void load(controller.signal);
-    return () => { controller.abort(); document.title = previousTitle; };
+    return () => { controller.abort(); };
   }, [load]);
+  useDocumentTitle("Minhas Cobranças - Rentivo");
 
   if (error) return <LoadError message={error} onRetry={() => void load()} />;
   if (!payload) return <LoadingState label="Carregando cobranças..." />;

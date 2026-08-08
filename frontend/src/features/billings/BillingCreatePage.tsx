@@ -7,6 +7,7 @@ import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { parseBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
 import { emptyBillingValues } from "./billingFormValues";
@@ -51,19 +52,17 @@ export function BillingCreatePage() {
   }, []);
 
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
     mountedRef.current = true;
-    document.title = "Nova cobrança - Rentivo";
     void load(controller.signal);
     return () => {
       mountedRef.current = false;
       controller.abort();
       createControllerRef.current?.abort();
       createControllerRef.current = null;
-      document.title = previousTitle;
     };
   }, [load]);
+  useDocumentTitle("Nova cobrança - Rentivo");
 
   const submit = async (values: BillingFormValues) => {
     if (createControllerRef.current) return;

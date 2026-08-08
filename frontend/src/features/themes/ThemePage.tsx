@@ -15,6 +15,7 @@ import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 
 type ThemeResponse = components["schemas"]["ThemeResponse"];
@@ -299,13 +300,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     };
   }, [cancelMutationWork, cancelPreviewWork, load]);
 
-  useEffect(() => {
-    const previousTitle = document.title;
-    document.title = `${resolvedOwnerLabel} - Rentivo`;
-    return () => {
-      document.title = previousTitle;
-    };
-  }, [resolvedOwnerLabel]);
+  useDocumentTitle(`${resolvedOwnerLabel} - Rentivo`);
 
   useEffect(() => () => {
     loadController.current?.abort();

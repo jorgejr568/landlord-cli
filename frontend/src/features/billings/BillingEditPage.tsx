@@ -7,6 +7,7 @@ import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatBrlInput, parseBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { AttachmentManager } from "./AttachmentManager";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
@@ -119,10 +120,8 @@ export function BillingEditPage() {
   }, [billingUuid]);
 
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
     const requestControllers = requestControllersRef.current;
-    document.title = "Editar cobrança - Rentivo";
     setSaving(false);
     saveControllerRef.current = null;
     void load(controller.signal);
@@ -131,10 +130,9 @@ export function BillingEditPage() {
       requestControllers.forEach((requestController) => requestController.abort());
       requestControllers.clear();
       saveControllerRef.current = null;
-      document.title = previousTitle;
     };
   }, [load]);
-  useEffect(() => { if (billing) document.title = `Editar ${billing.name} - Rentivo`; }, [billing]);
+  useDocumentTitle(billing ? `Editar ${billing.name} - Rentivo` : "Editar cobrança - Rentivo");
 
   const submit = async (values: BillingFormValues) => {
     if (saveControllerRef.current) return;
