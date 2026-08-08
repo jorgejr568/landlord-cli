@@ -11,6 +11,7 @@ from rentivo.jobs.registry import register
 from rentivo.settings import settings
 
 AUTH_CLEANUP_BATCH_SIZE = 100
+AUTH_CLEANUP_MAX_PURGED_JOBS = 10_000
 
 _EXPIRED_LOGIN_IDS = text(
     "SELECT id FROM api_keys WHERE is_login_token = 1 AND expires_at <= :cutoff ORDER BY id LIMIT :limit"
@@ -64,7 +65,7 @@ def _delete_stale_challenges(connection: Connection, cutoff: datetime, limit: in
     return result.rowcount
 
 
-def _delete_old_jobs(connection: Connection, now: datetime, limit: int) -> int:
+def _delete_old_jobs(connection: Connection, now: datetime, batch_size: int, max_purged: int) -> int:
     """Purge terminal-state job rows past the retention window.
 
     Payloads are encrypted at rest, but they still carry third-party recipient
@@ -75,37 +76,59 @@ def _delete_old_jobs(connection: Connection, now: datetime, limit: int) -> int:
     Only `succeeded` and `failed` rows are eligible, so a `pending` job waiting
     on a long `run_after` and a `running` job (including this cleanup job's own
     row) are never touched.
+
+    The purge drains in batches of `batch_size` until nothing purgeable is left
+    or `max_purged` rows have been removed, so a table that was never purged
+    before is worked down over a few runs instead of one batch per run. Deletes
+    are keyed by primary key, so the whole drain is cheap to keep in the caller's
+    transaction.
     """
     if settings.job_retention_days <= 0:
         return 0
+    # `updated_at` on terminal rows is written by the database server clock
+    # (SQL NOW()), while this cutoff is a naive UTC timestamp. That only lines up
+    # because the production database runs in UTC (stock mariadb:11); a database
+    # timezone other than UTC would skew the retention window by that offset.
     cutoff = now - timedelta(days=settings.job_retention_days)
-    ids = list(connection.execute(_PURGEABLE_JOB_IDS, {"cutoff": cutoff, "limit": limit}).scalars())
-    if not ids:
-        return 0
-    result = connection.execute(_DELETE_PURGEABLE_JOBS, {"ids": ids, "cutoff": cutoff})
-    return result.rowcount
+    purged = 0
+    while purged < max_purged:
+        limit = min(batch_size, max_purged - purged)
+        ids = list(connection.execute(_PURGEABLE_JOB_IDS, {"cutoff": cutoff, "limit": limit}).scalars())
+        if not ids:
+            break
+        deleted = connection.execute(_DELETE_PURGEABLE_JOBS, {"ids": ids, "cutoff": cutoff}).rowcount
+        purged += deleted
+        if deleted < limit:
+            # Either the table is drained or a concurrent writer moved rows out
+            # of the purgeable set between the select and the delete. Another
+            # select would not make progress; the next run picks up the rest.
+            break
+    return purged
 
 
 @register("auth.cleanup", model=AuthCleanupPayload)
 def handle_auth_cleanup(payload: AuthCleanupPayload, context: JobContext) -> dict[str, int]:
-    # Stored timestamps are naive UTC, so the cutoff is normalised to UTC and
-    # stripped of its offset before it reaches the comparisons.
-    cutoff = (payload.now or datetime.now(UTC)).astimezone(UTC).replace(tzinfo=None)
+    # Stored timestamps are naive UTC, so the reference instant is normalised to
+    # UTC and stripped of its offset before it reaches the comparisons.
+    now = (payload.now or datetime.now(UTC)).astimezone(UTC).replace(tzinfo=None)
     with get_engine().begin() as connection:
+        # For the auth tables the cutoff is `now` itself: a login token or a
+        # challenge is purgeable as soon as it expires.
         login_tokens_deleted = _delete_expired_logins(
             connection,
-            cutoff,
+            now,
             AUTH_CLEANUP_BATCH_SIZE,
         )
         challenges_deleted = _delete_stale_challenges(
             connection,
-            cutoff,
+            now,
             AUTH_CLEANUP_BATCH_SIZE,
         )
         jobs_deleted = _delete_old_jobs(
             connection,
-            cutoff,
+            now,
             AUTH_CLEANUP_BATCH_SIZE,
+            AUTH_CLEANUP_MAX_PURGED_JOBS,
         )
     return {
         "login_tokens_deleted": login_tokens_deleted,

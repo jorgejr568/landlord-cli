@@ -7,6 +7,7 @@ from rentivo.jobs import registry
 from rentivo.jobs.base import JobContext
 from rentivo.jobs.handlers import auth_cleanup
 from rentivo.jobs.payloads import AuthCleanupPayload
+from tests.conftest import JOBS_TABLE_DDL
 
 NOW = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
 CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
@@ -39,21 +40,7 @@ def cleanup_engine() -> Engine:
                 "consumed_at DATETIME)"
             )
         )
-        connection.execute(
-            text(
-                "CREATE TABLE jobs ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "ulid VARCHAR(26) NOT NULL UNIQUE, "
-                "job_type VARCHAR(64) NOT NULL, "
-                "payload TEXT NOT NULL, "
-                "status VARCHAR(16) NOT NULL DEFAULT 'pending', "
-                "attempts INTEGER NOT NULL DEFAULT 0, "
-                "max_attempts INTEGER NOT NULL DEFAULT 5, "
-                "run_after DATETIME NOT NULL, "
-                "created_at DATETIME NOT NULL, "
-                "updated_at DATETIME NOT NULL)"
-            )
-        )
+        connection.execute(text(JOBS_TABLE_DDL))
     yield engine
     engine.dispose()
 
@@ -233,12 +220,35 @@ def test_cleanup_purges_only_old_terminal_state_jobs(
     assert _remaining_job_ulids(cleanup_engine) == ["OLD_PENDING", "OLD_RUNNING", "NEW_OK"]
 
 
-def test_cleanup_skips_the_job_purge_when_retention_is_disabled(
+def test_cleanup_purges_jobs_updated_exactly_on_the_retention_cutoff(
     cleanup_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
-    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 0)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
+    cutoff = datetime(2026, 7, 1, tzinfo=UTC)
+    _seed_job(cleanup_engine, "ON_CUTOFF", status="succeeded", updated_at=cutoff)
+    _seed_job(
+        cleanup_engine,
+        "AFTER_CUTOFF",
+        status="succeeded",
+        updated_at=cutoff + timedelta(seconds=1),
+    )
+
+    result = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert result["jobs_deleted"] == 1
+    assert _remaining_job_ulids(cleanup_engine) == ["AFTER_CUTOFF"]
+
+
+@pytest.mark.parametrize("retention_days", [0, -1])
+def test_cleanup_skips_the_job_purge_when_retention_is_disabled(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    retention_days: int,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", retention_days)
     old = datetime(2026, 1, 1, tzinfo=UTC)
     _seed_job(cleanup_engine, "OLD_OK", status="succeeded", updated_at=old)
 
@@ -248,7 +258,29 @@ def test_cleanup_skips_the_job_purge_when_retention_is_disabled(
     assert _remaining_job_ulids(cleanup_engine) == ["OLD_OK"]
 
 
-def test_cleanup_honors_the_batch_limit_for_the_job_purge(
+def test_cleanup_delete_rechecks_the_purgeable_conditions(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
+    monkeypatch.setattr(
+        auth_cleanup,
+        "_PURGEABLE_JOB_IDS",
+        text("SELECT id FROM jobs WHERE updated_at <= :cutoff OR status = 'running' ORDER BY id LIMIT :limit"),
+        raising=False,
+    )
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    _seed_job(cleanup_engine, "OLD_OK", status="succeeded", updated_at=old)
+    _seed_job(cleanup_engine, "OLD_RUNNING", status="running", updated_at=old)
+
+    result = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert result["jobs_deleted"] == 1
+    assert _remaining_job_ulids(cleanup_engine) == ["OLD_RUNNING"]
+
+
+def test_cleanup_drains_several_job_batches_in_a_single_run(
     cleanup_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -256,10 +288,34 @@ def test_cleanup_honors_the_batch_limit_for_the_job_purge(
     monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
     monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
     old = datetime(2026, 1, 1, tzinfo=UTC)
-    for n in range(3):
+    for n in range(5):
         _seed_job(cleanup_engine, f"OLD{n}", status="succeeded", updated_at=old)
+    _seed_job(cleanup_engine, "NEW_OK", status="succeeded", updated_at=datetime(2026, 7, 30, tzinfo=UTC))
 
     result = _cleanup({"now": "2026-07-31T00:00:00Z"})
 
-    assert result["jobs_deleted"] == 2
-    assert _remaining_job_ulids(cleanup_engine) == ["OLD2"]
+    assert result["jobs_deleted"] == 5
+    assert _remaining_job_ulids(cleanup_engine) == ["NEW_OK"]
+
+
+def test_cleanup_stops_at_the_purge_cap_and_resumes_on_the_next_run(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_MAX_PURGED_JOBS", 4, raising=False)
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    for n in range(6):
+        _seed_job(cleanup_engine, f"OLD{n}", status="succeeded", updated_at=old)
+
+    first = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert first["jobs_deleted"] == 4
+    assert len(_remaining_job_ulids(cleanup_engine)) == 2
+
+    second = _cleanup({"now": "2026-07-31T00:00:00Z"})
+
+    assert second["jobs_deleted"] == 2
+    assert _remaining_job_ulids(cleanup_engine) == []
