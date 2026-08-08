@@ -1,17 +1,23 @@
 package app.rentivo.features.billings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
@@ -19,21 +25,17 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,24 +43,33 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
-import app.rentivo.designsystem.CurrencyCentavosField
-import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoListDivider
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoListGroup
+import app.rentivo.designsystem.RentivoSegmentedPicker
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
-import app.rentivo.designsystem.rentivoPage
+import app.rentivo.designsystem.TopBarChip
+import app.rentivo.designsystem.centavosFromInput
+import app.rentivo.designsystem.displayText
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingDraft
 import app.rentivo.domain.BillingItem
@@ -134,8 +145,9 @@ private data class EditableRecipient(
 /**
  * Create/edit form for a billing. Port of `ios/Rentivo/Features/Billings/BillingFormView.swift`.
  *
- * The iOS view is presented as a sheet inside its own `NavigationStack`; here it renders as a
- * full-screen surface with the same Cancelar/Salvar toolbar.
+ * The iOS view is a `Form` presented as a sheet inside its own `NavigationStack`. Callers put it in
+ * a `FullScreenSheet`, which supplies the sheet; this composable supplies the inline Cancelar/Salvar
+ * navigation bar and the inset-grouped sections.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -242,36 +254,70 @@ fun BillingFormView(
   }
 
   // Mirrors `.interactiveDismissDisabled(saving)`: a save in flight must not be backed out from.
-  BackHandler(enabled = !saving) { onDismiss() }
+  // The handler stays enabled while saving so it swallows the gesture instead of letting the
+  // enclosing sheet dismiss the form out from under the request.
+  BackHandler { if (!saving) onDismiss() }
 
   Scaffold(
-    modifier = Modifier.rentivoPage(),
+    modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
+    // The enclosing sheet already sits below the status bar, so the bar must not inset itself a
+    // second time; the navigation bar is still underneath the sheet and does need clearing.
+    contentWindowInsets = WindowInsets.navigationBars,
     topBar = {
-      TopAppBar(
-        title = { Text(text = if (existing == null) "Nova cobrança" else "Editar cobrança") },
-        colors = rentivoTopAppBarColors(),
+      CenterAlignedTopAppBar(
+        windowInsets = WindowInsets(left = 0, top = 0, right = 0, bottom = 0),
+        title = {
+          Text(
+            text = if (existing == null) "Nova cobrança" else "Editar cobrança",
+            style = RentivoTypography.cardTitle,
+            color = RentivoColors.ink,
+          )
+        },
         navigationIcon = {
-          TextButton(onClick = onDismiss) {
-            Text(text = "Cancelar", color = RentivoColors.ink)
+          Box(modifier = Modifier.padding(start = RentivoSpacing.small)) {
+            TopBarChip {
+              TextButton(onClick = onDismiss) {
+                Text(
+                  text = "Cancelar",
+                  style = RentivoTypography.body,
+                  color = RentivoColors.emerald,
+                )
+              }
+            }
           }
         },
         actions = {
-          TextButton(
-            onClick = { scope.launch { save() } },
-            enabled = !saving && organizationsLoaded,
-            modifier = Modifier.testTag("billing.form.save"),
-          ) {
-            Text(text = "Salvar", color = RentivoColors.emerald)
+          val saveEnabled = !saving && organizationsLoaded
+          Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
+            TopBarChip {
+              TextButton(
+                onClick = { scope.launch { save() } },
+                enabled = saveEnabled,
+                modifier = Modifier.testTag("billing.form.save"),
+              ) {
+                Text(
+                  text = "Salvar",
+                  style = RentivoTypography.body.copy(fontWeight = FontWeight.SemiBold),
+                  color = if (saveEnabled) RentivoColors.emerald else RentivoColors.secondaryInk,
+                )
+              }
+            }
           }
         },
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+          containerColor = RentivoColors.paper,
+          titleContentColor = RentivoColors.ink,
+          navigationIconContentColor = RentivoColors.emerald,
+          actionIconContentColor = RentivoColors.emerald,
+        ),
       )
     },
   ) { padding ->
     LazyColumn(
       modifier = Modifier.padding(padding).fillMaxSize(),
       contentPadding = PaddingValues(RentivoSpacing.page),
-      verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
+      verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
       item {
         IdentificationSection(
@@ -338,7 +384,6 @@ private fun ownerChoices(
   return owners
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IdentificationSection(
   name: String,
@@ -349,103 +394,120 @@ private fun IdentificationSection(
   onOwnerIDChange: (WorkspaceID) -> Unit,
   ownerChoices: List<BillingOwner>,
 ) {
-  var expanded by remember { mutableStateOf(false) }
-  val selectedName = ownerChoices.firstOrNull { it.workspaceID == ownerID }?.name.orEmpty()
-
   FormSection(title = "Identificação") {
     FormTextField(
       label = "Nome",
       value = name,
       onValueChange = onNameChange,
-      modifier = Modifier.fillMaxWidth().testTag("billing.form.name"),
+      modifier = Modifier.testTag("billing.form.name"),
     )
+    RentivoListDivider()
     FormTextField(
       label = "Descrição",
       value = description,
       onValueChange = onDescriptionChange,
       singleLine = false,
-      minLines = 2,
-      maxLines = 4,
-      modifier = Modifier.fillMaxWidth(),
     )
-    ExposedDropdownMenuBox(
-      expanded = expanded,
-      onExpandedChange = { expanded = it },
-    ) {
-      FormTextField(
-        label = "Responsável",
-        value = selectedName,
-        onValueChange = {},
-        readOnly = true,
-        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-        modifier = Modifier
-          .fillMaxWidth()
-          .menuAnchor(type = androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
+    RentivoListDivider()
+    OwnerPickerRow(
+      ownerID = ownerID,
+      onOwnerIDChange = onOwnerIDChange,
+      ownerChoices = ownerChoices,
+    )
+  }
+}
+
+/** The iOS `Picker` row: label leading, current value and a disclosure glyph trailing. */
+@Composable
+private fun OwnerPickerRow(
+  ownerID: WorkspaceID,
+  onOwnerIDChange: (WorkspaceID) -> Unit,
+  ownerChoices: List<BillingOwner>,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  val selectedName = ownerChoices.firstOrNull { it.workspaceID == ownerID }?.name.orEmpty()
+
+  Box {
+    FormRow(modifier = Modifier.clickable { expanded = true }) {
+      Text(
+        text = "Responsável",
+        style = RentivoTypography.body,
+        color = RentivoColors.ink,
+        modifier = Modifier.weight(1f),
       )
-      ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        ownerChoices.forEach { owner ->
-          DropdownMenuItem(
-            text = { Text(text = owner.name) },
-            onClick = {
-              onOwnerIDChange(owner.workspaceID)
-              expanded = false
-            },
-          )
-        }
+      Text(
+        text = selectedName,
+        style = RentivoTypography.body,
+        color = RentivoColors.secondaryInk,
+      )
+      Icon(
+        imageVector = Icons.Filled.UnfoldMore,
+        contentDescription = null,
+        tint = RentivoColors.secondaryInk,
+        modifier = Modifier.size(18.dp),
+      )
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      ownerChoices.forEach { owner ->
+        DropdownMenuItem(
+          text = { Text(text = owner.name) },
+          onClick = {
+            onOwnerIDChange(owner.workspaceID)
+            expanded = false
+          },
+        )
       }
     }
   }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ItemsSection(items: SnapshotStateList<EditableBillingItem>) {
+  var editing by rememberSaveable { mutableStateOf(false) }
+
   FormSection(
     title = "Itens recorrentes",
     footer = "Use valor zero para itens variáveis que serão preenchidos em cada fatura.",
+    headerAction = { EditToggle(editing = editing, onToggle = { editing = !editing }) },
   ) {
     items.forEachIndexed { index, item ->
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-        FormTextField(
-          label = "Descrição do item",
-          value = item.description,
-          onValueChange = { items[index] = items[index].copy(description = it) },
-          modifier = Modifier.fillMaxWidth(),
-        )
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-          BillingItemType.entries.forEachIndexed { typeIndex, type ->
-            SegmentedButton(
-              selected = item.type == type,
-              onClick = { items[index] = items[index].copy(type = type) },
-              shape = SegmentedButtonDefaults.itemShape(
-                index = typeIndex,
-                count = BillingItemType.entries.size,
-              ),
-            ) {
-              Text(text = type.label)
-            }
-          }
-        }
-        CurrencyCentavosField(
-          label = "Valor do item",
-          centavos = item.centavos,
-          onCentavosChange = { items[index] = items[index].copy(centavos = it) },
-          modifier = Modifier.fillMaxWidth(),
-        )
-        RowActions(
-          canMoveUp = index > 0,
-          canMoveDown = index < items.lastIndex,
-          onMoveUp = { items.add(index - 1, items.removeAt(index)) },
-          onMoveDown = { items.add(index + 1, items.removeAt(index)) },
-          onDelete = { items.removeAt(index) },
+      if (index > 0) RentivoListDivider(indent = 0.dp)
+      FormTextField(
+        label = "Descrição do item",
+        value = item.description,
+        onValueChange = { items[index] = items[index].copy(description = it) },
+      )
+      RentivoListDivider()
+      FormRow {
+        RentivoSegmentedPicker(
+          options = BillingItemType.entries.map { it.label },
+          selectedIndex = BillingItemType.entries.indexOf(item.type),
+          onSelect = { typeIndex ->
+            items[index] = items[index].copy(type = BillingItemType.entries[typeIndex])
+          },
         )
       }
+      RentivoListDivider()
+      FormCurrencyRow(
+        label = "Valor do item",
+        centavos = item.centavos,
+        onCentavosChange = { items[index] = items[index].copy(centavos = it) },
+      )
+      if (editing) {
+        RentivoListDivider()
+        FormRow {
+          RowActions(
+            canMoveUp = index > 0,
+            canMoveDown = index < items.lastIndex,
+            onMoveUp = { items.add(index - 1, items.removeAt(index)) },
+            onMoveDown = { items.add(index + 1, items.removeAt(index)) },
+            onDelete = { items.removeAt(index) },
+          )
+        }
+      }
     }
-    IconTextButton(
-      text = "Adicionar item",
-      icon = Icons.Filled.AddCircle,
-      onClick = { items.add(EditableBillingItem.blank()) },
-    )
+    if (items.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    AddRow(text = "Adicionar item", onClick = { items.add(EditableBillingItem.blank()) })
   }
 }
 
@@ -458,31 +520,31 @@ private fun PixSection(
   merchantCity: String,
   onMerchantCityChange: (String) -> Unit,
 ) {
-  FormSection(title = "PIX opcional") {
+  FormSection(
+    title = "PIX opcional",
+    footer = "Deixe em branco para herdar o PIX do responsável.",
+  ) {
     FormTextField(
       label = "Chave PIX própria",
       value = key,
       onValueChange = onKeyChange,
       capitalization = KeyboardCapitalization.None,
-      modifier = Modifier.fillMaxWidth().testTag("billing.form.pix.key"),
+      modifier = Modifier.testTag("billing.form.pix.key"),
     )
+    RentivoListDivider()
     FormTextField(
       label = "Nome do recebedor",
       value = merchantName,
       onValueChange = onMerchantNameChange,
-      modifier = Modifier.fillMaxWidth().testTag("billing.form.pix.merchantName"),
+      modifier = Modifier.testTag("billing.form.pix.merchantName"),
     )
+    RentivoListDivider()
     FormTextField(
       label = "Cidade do recebedor",
       value = merchantCity,
       onValueChange = onMerchantCityChange,
       capitalization = KeyboardCapitalization.Characters,
-      modifier = Modifier.fillMaxWidth().testTag("billing.form.pix.merchantCity"),
-    )
-    Text(
-      text = "Deixe em branco para herdar o PIX do responsável.",
-      style = RentivoTypography.caption,
-      color = RentivoColors.secondaryInk,
+      modifier = Modifier.testTag("billing.form.pix.merchantCity"),
     )
   }
 }
@@ -493,48 +555,54 @@ private fun CommunicationSection(
   replyTo: String,
   onReplyToChange: (String) -> Unit,
 ) {
+  var editing by rememberSaveable { mutableStateOf(false) }
+
   FormSection(
     title = "Comunicação",
     footer = "Todos os destinatários listados recebem as comunicações desta cobrança.",
+    headerAction = { EditToggle(editing = editing, onToggle = { editing = !editing }) },
   ) {
     recipients.forEachIndexed { index, recipient ->
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-        FormTextField(
-          label = "Nome do destinatário",
-          value = recipient.name,
-          onValueChange = { recipients[index] = recipients[index].copy(name = it) },
-          modifier = Modifier.fillMaxWidth(),
-        )
-        FormTextField(
-          label = "E-mail do destinatário",
-          value = recipient.email,
-          onValueChange = { recipients[index] = recipients[index].copy(email = it) },
-          keyboardType = KeyboardType.Email,
-          capitalization = KeyboardCapitalization.None,
-          modifier = Modifier.fillMaxWidth(),
-        )
-        RowActions(
-          canMoveUp = index > 0,
-          canMoveDown = index < recipients.lastIndex,
-          onMoveUp = { recipients.add(index - 1, recipients.removeAt(index)) },
-          onMoveDown = { recipients.add(index + 1, recipients.removeAt(index)) },
-          onDelete = { recipients.removeAt(index) },
-        )
+      if (index > 0) RentivoListDivider(indent = 0.dp)
+      FormTextField(
+        label = "Nome do destinatário",
+        value = recipient.name,
+        onValueChange = { recipients[index] = recipients[index].copy(name = it) },
+      )
+      RentivoListDivider()
+      FormTextField(
+        label = "E-mail do destinatário",
+        value = recipient.email,
+        onValueChange = { recipients[index] = recipients[index].copy(email = it) },
+        keyboardType = KeyboardType.Email,
+        capitalization = KeyboardCapitalization.None,
+      )
+      if (editing) {
+        RentivoListDivider()
+        FormRow {
+          RowActions(
+            canMoveUp = index > 0,
+            canMoveDown = index < recipients.lastIndex,
+            onMoveUp = { recipients.add(index - 1, recipients.removeAt(index)) },
+            onMoveDown = { recipients.add(index + 1, recipients.removeAt(index)) },
+            onDelete = { recipients.removeAt(index) },
+          )
+        }
       }
     }
-    IconTextButton(
+    if (recipients.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    AddRow(
       text = "Adicionar destinatário",
-      icon = Icons.Filled.AddCircle,
       onClick = { recipients.add(EditableRecipient.blank()) },
       modifier = Modifier.testTag("billing.form.recipients.add"),
     )
+    RentivoListDivider(indent = 0.dp)
     FormTextField(
       label = "Responder para",
       value = replyTo,
       onValueChange = onReplyToChange,
       keyboardType = KeyboardType.Email,
       capitalization = KeyboardCapitalization.None,
-      modifier = Modifier.fillMaxWidth(),
     )
   }
 }
@@ -545,24 +613,25 @@ private fun ValidationSection(
   pixRecipientRequiredMessage: String?,
 ) {
   FormSection(title = "Revise os campos") {
-    issues.forEach { issue ->
+    issues.forEachIndexed { index, issue ->
+      if (index > 0) RentivoListDivider()
       ValidationRow(message = issue.message)
     }
-    pixRecipientRequiredMessage?.let { message -> ValidationRow(message = message) }
+    pixRecipientRequiredMessage?.let { message ->
+      if (issues.isNotEmpty()) RentivoListDivider()
+      ValidationRow(message = message)
+    }
   }
 }
 
 @Composable
 private fun ValidationRow(message: String) {
-  Row(
-    modifier = Modifier.fillMaxWidth().testTag("billing.form.validation"),
-    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
+  FormRow(modifier = Modifier.testTag("billing.form.validation")) {
     Icon(
       imageVector = Icons.Filled.Error,
       contentDescription = null,
       tint = RentivoColors.coral,
+      modifier = Modifier.size(20.dp),
     )
     Text(
       text = message,
@@ -572,35 +641,159 @@ private fun ValidationRow(message: String) {
   }
 }
 
-/** The iOS `Form` section: a titled card, optionally closed by explanatory footer copy. */
+/**
+ * The iOS grouped-`Form` section: a subheadline header carrying an optional trailing action, a
+ * white borderless plate holding the rows, and optional explanatory footer copy.
+ *
+ * The plate is a [RentivoListGroup] rather than a [app.rentivo.designsystem.RentivoCard]: nesting
+ * outlined fields inside an outlined card double-draws every boundary and roughly doubles the
+ * form's height. Rows place their own [RentivoListDivider]s, because a section mixes fields,
+ * pickers and buttons that each need a different inset.
+ */
 @Composable
 private fun FormSection(
   title: String,
   footer: String? = null,
-  content: @Composable () -> Unit,
+  headerAction: @Composable (() -> Unit)? = null,
+  content: @Composable ColumnScope.() -> Unit,
 ) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    Text(
-      text = title,
-      style = RentivoTypography.metadata,
-      color = RentivoColors.secondaryInk,
-    )
-    RentivoCard {
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) { content() }
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = RentivoSpacing.medium),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = title,
+        style = RentivoTypography.subheadline,
+        color = RentivoColors.secondaryInk,
+        modifier = Modifier.weight(1f),
+      )
+      headerAction?.invoke()
     }
+    RentivoListGroup(content = content)
     if (footer != null) {
       Text(
         text = footer,
         style = RentivoTypography.caption,
         color = RentivoColors.secondaryInk,
+        modifier = Modifier.padding(horizontal = RentivoSpacing.medium),
       )
     }
   }
 }
 
+/** One row of a section plate: full width, inset to the separator, at least a 44dp touch target. */
+@Composable
+private fun FormRow(
+  modifier: Modifier = Modifier,
+  content: @Composable RowScope.() -> Unit,
+) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .heightIn(min = 44.dp)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.small),
+    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
+    verticalAlignment = Alignment.CenterVertically,
+    content = content,
+  )
+}
+
 /**
- * Reorder and delete controls for one editable row. The iOS form leans on `EditButton` plus
- * `onDelete`/`onMove`, which have no Compose equivalent, so each row carries its own controls.
+ * A field row. Like an iOS `TextField` inside a `Form`, the label is the placeholder rather than a
+ * floating caption, so an empty row is one line tall instead of two.
+ */
+@Composable
+private fun FormTextField(
+  label: String,
+  value: String,
+  onValueChange: (String) -> Unit,
+  modifier: Modifier = Modifier,
+  singleLine: Boolean = true,
+  keyboardType: KeyboardType = KeyboardType.Text,
+  capitalization: KeyboardCapitalization = KeyboardCapitalization.Sentences,
+) {
+  FormRow {
+    RentivoListField(
+      value = value,
+      onValueChange = onValueChange,
+      placeholder = label,
+      singleLine = singleLine,
+      keyboardOptions = KeyboardOptions(
+        keyboardType = keyboardType,
+        capitalization = capitalization,
+        autoCorrectEnabled = capitalization != KeyboardCapitalization.None,
+      ),
+      modifier = modifier
+        .weight(1f)
+        .semantics { contentDescription = label },
+    )
+  }
+}
+
+/**
+ * The centavos field as a grouped-form row: the label stays visible on the leading edge and the
+ * masked amount is typed into a trailing monospaced field.
+ */
+@Composable
+private fun FormCurrencyRow(
+  label: String,
+  centavos: Int,
+  onCentavosChange: (Int) -> Unit,
+) {
+  FormRow {
+    Text(text = label, style = RentivoTypography.body, color = RentivoColors.ink)
+    RentivoListField(
+      value = displayText(centavos),
+      onValueChange = { onCentavosChange(centavosFromInput(it)) },
+      monospace = true,
+      textAlign = TextAlign.End,
+      keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+      modifier = Modifier
+        .weight(1f)
+        .semantics { contentDescription = label },
+    )
+  }
+}
+
+/** The iOS `EditButton`: it reveals the rows' reorder and delete affordances rather than acting. */
+@Composable
+private fun EditToggle(editing: Boolean, onToggle: () -> Unit) {
+  Text(
+    text = if (editing) "Concluído" else "Editar",
+    style = RentivoTypography.subheadlineEmphasized,
+    color = RentivoColors.emerald,
+    modifier = Modifier
+      .clip(CircleShape)
+      .clickable(onClick = onToggle)
+      .padding(horizontal = RentivoSpacing.small, vertical = RentivoSpacing.tiny),
+  )
+}
+
+/** The trailing "Adicionar …" row of a section: flush with the rows above it, body weight. */
+@Composable
+private fun AddRow(
+  text: String,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  FormRow(modifier = modifier.clickable(onClick = onClick)) {
+    Icon(
+      imageVector = Icons.Filled.AddCircle,
+      contentDescription = null,
+      tint = RentivoColors.emerald,
+      modifier = Modifier.size(20.dp),
+    )
+    Text(text = text, style = RentivoTypography.body, color = RentivoColors.emerald)
+  }
+}
+
+/**
+ * Reorder and delete controls for one editable row, revealed by the section's [EditToggle]. The iOS
+ * form leans on `EditButton` plus `onDelete`/`onMove`, which have no Compose equivalent, so each row
+ * carries its own controls behind the same toggle.
  */
 @Composable
 private fun RowActions(
@@ -610,85 +803,25 @@ private fun RowActions(
   onMoveDown: () -> Unit,
   onDelete: () -> Unit,
 ) {
-  Row(horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-      Icon(
-        imageVector = Icons.Filled.ArrowUpward,
-        contentDescription = "Mover para cima",
-        tint = RentivoColors.secondaryInk,
-      )
-    }
-    IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-      Icon(
-        imageVector = Icons.Filled.ArrowDownward,
-        contentDescription = "Mover para baixo",
-        tint = RentivoColors.secondaryInk,
-      )
-    }
-    IconButton(onClick = onDelete) {
-      Icon(
-        imageVector = Icons.Filled.Delete,
-        contentDescription = "Remover",
-        tint = RentivoColors.coral,
-      )
-    }
+  IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+    Icon(
+      imageVector = Icons.Filled.ArrowUpward,
+      contentDescription = "Mover para cima",
+      tint = RentivoColors.secondaryInk,
+    )
   }
-}
-
-@Composable
-private fun IconTextButton(
-  text: String,
-  icon: ImageVector,
-  onClick: () -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  TextButton(onClick = onClick, modifier = modifier) {
-    Icon(imageVector = icon, contentDescription = null, tint = RentivoColors.emerald)
-    Spacer(modifier = Modifier.width(RentivoSpacing.small))
-    Text(text = text, color = RentivoColors.emerald)
+  IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+    Icon(
+      imageVector = Icons.Filled.ArrowDownward,
+      contentDescription = "Mover para baixo",
+      tint = RentivoColors.secondaryInk,
+    )
   }
-}
-
-@Composable
-private fun FormTextField(
-  label: String,
-  value: String,
-  onValueChange: (String) -> Unit,
-  modifier: Modifier = Modifier,
-  singleLine: Boolean = true,
-  minLines: Int = 1,
-  maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
-  readOnly: Boolean = false,
-  keyboardType: KeyboardType = KeyboardType.Text,
-  capitalization: KeyboardCapitalization = KeyboardCapitalization.Sentences,
-  trailingIcon: @Composable (() -> Unit)? = null,
-) {
-  OutlinedTextField(
-    value = value,
-    onValueChange = onValueChange,
-    modifier = modifier,
-    label = { Text(text = label) },
-    readOnly = readOnly,
-    singleLine = singleLine,
-    minLines = minLines,
-    maxLines = maxLines,
-    trailingIcon = trailingIcon,
-    keyboardOptions = KeyboardOptions(
-      keyboardType = keyboardType,
-      capitalization = capitalization,
-      autoCorrectEnabled = capitalization != KeyboardCapitalization.None,
-    ),
-    textStyle = RentivoTypography.body,
-    shape = RoundedCornerShape(14.dp),
-    colors = OutlinedTextFieldDefaults.colors(
-      focusedBorderColor = RentivoColors.ink,
-      unfocusedBorderColor = RentivoColors.ink,
-      focusedContainerColor = RentivoColors.surface,
-      unfocusedContainerColor = RentivoColors.surface,
-      focusedTextColor = RentivoColors.ink,
-      unfocusedTextColor = RentivoColors.ink,
-      focusedLabelColor = RentivoColors.secondaryInk,
-      unfocusedLabelColor = RentivoColors.secondaryInk,
-    ),
-  )
+  IconButton(onClick = onDelete) {
+    Icon(
+      imageVector = Icons.Filled.Delete,
+      contentDescription = "Remover",
+      tint = RentivoColors.coral,
+    )
+  }
 }

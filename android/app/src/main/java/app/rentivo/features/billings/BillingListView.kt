@@ -1,5 +1,6 @@
 package app.rentivo.features.billings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,11 +11,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -27,14 +29,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,14 +51,19 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.data.AppDependencies
+import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
-import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoSegmentedPicker
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.designsystem.rentivoPage
 import app.rentivo.domain.Bill
@@ -136,73 +138,74 @@ fun BillingListView(
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        TopAppBar(
-          title = { Text(text = "Cobranças") },
-          colors = rentivoTopAppBarColors(),
+        RentivoLargeTopBar(
+          title = "Cobranças",
           actions = {
             if (canCreateBilling) {
-              IconButton(
-                onClick = { showingCreate = true },
-                modifier = Modifier.testTag("billing.create"),
-              ) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Nova cobrança")
+              Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
+                TopBarChip {
+                  IconButton(
+                    onClick = { showingCreate = true },
+                    modifier = Modifier.testTag("billing.create"),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Filled.Add,
+                      contentDescription = "Nova cobrança",
+                      tint = RentivoColors.emerald,
+                    )
+                  }
+                }
               }
             }
           },
         )
       },
     ) { padding ->
-      Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-        SearchField(
-          text = searchText,
-          onTextChange = { searchText = it },
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = RentivoSpacing.page, vertical = RentivoSpacing.small),
-        )
-        PullToRefreshBox(
-          isRefreshing = refreshing,
-          onRefresh = {
-            scope.launch {
-              refreshing = true
-              try {
-                load()
-              } finally {
-                refreshing = false
-              }
+      PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+          scope.launch {
+            refreshing = true
+            try {
+              load()
+            } finally {
+              refreshing = false
             }
-          },
-          modifier = Modifier.weight(1f),
-        ) {
-          PageStateView(
-            state = state.value,
-            emptyTitle = "Nenhuma cobrança ainda",
-            emptyMessage = "Crie sua primeira cobrança para começar a gerar faturas.",
-            emptyIcon = Icons.Filled.Description,
-            emptyActionTitle = if (canCreateBilling) "Nova cobrança" else null,
-            emptyAction = if (canCreateBilling) ({ showingCreate = true }) else null,
-            retry = { scope.launch { load() } },
-          ) { items ->
-            Portfolio(
-              items = items,
-              searchText = searchText,
-              ownerFilter = ownerFilter,
-              onOwnerFilterChange = { ownerFilter = it },
-              onOpenBilling = onOpenBilling,
-            )
           }
+        },
+        modifier = Modifier.padding(padding).fillMaxSize(),
+      ) {
+        PageStateView(
+          state = state.value,
+          emptyTitle = "Nenhuma cobrança ainda",
+          emptyMessage = "Crie sua primeira cobrança para começar a gerar faturas.",
+          emptyIcon = Icons.Filled.Description,
+          emptyActionTitle = if (canCreateBilling) "Nova cobrança" else null,
+          emptyAction = if (canCreateBilling) ({ showingCreate = true }) else null,
+          retry = { scope.launch { load() } },
+        ) { items ->
+          Portfolio(
+            items = items,
+            searchText = searchText,
+            onSearchTextChange = { searchText = it },
+            ownerFilter = ownerFilter,
+            onOwnerFilterChange = { ownerFilter = it },
+            onOpenBilling = onOpenBilling,
+          )
         }
       }
     }
+  }
 
-    if (showingCreate) {
-      OpaqueOverlay {
-        BillingFormView(
-          existing = null,
-          onSaved = { load() },
-          onDismiss = { showingCreate = false },
-        )
-      }
+  // The iOS screen presents the form with `.sheet`, which covers the tab bar; the Compose
+  // equivalent is a dialog-backed sheet, not an overlay composed inside the tab.
+  if (showingCreate) {
+    FullScreenSheet(onDismissRequest = { showingCreate = false }) {
+      BillingFormView(
+        existing = null,
+        onSaved = { load() },
+        onDismiss = { showingCreate = false },
+      )
     }
   }
 }
@@ -216,40 +219,47 @@ private suspend fun loadPortfolio(dependencies: AppDependencies): List<BillingPo
     )
   }
 
+/**
+ * The `.searchable` field: a filled capsule that scrolls away with the list rather than a bordered
+ * box pinned above it. The container is [RentivoColors.segmentedTrack] — paper, darkened slightly —
+ * so the field reads as recessed into the page instead of outlined on top of it.
+ */
 @Composable
 private fun SearchField(
   text: String,
   onTextChange: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  OutlinedTextField(
-    value = text,
-    onValueChange = onTextChange,
-    modifier = modifier,
-    singleLine = true,
-    placeholder = { Text(text = "Buscar por nome, responsável ou descrição") },
-    leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
-    shape = RoundedCornerShape(14.dp),
-    colors = OutlinedTextFieldDefaults.colors(
-      focusedBorderColor = RentivoColors.ink,
-      unfocusedBorderColor = RentivoColors.ink,
-      focusedContainerColor = RentivoColors.surface,
-      unfocusedContainerColor = RentivoColors.surface,
-      focusedTextColor = RentivoColors.ink,
-      unfocusedTextColor = RentivoColors.ink,
-      focusedPlaceholderColor = RentivoColors.secondaryInk,
-      unfocusedPlaceholderColor = RentivoColors.secondaryInk,
-      focusedLeadingIconColor = RentivoColors.secondaryInk,
-      unfocusedLeadingIconColor = RentivoColors.secondaryInk,
-    ),
-  )
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .heightIn(min = 44.dp)
+      .clip(CircleShape)
+      .background(RentivoColors.segmentedTrack)
+      .padding(horizontal = RentivoSpacing.medium),
+    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(
+      imageVector = Icons.Filled.Search,
+      contentDescription = null,
+      tint = RentivoColors.secondaryInk,
+      modifier = Modifier.size(18.dp),
+    )
+    RentivoListField(
+      value = text,
+      onValueChange = onTextChange,
+      placeholder = "Buscar por nome, responsável ou descrição",
+      modifier = Modifier.weight(1f),
+    )
+  }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Portfolio(
   items: List<BillingPortfolioItem>,
   searchText: String,
+  onSearchTextChange: (String) -> Unit,
   ownerFilter: BillingOwnerFilter,
   onOwnerFilterChange: (BillingOwnerFilter) -> Unit,
   onOpenBilling: (BillingID) -> Unit,
@@ -261,20 +271,16 @@ private fun Portfolio(
     contentPadding = PaddingValues(RentivoSpacing.page),
     verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
   ) {
+    // Both filters lead the list rather than sitting in fixed chrome above it, so they scroll out
+    // of the way like the iOS `.searchable` bar and never clip the rows travelling underneath.
     item {
-      SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        BillingOwnerFilter.entries.forEachIndexed { index, filter ->
-          SegmentedButton(
-            selected = ownerFilter == filter,
-            onClick = { onOwnerFilterChange(filter) },
-            shape = SegmentedButtonDefaults.itemShape(
-              index = index,
-              count = BillingOwnerFilter.entries.size,
-            ),
-          ) {
-            Text(text = filter.label)
-          }
-        }
+      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
+        SearchField(text = searchText, onTextChange = onSearchTextChange)
+        RentivoSegmentedPicker(
+          options = BillingOwnerFilter.entries.map { it.label },
+          selectedIndex = BillingOwnerFilter.entries.indexOf(ownerFilter),
+          onSelect = { index -> onOwnerFilterChange(BillingOwnerFilter.entries[index]) },
+        )
       }
     }
 
@@ -370,6 +376,7 @@ private fun BillingPortfolioCard(
             } else {
               Icons.Filled.Person
             },
+            style = RentivoTypography.metadata,
           )
         }
         Icon(
@@ -406,10 +413,12 @@ private fun BillingPortfolioCard(
           IconLabel(
             text = ptBRCount(item.bills.size, singular = "fatura", plural = "faturas"),
             icon = Icons.Filled.Description,
+            style = RentivoTypography.metadata,
           )
           IconLabel(
             text = if (ownsPix) "PIX próprio" else "PIX herdado",
             icon = if (ownsPix) Icons.Filled.QrCode2 else Icons.AutoMirrored.Filled.CallSplit,
+            style = RentivoTypography.metadata,
           )
         }
       }

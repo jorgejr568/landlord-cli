@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.AddCircle
@@ -27,15 +27,11 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -48,18 +44,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
 import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoInlineTopBar
+import app.rentivo.designsystem.RentivoListDivider
 import app.rentivo.designsystem.RentivoSpacing
+import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.rentivoPage
 import app.rentivo.domain.Bill
@@ -91,7 +94,6 @@ private data class BillingDetailData(
  * The iOS screen pushes its sub-screens through `NavigationLink`s; here the owning tab holds the
  * back stack, so each destination is requested through an `onOpen…` callback instead.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillingDetailView(
   billingID: BillingID,
@@ -148,24 +150,24 @@ fun BillingDetailView(
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        TopAppBar(
-          title = { Text(text = "Detalhes") },
-          colors = rentivoTopAppBarColors(),
-          navigationIcon = {
-            IconButton(onClick = onBack) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Voltar",
-              )
-            }
-          },
+        RentivoInlineTopBar(
+          title = "Detalhes",
+          onBack = onBack,
           actions = {
             if (state.value.value?.billing?.capabilities?.canEdit == true) {
-              TextButton(
-                onClick = { showingEdit = true },
-                modifier = Modifier.testTag("billing.edit"),
-              ) {
-                Text(text = "Editar", color = RentivoColors.emerald)
+              Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
+                TopBarChip {
+                  TextButton(
+                    onClick = { showingEdit = true },
+                    modifier = Modifier.testTag("billing.edit"),
+                  ) {
+                    Text(
+                      text = "Editar",
+                      style = RentivoTypography.body,
+                      color = RentivoColors.emerald,
+                    )
+                  }
+                }
               }
             }
           },
@@ -192,19 +194,6 @@ fun BillingDetailView(
     }
 
     val billing = state.value.value?.billing
-    if (showingEdit && billing != null) {
-      OpaqueOverlay {
-        BillingFormView(
-          existing = billing,
-          onSaved = {
-            load()
-            onMutation()
-          },
-          onDismiss = { showingEdit = false },
-        )
-      }
-    }
-
     if (showingCreateBill && billing != null) {
       OpaqueOverlay {
         BackHandler { showingCreateBill = false }
@@ -218,6 +207,22 @@ fun BillingDetailView(
           onDismiss = { showingCreateBill = false },
         )
       }
+    }
+  }
+
+  // The iOS screen presents the editor with `.sheet`, which covers the tab bar; the Compose
+  // equivalent is a dialog-backed sheet, not an overlay composed inside the tab.
+  val editing = state.value.value?.billing
+  if (showingEdit && editing != null) {
+    FullScreenSheet(onDismissRequest = { showingEdit = false }) {
+      BillingFormView(
+        existing = editing,
+        onSaved = {
+          load()
+          onMutation()
+        },
+        onDismiss = { showingEdit = false },
+      )
     }
   }
 
@@ -307,22 +312,20 @@ private fun BillingDetail(
 
     item {
       if (data.billing.capabilities.canDelete) {
-        OutlinedButton(
+        // iOS renders `Button(role: .destructive).buttonStyle(.bordered)` as the tinted capsule,
+        // not as a red outline — the destructive role only reaches the confirmation dialog.
+        RentivoTonalButton(
           onClick = onRequestDelete,
           modifier = Modifier.fillMaxWidth(),
         ) {
-          Icon(
-            imageVector = Icons.Filled.Delete,
-            contentDescription = null,
-            tint = RentivoColors.coral,
-          )
-          Spacer(modifier = Modifier.width(RentivoSpacing.small))
-          Text(text = "Excluir cobrança", color = RentivoColors.coral)
+          Icon(imageVector = Icons.Filled.Delete, contentDescription = null)
+          Text(text = "Excluir cobrança", style = RentivoTypography.body)
         }
       } else {
         IconLabel(
           text = "Seu perfil pode consultar, mas não alterar esta cobrança.",
           icon = Icons.Filled.Visibility,
+          style = RentivoTypography.metadata,
         )
       }
     }
@@ -348,6 +351,7 @@ private fun BillingHeaderCard(billing: Billing) {
         IconLabel(
           text = if (billing.pixOverride?.isComplete == true) "PIX próprio" else "PIX herdado",
           icon = Icons.Filled.QrCode2,
+          style = RentivoTypography.metadata,
           modifier = Modifier.weight(1f),
         )
         MoneyText(money = billing.fixedSubtotal)
@@ -359,7 +363,9 @@ private fun BillingHeaderCard(billing: Billing) {
 @Composable
 private fun LineItemsSection(items: List<BillingItem>) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-    SectionTitle(title = "Itens recorrentes", icon = Icons.AutoMirrored.Filled.FormatListBulleted)
+    // `list.bullet.rectangle`: a bulleted list inside a box, which `ListAlt` matches and the
+    // plain `FormatListBulleted` glyph does not.
+    SectionTitle(title = "Itens recorrentes", icon = Icons.AutoMirrored.Filled.ListAlt)
     RentivoCard {
       Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
         items.forEachIndexed { index, item ->
@@ -381,7 +387,7 @@ private fun LineItemsSection(items: List<BillingItem>) {
             }
             MoneyText(money = item.amount)
           }
-          if (index != items.lastIndex) HorizontalDivider(color = RentivoColors.secondaryInk)
+          if (index != items.lastIndex) RentivoListDivider(indent = 0.dp)
         }
       }
     }
@@ -407,6 +413,7 @@ private fun BillsSection(
             imageVector = Icons.Filled.AddCircle,
             contentDescription = "Gerar fatura",
             tint = RentivoColors.emerald,
+            modifier = Modifier.size(20.dp),
           )
         }
       }
@@ -473,9 +480,9 @@ private fun FinancialSummarySection(data: BillingDetailData) {
     RentivoCard {
       Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
         ValueRow(label = "Recebido", money = paid, color = RentivoColors.emerald)
-        HorizontalDivider(color = RentivoColors.secondaryInk)
+        RentivoListDivider(indent = 0.dp)
         ValueRow(label = "Despesas", money = expenses, color = RentivoColors.coral)
-        HorizontalDivider(color = RentivoColors.secondaryInk)
+        RentivoListDivider(indent = 0.dp)
         ValueRow(label = "Resultado", money = paid - expenses, color = RentivoColors.blue)
       }
     }
@@ -514,7 +521,7 @@ private fun RecipientsSection(billing: Billing) {
           )
         }
         billing.replyTo?.let { replyTo ->
-          HorizontalDivider(color = RentivoColors.secondaryInk)
+          RentivoListDivider(indent = 0.dp)
           IconLabel(
             text = "Respostas para $replyTo",
             icon = Icons.AutoMirrored.Filled.Reply,
