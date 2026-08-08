@@ -73,8 +73,17 @@ class TTLStore:
             self._cache[key] = value
 
     def get_many(self, keys: list[str]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         with self._lock:
-            return {key: self._cache[key] for key in keys if key in self._cache}
+            for key in keys:
+                # ``__contains__`` and ``__getitem__`` each re-read the TTL
+                # timer, so an entry can expire between the membership test and
+                # the lookup. Fetch once and treat the miss as a miss.
+                try:
+                    out[key] = self._cache[key]
+                except KeyError:
+                    continue
+        return out
 
     def set_many(self, items: dict[str, Any]) -> None:
         with self._lock:

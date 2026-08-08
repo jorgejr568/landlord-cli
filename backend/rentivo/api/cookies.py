@@ -10,6 +10,8 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import Response
 
+from rentivo.api.authentication import ACCESS_COOKIE_NAME
+from rentivo.api.csrf import CSRF_COOKIE_NAME
 from rentivo.settings import settings
 
 
@@ -56,8 +58,11 @@ def delete_challenge_cookie(response: Response) -> None:
 
 
 def clear_auth_cookies(response: Response, *, include_challenge: bool) -> None:
-    delete_cookie(response, settings.access_cookie_name, httponly=True)
-    delete_cookie(response, settings.csrf_cookie_name, httponly=False)
+    # Fall back to the module constants captured at import: an environment that
+    # blanks a cookie name must still clear the cookie that was actually set,
+    # never emit a nameless ``Set-Cookie`` that leaves the session live.
+    delete_cookie(response, settings.access_cookie_name or ACCESS_COOKIE_NAME, httponly=True)
+    delete_cookie(response, settings.csrf_cookie_name or CSRF_COOKIE_NAME, httponly=False)
     if include_challenge:
         delete_challenge_cookie(response)
 

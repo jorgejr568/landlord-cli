@@ -183,6 +183,9 @@ def test_valid_payloads_decode(job_type, payload, expected):
         ("auth.cleanup", {"now": 123}),
         ("auth.cleanup", {"now": "not-a-timestamp"}),
         ("auth.cleanup", {"now": "2026-07-17T12:00:00"}),
+        ("auth.cleanup", {"now": "1700000000"}),
+        ("auth.cleanup", {"now": "1700000000.5"}),
+        ("auth.cleanup", {"now": "-1700000000"}),
     ],
 )
 def test_invalid_payloads_dead_letter(job_type, payload):
@@ -196,13 +199,37 @@ def test_receipt_cleanup_requires_a_render_operation():
         "pdf.render",
         {"bill_id": 42, "receipt_cleanup": {"uuid": "receipt-uuid", "storage_key": "receipts/file.pdf"}},
     )
-    assert "receipt_cleanup requires render_operation_id" in str(exc.value)
+    # The model validator rejects the payload as a whole, so the failure is
+    # reported against the payload rather than a single field.
+    assert str(exc.value) == "invalid pdf.render payload: <payload>: value_error"
 
 
 def test_timestamps_must_be_rfc_3339_text():
     """A bare number would otherwise be read as a Unix timestamp."""
     exc = _reject("auth.cleanup", {"now": 1_000_000})
-    assert "must be an RFC 3339 UTC timestamp" in str(exc.value)
+    assert str(exc.value) == "invalid auth.cleanup payload: now: value_error"
+
+
+def test_numeric_text_is_not_accepted_as_a_timestamp():
+    """Lax parsing reads ``"1700000000"`` as a Unix epoch just as it reads the
+    bare number, inventing a cutoff from what is really a producer bug."""
+    _reject("auth.cleanup", {"now": "1700000000"})
+    _reject("auth.cleanup", {"now": "1700000000.5"})
+
+    # Real RFC 3339 text is unaffected.
+    assert _decode("auth.cleanup", {"now": "2026-07-17T12:00:00Z"}) == AuthCleanupPayload(
+        now=datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+    )
+
+
+def test_a_decode_failure_never_echoes_the_payload():
+    """Job failure messages reach the job row, the audit trail and the logs
+    unredacted, so no payload value may appear in them."""
+    sentinel = "SECRET-TOKEN@example.com"
+    exc = _reject("email.send", {"to_email": sentinel})
+
+    assert sentinel not in str(exc.value)
+    assert str(exc.value) == "invalid email.send payload: event: missing"
 
 
 def test_payloads_are_frozen():

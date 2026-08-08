@@ -21,6 +21,7 @@ release must still validate.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Annotated
 
@@ -33,13 +34,21 @@ class JobPayload(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="ignore")
 
 
+_NUMERIC_TEXT = re.compile(r"-?\d+(\.\d+)?")
+
+
 def _reject_numeric_timestamp(value: object) -> object:
     """Keep the timestamp field to RFC 3339 text (or an actual datetime).
 
     Without this, lax parsing would read a bare number as a Unix timestamp; the
-    queue contract is a string, and a number means a broken producer.
+    queue contract is a string, and a number means a broken producer. Numeric
+    *text* (``"1700000000"``) is rejected for the same reason — lax parsing
+    treats it as an epoch too, so letting it through would silently invent a
+    timestamp out of a producer bug.
     """
-    if isinstance(value, str | datetime):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and not _NUMERIC_TEXT.fullmatch(value):
         return value
     raise ValueError("must be an RFC 3339 UTC timestamp")
 

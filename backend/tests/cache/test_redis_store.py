@@ -88,6 +88,22 @@ def test_set_many_drops_values_the_codec_cannot_encode():
     assert store.get_many(["bad", "good"]) == {"good": 1}
 
 
+def test_set_many_lets_a_non_encoding_error_out():
+    """Only a value the codec cannot serialise is a dropped cache write. Any
+    other in-process failure is a bug and must surface rather than be logged
+    away as a silent cache miss."""
+
+    class _BrokenCodec:
+        def encode(self, value):
+            raise RuntimeError("codec is broken")
+
+        def decode(self, raw):  # pragma: no cover - never reached
+            return raw
+
+    with pytest.raises(RuntimeError, match="codec is broken"):
+        _store(codec=_BrokenCodec()).set_many({"a": "alpha"})
+
+
 def test_set_many_with_nothing_encodable_never_touches_redis():
     _store(_Boom(), codec=JSONCodec()).set_many({"bad": object()})  # must not raise
 

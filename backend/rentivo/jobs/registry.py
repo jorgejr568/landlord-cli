@@ -57,6 +57,23 @@ def payload_model(handler: HandlerFn) -> type[BaseModel] | None:
     return getattr(handler, _MODEL_ATTR, None)
 
 
+def _decode_failure_message(job_type: str, exc: ValidationError) -> str:
+    """Describe a decode failure without echoing any of the payload.
+
+    ``str(ValidationError)`` embeds the offending input — and for a missing
+    field that input is the *whole* payload dict, recipient addresses and
+    reset-link tails included. This message is stored verbatim on the job row,
+    copied into the ``JOB_FAILED`` audit entry and logged, none of which any
+    redactor can reach into, so only the field location and the machine error
+    type ever leave here.
+    """
+    details = ", ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or '<payload>'}: {error['type']}"
+        for error in exc.errors(include_url=False, include_input=False)
+    )
+    return f"invalid {job_type} payload: {details}"
+
+
 def dispatch(job_type: str, handler: HandlerFn, payload: dict, context: JobContext) -> object:
     """Decode ``payload`` into the handler's payload model and invoke it.
 
@@ -71,7 +88,7 @@ def dispatch(job_type: str, handler: HandlerFn, payload: dict, context: JobConte
     try:
         decoded = model.model_validate(payload)
     except ValidationError as exc:
-        raise PermanentJobError(f"invalid {job_type} payload: {exc}") from exc
+        raise PermanentJobError(_decode_failure_message(job_type, exc)) from exc
     return handler(decoded, context)
 
 

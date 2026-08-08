@@ -27,6 +27,28 @@ def test_get_many_returns_only_present_keys():
     assert store.get_many(["a", "c"]) == {"a": "alpha"}
 
 
+def test_get_many_survives_a_key_expiring_mid_lookup():
+    """``TTLCache`` re-reads its timer in ``__contains__`` and again in
+    ``__getitem__``, so an entry can be present for the membership test and gone
+    by the lookup. That must read as a miss, not raise out of ``get_many``."""
+
+    class _ExpiringCache(dict):
+        """Present to ``in``, gone by ``[]`` — the race, made deterministic."""
+
+        def __contains__(self, key: object) -> bool:
+            return True
+
+        def __getitem__(self, key: str):
+            if key == "vanishing":
+                raise KeyError(key)
+            return super().__getitem__(key)
+
+    store = _store()
+    store._cache = _ExpiringCache({"survivor": "alpha"})
+
+    assert store.get_many(["survivor", "vanishing"]) == {"survivor": "alpha"}
+
+
 def test_get_many_with_empty_input_returns_empty_dict():
     store = _store()
     store.set("a", "alpha")

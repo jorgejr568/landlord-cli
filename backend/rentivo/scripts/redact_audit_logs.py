@@ -72,6 +72,11 @@ def _redact_state(state_json: str | None) -> tuple[str | None, bool]:
         if kind is None:
             continue
         value = data[key]
+        if not isinstance(value, str):
+            # Legacy rows are hand-written history: a PII key may hold a number,
+            # a null or a nested object. The redactor only masks text, and one
+            # such row must not abort the whole backfill.
+            continue
         redacted = redact(value or "", kind)
         if redacted != value:
             data[key] = redacted

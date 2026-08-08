@@ -109,9 +109,12 @@ class RedisStore:
     def set_many(self, items: dict[str, Any]) -> None:
         encoded: dict[str, str] = {}
         for key, value in items.items():
+            # Narrow on purpose: a value the codec cannot serialise is a dropped
+            # cache write, but anything else raised in-process is a bug that
+            # must surface rather than be logged away as a cache miss.
             try:
                 encoded[self.redis_key(key)] = self._codec.encode(value)
-            except Exception as exc:
+            except (TypeError, ValueError) as exc:
                 self._warn("encode", exc)
         if not encoded:
             return
