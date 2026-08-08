@@ -12,7 +12,8 @@ import { Link, useParams } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
-import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 
@@ -93,16 +94,6 @@ const SECTION_HEADING_STYLE = {
   margin: 0,
   whiteSpace: "nowrap"
 } as const;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
-}
-
-function normalizeFieldErrors(fields: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(fields).map(([key, message]) => [key.replace(/^body\./, ""), message])
-  );
-}
 
 function fieldErrorId(fields: Record<string, string>, key: string): string | undefined {
   return fields[key] ? `${key}-error` : undefined;
@@ -377,7 +368,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         return;
       }
       setActionError(errorMessage(error, "Não foi possível salvar o tema."));
-      setFieldErrors(error instanceof ApiError ? normalizeFieldErrors(error.fields) : {});
+      setFieldErrors(normalizedFieldErrors(error));
     } finally {
       if (ownsRequest()) {
         saveController.current = null;

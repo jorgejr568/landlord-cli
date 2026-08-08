@@ -6,8 +6,10 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { useAuth } from "../auth/AuthProvider";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { OrganizationMembers } from "./OrganizationMembers";
@@ -53,14 +55,6 @@ const BILL_STATUS: Record<string, { className: string; label: string }> = {
   sent: { className: "tag--sent", label: "Enviado" }
 };
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
-}
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
-}
-
 function plural(count: number, singular: string, multiple: string): string {
   return count === 1 ? singular : multiple;
 }
@@ -104,7 +98,6 @@ export function OrganizationDetailPage() {
   const { orgUuid = "" } = useParams<{ orgUuid: string }>();
   const navigate = useNavigate();
   const { refreshSession } = useAuth();
-  const previousTitle = useRef(document.title);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [billingList, setBillingList] = useState<BillingList | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -171,8 +164,7 @@ export function OrganizationDetailPage() {
     activeActionRef.current = null;
     pendingFocusRef.current = null;
   }, []);
-  useEffect(() => { document.title = detail ? `${detail.name} - Rentivo` : "Organização - Rentivo"; }, [detail]);
-  useEffect(() => () => { document.title = previousTitle.current; }, []);
+  useDocumentTitle(detail ? `${detail.name} - Rentivo` : "Organização - Rentivo");
 
   const focusLater = (control: HTMLElement | null) => { pendingFocusRef.current = () => control; };
   const beginAction = () => { setActionError(""); setSuccess(""); };
@@ -284,7 +276,7 @@ export function OrganizationDetailPage() {
       },
       (caught) => {
         if (caught instanceof ApiError) {
-          setInviteErrors(normalizedFields(caught));
+          setInviteErrors(normalizedFieldErrors(caught));
           setActionError(Object.keys(caught.fields).length ? "" : caught.message);
         } else setActionError("Não foi possível enviar o convite.");
         focusLater(inviteEmailRef.current);

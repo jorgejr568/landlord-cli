@@ -5,11 +5,12 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatMonth } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
-import { errorMessage, firstFieldError, normalizedFieldErrors, useDocumentTitle } from "./billSupport";
 
 type CommType = components["schemas"]["CommunicationSendRequest"]["comm_type"];
 type Preview = components["schemas"]["CommunicationPreviewResponse"];

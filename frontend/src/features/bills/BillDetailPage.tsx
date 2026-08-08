@@ -5,12 +5,13 @@ import { Link, useNavigate, useParams } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
-import { formatBrl, formatIsoDate, formatMonth } from "../../lib/format";
+import { errorMessage } from "../../lib/api/errors";
+import { formatBrl, formatDateTime, formatIsoDate, formatMonth } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { BillStatusActions } from "./BillStatusActions";
 import { ReceiptManager } from "./ReceiptManager";
 import type { Bill, Billing } from "./billSupport";
-import { errorMessage, formatDateTime, useDocumentTitle } from "./billSupport";
 
 const STATUS_META: Record<string, { className: string; label: string }> = {
   cancelled: { className: "tag--cancelled", label: "Cancelado" },

@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { parseBrl } from "../../lib/format";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
@@ -12,10 +13,6 @@ import { emptyBillingValues } from "./billingFormValues";
 
 type Organization = components["schemas"]["OrganizationResponse"];
 type CreateRequest = components["schemas"]["BillingCreateRequest"];
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
-}
 
 function createBody(values: BillingFormValues): CreateRequest {
   const recipients = values.recipients.map(({ email, name }) => ({ email: email.trim(), name: name.trim() }));
@@ -81,7 +78,7 @@ export function BillingCreatePage() {
       navigate(`/billings/${data.uuid}`);
     } catch (caught) {
       if (!isCurrent()) return;
-      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFields(caught));
+      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFieldErrors(caught));
       else setError(caught instanceof ApiError ? caught.message : "Não foi possível criar a cobrança.");
     } finally {
       const shouldUpdate = isCurrent();

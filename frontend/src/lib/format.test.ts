@@ -1,4 +1,7 @@
-import { formatBrl, formatBrlInput, formatIsoDate, formatMonth, parseBrl } from "./format";
+import {
+  formatBrl, formatBrlInput, formatDateTime, formatFileSize, formatIsoDate, formatMonth, parseBrl,
+  parseDateInput
+} from "./format";
 
 describe("BRL formatting", () => {
   it.each([
@@ -51,5 +54,20 @@ describe("date formatting", () => {
     ["invalid", "invalid"]
   ])("formats ISO date %j without timezone drift", (value, expected) => {
     expect(formatIsoDate(value)).toBe(expected);
+  });
+
+  it("parses blank, Brazilian, ISO, malformed, and impossible dates", () => {
+    expect(parseDateInput(" ")).toBeNull();
+    expect(parseDateInput("10/08/2026")).toBe("2026-08-10");
+    expect(parseDateInput("2026-08-10")).toBe("2026-08-10");
+    expect(parseDateInput("10.08.2026")).toBeUndefined();
+    expect(parseDateInput("31/02/2026")).toBeUndefined();
+  });
+
+  it("formats timestamps and file sizes", () => {
+    expect(formatFileSize(1536)).toBe("1.5 KB");
+    expect(formatDateTime(null)).toBe("—");
+    expect(formatDateTime("not-a-date")).toBe("not-a-date");
+    expect(formatDateTime("2026-07-18T10:00:00Z")).toMatch(/18\/07\/2026/);
   });
 });

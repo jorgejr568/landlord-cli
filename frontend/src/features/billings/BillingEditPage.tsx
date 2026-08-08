@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatBrlInput, parseBrl } from "../../lib/format";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
@@ -11,22 +12,12 @@ import { AttachmentManager } from "./AttachmentManager";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
-type BillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"] & {
-  can_read_attachments: boolean;
-  can_write_attachments: boolean;
-};
-type Billing = Omit<components["schemas"]["BillingResponse"], "capabilities"> & {
-  capabilities: BillingCapabilities;
-};
+type Billing = components["schemas"]["BillingResponse"];
 type UpdateRequest = components["schemas"]["BillingUpdateRequest"];
 
 interface LockedContacts {
   recipients: boolean;
   replyTo: boolean;
-}
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
 }
 
 function fullContacts(contacts: Billing["recipients"], prefix: string) {
@@ -96,7 +87,7 @@ export function BillingEditPage() {
       const billingResult = await apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", {
         params: { path: { billing_uuid: requestUuid } }, signal
       }));
-      const loadedBilling = billingResult.data as Billing;
+      const loadedBilling = billingResult.data;
       if (!isCurrent()) return;
       const attachmentResult = loadedBilling.capabilities.can_read_attachments
         ? await apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}/attachments", {
@@ -160,7 +151,7 @@ export function BillingEditPage() {
       navigate(`/billings/${requestUuid}`);
     } catch (caught) {
       if (!isCurrent()) return;
-      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFields(caught));
+      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFieldErrors(caught));
       else setError(caught instanceof ApiError ? caught.message : "Não foi possível atualizar a cobrança.");
     } finally {
       const shouldUpdate = isCurrent();

@@ -12,19 +12,7 @@ vi.mock("../auth/analytics", () => analytics);
 
 type Attachment = components["schemas"]["AttachmentResponse"];
 type Bill = components["schemas"]["BillResponse"];
-type ScopedBillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"] & {
-  can_create_bills: boolean;
-  can_create_exports: boolean;
-  can_manage_theme: boolean;
-  can_read_attachments: boolean;
-  can_read_bills: boolean;
-  can_read_expenses: boolean;
-  can_read_theme: boolean;
-  can_upload_bill_receipts: boolean;
-  can_write_attachments: boolean;
-  can_write_expenses: boolean;
-};
-type Billing = Omit<components["schemas"]["BillingResponse"], "capabilities"> & { capabilities: ScopedBillingCapabilities };
+type Billing = components["schemas"]["BillingResponse"];
 type Expense = components["schemas"]["ExpenseResponse"];
 type Organization = components["schemas"]["OrganizationResponse"];
 

@@ -2,11 +2,7 @@ import type { components } from "../lib/api/schema";
 
 export type AuthConfig = components["schemas"]["AuthConfigResponse"];
 export type AuthenticatedResponse = components["schemas"]["AuthenticatedResponse"];
-export type BillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"] & {
-  can_manage_theme: boolean;
-  can_read_theme: boolean;
-  can_upload_bill_receipts: boolean;
-};
+export type BillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"];
 
 export const BILLING_CAPABILITIES_ALL: BillingCapabilities = {
   can_create_bills: true,
