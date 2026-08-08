@@ -144,6 +144,8 @@ jobs:
         run: npm run test -- --run --coverage
       - name: Typecheck
         run: npm run typecheck
+      - name: Typecheck e2e
+        run: npm run typecheck:e2e
       - name: Lint
         run: npm run lint
       - name: Build
