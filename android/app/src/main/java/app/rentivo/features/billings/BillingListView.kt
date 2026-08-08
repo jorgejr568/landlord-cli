@@ -55,6 +55,7 @@ import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.data.AppDependencies
 import app.rentivo.designsystem.MoneyText
+import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
@@ -195,7 +196,7 @@ fun BillingListView(
     }
 
     if (showingCreate) {
-      Box(modifier = Modifier.rentivoPage()) {
+      OpaqueOverlay {
         BillingFormView(
           existing = null,
           onSaved = { load() },

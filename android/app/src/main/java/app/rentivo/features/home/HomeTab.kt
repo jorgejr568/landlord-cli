@@ -88,8 +88,12 @@ fun HomeTab() {
     }
   }
 
+  // Guarded, and shared with the pushed screen's own back button: two back events can arrive before
+  // the recomposition that disables the handler, and popping an already-empty stack would throw.
+  val pop: () -> Unit = { if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) }
+
   LaunchedEffect(app.dataRevision) { load() }
-  BackHandler(enabled = backStack.isNotEmpty()) { backStack.removeAt(backStack.lastIndex) }
+  BackHandler(enabled = backStack.isNotEmpty(), onBack = pop)
 
   when (val route = backStack.lastOrNull()) {
     null -> HomeView(
@@ -107,7 +111,7 @@ fun HomeTab() {
       // and can drop the bill out of "Próximas faturas", so the dashboard behind the push is
       // reloaded rather than left stale.
       onMutation = { load() },
-      onBack = { backStack.removeAt(backStack.lastIndex) },
+      onBack = pop,
     )
   }
 }

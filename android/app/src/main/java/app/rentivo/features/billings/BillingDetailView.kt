@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.testTag
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.MoneyText
+import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -59,6 +60,7 @@ import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.rentivoPage
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillID
@@ -191,7 +193,7 @@ fun BillingDetailView(
 
     val billing = state.value.value?.billing
     if (showingEdit && billing != null) {
-      Box(modifier = Modifier.rentivoPage()) {
+      OpaqueOverlay {
         BillingFormView(
           existing = billing,
           onSaved = {
@@ -204,7 +206,7 @@ fun BillingDetailView(
     }
 
     if (showingCreateBill && billing != null) {
-      Box(modifier = Modifier.rentivoPage()) {
+      OpaqueOverlay {
         BackHandler { showingCreateBill = false }
         BillFormSheet(
           billing = billing,
@@ -437,7 +439,7 @@ private fun BillRowCard(bill: Bill, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
       ) {
         Text(
-          text = bill.referenceMonth.displayFormatted.replaceFirstChar { it.uppercase() },
+          text = bill.referenceMonth.displayFormatted.capitalizedPTBR(),
           style = RentivoTypography.cardTitle,
           color = RentivoColors.ink,
         )

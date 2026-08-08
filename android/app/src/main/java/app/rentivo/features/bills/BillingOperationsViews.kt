@@ -402,7 +402,7 @@ private fun ExpenseDatePickerDialog(
           }
           onDismiss()
         },
-      ) { Text(text = "Concluir") }
+      ) { Text(text = "Confirmar") }
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text(text = "Cancelar") } },
   ) {
@@ -1061,6 +1061,13 @@ private fun HTMLPreviewPanel(html: String) {
     factory = { context ->
       WebView(context).apply {
         settings.javaScriptEnabled = true
+        // The document is server-supplied HTML rendered from user-authored Markdown, so the view
+        // gets no reach into the device: no `file://` and no `content://` loads, and DOM storage
+        // left at its default `false`. Network loads stay enabled on purpose — the iOS preview
+        // uses a plain `WKWebView`, which fetches remote images, and blocking them here would make
+        // the two previews disagree about what the recipient will see.
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         addJavascriptInterface(bridge, PreviewHeightBridge.NAME)
         // Reports the body height at load and on every relayout (late sizing, rotation, images
@@ -1081,6 +1088,10 @@ private fun HTMLPreviewPanel(html: String) {
       loaded.html = html
       webView.loadDataWithBaseURL(null, previewDocument(html), "text/html", "utf-8", null)
     },
+    // A WebView outlives its composition unless it is told not to: it keeps a rendering process,
+    // its JavaScript context and the `ResizeObserver` above alive, which would go on calling the
+    // height bridge for a panel that no longer exists.
+    onRelease = { it.destroy() },
   )
 }
 

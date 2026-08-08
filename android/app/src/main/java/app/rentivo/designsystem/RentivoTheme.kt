@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 /**
  * Semantic color tokens, ported 1:1 from `ios/Rentivo/DesignSystem/RentivoTheme.swift`.
@@ -187,3 +188,16 @@ fun Modifier.rentivoPage(): Modifier = fillMaxSize().background(RentivoColors.pa
  */
 fun ptBRCount(count: Int, singular: String, plural: String): String =
   "$count ${if (count == 1) singular else plural}"
+
+/**
+ * The equivalent of Swift's `String.capitalized`: the first character of *every* space-separated
+ * word is uppercased and the rest lowercased. A reference month therefore reads "Agosto De 2026",
+ * exactly like iOS — capitalizing only the leading word would render a prettier "Agosto de 2026"
+ * and silently diverge from the shipped copy.
+ *
+ * [Locale.ROOT] is deliberate: the strings are PT-BR copy, and the device locale must not change
+ * how they are cased (a Turkish locale would otherwise dotless-i the result).
+ */
+fun String.capitalizedPTBR(): String = split(" ").joinToString(" ") { word ->
+  word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
+}

@@ -77,6 +77,29 @@ private val ControlShadowOffset = 3.dp
 private val BorderStroke = 2.dp
 
 /**
+ * A full-bleed, opaque layer above the content underneath — the Compose stand-in for both a SwiftUI
+ * `.sheet` and a `NavigationStack` push.
+ *
+ * The empty click listener is load-bearing: a `Box` that only paints a background does not consume
+ * pointer events, so taps would otherwise reach the screen rendered underneath. `indication = null`
+ * keeps the layer from flashing a ripple when that happens.
+ */
+@Composable
+fun OpaqueOverlay(content: @Composable () -> Unit) {
+  Box(
+    modifier = Modifier
+      .rentivoPage()
+      .clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = {},
+      ),
+  ) {
+    content()
+  }
+}
+
+/**
  * The neo-brutalist drop shadow: a solid, un-blurred copy of the shape, painted [offset] down and
  * to the right of the element it sits behind.
  *

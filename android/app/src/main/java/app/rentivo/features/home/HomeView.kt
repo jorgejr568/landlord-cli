@@ -75,8 +75,8 @@ import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
-import java.util.Locale
 import kotlinx.coroutines.launch
 
 /** How many upcoming bills and activity entries the dashboard shows before it stops. */
@@ -391,7 +391,7 @@ private fun BillsSection(
                 color = RentivoColors.ink,
               )
               Text(
-                text = bill.referenceMonth.label.capitalizedWords(),
+                text = bill.referenceMonth.label.capitalizedPTBR(),
                 style = RentivoTypography.subheadline,
                 color = RentivoColors.secondaryInk,
               )
@@ -502,12 +502,3 @@ private val ActivityKind.icon: ImageVector
     ActivityKind.API_KEY -> Icons.Filled.VpnKey
     ActivityKind.THEME -> Icons.Filled.Palette
   }
-
-/**
- * Swift's `String.capitalized`, which title-cases *every* word: "agosto de 2026" renders as
- * "Agosto De 2026" on iOS, and this keeps the Android label identical rather than quietly
- * prettier.
- */
-private fun String.capitalizedWords(): String = split(" ").joinToString(" ") { word ->
-  word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) }
-}

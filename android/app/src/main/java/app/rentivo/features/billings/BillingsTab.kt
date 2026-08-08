@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.TextStyle
+import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
@@ -71,9 +72,11 @@ fun BillingsTab() {
   // Bumped whenever something below the list mutates data, so the root reloads on the way back.
   var listReloadToken by remember { mutableIntStateOf(0) }
 
-  BackHandler(enabled = stack.isNotEmpty()) { stack.removeAt(stack.lastIndex) }
-
+  // Guarded, and shared with the screens' own back affordances: two back events can arrive before
+  // the recomposition that disables this handler, and popping an already-empty stack would throw.
   val pop: () -> Unit = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
+
+  BackHandler(enabled = stack.isNotEmpty(), onBack = pop)
 
   Box(modifier = Modifier.rentivoPage()) {
     BillingListView(
@@ -84,7 +87,7 @@ fun BillingsTab() {
     when (val route = stack.lastOrNull()) {
       null -> Unit
 
-      is BillingsRoute.Detail -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.Detail -> OpaqueOverlay {
         BillingDetailView(
           billingID = route.billingID,
           onMutation = { listReloadToken += 1 },
@@ -101,7 +104,7 @@ fun BillingsTab() {
         )
       }
 
-      is BillingsRoute.BillDetail -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.BillDetail -> OpaqueOverlay {
         BillDetailScreen(
           billing = route.billing,
           billId = route.billID,
@@ -110,19 +113,19 @@ fun BillingsTab() {
         )
       }
 
-      is BillingsRoute.Expenses -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.Expenses -> OpaqueOverlay {
         ExpenseListScreen(billing = route.billing, onBack = pop)
       }
 
-      is BillingsRoute.Attachments -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.Attachments -> OpaqueOverlay {
         AttachmentListScreen(billing = route.billing, onBack = pop)
       }
 
-      is BillingsRoute.Export -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.Export -> OpaqueOverlay {
         ExportScreen(billing = route.billing, onBack = pop)
       }
 
-      is BillingsRoute.Theme -> Box(modifier = Modifier.rentivoPage()) {
+      is BillingsRoute.Theme -> OpaqueOverlay {
         ThemeEditorScreen(target = route.target, onBack = pop)
       }
     }

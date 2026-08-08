@@ -66,6 +66,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -94,6 +95,7 @@ import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.StatusBadge
+import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillDraft
@@ -174,6 +176,22 @@ private data class EditableBillLine(
       kind = kind,
     )
   }
+}
+
+/**
+ * Rewrites the line identified by [id], resolving its position at call time.
+ *
+ * The rows are rendered from a filtered view of the list, so a position captured while composing a
+ * row stops pointing at that line as soon as any row above it is added or removed. Looking the id
+ * up when the edit actually happens is what keeps a keystroke landing on the line the user is
+ * typing into. A line that is gone by then is simply not written back.
+ */
+private fun MutableList<EditableBillLine>.updateLine(
+  id: BillLineItemID,
+  transform: (EditableBillLine) -> EditableBillLine,
+) {
+  val index = indexOfFirst { it.id == id }
+  if (index >= 0) this[index] = transform(this[index])
 }
 
 /**
@@ -419,23 +437,37 @@ fun BillFormSheet(
       BillLineItemKind.entries.forEach { kind ->
         Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
           SectionTitle(title = kind.sectionTitle, icon = Icons.Filled.Receipt)
-          val indices = lines.indices.filter { lines[it].kind == kind }
-          if (indices.isNotEmpty()) {
+          val kindLines = lines.filter { it.kind == kind }
+          if (kindLines.isNotEmpty()) {
             RentivoCard {
-              indices.forEachIndexed { position, index ->
+              kindLines.forEachIndexed { position, line ->
                 if (position > 0) HorizontalDivider(color = RentivoColors.secondaryInk)
-                BillLineRow(
-                  line = lines[index],
-                  onDescriptionChange = { lines[index] = lines[index].copy(description = it) },
-                  onCentavosChange = { lines[index] = lines[index].copy(centavos = it) },
-                  // Fixed lines mirror the billing's own recurring items and aren't deletable here;
-                  // only user-added variable/extra lines can be removed.
-                  onDelete = if (kind == BillLineItemKind.FIXED) {
-                    null
-                  } else {
-                    { lines.removeAt(index) }
-                  },
-                )
+                // `key` ties each row's composition — and with it the text field's cursor, focus and
+                // IME state — to the line's identity rather than to its position, so deleting a row
+                // above does not shift the one below into its slot. The callbacks resolve the index
+                // at event time for the same reason: an index captured at composition time goes
+                // stale the moment the list changes and would write to (or delete) another line.
+                key(line.id.rawValue) {
+                  BillLineRow(
+                    line = line,
+                    onDescriptionChange = { description ->
+                      lines.updateLine(line.id) { it.copy(description = description) }
+                    },
+                    onCentavosChange = { centavos ->
+                      lines.updateLine(line.id) { it.copy(centavos = centavos) }
+                    },
+                    // Fixed lines mirror the billing's own recurring items and aren't deletable
+                    // here; only user-added variable/extra lines can be removed.
+                    onDelete = if (kind == BillLineItemKind.FIXED) {
+                      null
+                    } else {
+                      {
+                        val index = lines.indexOfFirst { it.id == line.id }
+                        if (index >= 0) lines.removeAt(index)
+                      }
+                    },
+                  )
+                }
               }
             }
           }
@@ -1335,15 +1367,6 @@ private fun FormRow(
 /** The month name alone, capitalized: "agosto de 2026" -> "Agosto". */
 private fun monthName(year: Int, month: Int): String =
   ReferenceMonth(year = year, month = month).label.substringBefore(" de ").capitalizedPTBR()
-
-/**
- * The equivalent of Swift's `String.capitalized`: the first character of *every* word is uppercased
- * and the rest lowercased. The bill header therefore reads "Agosto De 2026", exactly like iOS —
- * capitalizing only the leading word would silently diverge from the shipped copy.
- */
-private fun String.capitalizedPTBR(): String = split(" ").joinToString(" ") { word ->
-  if (word.isEmpty()) word else word[0].uppercase() + word.substring(1).lowercase()
-}
 
 private val BillLineItemKind.sectionTitle: String
   get() = when (this) {

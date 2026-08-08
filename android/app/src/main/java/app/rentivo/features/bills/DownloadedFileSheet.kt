@@ -18,10 +18,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +46,10 @@ import app.rentivo.domain.DownloadedFile
  * while that sheet is on screen the share intent still needs the file on disk. Tracking the
  * *previous* value is what identifies the file to remove — the current one is already gone by then
  * — and it also covers one download replacing another without an intervening dismissal.
+ *
+ * Leaving the screen is the case that transition can never see: the composable goes away without
+ * [file] ever going null, so the disposal below is what stops an invoice or receipt PDF from
+ * sitting in the cache until sign-out.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +59,19 @@ fun DownloadedFileSheet(file: DownloadedFile?, onDismiss: () -> Unit) {
     val stale = previous
     previous = file
     if (stale != null) DownloadedFileStore.remove(stale)
+  }
+
+  // Both are cleaned up: `previous` may still hold a file the effect above has not yet retired
+  // (the sheet can be torn down in the same frame the parameter changes), and `current` is the one
+  // on screen. `remove` is best-effort, so removing the same file twice is harmless. `current` is
+  // read through `rememberUpdatedState` because a keyless `DisposableEffect` would otherwise
+  // dispose with the parameter value from the composition that installed it.
+  val current by rememberUpdatedState(file)
+  DisposableEffect(Unit) {
+    onDispose {
+      previous?.let(DownloadedFileStore::remove)
+      current?.let(DownloadedFileStore::remove)
+    }
   }
 
   if (file == null) return
