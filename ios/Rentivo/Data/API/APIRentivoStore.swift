@@ -22,6 +22,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
 
   public var currentUser: UserProfile { user }
   public var recentActivities: [RecentActivity] { [] }
+  public var usesLiveAPI: Bool { true }
 
   public func exchangeMobileAuthorization(code: String) async throws -> UserProfile {
     user = try await client.exchangeMobileAuthorization(code: code).profile
@@ -159,7 +160,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       Expense(
         id: ExpenseID(rawValue: $0.uuid), billingID: billingID, description: $0.description,
         amount: Money(centavos: $0.amount), category: ExpenseCategory(rawValue: $0.category) ?? .other,
-        incurredOn: try dateOnly($0.incurredOn)
+        incurredOn: try WireDate.dateOnly($0.incurredOn)
       )
     }
   }
@@ -170,7 +171,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     )
     return Expense(id: ExpenseID(rawValue: remote.uuid), billingID: billingID, description: remote.description,
       amount: Money(centavos: remote.amount), category: ExpenseCategory(rawValue: remote.category) ?? .other,
-      incurredOn: try dateOnly(remote.incurredOn))
+      incurredOn: try WireDate.dateOnly(remote.incurredOn))
   }
   public func deleteExpense(billingID: BillingID, expenseID: ExpenseID) async throws {
     try await execute(path: "/api/v1/billings/\(billingID.rawValue)/expenses/\(expenseID.rawValue)", method: "DELETE")
@@ -345,7 +346,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   public func securitySummary() async throws -> SecuritySummary {
     let response: RemoteSecuritySummary = try await decode(path: "/api/v1/security")
     return SecuritySummary(totpEnabled: response.totp.enabled, recoveryCodeCount: response.totp.recoveryCodesRemaining,
-      passkeys: try response.passkeys.map { Passkey(id: PasskeyID(rawValue: $0.uuid), name: $0.name, createdAt: try isoDate($0.createdAt), lastUsedAt: try $0.lastUsedAt.map(isoDate)) })
+      passkeys: try response.passkeys.map { Passkey(id: PasskeyID(rawValue: $0.uuid), name: $0.name, createdAt: try WireDate.isoDate($0.createdAt), lastUsedAt: try $0.lastUsedAt.map(WireDate.isoDate)) })
   }
   public func beginTOTPEnrollment() async throws -> TOTPEnrollment {
     let response: RemoteTOTPSetup = try await decode(path: "/api/v1/security/totp/setup", method: "POST")
@@ -477,63 +478,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return PixConfiguration(key: key, merchantName: name, merchantCity: city)
   }
 
-  // A present but malformed date string surfaces as a decode error via `DateOnly`'s failable
-  // wire initializer instead of reaching the precondition-enforcing
-  // `DateOnly.init(year:month:day:)` and trapping the process on out-of-range components.
-  private func dateOnly(_ value: String) throws -> DateOnly {
-    guard let parsed = DateOnly(iso8601String: value) else { throw LiveAPIError.invalidResponse }
-    return parsed
-  }
-
-  // `due_date` is nullable on the wire. A `null` means the bill genuinely has no due date yet,
-  // so it stays `nil` rather than collapsing to an epoch sentinel that would surface in the UI
-  // as "Vence 01/01/1970".
-  private func optionalDateOnly(_ value: String?) throws -> DateOnly? {
-    guard let value else { return nil }
-    return try dateOnly(value)
-  }
-
-  // The backend emits fractional-second timestamps (microseconds); try that format first and
-  // fall back to the plain internet-date-time form. A total parse failure surfaces as a decode
-  // error instead of silently defaulting to `.distantPast`.
-  private static let isoDateTimeFormatterWithFraction: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
-  private static let isoDateTimeFormatter = ISO8601DateFormatter()
-
-  // Timestamps read straight out of a naive `DATETIME` column reach us without a timezone
-  // designator (e.g. `2026-07-28T13:28:55`). `.withInternetDateTime` requires one, so both
-  // formatters above reject those outright and a display-only date takes down the whole
-  // screen. They are São Paulo wall clock on the wire, so parse them in that zone.
-  //
-  // These are strictly a fallback: lacking `.withTimeZone`, they happily parse an
-  // offset-bearing string while *ignoring* its offset, which would silently shift a `Z`
-  // timestamp. `isoDate` therefore only reaches them once the strict formatters have failed.
-  private static func localDateTimeFormatter(fractionalSeconds: Bool) -> ISO8601DateFormatter {
-    let formatter = ISO8601DateFormatter()
-    var options: ISO8601DateFormatter.Options = [.withFullDate, .withTime, .withColonSeparatorInTime]
-    if fractionalSeconds { options.insert(.withFractionalSeconds) }
-    formatter.formatOptions = options
-    formatter.timeZone = TimeZone(identifier: "America/Sao_Paulo") ?? .current
-    return formatter
-  }
-  private static let localDateTimeFormatterWithFraction = localDateTimeFormatter(fractionalSeconds: true)
-  private static let localDateTimeFormatterWithoutFraction = localDateTimeFormatter(fractionalSeconds: false)
-
-  private func isoDate(_ value: String) throws -> Date {
-    if let date = Self.isoDateTimeFormatterWithFraction.date(from: value) { return date }
-    if let date = Self.isoDateTimeFormatter.date(from: value) { return date }
-    if let date = Self.localDateTimeFormatterWithFraction.date(from: value) { return date }
-    if let date = Self.localDateTimeFormatterWithoutFraction.date(from: value) { return date }
-    throw LiveAPIError.invalidResponse
-  }
-
   private func paidAt(from remote: RemoteBill) throws -> DateOnly? {
     guard remote.status == "paid", let statusUpdatedAt = remote.statusUpdatedAt else { return nil }
     let datePart = statusUpdatedAt.split(separator: "T", maxSplits: 1).first.map(String.init) ?? statusUpdatedAt
-    return try dateOnly(datePart)
+    return try WireDate.dateOnly(datePart)
   }
 
   private func bill(from remote: RemoteBill, billingID: BillingID) throws -> Bill {
@@ -546,7 +494,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return Bill(
       id: BillID(rawValue: remote.uuid), billingID: billingID,
       referenceMonth: referenceMonth,
-      dueDate: try optionalDateOnly(remote.dueDate), paidAt: try paidAt(from: remote),
+      dueDate: try WireDate.optionalDateOnly(remote.dueDate), paidAt: try paidAt(from: remote),
       notes: remote.notes, status: BillStatus(rawValue: remote.status) ?? .draft,
       lineItems: remote.lineItems.enumerated().map { index, line in
         BillLineItem(id: BillLineItemID(rawValue: "\(remote.uuid)-\(index)"), description: line.description,
@@ -639,8 +587,8 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
           available: grant.available
         )
       },
-      expiresAt: try isoDate(remote.expiresAt), lastUsedAt: try remote.lastUsedAt.map(isoDate),
-      createdAt: try isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(isoDate)
+      expiresAt: try WireDate.isoDate(remote.expiresAt), lastUsedAt: try remote.lastUsedAt.map(WireDate.isoDate),
+      createdAt: try WireDate.isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(WireDate.isoDate)
     )
   }
 
@@ -667,424 +615,4 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       canEdit: remote.capabilities.canEdit, canReset: remote.capabilities.canReset
     )
   }
-}
-
-private struct RemoteOrganizationList: Decodable { let items: [RemoteOrganization] }
-private struct RemoteOrganization: Decodable {
-  let uuid, name, currentRole: String; let enforceMFA: Bool; let capabilities: RemoteOrganizationCapabilities
-  let settings: RemoteOrganizationSettings?
-  let members: [RemoteOrganizationMember]?
-  enum CodingKeys: String, CodingKey { case uuid, name, capabilities, settings, members; case currentRole = "current_role"; case enforceMFA = "enforce_mfa" }
-}
-private struct RemoteOrganizationCapabilities: Decodable { let canManage, canInvite, canCreateBilling, canViewBillingStats: Bool; enum CodingKeys: String, CodingKey { case canManage = "can_manage"; case canInvite = "can_invite"; case canCreateBilling = "can_create_billing"; case canViewBillingStats = "can_view_billing_stats" } }
-private struct RemoteOrganizationSettings: Decodable { let pixKey, pixMerchantName, pixMerchantCity: String; enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" } }
-private struct RemoteOrganizationMember: Decodable { let userID: Int; let email, role: String; enum CodingKeys: String, CodingKey { case email, role; case userID = "user_id" } }
-private struct RemoteOrganizationCreate: Encodable { let name: String }
-private struct RemoteOrganizationUpdate: Encodable { let name, pixKey, pixMerchantName, pixMerchantCity: String?; enum CodingKeys: String, CodingKey { case name; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }; init(draft: OrganizationDraft) { name = draft.name; pixKey = draft.pix?.key; pixMerchantName = draft.pix?.merchantName; pixMerchantCity = draft.pix?.merchantCity } }
-private struct RemoteMemberRole: Encodable { let role: String }
-private struct RemoteInviteCreate: Encodable { let email, role: String }
-private struct RemoteMFAPolicy: Encodable { let enforceMFA: Bool; enum CodingKeys: String, CodingKey { case enforceMFA = "enforce_mfa" } }
-private struct RemoteBillingTransfer: Encodable { let organizationID: String; enum CodingKeys: String, CodingKey { case organizationID = "organization_uuid" } }
-private struct RemoteInvitation: Decodable { let uuid, invitedEmail, role, status: String; enum CodingKeys: String, CodingKey { case uuid, role, status; case invitedEmail = "invited_email" } }
-private struct RemotePendingInvitationList: Decodable { let items: [RemotePendingInvitation] }
-private struct RemotePendingInvitation: Decodable {
-  let uuid, organizationUUID, organizationName, role: String
-  enum CodingKeys: String, CodingKey {
-    case uuid, role
-    case organizationUUID = "organization_uuid"
-    case organizationName = "organization_name"
-  }
-}
-private struct RemoteSecuritySummary: Decodable { let profile: RemoteProfile; let totp: RemoteTOTPStatus; let passkeys: [RemotePasskey] }
-private struct RemoteTOTPStatus: Decodable { let enabled: Bool; let recoveryCodesRemaining: Int; enum CodingKeys: String, CodingKey { case enabled; case recoveryCodesRemaining = "recovery_codes_remaining" } }
-private struct RemoteTOTPSetup: Decodable {
-  let secret, provisioningURI, qrCodeBase64: String
-  enum CodingKeys: String, CodingKey {
-    case secret
-    case provisioningURI = "provisioning_uri"
-    case qrCodeBase64 = "qr_code_base64"
-  }
-}
-private struct RemoteTOTPConfirm: Encodable { let code: String }
-private struct RemoteTOTPDisable: Encodable { let password: String }
-struct RemotePasswordChange: Encodable {
-  let currentPassword, newPassword, confirmPassword: String
-  enum CodingKeys: String, CodingKey {
-    case currentPassword = "current_password"
-    case newPassword = "new_password"
-    case confirmPassword = "confirm_password"
-  }
-}
-private struct RemotePasskey: Decodable { let uuid, name, createdAt: String; let lastUsedAt: String?; enum CodingKeys: String, CodingKey { case uuid, name; case createdAt = "created_at"; case lastUsedAt = "last_used_at" } }
-private struct RemoteRecoveryCodes: Decodable { let recoveryCodes: [String]; enum CodingKeys: String, CodingKey { case recoveryCodes = "recovery_codes" } }
-private struct RemoteContactInput: Encodable {
-  let name, email: String
-  init(name: String, email: String) { self.name = name; self.email = email }
-  init(_ recipient: BillingRecipient) { name = recipient.name; email = recipient.email }
-}
-struct RemoteCommunicationPreviewRequest: Encodable {
-  let subject: String
-  let body: String
-}
-private struct RemoteCommunicationPreview: Decodable {
-  let html: String
-  let severe: [String]
-  let mild: [String]
-}
-private struct RemoteCommunicationSendRequest: Encodable {
-  let billID, commType, subject, body: String
-  let recipientIDs: [String]
-  let acknowledgeWarning: Bool
-  let saveScope: String?
-  enum CodingKeys: String, CodingKey {
-    case subject, body
-    case billID = "bill_uuid"
-    case commType = "comm_type"
-    case recipientIDs = "recipient_uuids"
-    case acknowledgeWarning = "acknowledge_warning"
-    case saveScope = "save_scope"
-  }
-  init(
-    billID: String, commType: String, recipientIDs: [String],
-    subject: String, message: String, acknowledgeWarning: Bool, saveScope: String?
-  ) {
-    self.billID = billID; self.commType = commType; self.subject = subject; body = message
-    self.recipientIDs = recipientIDs
-    self.acknowledgeWarning = acknowledgeWarning
-    self.saveScope = saveScope
-  }
-}
-private struct RemoteCommunicationSend: Decodable { let queuedCount: Int; enum CodingKeys: String, CodingKey { case queuedCount = "queued_count" } }
-private struct RemoteExportRequest: Encodable { let format: String }
-private struct RemoteExport: Decodable { let format, status: String }
-private struct RemoteReceiptUpload: Decodable { let items: [RemoteReceipt] }
-private struct RemoteReceiptList: Decodable { let items: [RemoteReceipt] }
-private struct RemoteReceiptOrder: Encodable { let order: [String] }
-private struct RemoteReceipt: Decodable {
-  let uuid, filename, contentType: String
-  let fileSize, sortOrder: Int
-  enum CodingKeys: String, CodingKey {
-    case uuid, filename
-    case contentType = "content_type"
-    case fileSize = "file_size"
-    case sortOrder = "sort_order"
-  }
-}
-private struct RemoteAttachmentList: Decodable { let items: [RemoteAttachment] }
-private struct RemoteAttachment: Decodable {
-  let uuid, name, contentType: String
-  let fileSize: Int
-  enum CodingKeys: String, CodingKey {
-    case uuid, name
-    case contentType = "content_type"
-    case fileSize = "file_size"
-  }
-}
-private struct RemoteAPIKeyList: Decodable { let items: [RemoteAPIKey] }
-private struct RemoteAPIKey: Decodable {
-  let uuid, name, hint, expiresAt, createdAt: String
-  let scopes: [String]
-  let grants: [RemoteAPIKeyGrant]
-  let lastUsedAt, revokedAt: String?
-  enum CodingKeys: String, CodingKey {
-    case uuid, name, hint, scopes, grants
-    case expiresAt = "expires_at"
-    case lastUsedAt = "last_used_at"
-    case createdAt = "created_at"
-    case revokedAt = "revoked_at"
-  }
-}
-private struct RemoteCreatedAPIKey: Decodable {
-  let secret: String
-  let apiKey: RemoteAPIKey
-  enum CodingKeys: String, CodingKey {
-    case secret, uuid, name, hint, scopes, grants
-    case expiresAt = "expires_at"
-    case lastUsedAt = "last_used_at"
-    case createdAt = "created_at"
-    case revokedAt = "revoked_at"
-  }
-  init(from decoder: Decoder) throws {
-    secret = try decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .secret)
-    apiKey = try RemoteAPIKey(from: decoder)
-  }
-}
-private struct RemoteAPIKeyGrant: Decodable {
-  let resourceType: String
-  let resourceID: String?
-  let available: Bool
-  enum CodingKeys: String, CodingKey {
-    case available
-    case resourceType = "resource_type"
-    case resourceID = "resource_id"
-  }
-}
-private struct RemoteAPIKeyCreate: Encodable {
-  let name: String
-  let scopes: [String]
-  let grants: [RemoteAPIKeyGrantInput]
-  let expiresAt: String
-  enum CodingKeys: String, CodingKey { case name, scopes, grants; case expiresAt = "expires_at" }
-  init(draft: APIKeyDraft) {
-    name = draft.name
-    scopes = draft.scopes.map(\.rawValue).sorted()
-    grants = draft.grants.map(RemoteAPIKeyGrantInput.init)
-    expiresAt = ISO8601DateFormatter().string(from: draft.expiresAt)
-  }
-}
-private struct RemoteAPIKeyUpdate: Encodable {
-  let name: String
-  let scopes: [String]
-  let grants: [RemoteAPIKeyGrantInput]
-  init(draft: APIKeyDraft) {
-    name = draft.name
-    scopes = draft.scopes.map(\.rawValue).sorted()
-    grants = draft.grants.map(RemoteAPIKeyGrantInput.init)
-  }
-}
-private struct RemoteAPIKeyGrantInput: Encodable {
-  let resourceType: String
-  let resourceID: String
-  enum CodingKeys: String, CodingKey { case resourceType = "resource_type"; case resourceID = "resource_id" }
-  init(_ grant: APIKeyGrant) { resourceType = grant.resourceType.rawValue; resourceID = grant.resourceID.rawValue }
-}
-private struct RemoteTheme: Decodable {
-  let ownerName, effectiveSource: String
-  let stored: RemoteThemeValues?
-  let effective: RemoteThemeValues
-  let capabilities: RemoteThemeCapabilities
-  enum CodingKeys: String, CodingKey {
-    case stored, effective, capabilities
-    case ownerName = "owner_name"
-    case effectiveSource = "effective_source"
-  }
-}
-private struct RemoteThemeCapabilities: Decodable {
-  let canEdit, canReset: Bool
-  enum CodingKeys: String, CodingKey { case canEdit = "can_edit"; case canReset = "can_reset" }
-}
-private struct RemoteThemeValues: Codable {
-  let headerFont, textFont: String
-  let primary, primaryLight, secondary, secondaryDark, textColor, textContrast: String
-  enum CodingKeys: String, CodingKey {
-    case primary, secondary
-    case headerFont = "header_font"
-    case textFont = "text_font"
-    case primaryLight = "primary_light"
-    case secondaryDark = "secondary_dark"
-    case textColor = "text_color"
-    case textContrast = "text_contrast"
-  }
-  init(_ values: ThemeValues) {
-    headerFont = values.headerFont.rawValue; textFont = values.textFont.rawValue
-    primary = values.primary; primaryLight = values.primaryLight; secondary = values.secondary
-    secondaryDark = values.secondaryDark; textColor = values.textColor; textContrast = values.textContrast
-  }
-}
-private extension ThemeValues {
-  init(_ remote: RemoteThemeValues) {
-    self.init(
-      headerFont: ThemeFont(rawValue: remote.headerFont) ?? .montserrat,
-      textFont: ThemeFont(rawValue: remote.textFont) ?? .openSans,
-      primary: remote.primary, primaryLight: remote.primaryLight, secondary: remote.secondary,
-      secondaryDark: remote.secondaryDark, textColor: remote.textColor,
-      textContrast: remote.textContrast
-    )
-  }
-}
-
-private struct RemoteBillingDraft: Encodable {
-  let name: String; let description: String; let owner: RemoteOwnerInput; let items: [RemoteBillingItemInput]
-  let pixKey: String; let pixMerchantName: String; let pixMerchantCity: String
-  let recipients, replyTo: [RemoteContactInput]
-  enum CodingKeys: String, CodingKey { case name, description, owner, items, recipients; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-  init(draft: BillingDraft) {
-    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
-    pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
-    recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
-    switch draft.owner { case .user: owner = RemoteOwnerInput(type: "user", uuid: nil); case .organization(let id, _): owner = RemoteOwnerInput(type: "organization", uuid: id.rawValue) }
-  }
-}
-private struct RemoteBillingUpdate: Encodable {
-  let name, description, pixKey, pixMerchantName, pixMerchantCity: String
-  let items: [RemoteBillingItemInput]
-  let recipients, replyTo: [RemoteContactInput]
-  enum CodingKeys: String, CodingKey { case name, description, items, recipients; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-  init(draft: BillingDraft) {
-    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
-    pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
-    recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
-  }
-}
-private struct RemoteOwnerInput: Encodable { let type: String; let uuid: String? }
-// Billing items minted client-side (a new row added in the form) carry a 36-char UUID as their
-// id; the server only accepts a 26-char Crockford-base32 ULID (or null) for `uuid`, so only
-// ids that already look like a server-issued ULID may be sent through — everything else must
-// be nil so the server mints its own.
-private let ulidAllowedCharacters = Set("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
-private func isULID(_ value: String) -> Bool {
-  value.count == 26 && value.allSatisfy(ulidAllowedCharacters.contains)
-}
-private struct RemoteBillingItemInput: Encodable {
-  let uuid: String?; let description: String; let amount: Int; let itemType: String
-  enum CodingKeys: String, CodingKey { case uuid, description, amount; case itemType = "item_type" }
-  init(_ item: BillingItem) {
-    uuid = isULID(item.id.rawValue) ? item.id.rawValue : nil
-    description = item.description; amount = item.amount.centavos; itemType = item.type.rawValue
-  }
-}
-private struct RemoteBillCreateDraft: Encodable {
-  // Every stored property here must also have a corresponding `container.encode` line in
-  // `encode(to:)` below — the hand-written encoder is not kept in sync automatically.
-  let referenceMonth: String; let dueDate: String?; let notes: String; let extras: [RemoteBillExtra]
-  let variableAmounts: [String: Int]
-  enum CodingKeys: String, CodingKey {
-    case referenceMonth = "reference_month"; case dueDate = "due_date"; case notes, extras
-    case variableAmounts = "variable_amounts"
-  }
-  init(draft: BillDraft) {
-    referenceMonth = draft.referenceMonth.apiValue; dueDate = draft.dueDate?.iso8601; notes = draft.notes
-    extras = draft.lineItems.filter { $0.kind == .extra }.map(RemoteBillExtra.init)
-    // The server requires the variable_amounts key set to exactly match the billing's own
-    // variable BillingItem uuids, so only line items whose id is already a real ULID (i.e. one
-    // sourced from the billing's items, not a freshly client-minted id) can be included.
-    var amounts: [String: Int] = [:]
-    for item in draft.lineItems where item.kind == .variable {
-      guard isULID(item.id.rawValue) else { continue }
-      amounts[item.id.rawValue] = item.amount.centavos
-    }
-    variableAmounts = amounts
-  }
-
-  // Synthesized `Encodable` uses `encodeIfPresent` for optionals and would drop a nil
-  // `due_date` from the body entirely. Write the key unconditionally so nil reaches the server
-  // as an explicit JSON null — see `RemoteBillUpdateDraft` for why that distinction matters.
-  func encode(to encoder: any Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(referenceMonth, forKey: .referenceMonth)
-    try container.encode(dueDate, forKey: .dueDate)
-    try container.encode(notes, forKey: .notes)
-    try container.encode(extras, forKey: .extras)
-    try container.encode(variableAmounts, forKey: .variableAmounts)
-  }
-}
-private struct RemoteBillExtra: Encodable { let description: String; let amount: Int; init(_ item: BillLineItem) { description = item.description; amount = item.amount.centavos } }
-private struct RemoteBillUpdateDraft: Encodable {
-  let dueDate: String?; let notes: String; let lineItems: [RemoteBillLineItemInput]
-  enum CodingKeys: String, CodingKey { case dueDate = "due_date"; case notes; case lineItems = "line_items" }
-  init(draft: BillDraft) { dueDate = draft.dueDate?.iso8601; notes = draft.notes; lineItems = draft.lineItems.map(RemoteBillLineItemInput.init) }
-
-  // The server's PATCH handler treats an *absent* `due_date` as "leave unchanged" and an
-  // explicit `null` as "clear it". Synthesized `Encodable` would omit a nil optional and make
-  // clearing a due date impossible, so the key is always written.
-  func encode(to encoder: any Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(dueDate, forKey: .dueDate)
-    try container.encode(notes, forKey: .notes)
-    try container.encode(lineItems, forKey: .lineItems)
-  }
-}
-private struct RemoteBillLineItemInput: Encodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" }; init(_ item: BillLineItem) { description = item.description; amount = item.amount.centavos; itemType = item.kind.rawValue } }
-private struct RemoteBillTransition: Encodable { let target: String }
-private struct RemoteExpenseCreate: Encodable { let description: String; let category: String; let incurredOn: String; let amount: Int; enum CodingKeys: String, CodingKey { case description, category, amount; case incurredOn = "incurred_on" } }
-
-private struct RemoteBillingList: Decodable { let items: [RemoteBillingListItem]; let stats: RemoteBillingStats }
-private struct RemoteBillingStats: Decodable {
-  let received, pending, overdue, totalExpenses, netIncome, paidCount, billedCount: Int
-  enum CodingKeys: String, CodingKey {
-    case received, pending, overdue
-    case totalExpenses = "total_expenses"
-    case netIncome = "net_income"
-    case paidCount = "paid_count"
-    case billedCount = "billed_count"
-  }
-}
-private struct RemoteProfile: Decodable {
-  let email: String; let pixKey, pixMerchantName, pixMerchantCity: String
-  enum CodingKeys: String, CodingKey { case email; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-}
-private struct RemotePixUpdate: Encodable {
-  let pixKey, pixMerchantName, pixMerchantCity: String
-  enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-  init(pix: PixConfiguration) { pixKey = pix.key; pixMerchantName = pix.merchantName; pixMerchantCity = pix.merchantCity }
-}
-private struct RemotePixUpdateResponse: Decodable { let profile: RemoteProfile }
-private struct RemoteBillingListItem: Decodable { let uuid, name, description: String; let owner: RemoteOwner; let capabilities: RemoteBillingCapabilities }
-private struct RemoteBilling: Decodable {
-  let uuid, name, description: String
-  let owner: RemoteOwner
-  let items: [RemoteBillingItem]
-  let pixKey, pixMerchantName, pixMerchantCity: String
-  let recipients, replyTo: [RemoteBillingContact]
-  // Optional so a payload without the field keeps decoding; the live billing detail contract
-  // always includes it.
-  let communicationTemplates: [RemoteCommunicationTemplate]?
-  let capabilities: RemoteBillingCapabilities
-  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case communicationTemplates = "communication_templates" }
-}
-private struct RemoteBillingContact: Decodable { let uuid: String; let name, email: String? }
-private struct RemoteCommunicationTemplate: Decodable {
-  let commType, subject, body: String
-  enum CodingKeys: String, CodingKey { case subject, body; case commType = "comm_type" }
-}
-private struct RemoteBillingCapabilities: Decodable {
-  let canEdit, canReadBills, canCreateBills, canManageBills, canReadExpenses, canWriteExpenses: Bool
-  let canCreateExports, canReadAttachments, canWriteAttachments, canReadTheme, canManageTheme: Bool
-  let canUploadBillReceipts, canDelete, canTransfer: Bool
-  enum CodingKeys: String, CodingKey {
-    case canEdit = "can_edit"; case canReadBills = "can_read_bills"; case canCreateBills = "can_create_bills"
-    case canManageBills = "can_manage_bills"; case canReadExpenses = "can_read_expenses"; case canWriteExpenses = "can_write_expenses"
-    case canCreateExports = "can_create_exports"; case canReadAttachments = "can_read_attachments"; case canWriteAttachments = "can_write_attachments"
-    case canReadTheme = "can_read_theme"; case canManageTheme = "can_manage_theme"; case canUploadBillReceipts = "can_upload_bill_receipts"
-    case canDelete = "can_delete"; case canTransfer = "can_transfer"
-  }
-}
-private struct RemoteOwner: Decodable { let type: String; let uuid, name: String? }
-private struct RemoteBillingItem: Decodable { let uuid, description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case uuid, description, amount; case itemType = "item_type" } }
-private struct RemoteBillList: Decodable { let items: [RemoteBill] }
-private struct RemoteBill: Decodable {
-  let uuid, referenceMonth, notes, status: String; let dueDate: String?; let statusUpdatedAt: String?
-  let lineItems: [RemoteBillLine]; let receipts: [RemoteReceipt]?
-  let totalAmount: Int
-  let availableTransitions: [RemoteAvailableTransition]
-  let pdfRenderStatus: String?
-  let hasInvoice, hasRecibo: Bool?
-  let capabilities: RemoteBillCapabilities?
-  enum CodingKeys: String, CodingKey {
-    case uuid, notes, status, receipts, capabilities
-    case referenceMonth = "reference_month"; case dueDate = "due_date"
-    case statusUpdatedAt = "status_updated_at"; case lineItems = "line_items"
-    case totalAmount = "total_amount"; case availableTransitions = "available_transitions"
-    case pdfRenderStatus = "pdf_render_status"
-    case hasInvoice = "has_invoice"; case hasRecibo = "has_recibo"
-  }
-}
-// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that
-// gate a button in the app are decoded; the rest follow the billing-level capabilities today.
-private struct RemoteBillCapabilities: Decodable {
-  let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
-  enum CodingKeys: String, CodingKey {
-    case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
-    case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
-    case canRegenerate = "can_regenerate"
-  }
-}
-// `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,
-// but the domain only models the allowed target statuses today, so only `target` is decoded.
-private struct RemoteAvailableTransition: Decodable { let target: String }
-private struct RemoteBillLine: Decodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" } }
-private struct RemoteExpenseList: Decodable { let items: [RemoteExpense] }
-private struct RemoteExpense: Decodable { let uuid, description, category, incurredOn: String; let amount: Int; enum CodingKeys: String, CodingKey { case uuid, description, category, amount; case incurredOn = "incurred_on" } }
-
-@MainActor
-public final class LiveDemoRepository: DemoRepository {
-  public private(set) var demoSettings = DemoSettings.standard
-  public init() {}
-  public func failNextOperation() {}
-  public func setEmptyMode(_ enabled: Bool) { demoSettings.emptyMode = enabled }
-  public func setViewerMode(_ enabled: Bool) { demoSettings.viewerMode = enabled }
-  public func setDelayEnabled(_ enabled: Bool) { demoSettings.delayEnabled = enabled }
-  public func reset() { demoSettings = .standard }
 }

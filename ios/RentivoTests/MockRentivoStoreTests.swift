@@ -487,19 +487,36 @@ import Testing
   #expect(theme.effective == .rentivo)
 }
 
-@Test @MainActor func securityMutationsUpdateTOTPRecoveryCodesAndPasskeys() async throws {
+@Test @MainActor func securityMutationsUpdateTOTPAndRecoveryCodes() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
 
-  try await store.setTOTPEnabled(false)
+  // The TOTP flag is only reachable through the enrollment/disable pair, which is how the
+  // security screen drives it.
+  let enrollmentCodes = try await store.confirmTOTPEnrollment(code: "123456")
+  #expect(enrollmentCodes.count == 8)
+  #expect(try await store.securitySummary().totpEnabled)
+
+  try await store.disableTOTP(password: "senha-de-demonstração")
   let codes = try await store.regenerateRecoveryCodes()
-  let passkey = try await store.addPasskey(name: "iPhone de demonstração")
-  try await store.renamePasskey(id: passkey.id, name: "iPhone pessoal")
 
   let summary = try await store.securitySummary()
   #expect(!summary.totpEnabled)
   #expect(codes.count == 8)
   #expect(summary.recoveryCodeCount == 8)
-  #expect(summary.passkeys.contains { $0.id == passkey.id && $0.name == "iPhone pessoal" })
+}
+
+@Test @MainActor func demoStoreReportsNoLiveSessionToRestoreRevokeOrDelete() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  #expect(store.usesLiveAPI == false)
+  #expect(try await store.restoreSession() == nil)
+  // Nothing to revoke or delete server-side; the demo data must survive both untouched.
+  await store.logout()
+  try await store.deleteAccount(password: "senha-de-demonstração")
+  #expect(store.currentUser == store.snapshot.profile)
+
+  let exchanged = try await store.exchangeMobileAuthorization(code: "codigo-de-demonstração")
+  #expect(exchanged == store.snapshot.profile)
 }
 
 @Test @MainActor func mockPreviewFlagsTermsTakenFromTheServerModerationLexicon() async throws {

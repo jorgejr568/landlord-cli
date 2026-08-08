@@ -11,22 +11,19 @@ let package = Package(
   products: [
     .library(name: "RentivoCore", targets: ["RentivoCore"])
   ],
-  dependencies: [
-    .package(url: "https://github.com/apple/swift-openapi-generator", from: "1.13.0"),
-    .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.12.0"),
-    .package(url: "https://github.com/apple/swift-openapi-urlsession", from: "1.3.1"),
-  ],
   targets: [
+    // `Rentivo/openapi.json` is the committed copy of the server contract, kept byte-identical to
+    // `frontend/openapi.json` by `make ios-openapi-check`. For this package it is a reference
+    // document, not a build input: the Data layer hand-writes its wire DTOs (see `RemoteDTOs.swift`),
+    // so nothing here consumes generated code and no generator plugin runs.
     .target(
       name: "RentivoCore",
-      dependencies: [
-        .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
-        .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
-      ],
       path: "Rentivo",
-      exclude: ["App", "DesignSystem", "Features", "Resources"],
-      sources: ["Domain", "Data"],
-      plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+      exclude: [
+        "App", "DesignSystem", "Features", "Resources",
+        "openapi.json", "openapi-generator-config.yaml",
+      ],
+      sources: ["Domain", "Data"]
     ),
     .testTarget(
       name: "RentivoCoreTests",

@@ -44,8 +44,9 @@ import Testing
       Issue.record("Expected an anonymous session after signOut() against the mock store")
       return
     }
-    // The mock store has no `APIRentivoStore` to revoke a token against, so `signOut()` takes the
-    // `completeSignOut()` shortcut directly and never flips `isSigningOut` to true in between.
+    // The mock store reports `usesLiveAPI == false` and has no token to revoke, so `signOut()`
+    // takes the `completeSignOut()` shortcut directly and never flips `isSigningOut` to true in
+    // between.
     #expect(app.isSigningOut == false)
     #expect(app.selectedTab == .home)
     #expect(app.notice == nil)

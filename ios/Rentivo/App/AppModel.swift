@@ -48,7 +48,7 @@ final class AppModel {
   init(dependencies: AppDependencies) {
     self.dependencies = dependencies
     demoSettings = dependencies.demo.demoSettings
-    if dependencies.auth is APIRentivoStore {
+    if dependencies.auth.usesLiveAPI {
       session = .restoring
       observeSessionExpiry()
     }
@@ -81,20 +81,18 @@ final class AppModel {
   }
 
   func restoreSessionIfNeeded() async {
+    // Only a live-API session ever starts out `.restoring` (see `init(dependencies:)`), so the
+    // demo store returns here before its `restoreSession()` — which has nothing to restore — runs.
     guard case .restoring = session else { return }
-    guard let liveStore = dependencies.auth as? APIRentivoStore else {
-      session = .anonymous
-      return
-    }
     do {
-      session = try await liveStore.restoreSession().map(Session.authenticated) ?? .anonymous
+      session = try await dependencies.auth.restoreSession().map(Session.authenticated) ?? .anonymous
     } catch {
       session = .anonymous
       notice = AppNotice(kind: .warning, message: "Não foi possível restaurar sua sessão. Entre novamente.")
     }
   }
 
-  var usesLiveAPI: Bool { dependencies.auth is APIRentivoStore }
+  var usesLiveAPI: Bool { dependencies.auth.usesLiveAPI }
 
   func signIn() {
     session = .authenticated(currentUser)
@@ -103,26 +101,30 @@ final class AppModel {
   }
 
   func signInWithWebAuthorization() async throws {
-    guard let liveStore = dependencies.auth as? APIRentivoStore else { signIn(); return }
+    // Demo mode has no server to authorize against, so it takes the local sign-in shortcut
+    // instead of opening a browser sheet.
+    guard dependencies.auth.usesLiveAPI else { signIn(); return }
     let code = try await mobileWebAuthenticator.authorize()
-    session = .authenticated(try await liveStore.exchangeMobileAuthorization(code: code))
+    session = .authenticated(try await dependencies.auth.exchangeMobileAuthorization(code: code))
     selectedTab = .home
     notice = AppNotice(kind: .success, message: "Sessão conectada ao Rentivo.")
   }
 
   func signOut() async {
     guard !isSigningOut else { return }
-    guard let liveStore = dependencies.auth as? APIRentivoStore else {
+    // Demo mode has neither a token to revoke nor a browser session to close, so it drops
+    // straight to local state.
+    guard dependencies.auth.usesLiveAPI else {
       completeSignOut()
       return
     }
     isSigningOut = true
     defer { isSigningOut = false }
-    // Revoke the API token first (best-effort inside `liveStore.logout()`),
+    // Revoke the API token first (best-effort inside `logout()`),
     // then unconditionally drop local credentials/state: the user must never
     // end up "signed out" locally while the server still honors the old
     // token, nor stuck signed in locally because a later step failed.
-    await liveStore.logout()
+    await dependencies.auth.logout()
     completeSignOut()
     // The browser-cookie logout is best-effort and must never block sign-out
     // (which already happened above). Cancelling that sheet is an expected,
@@ -140,14 +142,16 @@ final class AppModel {
 
   func deleteAccount(password: String) async {
     guard !isDeletingAccount else { return }
-    guard let liveStore = dependencies.auth as? APIRentivoStore else {
+    // There is no demo account to delete, so demo mode just returns to the signed-out screen
+    // without claiming a deletion happened.
+    guard dependencies.auth.usesLiveAPI else {
       completeSignOut()
       return
     }
     isDeletingAccount = true
     defer { isDeletingAccount = false }
     do {
-      try await liveStore.deleteAccount(password: password)
+      try await dependencies.auth.deleteAccount(password: password)
       completeSignOut()
       notice = AppNotice(kind: .success, message: "Sua conta foi excluída.")
     } catch {
