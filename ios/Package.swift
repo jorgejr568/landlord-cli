@@ -15,7 +15,8 @@ let package = Package(
     // `Rentivo/openapi.json` is the committed copy of the server contract, kept byte-identical to
     // `frontend/openapi.json` by `make ios-openapi-check`. For this package it is a reference
     // document, not a build input: the Data layer hand-writes its wire DTOs (see `RemoteDTOs.swift`),
-    // so nothing here consumes generated code and no generator plugin runs.
+    // so nothing in this package consumes generated code and no generator plugin runs here.
+    // (The Xcode app target still carries the generator plugin — tracked as a follow-up.)
     .target(
       name: "RentivoCore",
       path: "Rentivo",
