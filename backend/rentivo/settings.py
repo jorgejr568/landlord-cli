@@ -140,6 +140,13 @@ class Settings(BaseSettings):
     # compromise for no operational benefit. `0` disables the purge.
     job_retention_days: int = 30
 
+    # How often the database driver's worker makes sure an `auth.cleanup` job is
+    # queued. Nothing else produces that job, so without this the login-token,
+    # challenge, and job-row cleanups never run. Only the database driver
+    # self-schedules -- Temporal deployments schedule `auth.cleanup` themselves
+    # (see docs/jobs.md). `0` disables self-scheduling.
+    auth_cleanup_interval_seconds: int = 3600
+
     # Background-job execution driver. `database` (default) uses the built-in
     # polling worker over the `jobs` table — zero extra dependencies. `temporal`
     # offloads execution to a Temporal cluster (requires the `temporal` extra;

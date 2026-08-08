@@ -10,6 +10,7 @@ uses a portable INSERT that runs on SQLite.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -18,6 +19,7 @@ from rentivo.encryption.base import EncryptionBackend
 from rentivo.encryption.base64 import Base64Backend
 from rentivo.jobs.sqlalchemy import (
     SQLAlchemyJobRepository,
+    _now,
     decode_job_payload,
     encode_job_payload,
 )
@@ -113,6 +115,57 @@ def test_decode_rows_returns_empty_when_nothing_can_be_decoded():
     bad = {"id": 2, "ulid": "B", "payload": json.dumps({"__enc": "enc:v1:whatever"})}
 
     assert repo._decode_rows([bad]) == []
+
+
+def _finish(db_connection, job_id: int, status: str, updated_at: datetime) -> None:
+    """Move a job to a terminal state with an explicit `updated_at`.
+
+    ``mark_succeeded`` cannot be used here: it stamps the row with MariaDB's
+    ``NOW()``, which SQLite does not provide.
+    """
+    db_connection.execute(
+        text("UPDATE jobs SET status = :status, updated_at = :updated_at WHERE id = :id"),
+        {"status": status, "updated_at": updated_at, "id": job_id},
+    )
+
+
+def test_has_active_or_recent_sees_a_pending_job(db_connection):
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    repo.enqueue("auth.cleanup", {})
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is True
+
+
+def test_has_active_or_recent_sees_a_running_job(db_connection):
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    job = repo.enqueue("auth.cleanup", {})
+    # A running job is old by `updated_at` yet must still block a new enqueue.
+    _finish(db_connection, job.id, "running", _now() - timedelta(days=1))
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is True
+
+
+def test_has_active_or_recent_sees_a_run_that_finished_inside_the_window(db_connection):
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    job = repo.enqueue("auth.cleanup", {})
+    _finish(db_connection, job.id, "succeeded", _now() - timedelta(minutes=10))
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is True
+
+
+def test_has_active_or_recent_ignores_a_run_that_finished_before_the_window(db_connection):
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    job = repo.enqueue("auth.cleanup", {})
+    _finish(db_connection, job.id, "succeeded", _now() - timedelta(hours=2))
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is False
+
+
+def test_has_active_or_recent_ignores_other_job_types(db_connection):
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    repo.enqueue("email.send", PAYLOAD)
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is False
 
 
 def test_repository_requires_an_encryption_backend():

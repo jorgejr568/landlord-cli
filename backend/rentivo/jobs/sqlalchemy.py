@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 from sqlalchemy import Connection, bindparam, text
@@ -230,3 +230,25 @@ class SQLAlchemyJobRepository(JobRepository):
         )
         result = self.conn.execute(stmt, {"job_type": job_type, "statuses": list(statuses)}).scalar()
         return int(result or 0)
+
+    def has_active_or_recent(self, job_type: str, within_seconds: int) -> bool:
+        """True when a `job_type` job is queued, running, or finished recently.
+
+        The worker's periodic scheduling uses this to avoid piling up duplicates:
+        an active row means one is already due, and a terminal row touched inside
+        the window means the last run is still recent enough. The cutoff is
+        computed here rather than with `NOW() - INTERVAL`, so the statement stays
+        portable and testable on SQLite.
+        """
+        cutoff = _now() - timedelta(seconds=within_seconds)
+        row = self.conn.execute(
+            text(
+                "SELECT 1 FROM jobs "
+                "WHERE job_type = :job_type "
+                "AND (status IN ('pending', 'running') OR updated_at > :cutoff) "
+                "LIMIT 1"
+            ),
+            {"job_type": job_type, "cutoff": cutoff},
+        ).scalar()
+        self.conn.commit()
+        return row is not None
