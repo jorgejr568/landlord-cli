@@ -1,51 +1,25 @@
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
-from fpdf import FPDF
 
 from rentivo.constants import TYPE_LABELS, format_month
 from rentivo.models import format_brl
 from rentivo.models.bill import Bill
 from rentivo.observability import traced
+from rentivo.pdf.document import PdfDocument, draw_footer, new_document
 
 if TYPE_CHECKING:
     from rentivo.models.theme import Theme
 
 logger = structlog.get_logger(__name__)
 
-FONTS_DIR = Path(__file__).parent / "fonts"
-
-
-def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    h = hex_color.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-
-def _shift(rgb: tuple[int, int, int], delta: int) -> tuple[int, int, int]:
-    """Brighten (delta > 0) or darken (delta < 0) an RGB tuple, clamped to 0-255."""
-    r, g, b = (max(0, min(255, c + delta)) for c in rgb)
-    return (r, g, b)
-
-
-def _derive_colors(theme: Theme) -> dict[str, tuple[int, int, int]]:
-    primary_light = _hex_to_rgb(theme.primary_light)
-    text_color = _hex_to_rgb(theme.text_color)
-
-    return {
-        "primary": _hex_to_rgb(theme.primary),
-        "primary_light": primary_light,
-        "secondary": _hex_to_rgb(theme.secondary),
-        "secondary_dark": _hex_to_rgb(theme.secondary_dark),
-        "text_color": text_color,
-        "text_contrast": _hex_to_rgb(theme.text_contrast),
-        "muted_text": _shift(text_color, 68),
-        "row_alt": _shift(primary_light, 6),
-        "border_color": _shift(primary_light, -28),
-    }
+# The invoice footer clears the 20mm bottom margin, so auto page-break can stay
+# on: nothing it draws lands below the break threshold.
+_FOOTER_OFFSET = -30
+_FOOTER_GAP = 5
 
 
 class InvoicePDF:
@@ -59,52 +33,22 @@ class InvoicePDF:
         pix_payload: str = "",
         theme: Theme | None = None,
     ) -> bytes:
-        from rentivo.models.theme import AVAILABLE_FONTS, DEFAULT_THEME
+        doc = new_document(theme)
+        pdf = doc.pdf
 
-        theme = theme or DEFAULT_THEME
-        self._colors = _derive_colors(theme)
-
-        # Resolve font families
-        header_info = AVAILABLE_FONTS.get(theme.header_font, AVAILABLE_FONTS["Montserrat"])
-        text_info = AVAILABLE_FONTS.get(theme.text_font, AVAILABLE_FONTS["Montserrat"])
-
-        self._hf = theme.header_font.replace(" ", "")
-        self._hf_sb = self._hf + "SB"
-        self._tf = theme.text_font.replace(" ", "")
-        self._tf_sb = self._tf + "SB"
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=20)
-
-        # Register header font
-        pdf.add_font(self._hf, "", str(FONTS_DIR / header_info["regular"]))
-        pdf.add_font(self._hf, "B", str(FONTS_DIR / header_info["bold"]))
-        pdf.add_font(self._hf_sb, "", str(FONTS_DIR / header_info["semibold"]))
-
-        # Register text font if different
-        if self._tf != self._hf:
-            pdf.add_font(self._tf, "", str(FONTS_DIR / text_info["regular"]))
-            pdf.add_font(self._tf, "B", str(FONTS_DIR / text_info["bold"]))
-            pdf.add_font(self._tf_sb, "", str(FONTS_DIR / text_info["semibold"]))
-        else:
-            self._tf_sb = self._hf_sb
-
-        page_w = pdf.w - pdf.l_margin - pdf.r_margin
-
-        self._draw_header(pdf, page_w, billing_name, bill.reference_month, bill.due_date)
-        self._draw_table(pdf, page_w, bill)
-        self._draw_total(pdf, page_w, bill.total_amount)
+        self._draw_header(doc, billing_name, bill.reference_month, bill.due_date)
+        self._draw_table(doc, bill)
+        self._draw_total(doc, bill.total_amount)
 
         if bill.notes:
-            self._draw_notes(pdf, page_w, bill.notes)
+            self._draw_notes(doc, bill.notes)
 
-        self._draw_footer(pdf, page_w)
+        self._draw_footer(doc)
 
         if pix_qrcode_png:
             pdf.add_page()
-            self._draw_pix_page(pdf, page_w, pix_qrcode_png, bill.total_amount, pix_key, pix_payload)
-            self._draw_footer(pdf, page_w)
+            self._draw_pix_page(doc, pix_qrcode_png, bill.total_amount, pix_key, pix_payload)
+            self._draw_footer(doc)
 
         output = pdf.output()
         logger.debug(
@@ -118,7 +62,7 @@ class InvoicePDF:
 
     def _draw_info_card(
         self,
-        pdf: FPDF,
+        doc: PdfDocument,
         x: float,
         y: float,
         w: float,
@@ -127,30 +71,32 @@ class InvoicePDF:
         value: str,
     ) -> None:
         """Draw a single info card with accent bar, label, and value."""
-        c = self._colors
+        pdf = doc.pdf
+        c = doc.colors
         pdf.set_fill_color(*c["primary_light"])
         pdf.rect(x, y, w, h, "F")
         pdf.set_fill_color(*c["secondary_dark"])
         pdf.rect(x, y, 3, h, "F")
 
         pdf.set_xy(x + 10, y + 3)
-        pdf.set_font(self._tf_sb, "", 7)
+        pdf.set_font(doc.text_font_sb, "", 7)
         pdf.set_text_color(*c["muted_text"])
         pdf.cell(w - 14, 5, label, new_x="LEFT", new_y="NEXT")
         pdf.set_x(x + 10)
-        pdf.set_font(self._tf, "B", 13)
+        pdf.set_font(doc.text_font, "B", 13)
         pdf.set_text_color(*c["text_color"])
         pdf.cell(w - 14, 9, value)
 
     def _draw_header(
         self,
-        pdf: FPDF,
-        page_w: float,
+        doc: PdfDocument,
         billing_name: str,
         reference_month: str,
         due_date: str | None = None,
     ) -> None:
-        c = self._colors
+        pdf = doc.pdf
+        c = doc.colors
+        page_w = doc.page_w
         x = pdf.l_margin
         y = pdf.get_y()
 
@@ -161,10 +107,10 @@ class InvoicePDF:
         # Title
         pdf.set_y(y + 10)
         pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(self._hf, "B", 28)
+        pdf.set_font(doc.header_font, "B", 28)
         pdf.cell(0, 14, "FATURA", align="C", new_x="LMARGIN", new_y="NEXT")
 
-        pdf.set_font(self._tf, "", 9)
+        pdf.set_font(doc.text_font, "", 9)
         pdf.set_text_color(210, 195, 215)
         pdf.cell(
             0,
@@ -183,12 +129,12 @@ class InvoicePDF:
         card_y = pdf.get_y()
 
         if due_date:
-            self._draw_info_card(pdf, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name)
+            self._draw_info_card(doc, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name)
 
             row2_y = card_y + card_h + 6
             card_w = page_w / 2 - 3
             self._draw_info_card(
-                pdf,
+                doc,
                 x,
                 row2_y,
                 card_w,
@@ -196,13 +142,13 @@ class InvoicePDF:
                 "REFER\u00caNCIA",
                 format_month(reference_month),
             )
-            self._draw_info_card(pdf, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date)
+            self._draw_info_card(doc, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date)
             card_y = row2_y
         else:
             card_w = page_w / 2 - 3
-            self._draw_info_card(pdf, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name)
+            self._draw_info_card(doc, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name)
             self._draw_info_card(
-                pdf,
+                doc,
                 x + card_w + 6,
                 card_y,
                 card_w,
@@ -213,15 +159,17 @@ class InvoicePDF:
 
         pdf.set_y(card_y + card_h + 14)
 
-    def _draw_table(self, pdf: FPDF, page_w: float, bill: Bill) -> None:
-        c = self._colors
+    def _draw_table(self, doc: PdfDocument, bill: Bill) -> None:
+        pdf = doc.pdf
+        c = doc.colors
+        page_w = doc.page_w
         col_desc = page_w * 0.50
         col_type = page_w * 0.22
         col_amount = page_w * 0.28
         line_h = 11
 
         # Section label
-        pdf.set_font(self._hf, "B", 11)
+        pdf.set_font(doc.header_font, "B", 11)
         pdf.set_text_color(*c["primary"])
         pdf.cell(0, 8, "ITENS DA FATURA", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
@@ -236,7 +184,7 @@ class InvoicePDF:
         # Table header
         pdf.set_fill_color(*c["primary"])
         pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(self._tf_sb, "", 9)
+        pdf.set_font(doc.text_font_sb, "", 9)
 
         pdf.cell(col_desc, line_h, "  Descri\u00e7\u00e3o", border=0, fill=True)
         pdf.cell(col_type, line_h, "Tipo", border=0, fill=True, align="C")
@@ -253,7 +201,7 @@ class InvoicePDF:
 
         # Table rows
         pdf.set_text_color(*c["text_color"])
-        pdf.set_font(self._tf, "", 10)
+        pdf.set_font(doc.text_font, "", 10)
 
         for i, item in enumerate(bill.line_items):
             if i % 2 == 0:
@@ -264,9 +212,9 @@ class InvoicePDF:
             pdf.cell(col_desc, line_h, f"  {item.description}", border=0, fill=True)
 
             type_label = TYPE_LABELS.get(item.item_type, item.item_type)
-            pdf.set_font(self._tf, "", 9)
+            pdf.set_font(doc.text_font, "", 9)
             pdf.cell(col_type, line_h, type_label, border=0, fill=True, align="C")
-            pdf.set_font(self._tf_sb, "", 10)
+            pdf.set_font(doc.text_font_sb, "", 10)
             pdf.cell(
                 col_amount,
                 line_h,
@@ -277,7 +225,7 @@ class InvoicePDF:
                 new_x="LMARGIN",
                 new_y="NEXT",
             )
-            pdf.set_font(self._tf, "", 10)
+            pdf.set_font(doc.text_font, "", 10)
 
         # Bottom border
         pdf.set_draw_color(*c["border_color"])
@@ -285,19 +233,20 @@ class InvoicePDF:
         y = pdf.get_y()
         pdf.line(pdf.l_margin, y, pdf.l_margin + page_w, y)
 
-    def _draw_total(self, pdf: FPDF, page_w: float, total_amount: int) -> None:
-        c = self._colors
+    def _draw_total(self, doc: PdfDocument, total_amount: int) -> None:
+        pdf = doc.pdf
+        c = doc.colors
         pdf.ln(4)
 
-        col_label = page_w * 0.72
-        col_amount = page_w * 0.28
+        col_label = doc.page_w * 0.72
+        col_amount = doc.page_w * 0.28
         total_h = 14
 
         pdf.set_fill_color(*c["secondary_dark"])
         pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(self._tf_sb, "", 12)
+        pdf.set_font(doc.text_font_sb, "", 12)
         pdf.cell(col_label, total_h, "TOTAL  ", border=0, fill=True, align="R")
-        pdf.set_font(self._hf, "B", 14)
+        pdf.set_font(doc.header_font, "B", 14)
         pdf.cell(
             col_amount,
             total_h,
@@ -309,13 +258,15 @@ class InvoicePDF:
             new_y="NEXT",
         )
 
-    def _draw_notes(self, pdf: FPDF, page_w: float, notes: str) -> None:
-        c = self._colors
+    def _draw_notes(self, doc: PdfDocument, notes: str) -> None:
+        pdf = doc.pdf
+        c = doc.colors
+        page_w = doc.page_w
         pdf.ln(14)
 
-        pdf.set_font(self._tf_sb, "", 8)
+        pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["muted_text"])
-        pdf.cell(0, 6, "OBSERVA\u00c7\u00d5ES", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, "OBSERVA\u00c7ÕES", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
 
         x = pdf.l_margin
@@ -327,19 +278,20 @@ class InvoicePDF:
         pdf.rect(x + 3, y, page_w - 3, 20, "F")
         pdf.set_xy(x + 12, y + 6)
         pdf.set_text_color(*c["text_color"])
-        pdf.set_font(self._tf, "", 10)
+        pdf.set_font(doc.text_font, "", 10)
         pdf.multi_cell(page_w - 18, 6, notes)
 
     def _draw_pix_page(
         self,
-        pdf: FPDF,
-        page_w: float,
+        doc: PdfDocument,
         qrcode_png: bytes,
         total_amount: int,
         pix_key: str,
         pix_payload: str,
     ) -> None:
-        c = self._colors
+        pdf = doc.pdf
+        c = doc.colors
+        page_w = doc.page_w
         x = pdf.l_margin
 
         # Header banner
@@ -349,7 +301,7 @@ class InvoicePDF:
 
         pdf.set_y(y + 8)
         pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(self._hf, "B", 22)
+        pdf.set_font(doc.header_font, "B", 22)
         pdf.cell(0, 12, "PAGAMENTO VIA PIX", align="C", new_x="LMARGIN", new_y="NEXT")
 
         pdf.ln(16)
@@ -364,7 +316,7 @@ class InvoicePDF:
         pdf.set_y(qr_y + qr_size + 6)
 
         # Instruction text
-        pdf.set_font(self._tf, "", 10)
+        pdf.set_font(doc.text_font, "", 10)
         pdf.set_text_color(*c["muted_text"])
         pdf.cell(
             0,
@@ -384,11 +336,11 @@ class InvoicePDF:
         pdf.rect(x, card_y, page_w, card_h, "F")
 
         pdf.set_xy(x + 10, card_y + 3)
-        pdf.set_font(self._tf_sb, "", 8)
+        pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(180, 220, 220)
         pdf.cell(0, 5, "VALOR A PAGAR")
         pdf.set_xy(x + 10, card_y + 10)
-        pdf.set_font(self._hf, "B", 18)
+        pdf.set_font(doc.header_font, "B", 18)
         pdf.set_text_color(*c["text_contrast"])
         pdf.cell(0, 10, format_brl(total_amount))
 
@@ -396,7 +348,7 @@ class InvoicePDF:
 
         # PIX key info card
         if pix_key:
-            pdf.set_font(self._tf_sb, "", 8)
+            pdf.set_font(doc.text_font_sb, "", 8)
             pdf.set_text_color(*c["muted_text"])
             pdf.cell(0, 5, "CHAVE PIX", new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
@@ -409,7 +361,7 @@ class InvoicePDF:
             pdf.rect(x, key_y, 3, key_h, "F")
 
             pdf.set_xy(x + 10, key_y + 3)
-            pdf.set_font(self._tf, "B", 11)
+            pdf.set_font(doc.text_font, "B", 11)
             pdf.set_text_color(*c["text_color"])
             pdf.cell(0, 8, pix_key)
 
@@ -417,7 +369,7 @@ class InvoicePDF:
 
         # Pix Copia e Cola
         if pix_payload:
-            pdf.set_font(self._tf_sb, "", 8)
+            pdf.set_font(doc.text_font_sb, "", 8)
             pdf.set_text_color(*c["muted_text"])
             pdf.cell(0, 5, "PIX COPIA E COLA", new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
@@ -425,7 +377,7 @@ class InvoicePDF:
             payload_y = pdf.get_y()
             payload_cell_w = page_w - 12
 
-            pdf.set_font(self._tf, "", 7)
+            pdf.set_font(doc.text_font, "", 7)
             result = pdf.multi_cell(payload_cell_w, 4, pix_payload, dry_run=True, output="LINES")
             text_h = len(result) * 4
             payload_h = text_h + 8
@@ -437,20 +389,11 @@ class InvoicePDF:
             pdf.rect(x, payload_y, page_w, payload_h, "D")
 
             pdf.set_xy(x + 6, payload_y + 4)
-            pdf.set_font(self._tf, "", 7)
+            pdf.set_font(doc.text_font, "", 7)
             pdf.set_text_color(*c["text_color"])
             pdf.multi_cell(payload_cell_w, 4, pix_payload)
 
             pdf.set_y(payload_y + payload_h + 4)
 
-    def _draw_footer(self, pdf: FPDF, page_w: float) -> None:
-        c = self._colors
-        pdf.set_y(-30)
-        pdf.set_draw_color(*c["border_color"])
-        pdf.set_line_width(0.3)
-        y = pdf.get_y()
-        pdf.line(pdf.l_margin, y, pdf.l_margin + page_w, y)
-        pdf.ln(5)
-        pdf.set_font(self._tf, "", 7)
-        pdf.set_text_color(*c["muted_text"])
-        pdf.cell(0, 5, "Documento gerado automaticamente", align="C")
+    def _draw_footer(self, doc: PdfDocument) -> None:
+        draw_footer(doc, offset=_FOOTER_OFFSET, gap=_FOOTER_GAP)
