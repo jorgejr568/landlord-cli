@@ -4,18 +4,17 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from rentivo.api.authentication import reject_out_of_band_credentials
+from rentivo.api.cookies import (
+    client_ip,
+    copy_set_cookies,
+    delete_challenge_cookie,
+    set_challenge_cookie,
+)
 from rentivo.api.dependencies import get_services
 from rentivo.api.errors import Problem, ProblemException, problem, problem_response
-from rentivo.api.routes.auth import (
-    _ANALYTICS_EVENT_HEADER,
-    _authenticated_response,
-    _client_ip,
-    _copy_set_cookies,
-    _delete_cookie,
-    _mfa_response,
-    _set_challenge_cookie,
-)
+from rentivo.api.routes.auth import ANALYTICS_EVENT_HEADER
 from rentivo.api.schemas.auth import AuthenticatedResponse, MFARequiredResponse
+from rentivo.api.session_response import login_response, mfa_response
 from rentivo.services.container import RequestServices
 from rentivo.settings import settings
 
@@ -45,7 +44,7 @@ def _failure_response(*, as_json: bool) -> JSONResponse | RedirectResponse:
         )
     else:
         response = RedirectResponse("/login?error=google_auth_failed", status_code=302)
-    _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+    delete_challenge_cookie(response)
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -68,7 +67,7 @@ async def google_start(services: RequestServices = Depends(get_services)) -> Red
         services.google_auth.build_authorization_url(issued.challenge.uuid),
         status_code=302,
     )
-    _set_challenge_cookie(response, issued.nonce)
+    set_challenge_cookie(response, issued.nonce)
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -109,31 +108,29 @@ async def google_callback(
         return _failure_response(as_json=as_json)
     result = services.login.login_with_google(
         email=info.email,
-        client_ip=_client_ip(request),
+        client_ip=client_ip(request),
         user_agent=request.headers.get("user-agent", ""),
     )
     if result.status == "mfa_required":
-        if result.challenge_id is None or result.challenge_nonce is None:
-            raise RuntimeError("Google MFA result is incomplete")
         if as_json:
-            response = _mfa_response(result)
+            response = mfa_response(result)
         else:
             response = RedirectResponse(
                 f"/mfa-verify?challenge={result.challenge_id}",
                 status_code=302,
             )
-            _set_challenge_cookie(response, result.challenge_nonce)
+            set_challenge_cookie(response, result.challenge_nonce)
     else:
-        cookie_response = _authenticated_response(result)
+        cookie_response = login_response(result)
         if as_json:
             response = cookie_response
-            _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+            delete_challenge_cookie(response)
         else:
             response = RedirectResponse("/billings/", status_code=302)
-            _copy_set_cookies(cookie_response, response)
-            _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+            copy_set_cookies(cookie_response, response)
+            delete_challenge_cookie(response)
             analytics_event = result.analytics_event or {}
             if event_name := analytics_event.get("event"):
-                response.headers[_ANALYTICS_EVENT_HEADER] = str(event_name)
+                response.headers[ANALYTICS_EVENT_HEADER] = str(event_name)
     response.headers["Cache-Control"] = "no-store"
     return response

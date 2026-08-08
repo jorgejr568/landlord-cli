@@ -18,11 +18,11 @@ from webauthn.helpers.structs import (
 )
 
 from rentivo.api.authentication import allow_mfa_setup, reject_out_of_band_credentials
+from rentivo.api.cookies import clear_auth_cookies, client_ip, delete_challenge_cookie, set_challenge_cookie
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_login_scope
 from rentivo.api.errors import ProblemException, problem
 from rentivo.api.principal import Principal
-from rentivo.api.routes.auth import _clear_auth_cookies, _client_ip, _delete_cookie, _set_challenge_cookie
 from rentivo.api.schemas.security import (
     AccountDeleteRequest,
     MFAStatusResponse,
@@ -44,6 +44,7 @@ from rentivo.api.schemas.security import (
 from rentivo.constants.api_scopes import APIScope
 from rentivo.models.audit_log import AuditEventType
 from rentivo.models.mfa import UserPasskey
+from rentivo.models.user import User
 from rentivo.services.account_deletion_service import SoleOrganizationAdminError
 from rentivo.services.audit_serializers import serialize_user
 from rentivo.services.container import RequestServices
@@ -68,12 +69,12 @@ _MFA_CHANGE_LABELS = {
 }
 
 
-def _profile(user: object) -> ProfileResponse:
+def _profile(user: User) -> ProfileResponse:
     return ProfileResponse(
-        email=str(getattr(user, "email")),
-        pix_key=str(getattr(user, "pix_key", "") or ""),
-        pix_merchant_name=str(getattr(user, "pix_merchant_name", "") or ""),
-        pix_merchant_city=str(getattr(user, "pix_merchant_city", "") or ""),
+        email=user.email,
+        pix_key=user.pix_key or "",
+        pix_merchant_name=user.pix_merchant_name or "",
+        pix_merchant_city=user.pix_merchant_city or "",
     )
 
 
@@ -127,7 +128,7 @@ def _send_mfa_changed_email(
                     "email": principal.user.email,
                     "change_label": _MFA_CHANGE_LABELS[change_kind],
                     "changed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "source_ip": _client_ip(request),
+                    "source_ip": client_ip(request),
                     "reset_url": f"{settings.public_app_url.rstrip('/')}/forgot-password",
                 },
             },
@@ -227,7 +228,7 @@ async def change_password(
                 "ctx": {
                     "email": principal.user.email,
                     "changed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "source_ip": _client_ip(request),
+                    "source_ip": client_ip(request),
                     "reset_url": f"{settings.public_app_url.rstrip('/')}/forgot-password",
                 },
             },
@@ -321,7 +322,7 @@ async def disable_totp(
     )
     _send_mfa_changed_email(request, principal, services, "totp_disabled")
     response = Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_mfa_disabled"})
-    _clear_auth_cookies(response, include_challenge=True)
+    clear_auth_cookies(response, include_challenge=True)
     return response
 
 
@@ -367,7 +368,7 @@ async def delete_account(
         status_code=204,
         headers={"X-Rentivo-Analytics-Event": "rentivo_account_deleted"},
     )
-    _clear_auth_cookies(response, include_challenge=True)
+    clear_auth_cookies(response, include_challenge=True)
     return response
 
 
@@ -444,7 +445,7 @@ async def begin_passkey_registration(
         payload.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_unset=True),
         headers={"Cache-Control": "no-store"},
     )
-    _set_challenge_cookie(response, issued.nonce)
+    set_challenge_cookie(response, issued.nonce)
     return response
 
 
@@ -520,7 +521,7 @@ async def complete_passkey_registration(
             "X-Rentivo-Analytics-Event": "rentivo_passkey_added",
         },
     )
-    _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+    delete_challenge_cookie(response)
     return response
 
 
@@ -550,5 +551,5 @@ async def delete_passkey(
     )
     _send_mfa_changed_email(request, principal, services, "passkey_deleted")
     response = Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_passkey_removed"})
-    _clear_auth_cookies(response, include_challenge=True)
+    clear_auth_cookies(response, include_challenge=True)
     return response
