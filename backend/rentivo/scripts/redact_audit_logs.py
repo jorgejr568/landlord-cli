@@ -7,11 +7,11 @@ Usage:
 Behavior:
 - Walks every ``audit_logs`` row.
 - For each row, parses ``previous_state`` and ``new_state`` JSON (each may be NULL).
-- If the parsed dict contains ``pix_key`` (PIX mask), ``pix_merchant_name`` /
-  ``pix_merchant_city`` (free-text mask), or ``to_email`` / ``invited_email`` /
-  ``invited_by_email`` / ``email`` / ``to`` (email mask) as keys, replaces the
-  value in place with a partial-mask redaction (see
-  :mod:`rentivo.pii_redaction`).
+- Every key the live redactor treats as PII — :data:`rentivo.pii_redaction.PII_FIELDS`,
+  the same table ``AuditService.log`` and the structlog processor chain mask
+  through — is replaced in place with its partial-mask redaction. Reading the
+  table rather than restating it is what keeps the backfill from lagging the
+  redactor when a field is added there.
 - The redaction is deterministic and key-less, so already-redacted rows are
   byte-for-byte unchanged on re-run.
 - Writes back the rewritten JSON only if the dict actually changed.
@@ -28,24 +28,19 @@ deploy already have the redacted shape; this script handles the legacy backlog.
 from __future__ import annotations
 
 import json
-import sys
 
 import structlog
 from rich.console import Console
 from rich.table import Table
 from sqlalchemy import Connection, text
 
-from rentivo.db import get_connection, initialize_db
-from rentivo.logging import configure_logging
-from rentivo.pii_redaction import PIIKind, redact
+from rentivo.pii_redaction import PII_FIELDS, normalize_field, redact
+from rentivo.scripts._cli import boot, parse_dry_run
 
 logger = structlog.get_logger(__name__)
 console = Console()
 
 
-_PIX_KEYS = ("pix_key",)
-_TEXT_KEYS = ("pix_merchant_name", "pix_merchant_city")
-_EMAIL_KEYS = ("to_email", "invited_email", "invited_by_email", "email", "to")
 _DROP_KEYS = ("organization_name",)
 
 
@@ -66,18 +61,21 @@ def _redact_state(state_json: str | None) -> tuple[str | None, bool]:
         return state_json, False
 
     changed = False
-    # email.send job payloads stored plaintext to_email before this PR.
-    # Invite audit rows stored plaintext invited_email / invited_by_email
-    # before the redact-serialize-invite change.
-    for keys, kind in ((_PIX_KEYS, PIIKind.PIX), (_TEXT_KEYS, PIIKind.TEXT), (_EMAIL_KEYS, PIIKind.EMAIL)):
-        for key in keys:
-            if key not in data:
-                continue
-            value = data[key]
-            redacted = redact(value or "", kind)
-            if redacted != value:
-                data[key] = redacted
-                changed = True
+    # Legacy rows carry PII under whatever key the serializer of the day used:
+    # email.send payloads stored a plaintext to_email, invite rows stored
+    # invited_email / invited_by_email, login rows a bare email. Rather than
+    # restate that list, look every key up in the live redactor's table so a
+    # field added there is backfilled here on the next run. Top-level keys
+    # only — audit state dicts are flat.
+    for key in list(data):
+        kind = PII_FIELDS.get(normalize_field(key))
+        if kind is None:
+            continue
+        value = data[key]
+        redacted = redact(value or "", kind)
+        if redacted != value:
+            data[key] = redacted
+            changed = True
 
     # Drop legacy keys that the current serializers no longer write.
     # organization_name was being logged in plaintext on invite audit rows;
@@ -134,10 +132,8 @@ def run(conn: Connection, *, dry_run: bool) -> None:
 
 
 def main() -> None:
-    configure_logging(cli=True)
-    dry_run = "--dry-run" in sys.argv
-    initialize_db()
-    conn = get_connection()
+    conn = boot()
+    dry_run = parse_dry_run()
     run(conn, dry_run=dry_run)
 
 

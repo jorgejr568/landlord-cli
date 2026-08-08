@@ -307,11 +307,11 @@ class TestRedactAuditLogs:
         assert state["ctx_keys_count"] == 2
 
     def test_main_invokes_run_with_factories(self, seeded_audit_db):
-        from rentivo.scripts import redact_audit_logs
+        from rentivo.scripts import _cli, redact_audit_logs
 
         with (
-            patch.object(redact_audit_logs, "initialize_db"),
-            patch.object(redact_audit_logs, "get_connection", return_value=seeded_audit_db),
+            patch.object(_cli, "initialize_db"),
+            patch.object(_cli, "get_connection", return_value=seeded_audit_db),
             patch("sys.argv", ["prog"]),
         ):
             redact_audit_logs.main()

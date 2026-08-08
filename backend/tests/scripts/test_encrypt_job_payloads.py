@@ -86,13 +86,14 @@ def test_leaves_an_unparseable_row_untouched(db_connection):
 
 def test_main_wires_the_db_and_encryption_factories(monkeypatch, db_connection):
     import rentivo.scripts.encrypt_job_payloads as mod
+    from rentivo.scripts import _cli
 
     _insert(db_connection, "A", json.dumps(LEGACY))
-    monkeypatch.setattr(mod, "initialize_db", lambda: None)
-    monkeypatch.setattr(mod, "get_connection", lambda: db_connection)
+    monkeypatch.setattr(_cli, "initialize_db", lambda: None)
+    monkeypatch.setattr(_cli, "get_connection", lambda: db_connection)
+    monkeypatch.setattr(_cli, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(mod, "get_encryption", Base64Backend)
-    monkeypatch.setattr(mod, "configure_logging", lambda **kwargs: None)
-    monkeypatch.setattr(mod.sys, "argv", ["encrypt_job_payloads"])
+    monkeypatch.setattr(_cli.sys, "argv", ["encrypt_job_payloads"])
 
     mod.main()
 
@@ -101,13 +102,14 @@ def test_main_wires_the_db_and_encryption_factories(monkeypatch, db_connection):
 
 def test_main_honours_the_dry_run_flag(monkeypatch, db_connection):
     import rentivo.scripts.encrypt_job_payloads as mod
+    from rentivo.scripts import _cli
 
     _insert(db_connection, "A", json.dumps(LEGACY))
-    monkeypatch.setattr(mod, "initialize_db", lambda: None)
-    monkeypatch.setattr(mod, "get_connection", lambda: db_connection)
+    monkeypatch.setattr(_cli, "initialize_db", lambda: None)
+    monkeypatch.setattr(_cli, "get_connection", lambda: db_connection)
+    monkeypatch.setattr(_cli, "configure_logging", lambda **kwargs: None)
     monkeypatch.setattr(mod, "get_encryption", Base64Backend)
-    monkeypatch.setattr(mod, "configure_logging", lambda **kwargs: None)
-    monkeypatch.setattr(mod.sys, "argv", ["encrypt_job_payloads", "--dry-run"])
+    monkeypatch.setattr(_cli.sys, "argv", ["encrypt_job_payloads", "--dry-run"])
 
     mod.main()
 
