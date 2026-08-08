@@ -136,6 +136,7 @@ frontend-test-cov:
 .PHONY: frontend-check
 frontend-check: frontend-test-cov
 	$(NPM_FRONTEND) run typecheck
+	$(NPM_FRONTEND) run typecheck:e2e
 	$(NPM_FRONTEND) run lint
 	$(NPM_FRONTEND) run build
 
