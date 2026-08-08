@@ -5,6 +5,7 @@ import app.rentivo.domain.BillingID
 import app.rentivo.domain.FileUpload
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -155,28 +156,47 @@ class MultipartUploadEncodingTest {
   @Test
   fun `binary upload payloads survive the multipart framing byte for byte`() {
     val bytes = byteArrayOf(0x00, 0x7F.toByte(), 0xFF.toByte(), 0x25, 0x50)
-    val body = multipartBody(
-      boundary = "RentivoBoundary-test",
-      name = null,
-      files = listOf(
-        MultipartFile(
-          field = "file",
-          upload = FileUpload(
-            data = bytes,
-            filename = "raw.bin",
-            mediaType = "application/octet-stream",
-          ),
-        )
-      ),
-    )
+    val body = binaryUploadBody(bytes)
 
     val header = "--RentivoBoundary-test\r\n" +
       "Content-Disposition: form-data; name=\"file\"; filename=\"raw.bin\"\r\n" +
       "Content-Type: application/octet-stream\r\n\r\n"
     val start = header.toByteArray().size
+    val written = Buffer().also { body.writeTo(it) }.readByteArray()
     assertEquals(
       bytes.toList(),
-      body.copyOfRange(start, start + bytes.size).toList(),
+      written.copyOfRange(start, start + bytes.size).toList(),
     )
   }
+
+  @Test
+  fun `the streamed body declares the exact length it writes`() {
+    val body = binaryUploadBody(byteArrayOf(0x00, 0xFF.toByte(), 0x25))
+
+    // A wrong `contentLength()` is not a formatting nit: OkHttp would truncate the body or hang
+    // waiting for bytes that never come, so it must equal what `writeTo` actually produced.
+    assertEquals(
+      Buffer().also { body.writeTo(it) }.size,
+      body.contentLength(),
+    )
+    assertEquals(
+      "multipart/form-data; boundary=RentivoBoundary-test",
+      body.contentType().toString(),
+    )
+  }
+
+  private fun binaryUploadBody(bytes: ByteArray): MultipartUploadBody = MultipartUploadBody(
+    boundary = "RentivoBoundary-test",
+    name = null,
+    files = listOf(
+      MultipartFile(
+        field = "file",
+        upload = FileUpload(
+          data = bytes,
+          filename = "raw.bin",
+          mediaType = "application/octet-stream",
+        ),
+      )
+    ),
+  )
 }

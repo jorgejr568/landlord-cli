@@ -15,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -148,6 +149,28 @@ class LiveAPIClientErrorMappingTest {
     }
 
   @Test
+  fun `a download leaves nothing but the finished file behind`() = runTest {
+    server.routeWithSession {
+      MockResponse()
+        .setResponseCode(200)
+        .setHeader("Content-Type", "application/pdf")
+        .setBody("%PDF-1.4")
+    }
+    val client = liveClient(server, downloads = downloads)
+    assertNotNull(client.restoreSession())
+
+    val file = client.download(path = "/api/v1/billings/b/bills/1/invoice", filename = "fatura")
+
+    // The write goes through a sibling temp file that is renamed into place, so the share sheet can
+    // never be handed a half-written document — and the temp file must not outlive the download.
+    assertEquals(
+      listOf(file.file.name),
+      downloads.directory.listFiles().orEmpty().map { it.name },
+    )
+    assertEquals("%PDF-1.4", file.file.readText())
+  }
+
+  @Test
   fun `an unknown content type downloads as an opaque binary`() = runTest {
     server.routeWithSession {
       MockResponse()
@@ -175,6 +198,28 @@ class LiveAPIClientErrorMappingTest {
       credentials = MemoryCredentialStore(),
       downloads = downloads,
       okHttp = impatient,
+    )
+
+    val error = serverError(
+      runCatching { client.exchangeMobileAuthorization("any-code") }.exceptionOrNull()
+    )
+
+    assertEquals(
+      "O Rentivo demorou para responder. Verifique sua conexão e tente novamente.",
+      error.message,
+    )
+  }
+
+  @Test
+  fun `a whole-call timeout maps to the same retryable message as a read timeout`() = runTest {
+    // OkHttp's `callTimeout` — the only bound covering a call that is slow overall rather than
+    // stalled on one socket read — throws a plain `InterruptedIOException`, not the
+    // `SocketTimeoutException` subclass, so it must not fall into the generic branch.
+    val client = liveClient(
+      server,
+      credentials = MemoryCredentialStore(),
+      downloads = downloads,
+      okHttp = failingClient(InterruptedIOException("timeout")),
     )
 
     val error = serverError(

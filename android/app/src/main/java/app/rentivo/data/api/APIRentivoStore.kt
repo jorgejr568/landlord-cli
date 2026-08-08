@@ -84,6 +84,10 @@ import app.rentivo.domain.WorkspaceID
 import app.rentivo.domain.WorkspaceResourceType
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.encodeToString
+import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody
+import okio.BufferedSink
 import java.util.UUID
 
 /**
@@ -737,17 +741,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     path: String,
     name: String? = null,
     files: List<MultipartFile>,
-  ): Response {
-    val boundary = "RentivoBoundary-${UUID.randomUUID()}"
-    return decodeOrInvalid(
-      client.request(
-        path = path,
-        method = "POST",
-        body = multipartBody(boundary = boundary, name = name, files = files),
-        contentType = "multipart/form-data; boundary=$boundary",
-      )
+  ): Response = decodeOrInvalid(
+    client.upload(
+      path = path,
+      body = MultipartUploadBody(
+        boundary = "RentivoBoundary-${UUID.randomUUID()}",
+        name = name,
+        files = files,
+      ),
     )
-  }
+  )
 
   private suspend fun execute(path: String, method: String) {
     client.request(path = path, method = method)
@@ -970,29 +973,55 @@ class APIRentivoStore(private val client: LiveAPIClient) :
 /** One file part of a `multipart/form-data` upload. */
 internal class MultipartFile(val field: String, val upload: FileUpload)
 
-internal fun multipartBody(
-  boundary: String,
-  name: String?,
-  files: List<MultipartFile>,
-): ByteArray {
-  val body = java.io.ByteArrayOutputStream()
-  fun append(text: String) = body.write(text.toByteArray())
-  if (name != null) {
-    append("--$boundary\r\n")
-    append("Content-Disposition: form-data; name=\"name\"\r\n\r\n$name\r\n")
+/**
+ * The `multipart/form-data` payload of an upload, written straight to the request sink.
+ *
+ * Streaming rather than assembling: a `ByteArrayOutputStream` build-up would hold the framed body
+ * next to the picked file's bytes and then copy it again on `toByteArray()`, so a large receipt or
+ * attachment briefly occupied several times its own size on a heap that Android caps per process.
+ * [writeTo] emits the framing around the one copy the caller already holds, and [contentLength]
+ * lets OkHttp send a fixed-length body instead of chunking it.
+ */
+internal class MultipartUploadBody(
+  private val boundary: String,
+  private val name: String?,
+  private val files: List<MultipartFile>,
+) : RequestBody() {
+
+  override fun contentType(): MediaType =
+    "multipart/form-data; boundary=$boundary".toMediaType()
+
+  override fun contentLength(): Long {
+    var length = 0L
+    parts(text = { length += it.toByteArray().size }, bytes = { length += it.size })
+    return length
   }
-  for (file in files) {
-    append("--$boundary\r\n")
-    append(
-      "Content-Disposition: form-data; name=\"${file.field}\"; " +
-        "filename=\"${sanitizedFilename(file.upload.filename)}\"\r\n"
-    )
-    append("Content-Type: ${file.upload.mediaType}\r\n\r\n")
-    body.write(file.upload.data)
-    append("\r\n")
+
+  override fun writeTo(sink: BufferedSink) {
+    parts(text = { sink.writeUtf8(it) }, bytes = { sink.write(it) })
   }
-  append("--$boundary--\r\n")
-  return body.toByteArray()
+
+  /**
+   * Walks the body once, handing every framing string to [text] and every file payload to [bytes],
+   * so the length and the write can never drift apart.
+   */
+  private inline fun parts(text: (String) -> Unit, bytes: (ByteArray) -> Unit) {
+    if (name != null) {
+      text("--$boundary\r\n")
+      text("Content-Disposition: form-data; name=\"name\"\r\n\r\n$name\r\n")
+    }
+    for (file in files) {
+      text("--$boundary\r\n")
+      text(
+        "Content-Disposition: form-data; name=\"${file.field}\"; " +
+          "filename=\"${sanitizedFilename(file.upload.filename)}\"\r\n"
+      )
+      text("Content-Type: ${file.upload.mediaType}\r\n\r\n")
+      bytes(file.upload.data)
+      text("\r\n")
+    }
+    text("--$boundary--\r\n")
+  }
 }
 
 /**

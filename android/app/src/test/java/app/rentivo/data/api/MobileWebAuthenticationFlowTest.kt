@@ -112,6 +112,76 @@ class MobileWebAuthenticationFlowTest {
   }
 
   @Test
+  fun `accepts a callback carrying characters java net URI rejects`() {
+    val state = "native-state"
+    // `android.net.Uri` hands these through verbatim; `java.net.URI` throws on every one of them,
+    // which used to strand the sign-in with no callback at all.
+    val lenient = listOf(
+      "rentivo://auth/callback?code=one time code&state=native-state",
+      "rentivo://auth/callback?code=a|b&state=native-state",
+      "rentivo://auth/callback?code={code}&state=native-state",
+    )
+    val expected = listOf("one time code", "a|b", "{code}")
+
+    assertEquals(
+      expected,
+      lenient.map { MobileWebAuthenticationFlow.authorizationCode(it, state) },
+    )
+    for (callback in lenient) {
+      assertTrue(callback, MobileWebAuthenticationFlow.isCallbackUri(callback))
+    }
+    assertTrue(
+      MobileWebAuthenticationFlow.isLogoutCallback(
+        "rentivo://auth/logout?state=native-state&x={}",
+        state,
+      )
+    )
+  }
+
+  @Test
+  fun `matches a percent-encoded callback path like URLComponents does`() {
+    val state = "native-state"
+
+    assertEquals(
+      "one-time-code",
+      MobileWebAuthenticationFlow.authorizationCode(
+        "rentivo://auth/%63allback?code=one-time-code&state=native-state",
+        state,
+      ),
+    )
+    assertTrue(
+      MobileWebAuthenticationFlow.isLogoutCallback(
+        "rentivo://auth/log%6Fut?state=native-state",
+        state,
+      )
+    )
+    // Decoding the path must not make a *different* path match: `%2F` is an escaped separator, not
+    // the start of `/callback`.
+    assertNull(
+      MobileWebAuthenticationFlow.authorizationCode(
+        "rentivo://auth/other%2Fcallback?code=one-time-code&state=native-state",
+        state,
+      )
+    )
+  }
+
+  @Test
+  fun `ignores userinfo, port and fragment around the callback`() {
+    val state = "native-state"
+
+    assertEquals(
+      "one-time-code",
+      MobileWebAuthenticationFlow.authorizationCode(
+        "rentivo://AUTH/callback?code=one-time-code&state=native-state#done",
+        state,
+      ),
+    )
+    // A scheme with no authority at all is never one of ours.
+    assertFalse(MobileWebAuthenticationFlow.isCallbackUri("rentivo:auth/callback"))
+    assertFalse(MobileWebAuthenticationFlow.isCallbackUri("://auth/callback"))
+  }
+
+  @Test
   fun `recognizes any rentivo auth uri as belonging to this flow`() {
     assertTrue(MobileWebAuthenticationFlow.isCallbackUri("rentivo://auth/callback?state=other"))
     assertTrue(MobileWebAuthenticationFlow.isCallbackUri("rentivo://auth/logout"))

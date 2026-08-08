@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,6 +54,10 @@ class EncryptedCredentialStore(
   private suspend fun <T> guarded(block: () -> T): T = withContext(ioDispatcher) {
     try {
       block()
+    } catch (cancellation: CancellationException) {
+      // Cancellation is how a coroutine unwinds, not a keystore failure: wrapping it would make
+      // the caller's `catch (error: CredentialStoreError)` swallow its own cancellation.
+      throw cancellation
     } catch (exception: Exception) {
       throw CredentialStoreError(exception)
     }

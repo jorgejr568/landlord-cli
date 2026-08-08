@@ -1,7 +1,6 @@
 package app.rentivo.data.api
 
 import app.rentivo.domain.LocalizedError
-import java.net.URI
 import java.net.URLDecoder
 
 /**
@@ -59,7 +58,7 @@ object MobileWebAuthenticationFlow {
    * deciding whether to consume the intent.
    */
   fun isCallbackUri(callbackUri: String): Boolean {
-    val uri = parse(callbackUri) ?: return false
+    val uri = parse(callbackUri)
     return uri.scheme.equals(CALLBACK_SCHEME, ignoreCase = true) &&
       uri.host.equals(CALLBACK_HOST, ignoreCase = true)
   }
@@ -70,19 +69,69 @@ object MobileWebAuthenticationFlow {
   /**
    * The raw query of [callbackUri] when it matches scheme, host, [path] and [expectedState]
    * exactly — the Swift `callback(_:path:expectedState:)` guard, returning the query instead of
-   * `URLComponents`. Scheme and host compare case-insensitively per RFC 3986.
+   * `URLComponents`. Scheme and host compare case-insensitively per RFC 3986, and the path
+   * compares decoded, so `/callback` and `/%63allback` are the same path (what `URLComponents.path`
+   * gives iOS). The state comparison stays byte-identical.
    */
   private fun callback(callbackUri: String, path: String, expectedState: String): String? {
-    val uri = parse(callbackUri) ?: return null
+    val uri = parse(callbackUri)
     if (!uri.scheme.equals(CALLBACK_SCHEME, ignoreCase = true)) return null
     if (!uri.host.equals(CALLBACK_HOST, ignoreCase = true)) return null
-    if (uri.rawPath != path) return null
+    if ((percentDecode(uri.rawPath) ?: uri.rawPath) != path) return null
     val query = uri.rawQuery
     if (queryValue(query, STATE_PARAMETER) != expectedState) return null
     return query.orEmpty()
   }
 
-  private fun parse(value: String): URI? = runCatching { URI(value) }.getOrNull()
+  /** The `scheme://host/path?query` split of a callback, with anything unparseable left `null`. */
+  private class ParsedUri(
+    val scheme: String?,
+    val host: String?,
+    val rawPath: String,
+    val rawQuery: String?,
+  )
+
+  /**
+   * Splits [value] by hand instead of through [URI].
+   *
+   * `android.net.Uri` is lenient where `java.net.URI` is strict, so a callback carrying a raw
+   * space, `|`, `{` or `}` — legal as far as the browser and the deep-link intent are concerned —
+   * would make the strict parser throw and strand the sign-in with no callback at all. This is
+   * total: anything it cannot recognize comes back as a `null` scheme/host, which every caller
+   * already treats as "not our callback".
+   */
+  private fun parse(value: String): ParsedUri {
+    val withoutFragment = value.substringBefore('#')
+    val schemeEnd = withoutFragment.indexOf(':')
+    val scheme = withoutFragment.take(schemeEnd.coerceAtLeast(0)).takeIf { isScheme(it) }
+      ?: return ParsedUri(scheme = null, host = null, rawPath = "", rawQuery = null)
+    val remainder = withoutFragment.substring(schemeEnd + 1)
+    // An opaque URI (`rentivo:callback`) has no authority, so it can never be one of ours.
+    if (!remainder.startsWith("//")) {
+      return ParsedUri(scheme = scheme, host = null, rawPath = "", rawQuery = null)
+    }
+    val hierarchical = remainder.substring(2)
+    val authorityEnd = hierarchical.indexOfFirst { it == '/' || it == '?' }
+      .let { if (it < 0) hierarchical.length else it }
+    val authority = hierarchical.substring(0, authorityEnd)
+    val pathAndQuery = hierarchical.substring(authorityEnd)
+    val queryStart = pathAndQuery.indexOf('?')
+    return ParsedUri(
+      scheme = scheme,
+      // `user@host:port` — neither appears in our callbacks, but stripping them keeps the host
+      // comparison honest for a URI that carries them.
+      host = authority.substringAfterLast('@').substringBefore(':').takeIf { it.isNotEmpty() },
+      rawPath = if (queryStart < 0) pathAndQuery else pathAndQuery.substring(0, queryStart),
+      rawQuery = if (queryStart < 0) null else pathAndQuery.substring(queryStart + 1),
+    )
+  }
+
+  /** RFC 3986: `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`. */
+  private fun isScheme(value: String): Boolean =
+    value.isNotEmpty() && value[0].isAsciiLetter() &&
+      value.all { it.isAsciiLetter() || it in '0'..'9' || it == '+' || it == '-' || it == '.' }
+
+  private fun Char.isAsciiLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
 
   /**
    * The first value for [name] in a raw query string, percent-decoded. `a&b=1` yields `null` for
