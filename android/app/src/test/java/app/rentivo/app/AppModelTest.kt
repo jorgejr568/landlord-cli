@@ -8,9 +8,14 @@ import app.rentivo.data.mockDependencies
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.UserProfile
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
@@ -26,6 +31,11 @@ import org.junit.Test
  *
  * The iOS suites drive the live paths through a stubbed `URLProtocol`; here a fake [AuthRepository]
  * plays the same role, which keeps every case pure JVM (no emulator, no Android classes).
+ *
+ * The app model is given `backgroundScope`, matching the production `viewModelScope` that outlives
+ * every screen. Work it launches is therefore driven with `runCurrent()`, not `advanceUntilIdle()` —
+ * the latter deliberately stops as soon as only background work is left, and would report every
+ * session-ending flow as never having run.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppModelTest {
@@ -67,7 +77,8 @@ class AppModelTest {
     app.signOut()
 
     // The mock store reports `usesLiveAPI == false` and has no token to revoke, so `signOut()`
-    // takes the `completeSignOut()` shortcut and never flips `isSigningOut` in between.
+    // takes the `completeSignOut()` shortcut synchronously — no coroutine, so nothing to advance —
+    // and never flips `isSigningOut` in between.
     assertEquals(AppModel.Session.Anonymous, app.session)
     assertFalse(app.isSigningOut)
     assertEquals(AppTab.HOME, app.selectedTab)
@@ -289,6 +300,7 @@ class AppModelTest {
     val app = liveModel(backgroundScope, authenticator = authenticator)
     app.restoreSessionIfNeeded()
     app.signOut()
+    runCurrent()
 
     val thrown = runCatching { app.signInWithWebAuthorization() }.exceptionOrNull()
 
@@ -309,6 +321,7 @@ class AppModelTest {
       app.selectedTab = AppTab.BILLINGS
 
       app.signOut()
+      runCurrent()
 
       assertEquals(1, auth.logoutCount)
       assertEquals(1, authenticator.logoutCount)
@@ -326,6 +339,7 @@ class AppModelTest {
     app.restoreSessionIfNeeded()
 
     app.signOut()
+    runCurrent()
 
     assertEquals(AppModel.Session.Anonymous, app.session)
     assertEquals(
@@ -344,6 +358,7 @@ class AppModelTest {
     app.restoreSessionIfNeeded()
 
     app.signOut()
+    runCurrent()
 
     assertEquals(AppModel.Session.Anonymous, app.session)
     assertNull(app.notice)
@@ -357,10 +372,42 @@ class AppModelTest {
     app.isSigningOut = true
 
     app.signOut()
+    runCurrent()
 
+    // The guard is checked before anything is launched, so the second call starts no coroutine at
+    // all rather than one that quietly does nothing.
     assertEquals(0, auth.logoutCount)
     assertTrue(app.isAuthenticated)
   }
+
+  @Test
+  fun `sign out finishes the browser leg even when the calling screen's scope is cancelled`() =
+    runTest {
+      // Regression test: `signOut()` used to run on the account screen's `rememberCoroutineScope()`,
+      // which `completeSignOut()` itself destroys by switching the session to anonymous and taking
+      // that screen out of composition. Whether the trailing browser logout survived was then a
+      // matter of frame timing, leaving the browser cookie jar signed in at random.
+      val resumeLogout = CompletableDeferred<Unit>()
+      val auth = FakeAuthRepository(onLogout = { resumeLogout.await() })
+      val authenticator = FakeWebAuthenticator()
+      val app = liveModel(backgroundScope, auth = auth, authenticator = authenticator)
+      app.restoreSessionIfNeeded()
+
+      val screenScope = backgroundScope + Job()
+      screenScope.launch { app.signOut() }
+      runCurrent()
+
+      // The screen goes away mid-flow, exactly as it does in the app.
+      screenScope.cancel()
+      resumeLogout.complete(Unit)
+      runCurrent()
+
+      assertEquals(1, auth.logoutCount)
+      assertEquals(1, authenticator.logoutCount)
+      assertEquals(AppModel.Session.Anonymous, app.session)
+      assertFalse(app.isSigningOut)
+      assertNull(app.notice)
+    }
 
   // MARK: - Account deletion
 
@@ -371,6 +418,7 @@ class AppModelTest {
     app.restoreSessionIfNeeded()
 
     app.deleteAccount(password = "senha-correta")
+    runCurrent()
 
     assertEquals("senha-correta", auth.deletedPassword)
     assertEquals(AppModel.Session.Anonymous, app.session)
@@ -385,6 +433,7 @@ class AppModelTest {
     app.restoreSessionIfNeeded()
 
     app.deleteAccount(password = "senha-errada")
+    runCurrent()
 
     assertTrue(app.isAuthenticated)
     assertFalse(app.isDeletingAccount)
@@ -399,9 +448,32 @@ class AppModelTest {
     app.isDeletingAccount = true
 
     app.deleteAccount(password = "senha-correta")
+    runCurrent()
 
     assertNull(auth.deletedPassword)
     assertTrue(app.isAuthenticated)
+  }
+
+  @Test
+  fun `account deletion completes even when the calling screen's scope is cancelled`() = runTest {
+    // The alert that starts a deletion is dismissed the moment the session goes anonymous, so the
+    // work has to belong to the app model rather than to that screen — same reasoning as sign-out.
+    val resumeDelete = CompletableDeferred<Unit>()
+    val auth = FakeAuthRepository(onDeleteAccount = { resumeDelete.await() })
+    val app = liveModel(backgroundScope, auth = auth)
+    app.restoreSessionIfNeeded()
+
+    val screenScope = backgroundScope + Job()
+    screenScope.launch { app.deleteAccount(password = "senha-correta") }
+    runCurrent()
+
+    screenScope.cancel()
+    resumeDelete.complete(Unit)
+    runCurrent()
+
+    assertEquals(AppModel.Session.Anonymous, app.session)
+    assertFalse(app.isDeletingAccount)
+    assertEquals(AppNotice(AppNotice.Kind.SUCCESS, "Sua conta foi excluída."), app.notice)
   }
 
   // MARK: - Session expiry
@@ -531,6 +603,7 @@ private class FakeAuthRepository(
   private val restoreFailure: Throwable? = null,
   private val deleteFailure: Throwable? = null,
   private val onLogout: suspend () -> Unit = {},
+  private val onDeleteAccount: suspend () -> Unit = {},
 ) : AuthRepository {
 
   val exchanged = UserProfile(id = 1, email = "ana@rentivo.com.br")
@@ -559,6 +632,7 @@ private class FakeAuthRepository(
 
   override suspend fun deleteAccount(password: String) {
     deletedPassword = password
+    onDeleteAccount()
     deleteFailure?.let { throw it }
   }
 }

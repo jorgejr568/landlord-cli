@@ -51,7 +51,9 @@ interface WebAuthenticating {
  * @param authenticator browser-backed sign-in/sign-out; `null` in demo builds, which never use it.
  * @param sessionExpired fires when `LiveAPIClient` sees a 401 for the stored token (the analog of
  *   the iOS `liveAPIClientSessionExpired` notification). Only collected for live dependencies.
- * @param scope lifetime of the session-expiry subscription, which lives as long as the app model.
+ * @param scope the app model's own lifetime, outliving any one screen. It carries the session-expiry
+ *   subscription and the session-ending flows ([signOut], [deleteAccount]), which must survive the
+ *   screen that started them disappearing.
  */
 @Stable
 class AppModel(
@@ -157,42 +159,58 @@ class AppModel(
     notice = AppNotice(kind = AppNotice.Kind.SUCCESS, message = "Sessão conectada ao Rentivo.")
   }
 
-  suspend fun signOut() {
+  /**
+   * Signs out, ending on the anonymous screen.
+   *
+   * Deliberately not a `suspend` function. Its very first effect — [completeSignOut] — removes the
+   * account screen that started it from composition, which cancels that screen's
+   * `rememberCoroutineScope()`; anything still awaited at that point (here, the trailing browser
+   * logout) would be cancelled somewhere between "always runs" and "never runs" depending on frame
+   * timing. Running the sequence on the app model's own scope, which lives as long as the session
+   * does, makes the whole thing complete regardless of what happens to the caller. Callers keep
+   * working unchanged: invoking a non-suspending function inside `scope.launch { … }` is fine.
+   */
+  fun signOut() {
     if (isSigningOut) return
     // Demo mode has neither a token to revoke nor a browser session to close, so it drops straight
-    // to local state.
+    // to local state — synchronously, with no scope involved and no in-flight flag to toggle.
     if (!dependencies.auth.usesLiveAPI) {
       completeSignOut()
       return
     }
+    // Claimed here rather than inside the coroutine so that a second tap arriving in the same frame
+    // is rejected by the guard above instead of starting a competing sign-out.
     isSigningOut = true
-    try {
-      // Revoke the API token first (best-effort inside `logout()`), then unconditionally drop local
-      // credentials/state: the user must never end up "signed out" locally while the server still
-      // honors the old token, nor stuck signed in locally because a later step failed.
-      dependencies.auth.logout()
-      completeSignOut()
-      // The browser-cookie logout is best-effort and must never block sign-out (which already
-      // happened above). Cancelling that sheet is an expected, silent outcome, not a failure worth
-      // reporting.
-      val browser = authenticator ?: return
+    scope.launch {
       try {
-        browser.logout()
-      } catch (cancellation: CancellationException) {
-        throw cancellation
-      } catch (throwable: Throwable) {
-        if (browser.isUserCancellation(throwable)) return
-        notice = AppNotice(
-          kind = AppNotice.Kind.WARNING,
-          message = "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador.",
-        )
+        // Revoke the API token first (best-effort inside `logout()`), then unconditionally drop
+        // local credentials/state: the user must never end up "signed out" locally while the server
+        // still honors the old token, nor stuck signed in locally because a later step failed.
+        dependencies.auth.logout()
+        completeSignOut()
+        // The browser-cookie logout is best-effort and must never block sign-out (which already
+        // happened above). Cancelling that sheet is an expected, silent outcome, not a failure
+        // worth reporting.
+        val browser = authenticator ?: return@launch
+        try {
+          browser.logout()
+        } catch (cancellation: CancellationException) {
+          throw cancellation
+        } catch (throwable: Throwable) {
+          if (browser.isUserCancellation(throwable)) return@launch
+          notice = AppNotice(
+            kind = AppNotice.Kind.WARNING,
+            message = "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador.",
+          )
+        }
+      } finally {
+        isSigningOut = false
       }
-    } finally {
-      isSigningOut = false
     }
   }
 
-  suspend fun deleteAccount(password: String) {
+  /** Deletes the account and signs out. Runs on the app model's scope, for the reasons in [signOut]. */
+  fun deleteAccount(password: String) {
     if (isDeletingAccount) return
     // There is no demo account to delete, so demo mode just returns to the signed-out screen
     // without claiming a deletion happened.
@@ -201,19 +219,21 @@ class AppModel(
       return
     }
     isDeletingAccount = true
-    try {
-      dependencies.auth.deleteAccount(password = password)
-      completeSignOut()
-      notice = AppNotice(kind = AppNotice.Kind.SUCCESS, message = "Sua conta foi excluída.")
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (throwable: Throwable) {
-      notice = AppNotice(
-        kind = AppNotice.Kind.WARNING,
-        message = DemoError.from(throwable).message,
-      )
-    } finally {
-      isDeletingAccount = false
+    scope.launch {
+      try {
+        dependencies.auth.deleteAccount(password = password)
+        completeSignOut()
+        notice = AppNotice(kind = AppNotice.Kind.SUCCESS, message = "Sua conta foi excluída.")
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (throwable: Throwable) {
+        notice = AppNotice(
+          kind = AppNotice.Kind.WARNING,
+          message = DemoError.from(throwable).message,
+        )
+      } finally {
+        isDeletingAccount = false
+      }
     }
   }
 

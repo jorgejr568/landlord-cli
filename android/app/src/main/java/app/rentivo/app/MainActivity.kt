@@ -37,10 +37,19 @@ class MainActivity : ComponentActivity() {
 
   private val holder: AppModelHolder by viewModels()
 
+  /**
+   * This activity's Custom Tabs launcher. It captures the activity, so it must never outlive it —
+   * hence the identity check in [onDestroy] before clearing it off the retained [holder].
+   */
+  private val customTabsLauncher: (Uri) -> Unit = MobileWebAuthenticator.customTabsLauncher(this)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
-    val authenticator = holder.ensureAuthenticator(MobileWebAuthenticator.customTabsLauncher(this))
+    // Publish this instance's launcher before anything can reach the authenticator, which resolves
+    // it through the holder on every call rather than capturing one activity forever.
+    holder.launchUrl = customTabsLauncher
+    val authenticator = holder.ensureAuthenticator()
     val model = holder.appModel { scope ->
       val graph = createAppGraph(applicationContext, useMockData = launchedForUITesting())
       AppModel(
@@ -75,6 +84,13 @@ class MainActivity : ComponentActivity() {
     // Resuming with a flow still pending means the user dismissed the Custom Tab without finishing;
     // a callback that already arrived cleared the flow, so this is a no-op in the happy path.
     holder.authenticator?.cancelPending()
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    // Only retract our own launcher. A recreated activity publishes its own in `onCreate`, and if
+    // that has already happened this destroy belongs to the outgoing instance and must not undo it.
+    if (holder.launchUrl === customTabsLauncher) holder.launchUrl = null
   }
 
   /**
@@ -112,12 +128,31 @@ internal class AppModelHolder : ViewModel() {
 
   private var model: AppModel? = null
 
+  /**
+   * Opens a URL in a Custom Tab on behalf of the activity that is currently attached, or `null`
+   * between one being destroyed and the next publishing its own.
+   *
+   * This indirection is the whole point of the holder owning it. The authenticator is created once
+   * and outlives any single activity, so a launcher captured into it at construction would pin the
+   * first activity for the lifetime of the process and, worse, keep launching Custom Tabs from that
+   * destroyed instance after a rotation. Resolving the launcher per call instead means the browser
+   * always opens from the activity the user is actually looking at.
+   */
+  var launchUrl: ((Uri) -> Unit)? = null
+
   /** The browser authenticator, once created. Used for deep-link routing and cancellation. */
   var authenticator: MobileWebAuthenticator? = null
     private set
 
-  fun ensureAuthenticator(launchUrl: (Uri) -> Unit): MobileWebAuthenticator =
-    authenticator ?: MobileWebAuthenticator(launchUrl = launchUrl).also { authenticator = it }
+  fun ensureAuthenticator(): MobileWebAuthenticator =
+    authenticator ?: MobileWebAuthenticator(
+      launchUrl = { uri ->
+        val launch = checkNotNull(launchUrl) {
+          "No activity is attached to open the authorization page in a Custom Tab."
+        }
+        launch(uri)
+      },
+    ).also { authenticator = it }
 
   fun appModel(build: (CoroutineScope) -> AppModel): AppModel =
     model ?: build(viewModelScope).also { model = it }
