@@ -28,7 +28,7 @@ class TestEncryptionFactory:
         mock_settings.kms_secret_access_key = "secret"
         mock_settings.kms_endpoint_url = ""
 
-        with patch("rentivo.encryption.kms.boto3"):
+        with patch("rentivo.aws.boto3"):
             from rentivo.encryption.factory import get_encryption
             from rentivo.encryption.kms import KMSBackend
 

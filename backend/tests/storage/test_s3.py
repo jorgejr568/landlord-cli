@@ -1,3 +1,4 @@
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,10 +6,12 @@ import pytest
 
 class TestS3StorageBoto3Missing:
     def test_raises_import_error_when_boto3_is_none(self):
+        import rentivo.aws as aws_module
         import rentivo.storage.s3 as s3_module
 
-        with patch.object(s3_module, "boto3", None):
-            with pytest.raises(ImportError, match="boto3 is required"):
+        expected = "boto3 is required for S3 storage. Install it with: pip install rentivo[s3]"
+        with patch.object(aws_module, "boto3", None):
+            with pytest.raises(ImportError, match=re.escape(expected)):
                 s3_module.S3Storage(
                     bucket="b",
                     region="r",
@@ -18,7 +21,7 @@ class TestS3StorageBoto3Missing:
 
 
 class TestS3Storage:
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_save_calls_put_object(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -41,7 +44,7 @@ class TestS3Storage:
         )
         assert result == "path/to/file.pdf"
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_get_url_generates_presigned(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.generate_presigned_url.return_value = "https://presigned-url"
@@ -65,7 +68,7 @@ class TestS3Storage:
         )
         assert url == "https://presigned-url"
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_get_ref_returns_url_kind_with_presigned_url(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.generate_presigned_url.return_value = "https://presigned-url"
@@ -90,7 +93,7 @@ class TestS3Storage:
             ExpiresIn=3600,
         )
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_endpoint_url_passed(self, mock_boto3):
         mock_boto3.client.return_value = MagicMock()
 
@@ -106,7 +109,7 @@ class TestS3Storage:
         call_kwargs = mock_boto3.client.call_args[1]
         assert call_kwargs["endpoint_url"] == "https://custom.endpoint"
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_no_endpoint_url(self, mock_boto3):
         mock_boto3.client.return_value = MagicMock()
 
@@ -116,7 +119,7 @@ class TestS3Storage:
         call_kwargs = mock_boto3.client.call_args[1]
         assert "endpoint_url" not in call_kwargs
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_get_calls_get_object(self, mock_boto3):
         mock_client = MagicMock()
         mock_body = MagicMock()
@@ -137,7 +140,7 @@ class TestS3Storage:
         mock_client.get_object.assert_called_once_with(Bucket="my-bucket", Key="path/to/file.pdf")
         assert data == b"file-contents"
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_delete_calls_delete_object(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -149,7 +152,7 @@ class TestS3Storage:
 
         mock_client.delete_object.assert_called_once_with(Bucket="b", Key="path/to/file.pdf")
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_delete_swallows_client_errors(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.delete_object.side_effect = RuntimeError("boom")
@@ -161,7 +164,7 @@ class TestS3Storage:
         # Must not raise — delete is used in rollback paths.
         storage.delete("path/to/file.pdf")
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_delete_strict_propagates_client_errors_for_retryable_cleanup(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.delete_object.side_effect = RuntimeError("boom")
@@ -175,7 +178,7 @@ class TestS3Storage:
 
         mock_client.delete_object.assert_called_once_with(Bucket="b", Key="path/to/candidate.pdf")
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_delete_strict_deletes_candidate(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -187,7 +190,7 @@ class TestS3Storage:
 
         mock_client.delete_object.assert_called_once_with(Bucket="b", Key="path/to/candidate.pdf")
 
-    @patch("rentivo.storage.s3.boto3")
+    @patch("rentivo.aws.boto3")
     def test_save_with_content_type(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client

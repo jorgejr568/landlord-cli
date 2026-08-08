@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,10 +11,15 @@ CIPHERTEXT_PREFIX = "enc:v1:"
 
 class TestKMSBackendBoto3Missing:
     def test_raises_import_error_when_boto3_is_none(self):
+        import rentivo.aws as aws_module
         import rentivo.encryption.kms as kms_module
 
-        with patch.object(kms_module, "boto3", None):
-            with pytest.raises(ImportError, match="boto3 is required"):
+        expected = (
+            "boto3 is required for KMS encryption. Install it with: pip install rentivo[s3] "
+            "(the s3 extras group also provides the boto3 client used for KMS)."
+        )
+        with patch.object(aws_module, "boto3", None):
+            with pytest.raises(ImportError, match=re.escape(expected)):
                 kms_module.KMSBackend(
                     key_id="alias/rentivo",
                     region="us-east-1",
@@ -23,7 +29,7 @@ class TestKMSBackendBoto3Missing:
 
 
 class TestKMSBackend:
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_encrypt_calls_kms_and_returns_prefixed_base64(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.encrypt.return_value = {"CiphertextBlob": b"ciphertext-blob-bytes"}
@@ -47,7 +53,7 @@ class TestKMSBackend:
         body = result[len(CIPHERTEXT_PREFIX) :]
         assert base64.b64decode(body) == b"ciphertext-blob-bytes"
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_calls_kms_with_decoded_blob(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.decrypt.return_value = {"Plaintext": b"test@pix.com"}
@@ -70,7 +76,7 @@ class TestKMSBackend:
         )
         assert result == "test@pix.com"
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_round_trip_via_mock(self, mock_boto3):
         """Simulate a full round-trip with a stub that maps blobs to plaintexts."""
         mock_client = MagicMock()
@@ -100,7 +106,7 @@ class TestKMSBackend:
         for value in ("test@pix.com", "12345678901", "+5511987654321", "Some Merchant"):
             assert backend.decrypt(backend.encrypt(value)) == value
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_encrypt_is_idempotent_on_already_encrypted(self, mock_boto3):
         """encrypt() on an already-encrypted value must not call KMS again."""
         mock_client = MagicMock()
@@ -120,7 +126,7 @@ class TestKMSBackend:
         assert result == ciphertext
         mock_client.encrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_passes_through_plaintext(self, mock_boto3):
         """decrypt() on a plaintext value must not call KMS."""
         mock_client = MagicMock()
@@ -139,7 +145,7 @@ class TestKMSBackend:
         assert result == "test@pix.com"
         mock_client.decrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_handles_transitional_base64_rows(self, mock_boto3):
         """During the backfill window, KMS reads must transparently decode
         rows that were written under Base64Backend before the cutover."""
@@ -161,7 +167,7 @@ class TestKMSBackend:
         assert result == "test@pix.com"
         mock_client.decrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_encrypt_empty_string_is_no_op(self, mock_boto3):
         """Empty string never goes to KMS — it is its own ciphertext."""
         mock_client = MagicMock()
@@ -178,7 +184,7 @@ class TestKMSBackend:
         assert backend.encrypt("") == ""
         mock_client.encrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_empty_string_is_no_op(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -194,7 +200,7 @@ class TestKMSBackend:
         assert backend.decrypt("") == ""
         mock_client.decrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_is_encrypted_recognizes_prefix(self, mock_boto3):
         mock_boto3.client.return_value = MagicMock()
 
@@ -211,7 +217,7 @@ class TestKMSBackend:
         assert backend.is_encrypted("") is False
         assert backend.is_encrypted("enc:v2:future") is False  # different version
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_endpoint_url_passed(self, mock_boto3):
         mock_boto3.client.return_value = MagicMock()
 
@@ -227,7 +233,7 @@ class TestKMSBackend:
         call_kwargs = mock_boto3.client.call_args[1]
         assert call_kwargs["endpoint_url"] == "https://localhost.localstack.cloud:4566"
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_no_endpoint_url(self, mock_boto3):
         mock_boto3.client.return_value = MagicMock()
 
@@ -244,7 +250,7 @@ class TestKMSBackend:
 
 
 class TestKMSBackendDecryptMany:
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_many_returns_plaintexts_in_input_order(self, mock_boto3):
         mock_client = MagicMock()
         mock_client.decrypt.side_effect = lambda CiphertextBlob, KeyId: {"Plaintext": (b"PT-" + CiphertextBlob)}
@@ -268,7 +274,7 @@ class TestKMSBackendDecryptMany:
         assert result == ["PT-a", "PT-b", "PT-c"]
         assert mock_client.decrypt.call_count == 3
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_many_empty_returns_empty(self, mock_boto3):
         mock_client = MagicMock()
         mock_boto3.client.return_value = mock_client
@@ -284,7 +290,7 @@ class TestKMSBackendDecryptMany:
         assert backend.decrypt_many([]) == []
         mock_client.decrypt.assert_not_called()
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_many_runs_in_parallel(self, mock_boto3):
         """All decrypt calls should be in flight concurrently — verified by
         making each call block on a barrier until every other call has
@@ -315,7 +321,7 @@ class TestKMSBackendDecryptMany:
         result = backend.decrypt_many(ciphertexts)
         assert result == ["ok"] * n
 
-    @patch("rentivo.encryption.kms.boto3")
+    @patch("rentivo.aws.boto3")
     def test_decrypt_many_preserves_no_op_passthroughs(self, mock_boto3):
         """Empty strings, plaintext rows, and b64:v1: rows must not invoke KMS."""
         mock_client = MagicMock()

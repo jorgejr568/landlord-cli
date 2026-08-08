@@ -26,7 +26,7 @@ class TestStorageFactory:
         mock_settings.s3_endpoint_url = ""
         mock_settings.s3_presigned_expiry = 3600
 
-        with patch("rentivo.storage.s3.boto3"):
+        with patch("rentivo.aws.boto3"):
             from rentivo.storage.factory import get_storage
             from rentivo.storage.s3 import S3Storage
 
