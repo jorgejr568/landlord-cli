@@ -1,5 +1,6 @@
 package app.rentivo.features.bills
 
+import android.annotation.SuppressLint
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -1038,11 +1039,15 @@ private class CommunicationComposerState(
  * fixed viewport. Past [MaxPreviewHeight] the web view keeps its own scrolling so nothing is
  * unreachable on a very long template.
  */
+// Suppression, not a fix: `PreviewHeightBridge.report` IS annotated with @JavascriptInterface,
+// but lint resolves values produced by `remember`'s type parameter as `T` and cannot see the
+// annotation (false positive; the reflective dispatch works at runtime).
+@SuppressLint("JavascriptInterface")
 @Composable
 private fun HTMLPreviewPanel(html: String) {
   var documentHeight by remember { mutableStateOf(MinPreviewHeight) }
   val loaded = remember { LoadedDocument() }
-  val bridge = remember {
+  val bridge: PreviewHeightBridge = remember {
     // The bridge is called on the WebView's private JavaScript thread, so the state write is
     // posted back to the main thread.
     val handler = Handler(Looper.getMainLooper())
