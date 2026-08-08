@@ -65,3 +65,16 @@ class ProblemException(Exception):
     @classmethod
     def not_found(cls) -> "ProblemException":
         return cls(problem(status=404, code="not_found", title="Não encontrado", detail="Recurso não encontrado."))
+
+    @classmethod
+    def conflict(cls, code: str, detail: str) -> "ProblemException":
+        return cls(problem(status=409, code=code, title="Conflito", detail=detail))
+
+    @classmethod
+    def invalid(cls, code: str, detail: str, *, fields: dict[str, str] | None = None) -> "ProblemException":
+        return cls(problem(status=422, code=code, title="Dados inválidos", detail=detail, fields=fields))
+
+    @classmethod
+    def invalid_field(cls, code: str, detail: str, field: str) -> "ProblemException":
+        """Validation failure that the client should render next to a single field."""
+        return cls.invalid(code, detail, fields={field: detail})

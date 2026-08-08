@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from rentivo.constants.api_scopes import APIScope
 from rentivo.context import Actor
 from rentivo.models.api_key import APIKey
 from rentivo.models.user import User
@@ -13,6 +14,9 @@ class Principal:
     user: User
     api_key: APIKey
     source: Literal["web", "mobile", "integration"]
+
+    def has_scope(self, scope: APIScope) -> bool:
+        return scope.value in self.api_key.scopes
 
     @property
     def actor(self) -> Actor:

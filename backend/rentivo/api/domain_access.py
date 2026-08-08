@@ -6,10 +6,19 @@ from dataclasses import dataclass
 from rentivo.api.dependencies import require_resource_grant
 from rentivo.api.errors import ProblemException
 from rentivo.api.principal import Principal
+from rentivo.constants.api_scopes import APIScope
 from rentivo.models.bill import Bill
 from rentivo.models.billing import Billing
 from rentivo.models.organization import Organization, OrganizationMember
 from rentivo.services.container import RequestServices
+
+
+def _allows(principal: Principal, role: str, scope: APIScope, roles: Collection[str]) -> bool:
+    """Both authorization layers at once: the caller's role and the key's scope.
+
+    An empty ``roles`` means the capability is not role-gated, only scope-gated.
+    """
+    return (not roles or role in roles) and principal.has_scope(scope)
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +27,12 @@ class BillingAccess:
     role: str
     principal: Principal
 
+    def allows(self, scope: APIScope, *, roles: Collection[str] = ()) -> bool:
+        return _allows(self.principal, self.role, scope, roles)
+
+    def for_bill(self, bill: Bill) -> "BillAccess":
+        return BillAccess(bill=bill, billing=self.billing, role=self.role, principal=self.principal)
+
 
 @dataclass(frozen=True, slots=True)
 class BillAccess:
@@ -25,6 +40,12 @@ class BillAccess:
     billing: Billing
     role: str
     principal: Principal
+
+    def allows(self, scope: APIScope, *, roles: Collection[str] = ()) -> bool:
+        return _allows(self.principal, self.role, scope, roles)
+
+    def with_bill(self, bill: Bill) -> "BillAccess":
+        return BillAccess(bill=bill, billing=self.billing, role=self.role, principal=self.principal)
 
 
 @dataclass(frozen=True, slots=True)
