@@ -32,6 +32,21 @@
                     android:scheme="rentivo" />
             </intent-filter>
         </activity>
+
+        <!--
+          Grants the share sheet read access to a single downloaded file at a time. The documents
+          live in the app's private cache, so a content:// URI plus a one-shot read grant is the
+          only way another app can open one.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>
