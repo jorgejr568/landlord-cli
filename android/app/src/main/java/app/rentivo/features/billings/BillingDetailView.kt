@@ -1,6 +1,5 @@
 package app.rentivo.features.billings
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,7 +49,6 @@ import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
-import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -193,20 +191,19 @@ fun BillingDetailView(
       }
     }
 
+    // `BillFormSheet` presents itself through a dialog-backed `FullScreenSheet` and owns its back
+    // handling, so no overlay or handler wraps it here.
     val billing = state.value.value?.billing
     if (showingCreateBill && billing != null) {
-      OpaqueOverlay {
-        BackHandler { showingCreateBill = false }
-        BillFormSheet(
-          billing = billing,
-          existing = null,
-          onSaved = {
-            load()
-            onMutation()
-          },
-          onDismiss = { showingCreateBill = false },
-        )
-      }
+      BillFormSheet(
+        billing = billing,
+        existing = null,
+        onSaved = {
+          load()
+          onMutation()
+        },
+        onDismiss = { showingCreateBill = false },
+      )
     }
   }
 
