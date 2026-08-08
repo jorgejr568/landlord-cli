@@ -36,7 +36,11 @@ fun OrganizationsTab() {
   // the list root while it stays composed underneath.
   var listRefreshKey by remember { mutableIntStateOf(0) }
 
-  BackHandler(enabled = stack.isNotEmpty()) { stack.removeAt(stack.lastIndex) }
+  // `enabled` only reflects the stack as of the last recomposition, so two back presses in the same
+  // frame both reach this callback; the guard keeps the second one from indexing an empty stack.
+  val pop: () -> Unit = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
+
+  BackHandler(enabled = stack.isNotEmpty(), onBack = pop)
 
   Box(modifier = Modifier.rentivoPage()) {
     OrganizationListView(

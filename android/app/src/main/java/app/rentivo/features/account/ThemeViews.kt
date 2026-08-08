@@ -60,6 +60,7 @@ import app.rentivo.domain.ThemeRecord
 import app.rentivo.domain.ThemeSource
 import app.rentivo.domain.ThemeTarget
 import app.rentivo.domain.ThemeValues
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -90,6 +91,10 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       record = loaded
       values = loaded.stored ?: loaded.effective
       loadedValues = values
+    } catch (cancellation: CancellationException) {
+      // A restarted or abandoned load is not a failure: surfacing it would raise a spurious "Não foi
+      // possível atualizar" alert over a screen that is about to reload anyway.
+      throw cancellation
     } catch (failure: Throwable) {
       error = DemoError.from(failure)
     }
@@ -100,6 +105,8 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       app.dependencies.themes.updateTheme(target, values)
       load()
       app.showNotice("Tema atualizado.")
+    } catch (cancellation: CancellationException) {
+      throw cancellation
     } catch (failure: Throwable) {
       error = DemoError.from(failure)
     }
@@ -110,6 +117,8 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       app.dependencies.themes.resetTheme(target)
       load()
       app.showNotice("Herança de tema restaurada.")
+    } catch (cancellation: CancellationException) {
+      throw cancellation
     } catch (failure: Throwable) {
       error = DemoError.from(failure)
     }

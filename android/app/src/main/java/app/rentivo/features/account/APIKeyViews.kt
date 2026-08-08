@@ -1,5 +1,6 @@
 package app.rentivo.features.account
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -77,9 +78,9 @@ import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
 import app.rentivo.domain.WorkspaceID
 import app.rentivo.domain.WorkspaceResourceType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.ZoneId
 
 /** One year in seconds — the default validity a freshly drafted key gets. */
 private const val DEFAULT_VALIDITY_SECONDS = 31_536_000L
@@ -114,6 +115,10 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     state = try {
       val keys = app.dependencies.apiKeys.listAPIKeys()
       if (keys.isEmpty()) LoadState.Empty else LoadState.Loaded(keys)
+    } catch (cancellation: CancellationException) {
+      // A superseded load (the screen went away, or `dataRevision` restarted this effect) must not
+      // stomp the fresh state with a stale `Failed`.
+      throw cancellation
     } catch (error: Throwable) {
       LoadState.Failed(DemoError.from(error))
     }
@@ -124,6 +129,8 @@ fun APIKeyListScreen(onBack: () -> Unit) {
       app.dependencies.apiKeys.revokeAPIKey(key.id)
       load()
       app.showNotice("Chave revogada.")
+    } catch (cancellation: CancellationException) {
+      throw cancellation
     } catch (error: Throwable) {
       app.showNotice(DemoError.from(error).message, AppNotice.Kind.WARNING)
     }
@@ -135,6 +142,8 @@ fun APIKeyListScreen(onBack: () -> Unit) {
       showingCreate = false
       createdSecret = secret
       load()
+    } catch (cancellation: CancellationException) {
+      throw cancellation
     } catch (error: Throwable) {
       app.showNotice(DemoError.from(error).message, AppNotice.Kind.WARNING)
     }
@@ -146,6 +155,8 @@ fun APIKeyListScreen(onBack: () -> Unit) {
       editingKey = null
       load()
       app.showNotice("Metadados da chave atualizados.")
+    } catch (cancellation: CancellationException) {
+      throw cancellation
     } catch (error: Throwable) {
       app.showNotice(DemoError.from(error).message, AppNotice.Kind.WARNING)
     }
@@ -417,6 +428,11 @@ private fun APIKeyFormScreen(
   var organizations by remember { mutableStateOf<List<Organization>>(emptyList()) }
   var showingDatePicker by remember { mutableStateOf(false) }
 
+  // The form is an overlay above the list, not a pushed route, so it has to claim the system back
+  // press itself; otherwise the enclosing tab's handler pops the whole API-key screen out from under
+  // it. Registered here — after the list screen composes — this callback takes precedence.
+  BackHandler { onDismiss() }
+
   LaunchedEffect(Unit) {
     // Mirrors the iOS `try?`: an unreachable organization list degrades to "personal account only"
     // rather than blocking the form.
@@ -623,6 +639,11 @@ private fun FormSection(title: String, content: @Composable () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Unit) {
+  // Without this the system back press reaches the enclosing tab's handler and pops the entire
+  // API-key screen, destroying the one-time secret before the user has copied it. Back dismisses
+  // only this overlay — the same thing "Já copiei" does, matching the iOS sheet-dismiss semantics.
+  BackHandler { onDismiss() }
+
   Surface(modifier = Modifier.fillMaxSize(), color = RentivoColors.paper) {
     Scaffold(
       containerColor = RentivoColors.paper,
@@ -711,17 +732,3 @@ private val APIKeyScope.label: String
     APIKeyScope.THEMES_WRITE -> "Alterar temas"
     APIKeyScope.EXPORTS_CREATE -> "Criar exportações"
   }
-
-private val PTBRAbbreviatedMonths = listOf(
-  "jan.", "fev.", "mar.", "abr.", "mai.", "jun.",
-  "jul.", "ago.", "set.", "out.", "nov.", "dez.",
-)
-
-/**
- * Formats an instant pinned to pt-BR, so PT-BR sentences never leak a device-locale date string
- * (e.g. "Jul 23, 2026" showing up on an en-US device inside otherwise-Portuguese copy).
- */
-private fun Instant.formattedPTBR(): String {
-  val date = atZone(ZoneId.systemDefault()).toLocalDate()
-  return "${date.dayOfMonth} de ${PTBRAbbreviatedMonths[date.monthValue - 1]} de ${date.year}"
-}
