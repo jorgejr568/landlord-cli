@@ -475,6 +475,18 @@ export async function installApiMocks(
       // request grants without the `available` flag the response carries.
       const update = body as Schemas["APIKeyUpdateRequest"];
       const index = state.apiKeys.findIndex((key) => key.uuid === keyMatch[1]);
+      if (index === -1) {
+        await fulfillProblem(route, {
+          code: "not_found",
+          detail: "Chave de API não encontrada.",
+          fields: {},
+          request_id: "e2e-request-id",
+          status: 404,
+          title: "Não encontrado",
+          type: "https://rentivo.com.br/problems/not_found"
+        });
+        return;
+      }
       const current = state.apiKeys[index];
       const updated: ApiKeyRecord = {
         ...current,
