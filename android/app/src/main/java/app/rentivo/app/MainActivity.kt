@@ -2,6 +2,7 @@ package app.rentivo.app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,10 +12,18 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.rentivo.data.AppDependencies
+import app.rentivo.data.DownloadedFileStore
+import app.rentivo.data.LiveDemoRepository
+import app.rentivo.data.api.APIRentivoStore
+import app.rentivo.data.api.EncryptedCredentialStore
+import app.rentivo.data.api.LiveAPIClient
 import app.rentivo.data.api.MobileWebAuthenticator
+import app.rentivo.data.api.liveDependencies
 import app.rentivo.data.mockDependencies
 import app.rentivo.designsystem.RentivoTheme
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 
 /**
  * The single activity hosting the Compose app shell. Port of `ios/Rentivo/App/RentivoApp.swift`.
@@ -33,12 +42,11 @@ class MainActivity : ComponentActivity() {
 
     val authenticator = holder.ensureAuthenticator(MobileWebAuthenticator.customTabsLauncher(this))
     val model = holder.appModel { scope ->
+      val graph = createAppGraph(applicationContext, useMockData = launchedForUITesting())
       AppModel(
-        dependencies = createAppDependencies(applicationContext),
+        dependencies = graph.dependencies,
         authenticator = MobileWebAuthenticating(authenticator),
-        // TODO(live-wiring): pass `client.sessionExpired` once the live API layer exists. The demo
-        // store has no token that can expire, so there is nothing to collect yet.
-        sessionExpired = null,
+        sessionExpired = graph.sessionExpired,
         scope = scope,
       )
     }
@@ -67,6 +75,23 @@ class MainActivity : ComponentActivity() {
     // Resuming with a flow still pending means the user dismissed the Custom Tab without finishing;
     // a callback that already arrived cleared the flow, so this is a no-op in the happy path.
     holder.authenticator?.cancelPending()
+  }
+
+  /**
+   * Mirrors the iOS `#if DEBUG` + `--ui-testing` / `--screenshot-authenticated` check: a shippable
+   * build is always live, and a debuggable one only falls back to the mock store when the launch
+   * intent explicitly asks for it.
+   *
+   * ```
+   * adb shell am start -n app.rentivo/.app.MainActivity --ez ui-testing true
+   * ```
+   *
+   * The extra is read from the launch intent only, so it cannot be flipped mid-session by a later
+   * deep link; the graph is built once per process anyway.
+   */
+  private fun launchedForUITesting(): Boolean {
+    val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    return debuggable && intent?.getBooleanExtra(UI_TESTING_EXTRA, false) == true
   }
 
   private fun consumeAuthCallback(intent: Intent?) {
@@ -113,22 +138,44 @@ private class MobileWebAuthenticating(
     MobileWebAuthenticator.isUserCancellation(throwable)
 }
 
+/** Boolean launch-intent extra selecting the mock store; honoured by debuggable builds only. */
+internal const val UI_TESTING_EXTRA = "ui-testing"
+
 /**
- * Builds the dependency graph the app runs against.
- *
- * iOS picks between `.live()` and the mock store in `RentivoApp.init`: release builds are always
- * live, debug builds are live unless launched with `--ui-testing`. The Android equivalent reads the
- * same seam here once the API layer lands:
- *
- * ```
- * val credentials = EncryptedCredentialStore(context)
- * val downloads = DownloadedFileStore(context.cacheDir)
- * val client = LiveAPIClient(credentials = credentials, downloads = downloads)
- * return liveDependencies(APIRentivoStore(client))
- * ```
- *
- * TODO(live-wiring): swap in the above once `APIRentivoStore`/`liveDependencies` exist, keeping the
- * demo store for the `ui-testing` launch flag. Until then the demo store is the only option, which
- * keeps the shell runnable and screenshot-testable exactly as `--ui-testing` does on iOS.
+ * Name of the cache subdirectory holding downloaded invoices and receipts. It must stay in sync
+ * with the `cache-path` entry of `res/xml/file_paths.xml`, or the share sheet cannot grant the
+ * receiving app read access to a downloaded file.
  */
-internal fun createAppDependencies(context: Context): AppDependencies = mockDependencies()
+private const val DOWNLOADS_DIRECTORY_NAME = "RentivoDownloads"
+
+/**
+ * The dependency graph the app runs against, together with the session-expiry stream that belongs
+ * to it. The mock graph holds no token that can expire, so its [sessionExpired] is null.
+ */
+internal class AppGraph(
+  val dependencies: AppDependencies,
+  val sessionExpired: Flow<Unit>?,
+)
+
+/**
+ * Builds the dependency graph, mirroring the choice `RentivoApp.init` makes on iOS: release builds
+ * are always live; a debuggable build is live too unless it was launched for UI testing, in which
+ * case the deterministic mock store stands in for the network (the Android analogue of
+ * `--ui-testing` / `--screenshot-authenticated`).
+ *
+ * The live branch owns the only instances of the credential store, the download store and the API
+ * client, so the token, the downloads directory and the 401 handling all share one lifetime.
+ */
+internal fun createAppGraph(context: Context, useMockData: Boolean): AppGraph {
+  if (useMockData) {
+    return AppGraph(dependencies = mockDependencies(), sessionExpired = null)
+  }
+  val client = LiveAPIClient(
+    credentials = EncryptedCredentialStore(context),
+    downloads = DownloadedFileStore(File(context.cacheDir, DOWNLOADS_DIRECTORY_NAME)),
+  )
+  return AppGraph(
+    dependencies = liveDependencies(APIRentivoStore(client), LiveDemoRepository()),
+    sessionExpired = client.sessionExpired,
+  )
+}
