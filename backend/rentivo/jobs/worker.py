@@ -97,9 +97,16 @@ class Worker:
         if now < self._next_auth_cleanup_check:
             return
         self._next_auth_cleanup_check = now + interval
+        # The monotonic deadline above already paces the checks at `interval`, so
+        # the recency window must be shorter: with a full-interval window the run
+        # enqueued at T is still "recent" at the T+interval check, suppressing
+        # every other check and halving the cadence to 2x interval. Half the
+        # interval keeps the cadence at roughly `interval` while still absorbing
+        # a worker restart, which resets the deadline but not the window.
+        recent_window = max(1, interval // 2)
         # An hourly maintenance query is noise in the trace; the enqueue is not.
         with suppress_tracing():
-            already_scheduled = self.repo.has_active_or_recent(_AUTH_CLEANUP_JOB_TYPE, interval)
+            already_scheduled = self.repo.has_active_or_recent(_AUTH_CLEANUP_JOB_TYPE, recent_window)
         if already_scheduled:
             return
         self.repo.enqueue(_AUTH_CLEANUP_JOB_TYPE, {})

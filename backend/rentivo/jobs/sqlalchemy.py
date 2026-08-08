@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import Connection, bindparam, text
@@ -239,8 +239,18 @@ class SQLAlchemyJobRepository(JobRepository):
         the window means the last run is still recent enough. The cutoff is
         computed here rather than with `NOW() - INTERVAL`, so the statement stays
         portable and testable on SQLite.
+
+        The cutoff is naive **UTC**, not `_now()`: a terminal row's `updated_at`
+        is written by the database server clock (SQL `NOW()`), assumed UTC on the
+        production database (stock mariadb:11) -- the same assumption the
+        retention purge in the `auth.cleanup` handler documents. Comparing those
+        timestamps against app-local Sao Paulo wall-clock would push the cutoff
+        three hours into the past and keep a finished run "recent" for the window
+        plus the UTC offset. `pending`/`running` rows are matched by the status
+        clause regardless of their timestamp, so the `_now()` values written for
+        them do not take part in this comparison.
         """
-        cutoff = _now() - timedelta(seconds=within_seconds)
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=within_seconds)
         row = self.conn.execute(
             text(
                 "SELECT 1 FROM jobs "

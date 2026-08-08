@@ -244,8 +244,33 @@ class TestAuthCleanupScheduling:
 
         w.tick()
 
-        repo.has_active_or_recent.assert_called_once_with("auth.cleanup", 3600)
+        repo.has_active_or_recent.assert_called_once_with("auth.cleanup", 1800)
         repo.enqueue.assert_called_once_with("auth.cleanup", {})
+
+    def test_recency_window_is_half_the_interval(self):
+        """A full-interval window would halve the cleanup cadence.
+
+        The monotonic deadline already paces the checks at `interval`, so a run
+        enqueued at T is still inside a full-interval window at the T+interval
+        check and suppresses it — cleanup would only land every 2x interval.
+        Half the interval keeps the cadence at roughly `interval` while still
+        covering a worker restart, which resets the deadline but not the window.
+        """
+        repo = self._repo(active_or_recent=False)
+        w = Worker(repo, MagicMock(), worker_id="t:1", auth_cleanup_interval_seconds=600)
+
+        w.tick()
+
+        repo.has_active_or_recent.assert_called_once_with("auth.cleanup", 300)
+
+    def test_recency_window_never_collapses_to_zero(self):
+        """A zero-second window would make every finished run look stale."""
+        repo = self._repo(active_or_recent=False)
+        w = Worker(repo, MagicMock(), worker_id="t:1", auth_cleanup_interval_seconds=1)
+
+        w.tick()
+
+        repo.has_active_or_recent.assert_called_once_with("auth.cleanup", 1)
 
     def test_tick_does_not_enqueue_when_one_is_active_or_recent(self):
         """Covers both `pending`/`running` and a run finished inside the window

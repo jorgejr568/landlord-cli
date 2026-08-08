@@ -10,7 +10,7 @@ uses a portable INSERT that runs on SQLite.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -19,7 +19,6 @@ from rentivo.encryption.base import EncryptionBackend
 from rentivo.encryption.base64 import Base64Backend
 from rentivo.jobs.sqlalchemy import (
     SQLAlchemyJobRepository,
-    _now,
     decode_job_payload,
     encode_job_payload,
 )
@@ -117,11 +116,23 @@ def test_decode_rows_returns_empty_when_nothing_can_be_decoded():
     assert repo._decode_rows([bad]) == []
 
 
+def _naive_utc_now() -> datetime:
+    """The clock a terminal row's ``updated_at`` is written on.
+
+    Production stamps those rows with SQL ``NOW()`` on a UTC database server
+    (stock ``mariadb:11``), *not* with the repository's naive Sao Paulo helper.
+    Tests that write ``updated_at`` by hand must use this clock, or a cutoff
+    computed on the wrong one looks correct while being three hours off.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def _finish(db_connection, job_id: int, status: str, updated_at: datetime) -> None:
     """Move a job to a terminal state with an explicit `updated_at`.
 
     ``mark_succeeded`` cannot be used here: it stamps the row with MariaDB's
-    ``NOW()``, which SQLite does not provide.
+    ``NOW()``, which SQLite does not provide. ``updated_at`` must therefore be a
+    naive UTC timestamp -- see ``_naive_utc_now``.
     """
     db_connection.execute(
         text("UPDATE jobs SET status = :status, updated_at = :updated_at WHERE id = :id"),
@@ -140,23 +151,38 @@ def test_has_active_or_recent_sees_a_running_job(db_connection):
     repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
     job = repo.enqueue("auth.cleanup", {})
     # A running job is old by `updated_at` yet must still block a new enqueue.
-    _finish(db_connection, job.id, "running", _now() - timedelta(days=1))
+    _finish(db_connection, job.id, "running", _naive_utc_now() - timedelta(days=1))
 
     assert repo.has_active_or_recent("auth.cleanup", 3600) is True
 
 
-def test_has_active_or_recent_sees_a_run_that_finished_inside_the_window(db_connection):
+def test_has_active_or_recent_sees_a_run_that_finished_just_inside_the_window(db_connection):
     repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
     job = repo.enqueue("auth.cleanup", {})
-    _finish(db_connection, job.id, "succeeded", _now() - timedelta(minutes=10))
+    _finish(db_connection, job.id, "succeeded", _naive_utc_now() - timedelta(seconds=3540))
 
     assert repo.has_active_or_recent("auth.cleanup", 3600) is True
+
+
+def test_has_active_or_recent_ignores_a_run_that_finished_just_outside_the_window(db_connection):
+    """The window is measured on the database clock, not app-local SP time.
+
+    The row finished 61 minutes ago in UTC terms, so a 3600-second window has
+    already elapsed. A cutoff derived from naive Sao Paulo wall-clock sits three
+    extra hours in the past, and this row would still look "recent" -- stretching
+    the effective window to `within_seconds` plus the UTC offset.
+    """
+    repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
+    job = repo.enqueue("auth.cleanup", {})
+    _finish(db_connection, job.id, "succeeded", _naive_utc_now() - timedelta(seconds=3660))
+
+    assert repo.has_active_or_recent("auth.cleanup", 3600) is False
 
 
 def test_has_active_or_recent_ignores_a_run_that_finished_before_the_window(db_connection):
     repo = SQLAlchemyJobRepository(db_connection, Base64Backend())
     job = repo.enqueue("auth.cleanup", {})
-    _finish(db_connection, job.id, "succeeded", _now() - timedelta(hours=2))
+    _finish(db_connection, job.id, "succeeded", _naive_utc_now() - timedelta(hours=2))
 
     assert repo.has_active_or_recent("auth.cleanup", 3600) is False
 

@@ -72,26 +72,34 @@ each driver is responsible for producing it.
   `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` (default `3600`; `0` disables
   self-scheduling) it checks the `jobs` table and enqueues `auth.cleanup` with an
   empty payload unless one is already `pending`/`running` or a previous run
-  finished inside that window. Running several workers is safe: the check makes
-  duplicates unlikely and the handler is idempotent. Each enqueue is logged as
-  `auth_cleanup_scheduled`.
+  finished inside the *recency window*, which is half the interval. The window is
+  deliberately shorter than the check period: a full-interval window would always
+  cover the run enqueued at the previous check and suppress it, so cleanup would
+  land every two intervals. With the half-interval window the job is enqueued
+  roughly once per interval — hourly at the default — while a restarted worker,
+  whose check timer resets, still does not pile on a duplicate. Running several
+  workers is safe: the check makes duplicates unlikely and the handler is
+  idempotent. Each enqueue is logged as `auth_cleanup_scheduled`.
 - **Temporal driver:** the worker does **not** self-schedule. Create a Temporal
   schedule (or cron workflow) that starts `AuthCleanupWorkflow` on
   `RENTIVO_TEMPORAL_TASK_QUEUE` with the arguments `({}, "<id>", 5)` — empty
   payload, an identifier used only for the audit entries, and the maximum
-  attempts — hourly, matching the database default. Without that schedule the
-  cleanups below never run, and `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` has no
-  effect.
+  attempts — hourly, matching the database driver's default cadence. Without that
+  schedule the cleanups below never run, and
+  `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` has no effect.
 
 ### Retention
 
-Each `auth.cleanup` run deletes `succeeded` and `failed` rows whose `updated_at`
-is older than `RENTIVO_JOB_RETENTION_DAYS` (default 30; `0` disables). It drains
-in batches of 100 until no eligible row remains, up to 10,000 rows per run
-(`AUTH_CLEANUP_MAX_PURGED_JOBS`), so a large backlog is cleared over consecutive
-runs instead of in one long transaction. `pending` and `running` rows are never
-touched, so a job scheduled far in the future and the cleanup job's own row are
-safe.
+Each `auth.cleanup` run deletes expired login tokens, stale authentication
+challenges, and `succeeded`/`failed` job rows whose `updated_at` is older than
+`RENTIVO_JOB_RETENTION_DAYS` (default 30; `0` disables the job purge). All three
+purges drain in batches of 100 until no eligible row remains or the run has
+removed 10,000 rows from that table (`AUTH_CLEANUP_MAX_PURGED_ROWS`), so a large
+backlog is worked down over consecutive runs. The whole run — all three drains —
+happens inside a single transaction; the per-table cap is what bounds how long
+that transaction stays open, while the batch size only bounds the size of each
+statement's `IN` list. `pending` and `running` job rows are never touched, so a
+job scheduled far in the future and the cleanup job's own row are safe.
 
 Run the worker:
 
