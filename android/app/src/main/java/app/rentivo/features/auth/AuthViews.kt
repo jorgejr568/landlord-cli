@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +66,12 @@ private fun AuthScaffold(
   Column(
     modifier = Modifier
       .rentivoPage()
+      // The signed-out screen is not hosted by the tab shell's `Scaffold`, so nothing above it
+      // insets the content: without these the wordmark is drawn straight through the status-bar
+      // clock. The padding sits outside `verticalScroll` so the bars stay paper-colored and the
+      // content scrolls between them rather than under them.
+      .statusBarsPadding()
+      .navigationBarsPadding()
       .verticalScroll(rememberScrollState()),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
@@ -73,7 +81,8 @@ private fun AuthScaffold(
       modifier = Modifier
         .widthIn(max = 560.dp)
         .fillMaxWidth()
-        .padding(RentivoSpacing.page),
+        .padding(RentivoSpacing.page)
+        .padding(top = AuthTopSpacing),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.page),
     ) {
       BrandMark(modifier = Modifier.padding(bottom = RentivoSpacing.small))
@@ -185,3 +194,13 @@ private fun ptBRDescription(error: Throwable): String =
     ?: "Não foi possível concluir o login. Tente novamente."
 
 private val FootnoteIconSize = 18.dp
+
+/**
+ * Extra breathing room above the wordmark, on top of the status-bar inset and the page padding.
+ *
+ * iOS starts the mark roughly 100pt down the screen — a `ScrollView` under a hidden navigation bar
+ * inherits the large-title layout's top margin, which Compose has no equivalent of. The three
+ * together (status bar + page + this) put the mark at about the same height, which is what drops the
+ * card's top edge to roughly a quarter of the way down the screen instead of pinning it to the top.
+ */
+private val AuthTopSpacing = 32.dp
