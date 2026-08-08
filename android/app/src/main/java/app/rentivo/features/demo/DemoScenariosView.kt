@@ -14,20 +14,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Handyman
-import androidx.compose.material.icons.filled.Inventory2
-import androidx.compose.material.icons.filled.SyncProblem
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.RunningWithErrors
 import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -46,10 +42,18 @@ import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoListDivider
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
-import app.rentivo.designsystem.SectionTitle
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.rentivoPage
+
+/** Row glyphs track the 17sp body copy beside them rather than Material's 24dp default. */
+private val RowGlyphSize = 20.dp
+
+/** The state dot on a toggle row, one step smaller than a row glyph. */
+private val StateGlyphSize = 18.dp
 
 /**
  * The developer-facing switchboard for the in-memory demo store, ported from
@@ -63,23 +67,28 @@ import app.rentivo.designsystem.rentivoPage
 fun DemoScenariosScreen(onBack: () -> Unit) {
   val app = LocalAppModel.current
   var confirmingReset by remember { mutableStateOf(false) }
+  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
   Scaffold(
-    modifier = Modifier.rentivoPage(),
+    modifier = Modifier
+      .rentivoPage()
+      .nestedScroll(scrollBehavior.nestedScrollConnection),
     containerColor = Color.Transparent,
     topBar = {
-      TopAppBar(
-        title = { Text(text = "Cenários", style = RentivoTypography.title) },
+      RentivoLargeTopBar(
+        title = "Cenários",
+        scrollBehavior = scrollBehavior,
         navigationIcon = {
-          IconButton(onClick = onBack) {
-            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+          TopBarChip {
+            IconButton(onClick = onBack) {
+              Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Voltar",
+                tint = RentivoColors.ink,
+              )
+            }
           }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-          containerColor = Color.Transparent,
-          titleContentColor = RentivoColors.ink,
-          navigationIconContentColor = RentivoColors.ink,
-        ),
       )
     },
   ) { insets ->
@@ -98,8 +107,8 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
           Icon(
             imageVector = Icons.Filled.Handyman,
             contentDescription = null,
-            tint = RentivoColors.secondaryInk,
-            modifier = Modifier.size(20.dp),
+            tint = RentivoColors.emerald,
+            modifier = Modifier.size(RowGlyphSize),
           )
           Text(
             text = "Estas opções alteram apenas o repositório em memória e serão removidas da " +
@@ -110,21 +119,21 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
         }
       }
 
-      DemoSection(title = "Estados de leitura", icon = Icons.Filled.Tune) {
+      DemoSection(title = "Estados de leitura") {
         SettingRow(
           title = "Atraso de 350 ms",
           enabled = app.demoSettings.delayEnabled,
           testTag = "demo.delay-mode",
           onClick = { app.setDelayEnabled(!app.demoSettings.delayEnabled) },
         )
-        HorizontalDivider(color = RentivoColors.ink.copy(alpha = 0.12f))
+        RentivoListDivider()
         SettingRow(
           title = "Conteúdo vazio",
           enabled = app.demoSettings.emptyMode,
           testTag = "demo.empty-mode",
           onClick = { app.setEmptyMode(!app.demoSettings.emptyMode) },
         )
-        HorizontalDivider(color = RentivoColors.ink.copy(alpha = 0.12f))
+        RentivoListDivider()
         SettingRow(
           title = "Permissões de visualizador",
           enabled = app.demoSettings.viewerMode,
@@ -133,10 +142,10 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
         )
       }
 
-      DemoSection(title = "Falhas recuperáveis", icon = Icons.Outlined.ReportProblem) {
+      DemoSection(title = "Falhas recuperáveis") {
         ActionRow(
           title = "Falhar a próxima operação",
-          icon = Icons.Filled.SyncProblem,
+          icon = Icons.Filled.RunningWithErrors,
           color = RentivoColors.emerald,
           testTag = "demo.fail-next",
           onClick = {
@@ -149,11 +158,11 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
         )
       }
 
-      DemoSection(title = "Dados canônicos", icon = Icons.Filled.Inventory2) {
+      DemoSection(title = "Dados canônicos") {
         ActionRow(
           title = "Restaurar toda a demonstração",
           icon = null,
-          color = RentivoColors.coral,
+          color = RentivoColors.destructiveText,
           testTag = "demo.reset",
           onClick = { confirmingReset = true },
         )
@@ -179,7 +188,7 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
             app.showNotice("Demonstração restaurada.")
           },
         ) {
-          Text(text = "Restaurar", color = RentivoColors.coral)
+          Text(text = "Restaurar", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -194,15 +203,20 @@ fun DemoScenariosScreen(onBack: () -> Unit) {
   }
 }
 
-/** One iOS `Form` section: its header followed by the card holding the section's rows. */
+/**
+ * One iOS `Form` section: its header followed by the card holding the section's rows.
+ *
+ * The header is plain secondary copy, with no glyph. A `Form` section header on iOS is exactly
+ * that — icons here would give a settings switchboard more visual weight than the controls it
+ * introduces.
+ */
 @Composable
 private fun DemoSection(
   title: String,
-  icon: ImageVector,
   content: @Composable () -> Unit,
 ) {
-  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-    SectionTitle(title = title, icon = icon)
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
+    Text(text = title, style = RentivoTypography.subheadline, color = RentivoColors.secondaryInk)
     RentivoCard(contentPadding = PaddingValues(vertical = RentivoSpacing.tiny)) { content() }
   }
 }
@@ -227,7 +241,7 @@ private fun SettingRow(
       .testTag(testTag)
       .semantics { stateDescription = stateLabel }
       .clickable(onClick = onClick)
-      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+      .padding(RentivoSpacing.large),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -245,7 +259,7 @@ private fun SettingRow(
         imageVector = if (enabled) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
         contentDescription = null,
         tint = stateColor,
-        modifier = Modifier.size(18.dp),
+        modifier = Modifier.size(StateGlyphSize),
       )
       Text(text = stateLabel, style = RentivoTypography.subheadline, color = stateColor)
     }
@@ -266,7 +280,7 @@ private fun ActionRow(
       .fillMaxWidth()
       .testTag(testTag)
       .clickable(onClick = onClick)
-      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+      .padding(RentivoSpacing.large),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -275,7 +289,7 @@ private fun ActionRow(
         imageVector = icon,
         contentDescription = null,
         tint = color,
-        modifier = Modifier.size(20.dp),
+        modifier = Modifier.size(RowGlyphSize),
       )
     }
     Text(text = title, style = RentivoTypography.body, color = color)

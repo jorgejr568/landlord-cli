@@ -1,8 +1,7 @@
 package app.rentivo.features.organizations
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,21 +10,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.GppGood
 import androidx.compose.material.icons.filled.House
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MarkEmailUnread
@@ -36,26 +38,19 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextFieldColors
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -69,25 +64,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import app.rentivo.R
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.IconLabel
+import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoInlineTopBar
+import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoSpacing
+import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
-import app.rentivo.designsystem.OpaqueOverlay
-import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.SectionTitle
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.ptBRCount
-import app.rentivo.designsystem.rentivoPage
+import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.Billing
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.LoadState
@@ -100,6 +104,31 @@ import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.ThemeTarget
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
+
+/**
+ * The square every trailing member-row control is centered in. A crown and an overflow menu are
+ * very different glyphs, so pinning both to the same footprint is what keeps a list of members on
+ * one vertical rhythm instead of stepping in and out as roles change.
+ */
+private val MemberActionSize = 48.dp
+
+/** The circled `ellipsis.circle` ring iOS draws around an overflow menu's glyph. */
+private val OverflowRingSize = 26.dp
+private val OverflowRingStroke = 1.5.dp
+private val OverflowGlyphSize = 16.dp
+
+/** The admin crown, sized to the optical weight of the ring it alternates with. */
+private val CrownSize = 22.dp
+
+/** Button and row glyphs track the 17sp copy beside them, not Material's 24dp default. */
+private val ButtonGlyphSize = 20.dp
+
+/** The 44pt minimum iOS gives a row of a grouped list, so short rows stay tappable. */
+internal val ListRowMinHeight = 44.dp
+
+/** iOS renders a destructive `.bordered` button as a red label on a lightly red-tinted capsule. */
+private val DestructiveTonalFill =
+  RentivoColors.destructiveText.copy(alpha = 0.12f).compositeOver(RentivoColors.paper)
 
 /** One organization plus the number of billings owned by it, as the list renders them. */
 private data class OrganizationListItem(
@@ -171,23 +200,35 @@ fun OrganizationListView(
 
   LaunchedEffect(app.dataRevision, refreshKey) { load() }
 
+  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
   Scaffold(
-    modifier = Modifier.fillMaxSize(),
+    modifier = Modifier
+      .fillMaxSize()
+      .nestedScroll(scrollBehavior.nestedScrollConnection),
     containerColor = RentivoColors.paper,
     topBar = {
-      TopAppBar(
-        title = { Text(text = "Organizações", style = RentivoTypography.title) },
-        colors = rentivoTopAppBarColors(),
+      RentivoLargeTopBar(
+        title = "Organizações",
+        scrollBehavior = scrollBehavior,
         actions = {
           if (canCreateOrganization) {
-            TextButton(
-              onClick = { showingCreate = true },
-              modifier = Modifier.testTag("organization.create"),
-            ) {
-              Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-              Spacer(modifier = Modifier.width(RentivoSpacing.tiny))
-              Text(text = "Criar", style = RentivoTypography.cardTitle)
+            // Icon-only, like the iOS `Label("Criar", systemImage: "plus")` in a toolbar: iOS drops
+            // the title and keeps it as the accessibility label, which is what the description does
+            // here too.
+            TopBarChip {
+              IconButton(
+                onClick = { showingCreate = true },
+                modifier = Modifier.testTag("organization.create"),
+              ) {
+                Icon(
+                  imageVector = Icons.Filled.Add,
+                  contentDescription = "Criar",
+                  tint = RentivoColors.emerald,
+                )
+              }
             }
+            Spacer(modifier = Modifier.width(RentivoSpacing.small))
           }
         },
       )
@@ -243,7 +284,7 @@ fun OrganizationListView(
   }
 
   if (showingCreate) {
-    OpaqueOverlay {
+    FullScreenSheet(onDismissRequest = { showingCreate = false }) {
       OrganizationFormView(
         existing = null,
         onSaved = { load() },
@@ -253,7 +294,7 @@ fun OrganizationListView(
   }
 
   if (showingInvitations) {
-    OpaqueOverlay {
+    FullScreenSheet(onDismissRequest = { showingInvitations = false }) {
       InvitationListView(
         onMutation = { load() },
         onDismiss = { showingInvitations = false },
@@ -274,6 +315,7 @@ private fun PendingInvitationsCard(pendingCount: Int, onClick: () -> Unit) {
         text = ptBRCount(pendingCount, singular = "convite pendente", plural = "convites pendentes"),
         icon = Icons.Filled.MarkEmailUnread,
         style = RentivoTypography.cardTitle,
+        tint = RentivoColors.ink,
       )
       Spacer(modifier = Modifier.weight(1f))
       Icon(
@@ -322,26 +364,26 @@ private fun OrganizationCard(item: OrganizationListItem, onClick: () -> Unit) {
         IconLabel(
           text = ptBRCount(item.organization.members.size, singular = "membro", plural = "membros"),
           icon = Icons.Filled.People,
-          color = RentivoColors.secondaryInk,
           style = RentivoTypography.metadata,
         )
         Spacer(modifier = Modifier.weight(1f))
         IconLabel(
           text = ptBRCount(item.billingCount, singular = "cobrança", plural = "cobranças"),
           icon = Icons.Filled.House,
-          color = RentivoColors.secondaryInk,
           style = RentivoTypography.metadata,
         )
       }
       IconLabel(
         text = if (item.organization.requiresMFA) "MFA obrigatório" else "MFA opcional",
-        icon = if (item.organization.requiresMFA) Icons.Filled.Security else Icons.Filled.LockOpen,
-        color = if (item.organization.requiresMFA) {
+        // `GppGood` is the shield-with-a-check in the Material set, i.e. the nearest glyph to the
+        // iOS `lock.shield.fill`; `Security` reads as a plain shield and loses the "verified" half.
+        icon = if (item.organization.requiresMFA) Icons.Filled.GppGood else Icons.Filled.LockOpen,
+        style = RentivoTypography.metadata,
+        tint = if (item.organization.requiresMFA) {
           RentivoColors.emerald
         } else {
           RentivoColors.secondaryInk
         },
-        style = RentivoTypography.metadata,
       )
     }
   }
@@ -367,8 +409,6 @@ fun OrganizationFormView(
   var merchantName by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantName ?: "") }
   var city by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantCity ?: "") }
   var pixValidationMessage: String? by remember(existing?.id) { mutableStateOf(null) }
-
-  BackHandler { onDismiss() }
 
   suspend fun save() {
     val trimmedKey = pixKey.trim()
@@ -437,52 +477,55 @@ fun OrganizationFormView(
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      FormSection(title = "Organização") {
-        OutlinedTextField(
-          value = name,
-          onValueChange = { name = it },
-          label = { Text(text = "Nome") },
-          singleLine = true,
-          colors = rentivoFieldColors(),
-          modifier = Modifier.fillMaxWidth().testTag("organization.form.name"),
-        )
-      }
-      FormSection(title = "PIX") {
-        OutlinedTextField(
-          value = pixKey,
-          onValueChange = { pixKey = it },
-          label = { Text(text = "Chave") },
-          singleLine = true,
-          colors = rentivoFieldColors(),
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = merchantName,
-          onValueChange = { merchantName = it },
-          label = { Text(text = "Nome do recebedor") },
-          singleLine = true,
-          colors = rentivoFieldColors(),
-          modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-          value = city,
-          onValueChange = { city = it },
-          label = { Text(text = "Cidade") },
-          singleLine = true,
-          keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-          colors = rentivoFieldColors(),
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-      pixValidationMessage?.let { message ->
-        FormSection(title = "Revise os campos") {
-          IconLabel(
-            text = message,
-            icon = Icons.Filled.Error,
-            color = RentivoColors.coral,
-            modifier = Modifier.testTag("organization.form.validation"),
+      FormSection(
+        title = "Organização",
+        rows = listOf({
+          FormFieldRow(
+            placeholder = "Nome",
+            value = name,
+            onValueChange = { name = it },
+            modifier = Modifier.testTag("organization.form.name"),
           )
-        }
+        }),
+      )
+      FormSection(
+        title = "PIX",
+        rows = listOf(
+          { FormFieldRow(placeholder = "Chave", value = pixKey, onValueChange = { pixKey = it }) },
+          {
+            FormFieldRow(
+              placeholder = "Nome do recebedor",
+              value = merchantName,
+              onValueChange = { merchantName = it },
+            )
+          },
+          {
+            FormFieldRow(
+              placeholder = "Cidade",
+              value = city,
+              onValueChange = { city = it },
+              keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Characters,
+              ),
+            )
+          },
+        ),
+      )
+      pixValidationMessage?.let { message ->
+        FormSection(
+          title = "Revise os campos",
+          rows = listOf({
+            IconLabel(
+              text = message,
+              icon = Icons.Filled.Error,
+              tint = RentivoColors.coral,
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium)
+                .testTag("organization.form.validation"),
+            )
+          }),
+        )
       }
     }
   }
@@ -618,25 +661,24 @@ fun OrganizationDetailView(
     modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
     topBar = {
-      TopAppBar(
-        title = { Text(text = "Organização", style = RentivoTypography.cardTitle) },
-        colors = rentivoTopAppBarColors(),
-        navigationIcon = {
-          IconButton(onClick = onBack) {
-            Icon(
-              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-              contentDescription = "Voltar",
-            )
-          }
-        },
+      RentivoInlineTopBar(
+        title = "Organização",
+        onBack = onBack,
         actions = {
           if (state.value?.capabilities?.canManage == true) {
-            TextButton(
-              onClick = { showingEdit = true },
-              modifier = Modifier.testTag("organization.edit"),
-            ) {
-              Text(text = "Editar", style = RentivoTypography.cardTitle)
+            TopBarChip {
+              TextButton(
+                onClick = { showingEdit = true },
+                modifier = Modifier.testTag("organization.edit"),
+              ) {
+                Text(
+                  text = "Editar",
+                  style = RentivoTypography.body,
+                  color = RentivoColors.emerald,
+                )
+              }
             }
+            Spacer(modifier = Modifier.width(RentivoSpacing.small))
           }
         },
       )
@@ -664,7 +706,8 @@ fun OrganizationDetailView(
             )
             IconLabel(
               text = organization.currentUserRole.label,
-              icon = Icons.Filled.VerifiedUser,
+              icon = Icons.Filled.AdminPanelSettings,
+              tint = RentivoColors.ink,
             )
             IconLabel(
               text = if (organization.pix?.isComplete == true) {
@@ -673,6 +716,7 @@ fun OrganizationDetailView(
                 "PIX pendente"
               },
               icon = Icons.Filled.QrCode2,
+              tint = RentivoColors.ink,
             )
           }
         }
@@ -714,27 +758,23 @@ fun OrganizationDetailView(
         }
 
         if (organization.capabilities.canManage) {
-          OutlinedButton(
+          RentivoTonalButton(
             onClick = { confirmingDelete = true },
+            color = RentivoColors.destructiveText,
+            containerColor = DestructiveTonalFill,
             modifier = Modifier.fillMaxWidth().testTag("organization.delete"),
           ) {
             Icon(
               imageVector = Icons.Filled.Delete,
               contentDescription = null,
-              tint = RentivoColors.coral,
+              modifier = Modifier.size(ButtonGlyphSize),
             )
-            Spacer(modifier = Modifier.width(RentivoSpacing.small))
-            Text(
-              text = "Excluir organização",
-              style = RentivoTypography.cardTitle,
-              color = RentivoColors.coral,
-            )
+            Text(text = "Excluir organização", style = RentivoTypography.body)
           }
         } else {
           IconLabel(
             text = "Seu papel permite consultar esta organização, sem alterar sua configuração.",
             icon = Icons.Filled.Visibility,
-            color = RentivoColors.secondaryInk,
             style = RentivoTypography.metadata,
           )
         }
@@ -780,7 +820,7 @@ fun OrganizationDetailView(
             scope.launch { deleteOrganization() }
           },
         ) {
-          Text(text = "Excluir", color = RentivoColors.coral)
+          Text(text = "Excluir", color = RentivoColors.destructiveText)
         }
       },
       dismissButton = {
@@ -790,7 +830,7 @@ fun OrganizationDetailView(
   }
 
   if (showingEdit && organization != null) {
-    OpaqueOverlay {
+    FullScreenSheet(onDismissRequest = { showingEdit = false }) {
       OrganizationFormView(
         existing = organization,
         onSaved = { refreshAll() },
@@ -800,7 +840,7 @@ fun OrganizationDetailView(
   }
 
   if (showingInvite && organization != null) {
-    OpaqueOverlay {
+    FullScreenSheet(onDismissRequest = { showingInvite = false }) {
       InviteMemberView(
         organization = organization,
         onSent = { refreshAll() },
@@ -871,45 +911,62 @@ private fun MemberRow(
         color = RentivoColors.secondaryInk,
       )
     }
-    if (member.role == OrganizationRole.ADMIN) {
-      Icon(
-        imageVector = Icons.Filled.WorkspacePremium,
-        contentDescription = null,
-        tint = RentivoColors.amber,
-      )
-    } else if (canManage) {
-      Box {
-        IconButton(onClick = { expanded = true }) {
+    if (member.role == OrganizationRole.ADMIN || canManage) {
+      // Both trailing controls are centered in the same square, so a row carrying a crown keeps the
+      // exact height and gutter of one carrying an overflow menu.
+      Box(modifier = Modifier.size(MemberActionSize), contentAlignment = Alignment.Center) {
+        if (member.role == OrganizationRole.ADMIN) {
           Icon(
-            imageVector = Icons.Filled.MoreHoriz,
-            contentDescription = "Opções de ${member.email}",
-            tint = RentivoColors.ink,
+            painter = painterResource(R.drawable.ic_crown),
+            contentDescription = null,
+            tint = RentivoColors.amber,
+            modifier = Modifier.size(CrownSize),
           )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-          // Admin has no menu at all (see the `member.role == ADMIN` branch above), so offering
-          // "admin" here would promote a member to a role with no way back through the UI. The
-          // member's current role is also excluded: re-selecting it is a no-op that only clutters
-          // the menu.
-          OrganizationRole.entries
-            .filter { it != OrganizationRole.ADMIN && it != member.role }
-            .forEach { role ->
-              DropdownMenuItem(
-                text = { Text(text = role.label) },
-                onClick = {
-                  expanded = false
-                  onChangeRole(role)
-                },
+        } else {
+          IconButton(onClick = { expanded = true }, modifier = Modifier.fillMaxSize()) {
+            Box(
+              modifier = Modifier
+                .size(OverflowRingSize)
+                .border(
+                  width = OverflowRingStroke,
+                  color = RentivoColors.emerald,
+                  shape = CircleShape,
+                ),
+              contentAlignment = Alignment.Center,
+            ) {
+              Icon(
+                imageVector = Icons.Filled.MoreHoriz,
+                contentDescription = "Opções de ${member.email}",
+                tint = RentivoColors.emerald,
+                modifier = Modifier.size(OverflowGlyphSize),
               )
             }
-          HorizontalDivider()
-          DropdownMenuItem(
-            text = { Text(text = "Remover", color = RentivoColors.coral) },
-            onClick = {
-              expanded = false
-              onRemove()
-            },
-          )
+          }
+          DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Admin has no menu at all (see the `member.role == ADMIN` branch above), so offering
+            // "admin" here would promote a member to a role with no way back through the UI. The
+            // member's current role is also excluded: re-selecting it is a no-op that only clutters
+            // the menu.
+            OrganizationRole.entries
+              .filter { it != OrganizationRole.ADMIN && it != member.role }
+              .forEach { role ->
+                DropdownMenuItem(
+                  text = { Text(text = role.label) },
+                  onClick = {
+                    expanded = false
+                    onChangeRole(role)
+                  },
+                )
+              }
+            HorizontalDivider()
+            DropdownMenuItem(
+              text = { Text(text = "Remover", color = RentivoColors.destructiveText) },
+              onClick = {
+                expanded = false
+                onRemove()
+              },
+            )
+          }
         }
       }
     }
@@ -944,12 +1001,7 @@ private fun PolicySection(organization: Organization, onToggleRequested: () -> U
           checked = organization.requiresMFA,
           onCheckedChange = { onToggleRequested() },
           enabled = organization.capabilities.canManage,
-          colors = SwitchDefaults.colors(
-            checkedThumbColor = RentivoColors.surface,
-            checkedTrackColor = RentivoColors.emerald,
-            uncheckedThumbColor = RentivoColors.secondaryInk,
-            uncheckedTrackColor = RentivoColors.paper,
-          ),
+          colors = rentivoSwitchColors(),
           modifier = Modifier
             .semantics { contentDescription = "Autenticação em duas etapas obrigatória" }
             .testTag("organization.mfa.toggle"),
@@ -993,21 +1045,16 @@ private fun BillingSection(
     }
     if (personal.isNotEmpty() && organization.capabilities.canCreateBilling) {
       Box {
-        OutlinedButton(
+        RentivoTonalButton(
           onClick = { expanded = true },
           modifier = Modifier.testTag("organization.billing.transfer"),
         ) {
           Icon(
             imageVector = Icons.Filled.SwapHoriz,
             contentDescription = null,
-            tint = RentivoColors.ink,
+            modifier = Modifier.size(ButtonGlyphSize),
           )
-          Spacer(modifier = Modifier.width(RentivoSpacing.small))
-          Text(
-            text = "Transferir cobrança para cá",
-            style = RentivoTypography.cardTitle,
-            color = RentivoColors.ink,
-          )
+          Text(text = "Transferir cobrança para cá", style = RentivoTypography.body)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
           personal.forEach { billing ->
@@ -1025,90 +1072,104 @@ private fun BillingSection(
   }
 }
 
-/** The `Cancelar` / title / confirm toolbar every sheet in this feature shares. */
+/**
+ * The `Cancelar` / title / confirm toolbar every sheet in this feature shares: a centered compact
+ * title flanked by two toolbar chips, matching the iOS sheet's inline navigation bar.
+ *
+ * [title] is omitted by sheets that carry a large title in their content instead (the iOS default
+ * `.navigationBarTitleDisplayMode(.automatic)`), leaving the bar as just the two controls.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SheetTopBar(
-  title: String,
   confirmTitle: String,
   confirmEnabled: Boolean,
   confirmTestTag: String,
   onCancel: () -> Unit,
   onConfirm: () -> Unit,
+  title: String? = null,
 ) {
-  TopAppBar(
-    title = { Text(text = title, style = RentivoTypography.cardTitle) },
-    colors = rentivoTopAppBarColors(),
+  CenterAlignedTopAppBar(
+    title = {
+      if (title != null) {
+        Text(text = title, style = RentivoTypography.cardTitle, color = RentivoColors.ink)
+      }
+    },
     navigationIcon = {
-      TextButton(onClick = onCancel) {
-        Text(text = "Cancelar", style = RentivoTypography.cardTitle)
+      Spacer(modifier = Modifier.width(RentivoSpacing.small))
+      TopBarChip {
+        TextButton(onClick = onCancel) {
+          Text(text = "Cancelar", style = RentivoTypography.body, color = RentivoColors.emerald)
+        }
       }
     },
     actions = {
-      TextButton(
-        onClick = onConfirm,
-        enabled = confirmEnabled,
-        modifier = Modifier.testTag(confirmTestTag),
-      ) {
-        Text(text = confirmTitle, style = RentivoTypography.cardTitle)
+      TopBarChip {
+        TextButton(
+          onClick = onConfirm,
+          enabled = confirmEnabled,
+          modifier = Modifier.testTag(confirmTestTag),
+        ) {
+          Text(
+            text = confirmTitle,
+            style = RentivoTypography.body,
+            color = if (confirmEnabled) RentivoColors.emerald else RentivoColors.secondaryInk,
+          )
+        }
       }
+      Spacer(modifier = Modifier.width(RentivoSpacing.small))
     },
+    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+      containerColor = RentivoColors.paper,
+      titleContentColor = RentivoColors.ink,
+      navigationIconContentColor = RentivoColors.ink,
+      actionIconContentColor = RentivoColors.emerald,
+    ),
   )
 }
 
-/** A titled group of fields, the Compose analog of a SwiftUI `Form` `Section`. */
+/**
+ * A titled group of fields, the Compose analog of a SwiftUI `Form` `Section`: a plain header over
+ * an inset-grouped plate whose rows are separated by inset hairlines.
+ */
 @Composable
-internal fun FormSection(title: String, content: @Composable () -> Unit) {
+private fun FormSection(title: String, rows: List<@Composable () -> Unit>) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    Text(text = title, style = RentivoTypography.metadata, color = RentivoColors.secondaryInk)
-    RentivoCard {
-      Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) { content() }
-    }
+    Text(text = title, style = RentivoTypography.subheadline, color = RentivoColors.secondaryInk)
+    RentivoListGroup(rows = rows)
   }
 }
 
-/** The Compose analog of SwiftUI's `Label(text, systemImage:)`. */
+/**
+ * One field of a [FormSection]: a borderless field sitting directly on the list plate, the way an
+ * iOS `TextField` inside a `Form` does. The label is the [placeholder], not a floating caption —
+ * that is the whole difference between a grouped form row and a boxed Material field.
+ *
+ * [modifier] deliberately lands on the field rather than on the row that wraps it: the row is pure
+ * geometry with nothing to identify or interact with, so a test tag passed here has to reach the
+ * node that actually accepts text.
+ */
 @Composable
-internal fun IconLabel(
-  text: String,
-  icon: ImageVector,
+internal fun FormFieldRow(
+  placeholder: String,
+  value: String,
+  onValueChange: (String) -> Unit,
   modifier: Modifier = Modifier,
-  color: Color = RentivoColors.ink,
-  style: TextStyle = RentivoTypography.subheadline,
+  keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
-  Row(
-    modifier = modifier,
-    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
-    verticalAlignment = Alignment.CenterVertically,
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = ListRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+    contentAlignment = Alignment.CenterStart,
   ) {
-    Icon(
-      imageVector = icon,
-      contentDescription = null,
-      tint = color,
-      modifier = Modifier.size(20.dp),
+    RentivoListField(
+      value = value,
+      onValueChange = onValueChange,
+      modifier = modifier,
+      placeholder = placeholder,
+      keyboardOptions = keyboardOptions,
     )
-    Text(text = text, style = style, color = color)
   }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun rentivoTopAppBarColors() = TopAppBarDefaults.topAppBarColors(
-  containerColor = RentivoColors.paper,
-  titleContentColor = RentivoColors.ink,
-  navigationIconContentColor = RentivoColors.ink,
-  actionIconContentColor = RentivoColors.emerald,
-)
-
-@Composable
-internal fun rentivoFieldColors(): TextFieldColors = OutlinedTextFieldDefaults.colors(
-  focusedTextColor = RentivoColors.ink,
-  unfocusedTextColor = RentivoColors.ink,
-  focusedContainerColor = RentivoColors.surface,
-  unfocusedContainerColor = RentivoColors.surface,
-  cursorColor = RentivoColors.emerald,
-  focusedBorderColor = RentivoColors.ink,
-  unfocusedBorderColor = RentivoColors.secondaryInk,
-  focusedLabelColor = RentivoColors.emerald,
-  unfocusedLabelColor = RentivoColors.secondaryInk,
-)

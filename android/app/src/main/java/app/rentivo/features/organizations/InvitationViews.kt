@@ -1,6 +1,5 @@
 package app.rentivo.features.organizations
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,23 +18,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Drafts
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,17 +42,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.PageStateView
-import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
+import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoListDivider
+import app.rentivo.designsystem.RentivoListGroup
+import app.rentivo.designsystem.RentivoProminentButton
 import app.rentivo.designsystem.RentivoSpacing
+import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.LoadState
@@ -61,6 +68,9 @@ import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationRole
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
+
+/** The chevron pair on a picker row, sized to sit beside the 17sp value rather than tower over it. */
+private val PickerGlyphSize = 18.dp
 
 /**
  * Pending invitations sheet. Port of `InvitationListView` in
@@ -75,8 +85,6 @@ fun InvitationListView(
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var state: LoadState<List<Invitation>> by remember { mutableStateOf(LoadState.Idle) }
-
-  BackHandler { onDismiss() }
 
   suspend fun load() {
     // Only blank the sheet with a spinner on first load; a `dataRevision` bump while the sheet is
@@ -120,16 +128,26 @@ fun InvitationListView(
 
   LaunchedEffect(app.dataRevision) { load() }
 
+  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
   Scaffold(
-    modifier = Modifier.fillMaxSize(),
+    modifier = Modifier
+      .fillMaxSize()
+      .nestedScroll(scrollBehavior.nestedScrollConnection),
     containerColor = RentivoColors.paper,
     topBar = {
-      TopAppBar(
-        title = { Text(text = "Convites", style = RentivoTypography.cardTitle) },
-        colors = rentivoTopAppBarColors(),
+      RentivoLargeTopBar(
+        title = "Convites",
+        scrollBehavior = scrollBehavior,
         navigationIcon = {
-          IconButton(onClick = onDismiss) {
-            Icon(imageVector = Icons.Filled.Close, contentDescription = "Fechar")
+          TopBarChip {
+            IconButton(onClick = onDismiss) {
+              Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Fechar",
+                tint = RentivoColors.ink,
+              )
+            }
           }
         },
       )
@@ -167,7 +185,9 @@ private fun InvitationRow(
   showsViewerNotice: Boolean,
   onRespond: (Boolean) -> Unit,
 ) {
-  RentivoCard {
+  // Flat: these rows are the sheet's own content, and iOS renders them as plain `List` rows. A
+  // second ink outline inside a presented sheet only competes with the sheet's edge.
+  RentivoCard(flat = true) {
     Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
       Text(
         text = invitation.organizationName,
@@ -176,36 +196,34 @@ private fun InvitationRow(
       )
       IconLabel(
         text = invitation.role.label,
-        icon = Icons.Filled.VerifiedUser,
+        icon = Icons.Filled.AdminPanelSettings,
         style = RentivoTypography.caption,
+        tint = RentivoColors.ink,
       )
       if (showsViewerNotice) {
         IconLabel(
           text = "Ações indisponíveis no modo visualizador.",
           icon = Icons.Filled.Visibility,
-          color = RentivoColors.secondaryInk,
           style = RentivoTypography.caption,
         )
       } else {
+        // Content-hugging, as on iOS: two capsules sitting at the leading edge rather than a pair
+        // of half-width slabs. "Recusar" is tinted, not destructive — declining an invitation
+        // deletes nothing.
         Row(
           horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium),
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          RentivoButton(
+          RentivoProminentButton(
             text = "Aceitar",
             onClick = { onRespond(true) },
-            modifier = Modifier.weight(1f).testTag("invitation.accept"),
+            modifier = Modifier.testTag("invitation.accept"),
           )
-          OutlinedButton(
+          RentivoTonalButton(
+            text = "Recusar",
             onClick = { onRespond(false) },
-            modifier = Modifier.weight(1f).testTag("invitation.decline"),
-          ) {
-            Text(
-              text = "Recusar",
-              style = RentivoTypography.cardTitle,
-              color = RentivoColors.coral,
-            )
-          }
+            modifier = Modifier.testTag("invitation.decline"),
+          )
         }
       }
     }
@@ -224,8 +242,6 @@ fun InviteMemberView(
   var email by remember { mutableStateOf("") }
   var role by remember { mutableStateOf(OrganizationRole.VIEWER) }
   var roleMenuExpanded by remember { mutableStateOf(false) }
-
-  BackHandler { onDismiss() }
 
   suspend fun invite() {
     try {
@@ -249,7 +265,6 @@ fun InviteMemberView(
     containerColor = RentivoColors.paper,
     topBar = {
       SheetTopBar(
-        title = "Convidar membro",
         confirmTitle = "Convidar",
         // Deliberately weaker than `EmailAddress.isValid`: the iOS form gates only on an "@" being
         // present and lets the server reject anything else, so the ported button matches it exactly.
@@ -268,60 +283,77 @@ fun InviteMemberView(
         .padding(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
-      RentivoCard {
-        Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
-          OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text(text = "E-mail") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-              capitalization = KeyboardCapitalization.None,
-              keyboardType = KeyboardType.Email,
-            ),
-            colors = rentivoFieldColors(),
-            modifier = Modifier.fillMaxWidth().testTag("invitation.email"),
-          )
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = "Função", style = RentivoTypography.body, color = RentivoColors.ink)
-            Spacer(modifier = Modifier.weight(1f))
-            Box {
-              TextButton(
-                onClick = { roleMenuExpanded = true },
-                modifier = Modifier.testTag("invitation.role"),
-              ) {
-                Text(text = role.label, style = RentivoTypography.cardTitle)
-                Spacer(modifier = Modifier.width(RentivoSpacing.tiny))
-                Icon(imageVector = Icons.Filled.UnfoldMore, contentDescription = null)
-              }
-              DropdownMenu(
-                expanded = roleMenuExpanded,
-                onDismissRequest = { roleMenuExpanded = false },
-              ) {
-                OrganizationRole.entries.forEach { option ->
-                  DropdownMenuItem(
-                    text = { Text(text = option.label) },
-                    onClick = {
-                      role = option
-                      roleMenuExpanded = false
-                    },
-                  )
-                }
+      // The iOS screen keeps its navigation title in the automatic (large) display mode, so the
+      // title belongs in the content, above the form, not in the toolbar between the two actions.
+      Text(text = "Convidar membro", style = RentivoTypography.display, color = RentivoColors.ink)
+      RentivoListGroup {
+        FormFieldRow(
+          placeholder = "E-mail",
+          value = email,
+          onValueChange = { email = it },
+          modifier = Modifier.testTag("invitation.email"),
+          keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            keyboardType = KeyboardType.Email,
+          ),
+        )
+        RentivoListDivider()
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = ListRowMinHeight)
+            .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.small),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(text = "Função", style = RentivoTypography.body, color = RentivoColors.ink)
+          Spacer(modifier = Modifier.weight(1f))
+          Box {
+            TextButton(
+              onClick = { roleMenuExpanded = true },
+              modifier = Modifier.testTag("invitation.role"),
+            ) {
+              Text(text = role.label, style = RentivoTypography.body, color = RentivoColors.emerald)
+              Spacer(modifier = Modifier.width(RentivoSpacing.tiny))
+              Icon(
+                imageVector = Icons.Filled.UnfoldMore,
+                contentDescription = null,
+                tint = RentivoColors.emerald,
+                modifier = Modifier.size(PickerGlyphSize),
+              )
+            }
+            DropdownMenu(
+              expanded = roleMenuExpanded,
+              onDismissRequest = { roleMenuExpanded = false },
+            ) {
+              OrganizationRole.entries.forEach { option ->
+                DropdownMenuItem(
+                  text = { Text(text = option.label) },
+                  onClick = {
+                    role = option
+                    roleMenuExpanded = false
+                  },
+                )
               }
             }
           }
         }
-      }
-      // This disclosure only describes the mock store's in-memory behavior; against the live API the
-      // invite is actually persisted server-side, so showing it there would be misleading demo
-      // residue.
-      if (!app.usesLiveAPI) {
-        IconLabel(
-          text = "O convite ficará pendente apenas na memória do app.",
-          icon = Icons.Filled.Info,
-          color = RentivoColors.secondaryInk,
-          style = RentivoTypography.caption,
-        )
+        // This disclosure only describes the mock store's in-memory behavior; against the live API
+        // the invite is actually persisted server-side, so showing it there would be misleading
+        // demo residue. It belongs to the form, so it rides on the same plate as the fields — the
+        // last row of the iOS `Form`, below its own separator.
+        if (!app.usesLiveAPI) {
+          RentivoListDivider()
+          IconLabel(
+            text = "O convite ficará pendente apenas na memória do app.",
+            icon = Icons.Outlined.Info,
+            style = RentivoTypography.caption,
+            tint = RentivoColors.emerald,
+            textColor = RentivoColors.secondaryInk,
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+          )
+        }
       }
     }
   }
