@@ -89,7 +89,9 @@ import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoInlineTopBar
+import app.rentivo.designsystem.RentivoListDivider
 import app.rentivo.designsystem.RentivoListField
+import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoProminentButton
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTonalButton
@@ -341,7 +343,7 @@ fun BillFormSheet(
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
       ) {
         FormSectionColumn(header = "Competência") {
-          RentivoCard {
+          RentivoListGroup {
             Box {
               FormRow(
                 label = "Mês",
@@ -376,7 +378,7 @@ fun BillFormSheet(
                 }
               }
             }
-            FormRowDivider()
+            RentivoListDivider()
             FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
               YearStepper(
                 canDecrease = year > YEAR_RANGE.first,
@@ -397,7 +399,7 @@ fun BillFormSheet(
         }
 
         FormSectionColumn(header = "Vencimento") {
-          RentivoCard {
+          RentivoListGroup {
             FormRow(label = "Definir vencimento") {
               Switch(
                 checked = hasDueDate,
@@ -406,7 +408,7 @@ fun BillFormSheet(
               )
             }
             if (hasDueDate) {
-              FormRowDivider()
+              RentivoListDivider()
               FormRow(
                 label = "Data de vencimento",
                 modifier = Modifier
@@ -415,22 +417,33 @@ fun BillFormSheet(
               ) {
                 DueDateChip(label = dueDate.dueDateLabel())
               }
-              Text(
-                text = "A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.",
-                style = RentivoTypography.caption,
-                color = RentivoColors.secondaryInk,
-              )
             }
+          }
+          if (hasDueDate) {
+            // The iOS `Form` footer: explanatory copy sits under the section's plate, not on it.
+            Text(
+              text = "A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.",
+              style = RentivoTypography.caption,
+              color = RentivoColors.secondaryInk,
+              modifier = Modifier.padding(horizontal = RentivoSpacing.medium),
+            )
           }
         }
 
         BillLineItemKind.entries.forEach { kind ->
           FormSectionColumn(header = kind.sectionTitle) {
             val kindLines = lines.filter { it.kind == kind }
-            if (kindLines.isNotEmpty()) {
-              RentivoCard {
+            // Only extras get an "add new line" affordance here: extras are the server's mechanism
+            // for ad-hoc per-bill lines. Variable items are defined by the billing (cobrança)
+            // itself, seeded above from `billing.items`; the live store's `variable_amounts` only
+            // accepts the billing's own ULID-keyed variable items, so a client-minted UUID for a
+            // brand-new variable line would silently be dropped on save. Previously seeded variable
+            // lines still render and remain editable above.
+            val addsLines = kind == BillLineItemKind.EXTRA
+            if (kindLines.isNotEmpty() || addsLines) {
+              RentivoListGroup {
                 kindLines.forEachIndexed { position, line ->
-                  if (position > 0) FormRowDivider()
+                  if (position > 0) RentivoListDivider()
                   // `key` ties each row's composition — and with it the text field's cursor, focus
                   // and IME state — to the line's identity rather than to its position, so deleting
                   // a row above does not shift the one below into its slot. The callbacks resolve
@@ -458,53 +471,55 @@ fun BillFormSheet(
                     )
                   }
                 }
+                if (addsLines) {
+                  if (kindLines.isNotEmpty()) RentivoListDivider()
+                  AddLineRow(
+                    label = "Adicionar ${kind.actionLabel}",
+                    onClick = { lines.add(EditableBillLine.new(kind = kind)) },
+                    modifier = Modifier.testTag("bill.form.addExtra"),
+                  )
+                }
               }
-            }
-            if (kind == BillLineItemKind.EXTRA) {
-              // Only extras get an "add new line" affordance here: extras are the server's
-              // mechanism for ad-hoc per-bill lines. Variable items are defined by the billing
-              // (cobrança) itself, seeded above from `billing.items`; the live store's
-              // `variable_amounts` only accepts the billing's own ULID-keyed variable items, so a
-              // client-minted UUID for a brand-new variable line would silently be dropped on save.
-              // Previously seeded variable lines still render and remain editable above.
-              AddLineRow(
-                label = "Adicionar ${kind.actionLabel}",
-                onClick = { lines.add(EditableBillLine.new(kind = kind)) },
-                modifier = Modifier.testTag("bill.form.addExtra"),
-              )
             }
           }
         }
 
         FormSectionColumn(header = "Observações") {
-          RentivoCard {
-            RentivoListField(
-              value = notes,
-              onValueChange = { notes = it },
-              modifier = Modifier
-                .heightIn(min = NotesFieldMinHeight)
-                .testTag("bill.form.notes"),
-              placeholder = "Mensagem opcional",
-              singleLine = false,
-              keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            )
+          RentivoListGroup {
+            FormPlate {
+              RentivoListField(
+                value = notes,
+                onValueChange = { notes = it },
+                modifier = Modifier
+                  .heightIn(min = NotesFieldMinHeight)
+                  .testTag("bill.form.notes"),
+                placeholder = "Mensagem opcional",
+                singleLine = false,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+              )
+            }
           }
         }
 
         FormSectionColumn(header = "Total") {
-          RentivoCard { MoneyText(money = total) }
+          RentivoListGroup {
+            FormPlate { MoneyText(money = total) }
+          }
         }
 
         if (issues.isNotEmpty()) {
           FormSectionColumn(header = "Revise a fatura") {
-            RentivoCard {
-              issues.forEach { issue ->
-                IconLabel(
-                  text = issue.message,
-                  icon = Icons.Filled.Error,
-                  style = RentivoTypography.body,
-                  tint = RentivoColors.coral,
-                )
+            RentivoListGroup {
+              issues.forEachIndexed { position, issue ->
+                if (position > 0) RentivoListDivider()
+                FormPlate {
+                  IconLabel(
+                    text = issue.message,
+                    icon = Icons.Filled.Error,
+                    style = RentivoTypography.body,
+                    tint = RentivoColors.coral,
+                  )
+                }
               }
             }
           }
@@ -543,6 +558,9 @@ fun BillFormSheet(
 /** The multi-line notes field's floor, i.e. the `lineLimit(3...6)` minimum the iOS form sets. */
 private val NotesFieldMinHeight = 72.dp
 
+/** The 44pt minimum iOS gives a row of a grouped `Form`, so a short row stays tappable. */
+private val FormRowMinHeight = 44.dp
+
 /** The removal glyph's own size; the tap target grows past it via the surrounding padding. */
 private val LineDeleteGlyphSize = 20.dp
 
@@ -554,7 +572,10 @@ private fun BillLineRow(
   onDelete: (() -> Unit)?,
 ) {
   Column(
-    modifier = Modifier.padding(vertical = RentivoSpacing.small),
+    modifier = Modifier.padding(
+      horizontal = RentivoSpacing.large,
+      vertical = RentivoSpacing.small,
+    ),
     verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
   ) {
     Row(
@@ -598,9 +619,9 @@ private fun AddLineRow(label: String, onClick: () -> Unit, modifier: Modifier = 
   Row(
     modifier = modifier
       .fillMaxWidth()
-      .clip(RoundedCornerShape(RentivoSpacing.medium))
       .clickable(onClick = onClick)
-      .padding(vertical = RentivoSpacing.medium),
+      .heightIn(min = FormRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
     horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -1395,18 +1416,26 @@ private fun ReceiptManagerSection(
 
 /**
  * A titled block of the form: the plain secondary header the shared [SectionHeader] draws, above
- * the section's card. Deliberately without a [SectionTitle] glyph — an iOS `Form` section header is
+ * the section's plate. Deliberately without a [SectionTitle] glyph — an iOS `Form` section header is
  * unadorned text, and a 28dp icon per section turned the form into a list of headlines.
+ *
+ * The header is indented off the page margin, like the one over a `Form` section on iOS and like
+ * the sibling "Nova cobrança" form's.
  */
 @Composable
 private fun FormSectionColumn(header: String, content: @Composable () -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
-    SectionHeader(header)
+    Box(modifier = Modifier.padding(horizontal = RentivoSpacing.medium)) { SectionHeader(header) }
     content()
   }
 }
 
-/** A labelled form row: the label on the leading edge, the control on the trailing edge. */
+/**
+ * A labelled form row: the label on the leading edge, the control on the trailing edge.
+ *
+ * The row insets itself rather than leaning on a container's padding, because it sits directly on a
+ * [RentivoListGroup] plate — [RentivoSpacing.large] is what lines its text up with the separators.
+ */
 @Composable
 private fun FormRow(
   label: String,
@@ -1416,12 +1445,27 @@ private fun FormRow(
   Row(
     modifier = modifier
       .fillMaxWidth()
-      .padding(vertical = RentivoSpacing.small),
+      .heightIn(min = FormRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.small),
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Text(text = label, style = RentivoTypography.body, color = RentivoColors.ink)
     Row(verticalAlignment = Alignment.CenterVertically) { content() }
+  }
+}
+
+/** A plate row that is a single unlabelled control: the row inset, and nothing else. */
+@Composable
+private fun FormPlate(content: @Composable () -> Unit) {
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = FormRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+    contentAlignment = Alignment.CenterStart,
+  ) {
+    content()
   }
 }
 

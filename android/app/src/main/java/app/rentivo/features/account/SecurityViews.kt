@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -596,9 +593,6 @@ private fun SheetHeader(title: String, icon: ImageVector) {
 /**
  * The iOS `.sheet`: a full-screen surface rising over everything, including the tab bar, with page
  * chrome and a single trailing toolbar action.
- *
- * The sheet's own layer already sits below the status bar, so the scaffold inside it must not add
- * that inset a second time — hence the explicit consumption.
  */
 @Composable
 private fun AccountSheet(
@@ -612,10 +606,11 @@ private fun AccountSheet(
     AccountScaffold(
       title = title,
       onBack = null,
-      modifier = Modifier.consumeWindowInsets(WindowInsets.statusBars),
       actions = {
-        TextButton(onClick = onAction) {
-          Text(text = actionTitle, color = RentivoColors.emerald)
+        AccountToolbarAction {
+          TextButton(onClick = onAction) {
+            Text(text = actionTitle, color = RentivoColors.emerald)
+          }
         }
       },
     ) { padding ->

@@ -31,11 +31,9 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,7 +58,7 @@ import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.BrandMark
 import app.rentivo.designsystem.RentivoColors
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoSpacing
@@ -356,23 +354,25 @@ fun ProfilePixView(onBack: () -> Unit) {
     onBack = onBack,
     actions = {
       if (!isDemoViewerLocked) {
-        TextButton(
-          onClick = {
-            scope.launch {
-              try {
-                form = ProfilePIXForm.from(app.updateProfilePIX(form.configuration))
-                app.showNotice("PIX pessoal atualizado.")
-              } catch (cancellation: CancellationException) {
-                throw cancellation
-              } catch (throwable: Throwable) {
-                app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+        AccountToolbarAction {
+          TextButton(
+            onClick = {
+              scope.launch {
+                try {
+                  form = ProfilePIXForm.from(app.updateProfilePIX(form.configuration))
+                  app.showNotice("PIX pessoal atualizado.")
+                } catch (cancellation: CancellationException) {
+                  throw cancellation
+                } catch (throwable: Throwable) {
+                  app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+                }
               }
-            }
-          },
-          enabled = form.configuration.isComplete,
-          modifier = Modifier.testTag("profile.pix.save"),
-        ) {
-          Text(text = "Salvar", color = RentivoColors.emerald)
+            },
+            enabled = form.configuration.isComplete,
+            modifier = Modifier.testTag("profile.pix.save"),
+          ) {
+            Text(text = "Salvar", color = RentivoColors.emerald)
+          }
         }
       }
     },
@@ -445,10 +445,9 @@ fun ProfilePixView(onBack: () -> Unit) {
 }
 
 /**
- * The chrome every account screen shares: paper background, a large PT-BR navigation title and an
- * optional back chevron sitting in the iOS 26 toolbar chip.
+ * The chrome every account screen shares: the paper page, a large PT-BR navigation title that
+ * collapses as the screen scrolls, and an optional back chevron sitting in the iOS 26 toolbar chip.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AccountScaffold(
   title: String,
@@ -457,30 +456,36 @@ internal fun AccountScaffold(
   actions: @Composable RowScope.() -> Unit = {},
   content: @Composable (PaddingValues) -> Unit,
 ) {
-  Scaffold(
-    modifier = modifier.fillMaxSize(),
-    containerColor = RentivoColors.paper,
-    topBar = {
-      RentivoLargeTopBar(
-        title = title,
-        navigationIcon = {
-          if (onBack != null) {
-            TopBarChip {
-              IconButton(onClick = onBack) {
-                Icon(
-                  imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                  contentDescription = "Voltar",
-                  tint = RentivoColors.ink,
-                )
-              }
-            }
+  RentivoLargeTopBarScaffold(
+    title = title,
+    modifier = modifier,
+    navigationIcon = onBack?.let { back ->
+      {
+        TopBarChip {
+          IconButton(onClick = back) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+              contentDescription = "Voltar",
+              tint = RentivoColors.ink,
+            )
           }
-        },
-        actions = actions,
-      )
+        }
+      }
     },
+    actions = actions,
     content = content,
   )
+}
+
+/**
+ * A trailing toolbar control of an [AccountScaffold]: the same circular chip the back chevron sits
+ * in, held off the trailing edge so it does not touch the screen border.
+ */
+@Composable
+internal fun AccountToolbarAction(content: @Composable () -> Unit) {
+  Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
+    TopBarChip(content = content)
+  }
 }
 
 /**

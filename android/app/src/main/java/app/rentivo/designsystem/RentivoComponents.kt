@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -726,6 +728,12 @@ fun FullScreenSheet(
   dismissEnabled: Boolean = true,
   content: @Composable () -> Unit,
 ) {
+  // The sheet's own window reaches the bottom of the display, under the gesture-navigation pill,
+  // but reports no window insets of its own to the composition inside it — so `navigationBarsPadding`
+  // in there measures zero and the last row of a scrolling form ends up bisected by the pill. The
+  // strip is therefore measured out here, in the host window, and applied as plain padding inside.
+  val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
   Dialog(
     onDismissRequest = onDismissRequest,
     properties = DialogProperties(
@@ -748,7 +756,10 @@ fun FullScreenSheet(
         modifier = Modifier
           .fillMaxSize()
           .clip(SheetShape)
-          .background(RentivoColors.paper),
+          .background(RentivoColors.paper)
+          // Inside the paper, never around it: the sheet fills the display to its bottom edge and
+          // only its content stops short of the pill.
+          .padding(bottom = navigationBarInset),
       ) {
         content()
       }

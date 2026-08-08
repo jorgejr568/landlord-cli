@@ -4,19 +4,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -34,7 +30,6 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,9 +60,10 @@ import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
+import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.APIKeyDraft
@@ -174,15 +170,17 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     onBack = onBack,
     actions = {
       if (!isDemoViewerLocked) {
-        IconButton(
-          onClick = { showingCreate = true },
-          modifier = Modifier.testTag("api-key.create"),
-        ) {
-          Icon(
-            imageVector = Icons.Filled.Add,
-            contentDescription = "Criar chave",
-            tint = RentivoColors.emerald,
-          )
+        AccountToolbarAction {
+          IconButton(
+            onClick = { showingCreate = true },
+            modifier = Modifier.testTag("api-key.create"),
+          ) {
+            Icon(
+              imageVector = Icons.Filled.Add,
+              contentDescription = "Criar chave",
+              tint = RentivoColors.emerald,
+            )
+          }
         }
       }
     },
@@ -457,29 +455,25 @@ private fun APIKeyFormScreen(
   }
 
   FullScreenSheet(onDismissRequest = onDismiss) {
-    Scaffold(
-      modifier = Modifier
-        .fillMaxSize()
-        .consumeWindowInsets(WindowInsets.statusBars),
-      containerColor = RentivoColors.paper,
-      topBar = {
-        RentivoLargeTopBar(
-          title = if (existing == null) "Nova chave" else "Editar chave",
-          navigationIcon = {
-            TextButton(onClick = onDismiss) {
-              Text(text = "Cancelar", color = RentivoColors.emerald)
-            }
-          },
-          actions = {
-            TextButton(
-              onClick = { submit() },
-              enabled = name.isNotEmpty() && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
-              modifier = Modifier.testTag("api-key.submit"),
-            ) {
-              Text(text = if (existing == null) "Criar" else "Salvar")
-            }
-          },
-        )
+    RentivoLargeTopBarScaffold(
+      title = if (existing == null) "Nova chave" else "Editar chave",
+      navigationIcon = {
+        TopBarChip {
+          TextButton(onClick = onDismiss) {
+            Text(text = "Cancelar", color = RentivoColors.emerald)
+          }
+        }
+      },
+      actions = {
+        AccountToolbarAction {
+          TextButton(
+            onClick = { submit() },
+            enabled = name.isNotEmpty() && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
+            modifier = Modifier.testTag("api-key.submit"),
+          ) {
+            Text(text = if (existing == null) "Criar" else "Salvar")
+          }
+        }
       },
     ) { padding ->
       Column(
@@ -676,11 +670,7 @@ private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Un
   BackHandler { onDismiss() }
 
   FullScreenSheet(onDismissRequest = onDismiss) {
-    AccountScaffold(
-      title = "Segredo da chave",
-      onBack = null,
-      modifier = Modifier.consumeWindowInsets(WindowInsets.statusBars),
-    ) { padding ->
+    AccountScaffold(title = "Segredo da chave", onBack = null) { padding ->
       Column(
         modifier = Modifier
           .fillMaxSize()

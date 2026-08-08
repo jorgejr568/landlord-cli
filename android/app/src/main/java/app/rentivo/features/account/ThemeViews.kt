@@ -135,11 +135,13 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
     onBack = onBack,
     actions = {
       if (record?.canEdit == true) {
-        TextButton(
-          onClick = { scope.launch { save() } },
-          modifier = Modifier.testTag("theme.save"),
-        ) {
-          Text(text = "Salvar", color = RentivoColors.emerald)
+        AccountToolbarAction {
+          TextButton(
+            onClick = { scope.launch { save() } },
+            modifier = Modifier.testTag("theme.save"),
+          ) {
+            Text(text = "Salvar", color = RentivoColors.emerald)
+          }
         }
       }
     },

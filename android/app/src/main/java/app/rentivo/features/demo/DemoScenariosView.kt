@@ -17,13 +17,10 @@ import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.RunningWithErrors
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -42,12 +38,11 @@ import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListDivider
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.TopBarChip
-import app.rentivo.designsystem.rentivoPage
 
 /** Row glyphs track the 17sp body copy beside them rather than Material's 24dp default. */
 private val RowGlyphSize = 20.dp
@@ -62,34 +57,23 @@ private val StateGlyphSize = 18.dp
  * Every control here mutates only the mock repositories, so the screen is reachable from the
  * account tab in demo builds and is dropped from production navigation.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DemoScenariosScreen(onBack: () -> Unit) {
   val app = LocalAppModel.current
   var confirmingReset by remember { mutableStateOf(false) }
-  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-  Scaffold(
-    modifier = Modifier
-      .rentivoPage()
-      .nestedScroll(scrollBehavior.nestedScrollConnection),
-    containerColor = Color.Transparent,
-    topBar = {
-      RentivoLargeTopBar(
-        title = "Cenários",
-        scrollBehavior = scrollBehavior,
-        navigationIcon = {
-          TopBarChip {
-            IconButton(onClick = onBack) {
-              Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Voltar",
-                tint = RentivoColors.ink,
-              )
-            }
-          }
-        },
-      )
+  RentivoLargeTopBarScaffold(
+    title = "Cenários",
+    navigationIcon = {
+      TopBarChip {
+        IconButton(onClick = onBack) {
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = "Voltar",
+            tint = RentivoColors.ink,
+          )
+        }
+      }
     },
   ) { insets ->
     Column(

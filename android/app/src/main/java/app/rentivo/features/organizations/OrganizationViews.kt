@@ -65,7 +65,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -82,7 +81,7 @@ import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoInlineTopBar
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoSpacing
@@ -200,38 +199,27 @@ fun OrganizationListView(
 
   LaunchedEffect(app.dataRevision, refreshKey) { load() }
 
-  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-  Scaffold(
-    modifier = Modifier
-      .fillMaxSize()
-      .nestedScroll(scrollBehavior.nestedScrollConnection),
-    containerColor = RentivoColors.paper,
-    topBar = {
-      RentivoLargeTopBar(
-        title = "Organizações",
-        scrollBehavior = scrollBehavior,
-        actions = {
-          if (canCreateOrganization) {
-            // Icon-only, like the iOS `Label("Criar", systemImage: "plus")` in a toolbar: iOS drops
-            // the title and keeps it as the accessibility label, which is what the description does
-            // here too.
-            TopBarChip {
-              IconButton(
-                onClick = { showingCreate = true },
-                modifier = Modifier.testTag("organization.create"),
-              ) {
-                Icon(
-                  imageVector = Icons.Filled.Add,
-                  contentDescription = "Criar",
-                  tint = RentivoColors.emerald,
-                )
-              }
-            }
-            Spacer(modifier = Modifier.width(RentivoSpacing.small))
+  RentivoLargeTopBarScaffold(
+    title = "Organizações",
+    actions = {
+      if (canCreateOrganization) {
+        // Icon-only, like the iOS `Label("Criar", systemImage: "plus")` in a toolbar: iOS drops
+        // the title and keeps it as the accessibility label, which is what the description does
+        // here too.
+        TopBarChip {
+          IconButton(
+            onClick = { showingCreate = true },
+            modifier = Modifier.testTag("organization.create"),
+          ) {
+            Icon(
+              imageVector = Icons.Filled.Add,
+              contentDescription = "Criar",
+              tint = RentivoColors.emerald,
+            )
           }
-        },
-      )
+        }
+        Spacer(modifier = Modifier.width(RentivoSpacing.small))
+      }
     },
   ) { padding ->
     PullToRefreshBox(

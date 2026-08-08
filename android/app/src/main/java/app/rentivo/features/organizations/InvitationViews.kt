@@ -32,7 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,7 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,7 +51,7 @@ import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListDivider
 import app.rentivo.designsystem.RentivoListGroup
 import app.rentivo.designsystem.RentivoProminentButton
@@ -128,29 +126,18 @@ fun InvitationListView(
 
   LaunchedEffect(app.dataRevision) { load() }
 
-  val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-  Scaffold(
-    modifier = Modifier
-      .fillMaxSize()
-      .nestedScroll(scrollBehavior.nestedScrollConnection),
-    containerColor = RentivoColors.paper,
-    topBar = {
-      RentivoLargeTopBar(
-        title = "Convites",
-        scrollBehavior = scrollBehavior,
-        navigationIcon = {
-          TopBarChip {
-            IconButton(onClick = onDismiss) {
-              Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "Fechar",
-                tint = RentivoColors.ink,
-              )
-            }
-          }
-        },
-      )
+  RentivoLargeTopBarScaffold(
+    title = "Convites",
+    navigationIcon = {
+      TopBarChip {
+        IconButton(onClick = onDismiss) {
+          Icon(
+            imageVector = Icons.Filled.Close,
+            contentDescription = "Fechar",
+            tint = RentivoColors.ink,
+          )
+        }
+      }
     },
   ) { padding ->
     PageStateView(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -107,7 +108,9 @@ private fun NoticeOverlay(modifier: Modifier = Modifier) {
 
   AnimatedVisibility(
     visible = notice != null,
-    modifier = modifier,
+    // The overlay is aligned to the top of the *window*, which the app draws into edge to edge, so
+    // without this the banner covers the clock and the status icons.
+    modifier = modifier.statusBarsPadding(),
     enter = slideInVertically { height -> -height } + fadeIn(),
     exit = slideOutVertically { height -> -height } + fadeOut(),
   ) {

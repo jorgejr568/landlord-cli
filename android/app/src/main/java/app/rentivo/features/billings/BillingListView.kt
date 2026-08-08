@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -57,7 +56,7 @@ import app.rentivo.designsystem.MoneyText
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
-import app.rentivo.designsystem.RentivoLargeTopBar
+import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoSegmentedPicker
 import app.rentivo.designsystem.RentivoSpacing
@@ -65,7 +64,6 @@ import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.StatusBadge
 import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.ptBRCount
-import app.rentivo.designsystem.rentivoPage
 import app.rentivo.domain.Bill
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
@@ -134,65 +132,58 @@ fun BillingListView(
 
   LaunchedEffect(app.dataRevision, reloadToken) { load() }
 
-  Box(modifier = Modifier.rentivoPage()) {
-    Scaffold(
-      containerColor = RentivoColors.paper,
-      topBar = {
-        RentivoLargeTopBar(
-          title = "Cobranças",
-          actions = {
-            if (canCreateBilling) {
-              Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
-                TopBarChip {
-                  IconButton(
-                    onClick = { showingCreate = true },
-                    modifier = Modifier.testTag("billing.create"),
-                  ) {
-                    Icon(
-                      imageVector = Icons.Filled.Add,
-                      contentDescription = "Nova cobrança",
-                      tint = RentivoColors.emerald,
-                    )
-                  }
-                }
-              }
-            }
-          },
-        )
-      },
-    ) { padding ->
-      PullToRefreshBox(
-        isRefreshing = refreshing,
-        onRefresh = {
-          scope.launch {
-            refreshing = true
-            try {
-              load()
-            } finally {
-              refreshing = false
+  RentivoLargeTopBarScaffold(
+    title = "Cobranças",
+    actions = {
+      if (canCreateBilling) {
+        Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
+          TopBarChip {
+            IconButton(
+              onClick = { showingCreate = true },
+              modifier = Modifier.testTag("billing.create"),
+            ) {
+              Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "Nova cobrança",
+                tint = RentivoColors.emerald,
+              )
             }
           }
-        },
-        modifier = Modifier.padding(padding).fillMaxSize(),
-      ) {
-        PageStateView(
-          state = state.value,
-          emptyTitle = "Nenhuma cobrança ainda",
-          emptyMessage = "Crie sua primeira cobrança para começar a gerar faturas.",
-          emptyIcon = Icons.Filled.Description,
-          emptyActionTitle = if (canCreateBilling) "Nova cobrança" else null,
-          emptyAction = if (canCreateBilling) ({ showingCreate = true }) else null,
-          retry = { scope.launch { load() } },
-        ) { items ->
-          Portfolio(
-            items = items,
-            searchText = searchText,
-            onSearchTextChange = { searchText = it },
-            ownerFilter = ownerFilter,
-            onOwnerFilterChange = { ownerFilter = it },
-            onOpenBilling = onOpenBilling,
-          )
         }
+      }
+    },
+  ) { padding ->
+    PullToRefreshBox(
+      isRefreshing = refreshing,
+      onRefresh = {
+        scope.launch {
+          refreshing = true
+          try {
+            load()
+          } finally {
+            refreshing = false
+          }
+        }
+      },
+      modifier = Modifier.padding(padding).fillMaxSize(),
+    ) {
+      PageStateView(
+        state = state.value,
+        emptyTitle = "Nenhuma cobrança ainda",
+        emptyMessage = "Crie sua primeira cobrança para começar a gerar faturas.",
+        emptyIcon = Icons.Filled.Description,
+        emptyActionTitle = if (canCreateBilling) "Nova cobrança" else null,
+        emptyAction = if (canCreateBilling) ({ showingCreate = true }) else null,
+        retry = { scope.launch { load() } },
+      ) { items ->
+        Portfolio(
+          items = items,
+          searchText = searchText,
+          onSearchTextChange = { searchText = it },
+          ownerFilter = ownerFilter,
+          onOwnerFilterChange = { ownerFilter = it },
+          onOpenBilling = onOpenBilling,
+        )
       }
     }
   }
