@@ -11,7 +11,7 @@ import structlog
 from rentivo.jobs import registry
 from rentivo.jobs.backoff import BACKOFF_SECONDS as _BACKOFF_SECONDS  # noqa: F401
 from rentivo.jobs.backoff import next_run_after
-from rentivo.jobs.base import Job, JobRepository, PermanentJobError
+from rentivo.jobs.base import Job, JobContext, JobRepository, PermanentJobError
 from rentivo.models.audit_log import AuditEventType
 from rentivo.observability import extract_context, span, suppress_tracing
 from rentivo.services.audit_service import AuditService
@@ -21,7 +21,6 @@ logger = structlog.get_logger(__name__)
 __all__ = ["Worker", "next_run_after"]
 
 _MAX_ERROR_LEN = 4096
-_OWNED_RENDER_JOB_TYPES = frozenset({"pdf.render", "recibo.render"})
 
 
 def _truncate(s: str, n: int) -> str:
@@ -93,10 +92,8 @@ class Worker:
         attributes = {"job.type": job.job_type, "job.ulid": job.ulid, "job.attempts": job.attempts}
         try:
             with span(f"job {job.job_type}", parent=parent, attributes=attributes):
-                payload = job.payload
-                if job.job_type in _OWNED_RENDER_JOB_TYPES:
-                    payload = {**payload, "_job_ulid": job.ulid}
-                handler(payload)
+                context = JobContext(ulid=job.ulid, attempts=job.attempts)
+                registry.dispatch(job.job_type, handler, job.payload, context)
         except PermanentJobError as exc:
             self._fail(job, str(exc))
         except Exception as exc:

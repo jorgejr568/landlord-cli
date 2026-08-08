@@ -2,7 +2,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.s3 import handle_s3_delete
+from rentivo.jobs.payloads import S3DeletePayload
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _delete(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_s3_delete(S3DeletePayload.model_validate(payload), CONTEXT)
 
 
 def _make_client_error(code: str):
@@ -15,9 +24,7 @@ def _make_client_error(code: str):
 def test_handler_calls_storage_delete_with_key():
     storage = MagicMock()
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
-        handle_s3_delete({"key": "billing/bill.pdf"})
+        _delete({"key": "billing/bill.pdf"})
 
     storage.delete.assert_called_once_with("billing/bill.pdf")
 
@@ -25,9 +32,7 @@ def test_handler_calls_storage_delete_with_key():
 def test_handler_empty_key_is_no_op():
     storage = MagicMock()
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
-        handle_s3_delete({"key": ""})
+        _delete({"key": ""})
 
     storage.delete.assert_not_called()
 
@@ -35,9 +40,7 @@ def test_handler_empty_key_is_no_op():
 def test_handler_missing_key_is_no_op():
     storage = MagicMock()
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
-        handle_s3_delete({})
+        _delete({})
 
     storage.delete.assert_not_called()
 
@@ -47,18 +50,14 @@ def test_handler_swallows_no_such_key():
     storage = MagicMock()
     storage.delete.side_effect = _make_client_error("NoSuchKey")
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
-        handle_s3_delete({"key": "k"})  # must not raise
+        _delete({"key": "k"})  # must not raise
 
 
 def test_handler_swallows_404():
     storage = MagicMock()
     storage.delete.side_effect = _make_client_error("404")
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
-        handle_s3_delete({"key": "k"})
+        _delete({"key": "k"})
 
 
 @pytest.mark.parametrize(
@@ -76,10 +75,8 @@ def test_handler_raises_permanent_for_config_errors(code: str):
     storage = MagicMock()
     storage.delete.side_effect = _make_client_error(code)
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
         with pytest.raises(PermanentJobError, match="s3 config error"):
-            handle_s3_delete({"key": "k"})
+            _delete({"key": "k"})
 
 
 @pytest.mark.parametrize("code", ["SlowDown", "RequestTimeout", "ServiceUnavailable", "InternalError"])
@@ -89,20 +86,16 @@ def test_handler_reraises_retryable_aws_codes(code: str):
     storage = MagicMock()
     storage.delete.side_effect = _make_client_error(code)
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
         with pytest.raises(ClientError):
-            handle_s3_delete({"key": "k"})
+            _delete({"key": "k"})
 
 
 def test_handler_reraises_generic_runtime_error():
     storage = MagicMock()
     storage.delete.side_effect = RuntimeError("network blip")
     with patch("rentivo.jobs.handlers.s3.get_storage", return_value=storage):
-        from rentivo.jobs.handlers.s3 import handle_s3_delete
-
         with pytest.raises(RuntimeError, match="network blip"):
-            handle_s3_delete({"key": "k"})
+            _delete({"key": "k"})
 
 
 def test_classifier_returns_success_for_idempotent_codes():

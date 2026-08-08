@@ -10,29 +10,11 @@ from rentivo.jobs.backend import JobBackend
 from rentivo.jobs.base import Job
 from rentivo.jobs.temporal.client import AsyncBridge, build_client
 from rentivo.jobs.temporal.config import TemporalConfig, config_from_settings
-from rentivo.jobs.temporal.workflows import (
-    AuthCleanupWorkflow,
-    CommunicationSendWorkflow,
-    EmailSendWorkflow,
-    ExportGenerateWorkflow,
-    ExportSendWorkflow,
-    PdfRenderWorkflow,
-    ReciboRenderWorkflow,
-    S3DeleteWorkflow,
-)
+from rentivo.jobs.temporal.workflows import workflow_by_type
 
 logger = structlog.get_logger(__name__)
 
-_WORKFLOW_BY_TYPE = {
-    "email.send": EmailSendWorkflow,
-    "communication.send": CommunicationSendWorkflow,
-    "pdf.render": PdfRenderWorkflow,
-    "recibo.render": ReciboRenderWorkflow,
-    "s3.delete": S3DeleteWorkflow,
-    "export.generate": ExportGenerateWorkflow,
-    "export.send": ExportSendWorkflow,
-    "auth.cleanup": AuthCleanupWorkflow,
-}
+_WORKFLOW_BY_TYPE = workflow_by_type()
 
 
 class TemporalJobBackend(JobBackend):

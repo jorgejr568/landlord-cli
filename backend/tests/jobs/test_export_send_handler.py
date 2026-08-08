@@ -8,13 +8,22 @@ from sqlalchemy.pool import StaticPool
 
 from rentivo.encryption.base64 import Base64Backend
 from rentivo.encryption.factory import get_encryption
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.export import handle_export_send
+from rentivo.jobs.payloads import ExportSendPayload
 from rentivo.jobs.sqlalchemy import decode_job_payload
 from rentivo.models.billing import Billing
 from rentivo.models.user import User
 from rentivo.repositories.sqlalchemy.billing import SQLAlchemyBillingRepository
 from rentivo.repositories.sqlalchemy.user import SQLAlchemyUserRepository
 from tests.conftest import SCHEMA_DDL
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _send(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_export_send(ExportSendPayload.model_validate(payload), CONTEXT)
 
 
 @pytest.fixture()
@@ -85,15 +94,13 @@ def _payload(user, billing, key="UUID/exports/abc.csv"):
 
 
 def test_sends_one_email_to_requesting_account(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_send
-
     user = _seed_user(engine, email="landlord@example.com")
     billing = _seed_billing(engine, name="São João")
     backend = _CapturingBackend()
     storage = _FakeStorage({"UUID/exports/abc.csv": b"Mes;Total\n"})
     _patch(monkeypatch, engine, backend, storage)
 
-    handle_export_send(_payload(user, billing))
+    _send(_payload(user, billing))
 
     assert len(backend.messages) == 1
     msg = backend.messages[0]
@@ -105,8 +112,6 @@ def test_sends_one_email_to_requesting_account(engine, monkeypatch):
 
 
 def test_format_label_excel_for_xlsx(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_send
-
     user = _seed_user(engine)
     billing = _seed_billing(engine)
     backend = _CapturingBackend()
@@ -116,22 +121,20 @@ def test_format_label_excel_for_xlsx(engine, monkeypatch):
     payload = _payload(user, billing, key="k.xlsx")
     payload["format"] = "xlsx"
     payload["content_type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    handle_export_send(payload)
+    _send(payload)
 
     msg = backend.messages[0]
     assert "Excel" in (msg.text_body or "") or "Excel" in (msg.html_body or "")
 
 
 def test_enqueues_s3_delete_after_send(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_send
-
     user = _seed_user(engine)
     billing = _seed_billing(engine)
     backend = _CapturingBackend()
     storage = _FakeStorage({"UUID/exports/abc.csv": b"x"})
     _patch(monkeypatch, engine, backend, storage)
 
-    handle_export_send(_payload(user, billing))
+    _send(_payload(user, billing))
 
     deletes = _enqueued(engine, "s3.delete")
     assert len(deletes) == 1
@@ -139,8 +142,6 @@ def test_enqueues_s3_delete_after_send(engine, monkeypatch):
 
 
 def test_unknown_user_raises_permanent(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_send
-
     billing = _seed_billing(engine)
     backend = _CapturingBackend()
     storage = _FakeStorage({"UUID/exports/abc.csv": b"x"})
@@ -155,13 +156,11 @@ def test_unknown_user_raises_permanent(engine, monkeypatch):
         "requested_by_user_id": 99999,
     }
     with pytest.raises(PermanentJobError):
-        handle_export_send(payload)
+        _send(payload)
     assert backend.messages == []
 
 
 def test_unknown_billing_raises_permanent(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_send
-
     user = _seed_user(engine)
     backend = _CapturingBackend()
     storage = _FakeStorage({"UUID/exports/abc.csv": b"x"})
@@ -176,5 +175,5 @@ def test_unknown_billing_raises_permanent(engine, monkeypatch):
         "requested_by_user_id": user.id,
     }
     with pytest.raises(PermanentJobError):
-        handle_export_send(payload)
+        _send(payload)
     assert backend.messages == []

@@ -3,71 +3,74 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from rentivo.jobs import registry
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.payloads import JobPayload
 from rentivo.jobs.temporal import activities
+from rentivo.jobs.temporal.registry import JOB_TYPES
 from rentivo.models.audit_log import AuditEventType
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+class _BillPayload(JobPayload):
+    bill_id: int
 
 
 def test_run_registered_handler_invokes_handler(clean_registry):
     calls = []
-    registry.register("email.send")(lambda p: calls.append(p))
-    activities.run_registered_handler("email.send", {"to": "x"})
-    assert calls == [{"to": "x"}]
+    registry.register("email.send")(lambda p, c: calls.append((p, c)))
+    activities.run_registered_handler("email.send", {"to": "x"}, CONTEXT)
+    assert calls == [({"to": "x"}, CONTEXT)]
 
 
 def test_run_registered_handler_missing_handler_is_permanent(clean_registry):
     with pytest.raises(ApplicationError) as exc:
-        activities.run_registered_handler("nope", {})
+        activities.run_registered_handler("nope", {}, CONTEXT)
     assert exc.value.type == "PermanentJobError"
     assert exc.value.non_retryable is True
 
 
 def test_run_registered_handler_maps_permanent_job_error(clean_registry):
-    def boom(_p):
+    def boom(_p, _c):
         raise PermanentJobError("bad input")
 
     registry.register("email.send")(boom)
     with pytest.raises(ApplicationError) as exc:
-        activities.run_registered_handler("email.send", {})
+        activities.run_registered_handler("email.send", {}, CONTEXT)
+    assert exc.value.type == "PermanentJobError"
+    assert exc.value.non_retryable is True
+
+
+def test_run_registered_handler_maps_invalid_payload_to_permanent(clean_registry):
+    """The registry decode runs inside the activity, so both drivers agree that
+    a payload which cannot match its model is non-retryable."""
+    registry.register("email.send", model=_BillPayload)(lambda _p, _c: None)
+    with pytest.raises(ApplicationError) as exc:
+        activities.run_registered_handler("email.send", {"bill_id": "42"}, CONTEXT)
     assert exc.value.type == "PermanentJobError"
     assert exc.value.non_retryable is True
 
 
 def test_run_registered_handler_lets_transient_error_propagate(clean_registry):
-    def boom(_p):
+    def boom(_p, _c):
         raise RuntimeError("network")
 
     registry.register("email.send")(boom)
     with pytest.raises(RuntimeError, match="network"):
-        activities.run_registered_handler("email.send", {})
+        activities.run_registered_handler("email.send", {}, CONTEXT)
 
 
 def test_email_send_activity_runs_through_env(clean_registry):
     calls = []
-    registry.register("email.send")(lambda p: calls.append(p))
+    registry.register("email.send")(lambda p, c: calls.append(p))
     env = ActivityEnvironment()
-    env.run(activities.email_send_activity, {"to": "y"})
+    env.run(activities.ACTIVITY_BY_JOB_TYPE["email.send"], {"to": "y"})
     assert calls == [{"to": "y"}]
 
 
 def test_other_activities_run_through_env(clean_registry):
     calls = {}
-    registry.register("communication.send")(lambda p: calls.setdefault("communication.send", p))
-    registry.register("pdf.render")(lambda p: calls.setdefault("pdf.render", p))
-    registry.register("recibo.render")(lambda p: calls.setdefault("recibo.render", p))
-    registry.register("s3.delete")(lambda p: calls.setdefault("s3.delete", p))
-    registry.register("export.generate")(lambda p: calls.setdefault("export.generate", p))
-    registry.register("export.send")(lambda p: calls.setdefault("export.send", p))
-    registry.register("auth.cleanup")(lambda p: calls.setdefault("auth.cleanup", p))
-    env = ActivityEnvironment()
-    env.run(activities.communication_send_activity, {"a": 1})
-    env.run(activities.pdf_render_activity, {"b": 2})
-    env.run(activities.recibo_render_activity, {"d": 4})
-    env.run(activities.s3_delete_activity, {"c": 3})
-    env.run(activities.export_generate_activity, {"e": 5})
-    env.run(activities.export_send_activity, {"f": 6})
-    env.run(activities.auth_cleanup_activity, {"now": "2026-07-17T12:00:00Z"})
-    assert calls == {
+    payloads = {
         "communication.send": {"a": 1},
         "pdf.render": {"b": 2},
         "recibo.render": {"d": 4},
@@ -76,29 +79,46 @@ def test_other_activities_run_through_env(clean_registry):
         "export.send": {"f": 6},
         "auth.cleanup": {"now": "2026-07-17T12:00:00Z"},
     }
+    for job_type in payloads:
+        registry.register(job_type)(lambda p, c, _t=job_type: calls.setdefault(_t, p))
+    env = ActivityEnvironment()
+    for job_type, payload in payloads.items():
+        env.run(activities.ACTIVITY_BY_JOB_TYPE[job_type], payload)
+    assert calls == payloads
 
 
-@pytest.mark.parametrize(
-    ("activity_fn", "job_type"),
-    [
-        (activities.pdf_render_activity, "pdf.render"),
-        (activities.recibo_render_activity, "recibo.render"),
-    ],
-)
-def test_render_activities_forward_stable_workflow_job_identity(clean_registry, monkeypatch, activity_fn, job_type):
+def test_every_registration_table_row_has_an_activity():
+    assert set(activities.ACTIVITY_BY_JOB_TYPE) == set(JOB_TYPES)
+
+
+@pytest.mark.parametrize("job_type", JOB_TYPES)
+def test_every_activity_forwards_the_workflow_job_identity(clean_registry, monkeypatch, job_type):
+    """Job identity is unconditional: every activity reports the ULID carried by
+    the ``job-<ulid>`` workflow id, not just the render ones."""
     received = []
-    registry.register(job_type)(lambda payload: received.append(payload))
+    registry.register(job_type)(lambda payload, context: received.append((payload, context)))
     monkeypatch.setattr(
         activities.activity,
         "info",
-        lambda: type("Info", (), {"workflow_id": "job-01ARZ3NDEKTSV4RRFFQ69G5FAV"})(),
+        lambda: type("Info", (), {"workflow_id": "job-01ARZ3NDEKTSV4RRFFQ69G5FAV", "attempt": 3})(),
     )
     original_payload = {"bill_id": 42}
 
-    activity_fn(original_payload)
+    activities.ACTIVITY_BY_JOB_TYPE[job_type](original_payload)
 
-    assert received == [{"bill_id": 42, "_job_ulid": "01ARZ3NDEKTSV4RRFFQ69G5FAV"}]
+    assert received == [({"bill_id": 42}, JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=3))]
     assert original_payload == {"bill_id": 42}
+
+
+def test_job_context_is_empty_outside_a_job_workflow(monkeypatch):
+    """Only ``TemporalJobBackend`` mints ``job-<ulid>`` ids; anything else has no
+    durable job identity to report."""
+    monkeypatch.setattr(
+        activities.activity,
+        "info",
+        lambda: type("Info", (), {"workflow_id": "some-other-workflow", "attempt": 1})(),
+    )
+    assert activities.job_context() == JobContext(ulid="", attempts=1)
 
 
 def test_open_audit_returns_audit_and_close(monkeypatch):

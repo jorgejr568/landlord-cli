@@ -7,7 +7,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from rentivo.jobs import registry
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.temporal.registry import JOB_TYPES
 from rentivo.jobs.temporal.retry import PERMANENT_ERROR_TYPE
 from rentivo.models.audit_log import AuditEventType
 from rentivo.observability import extract_context, span
@@ -17,7 +18,7 @@ logger = structlog.get_logger(__name__)
 # ---- Handler execution -----------------------------------------------------
 
 
-def run_registered_handler(job_type: str, payload: dict) -> None:
+def run_registered_handler(job_type: str, payload: dict, context: JobContext) -> None:
     """Invoke the registered handler for ``job_type`` inside a trace span that
     re-parents onto the enqueuing request (via the ``_otel`` carrier), mapping
     ``PermanentJobError`` and a missing handler to a non-retryable failure."""
@@ -32,59 +33,44 @@ def run_registered_handler(job_type: str, payload: dict) -> None:
     attributes = {"job.type": job_type}
     try:
         with span(f"job {job_type}", parent=parent, attributes=attributes):
-            handler(payload)
+            registry.dispatch(job_type, handler, payload, context)
     except PermanentJobError as exc:
         raise ApplicationError(str(exc), type=PERMANENT_ERROR_TYPE, non_retryable=True) from exc
 
 
-def _with_persistent_job_identity(payload: dict) -> dict:
-    workflow_id = activity.info().workflow_id
-    if not workflow_id.startswith("job-"):
-        return payload
-    return {**payload, "_job_ulid": workflow_id.removeprefix("job-")}
+def job_context() -> JobContext:
+    """The running activity's job identity.
+
+    ``TemporalJobBackend`` starts every job under the workflow id ``job-<ulid>``,
+    which is what makes the identity durable across retries. An activity running
+    under any other workflow id has no job ULID to offer, so it reports an empty
+    one.
+    """
+    info = activity.info()
+    ulid = info.workflow_id.removeprefix("job-") if info.workflow_id.startswith("job-") else ""
+    return JobContext(ulid=ulid, attempts=info.attempt)
 
 
 # ---- Per-job-type activities ----------------------------------------------
 
 
-@activity.defn(name="email.send")
-def email_send_activity(payload: dict) -> None:
-    run_registered_handler("email.send", payload)
+def _build_activity(job_type: str) -> Callable[[dict], None]:
+    """Build the activity for one row of the registration table.
+
+    ``job_type`` doubles as the registered activity name; it is recorded in
+    Temporal history and must be passed through verbatim.
+    """
+
+    @activity.defn(name=job_type)
+    def run(payload: dict) -> None:
+        run_registered_handler(job_type, payload, job_context())
+
+    return run
 
 
-@activity.defn(name="communication.send")
-def communication_send_activity(payload: dict) -> None:
-    run_registered_handler("communication.send", payload)
-
-
-@activity.defn(name="pdf.render")
-def pdf_render_activity(payload: dict) -> None:
-    run_registered_handler("pdf.render", _with_persistent_job_identity(payload))
-
-
-@activity.defn(name="recibo.render")
-def recibo_render_activity(payload: dict) -> None:
-    run_registered_handler("recibo.render", _with_persistent_job_identity(payload))
-
-
-@activity.defn(name="s3.delete")
-def s3_delete_activity(payload: dict) -> None:
-    run_registered_handler("s3.delete", payload)
-
-
-@activity.defn(name="export.generate")
-def export_generate_activity(payload: dict) -> None:
-    run_registered_handler("export.generate", payload)
-
-
-@activity.defn(name="export.send")
-def export_send_activity(payload: dict) -> None:
-    run_registered_handler("export.send", payload)
-
-
-@activity.defn(name="auth.cleanup")
-def auth_cleanup_activity(payload: dict) -> None:
-    run_registered_handler("auth.cleanup", payload)
+ACTIVITY_BY_JOB_TYPE: dict[str, Callable[[dict], None]] = {
+    job_type: _build_activity(job_type) for job_type in JOB_TYPES
+}
 
 
 # ---- Terminal/audit activity (mirrors Worker._audit_job + _fail) -----------

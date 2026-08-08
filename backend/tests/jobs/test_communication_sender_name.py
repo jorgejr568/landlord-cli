@@ -5,11 +5,20 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from rentivo.encryption.base64 import Base64Backend
-from rentivo.jobs.handlers.communication import _resolve_sender_name
+from rentivo.jobs.base import JobContext
+from rentivo.jobs.handlers.communication import _resolve_sender_name, handle_communication_send
+from rentivo.jobs.payloads import CommunicationSendPayload
 from rentivo.models.billing import Billing
 from rentivo.repositories.sqlalchemy.organization import SQLAlchemyOrganizationRepository
 from rentivo.repositories.sqlalchemy.user import SQLAlchemyUserRepository
 from tests.conftest import SCHEMA_DDL
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _send(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_communication_send(CommunicationSendPayload.model_validate(payload), CONTEXT)
 
 
 @pytest.fixture()
@@ -106,7 +115,7 @@ def test_handler_threads_org_name_into_sent_email(conn, monkeypatch):
     monkeypatch.setattr(mod, "get_storage", lambda: FakeStorage())
     monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
 
-    mod.handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
     assert "Imobiliária Aurora" in sent["msg"].html_body
 
 
@@ -176,7 +185,7 @@ def test_from_uses_communications_from_name(conn, monkeypatch):
     monkeypatch.setattr(mod.settings, "communications_from_email", "")
     monkeypatch.setattr(mod.settings, "ses_from_email", "noreply@x.com")
 
-    mod.handle_communication_send({"communication_id": comm_id})
+    _send({"communication_id": comm_id})
     assert sent["msg"].from_address == "Cobrancas Aurora <noreply@x.com>"
 
 
@@ -190,7 +199,7 @@ def test_from_falls_back_to_ses_from_name(conn, monkeypatch):
     monkeypatch.setattr(mod.settings, "communications_from_email", "")
     monkeypatch.setattr(mod.settings, "ses_from_email", "noreply@x.com")
 
-    mod.handle_communication_send({"communication_id": comm_id})
+    _send({"communication_id": comm_id})
     assert sent["msg"].from_address.startswith("Rentivo <")
 
 
@@ -203,5 +212,5 @@ def test_from_pairs_comm_email_with_ses_name_when_comm_name_empty(conn, monkeypa
     monkeypatch.setattr(mod.settings, "communications_from_name", "")
     monkeypatch.setattr(mod.settings, "ses_from_name", "Rentivo")
 
-    mod.handle_communication_send({"communication_id": comm_id})
+    _send({"communication_id": comm_id})
     assert sent["msg"].from_address == "Rentivo <cobranca@x.com>"

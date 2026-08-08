@@ -11,7 +11,8 @@ from rentivo.db import get_engine
 from rentivo.email.base import EmailAttachment
 from rentivo.email.factory import get_email_backend
 from rentivo.encryption.factory import get_encryption
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.payloads import CommunicationSendPayload
 from rentivo.jobs.registry import register, register_on_fail
 from rentivo.models.communication import CommType
 from rentivo.repositories.sqlalchemy.bill import SQLAlchemyBillRepository
@@ -25,13 +26,6 @@ from rentivo.settings import settings
 from rentivo.storage.factory import get_storage
 
 logger = structlog.get_logger(__name__)
-
-
-def _require_int_id(payload: dict) -> int:
-    communication_id = payload.get("communication_id")
-    if not isinstance(communication_id, int):
-        raise PermanentJobError(f"communication.send requires int communication_id, got {communication_id!r}")
-    return communication_id
 
 
 def _resolve_sender_name(conn, encryption, billing) -> str:
@@ -54,13 +48,10 @@ def _resolve_sender_name(conn, encryption, billing) -> str:
     return name or "o responsável"
 
 
-@register("communication.send")
-def handle_communication_send(payload: dict) -> None:
-    """Render a stored communication, attach the bill PDF, send one email, mark sent.
-
-    Payload shape: ``{"communication_id": int}``.
-    """
-    communication_id = _require_int_id(payload)
+@register("communication.send", model=CommunicationSendPayload)
+def handle_communication_send(payload: CommunicationSendPayload, context: JobContext) -> None:
+    """Render a stored communication, attach the bill PDF, send one email, mark sent."""
+    communication_id = payload.communication_id
     engine = get_engine()
     encryption = get_encryption()
     with engine.connect() as conn:

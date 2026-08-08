@@ -120,9 +120,14 @@ class TestRegenerateRecibos:
             handler_bill_repo_cls.return_value.get_by_id.return_value = bill
             handler_billing_repo_cls.return_value.get_by_id.return_value = billing
 
+            from rentivo.jobs.base import JobContext
             from rentivo.jobs.handlers.recibo import handle_recibo_render
+            from rentivo.jobs.payloads import ReciboRenderPayload
 
-            handle_recibo_render(call_args.args[1])
+            handle_recibo_render(
+                ReciboRenderPayload.model_validate(call_args.args[1]),
+                JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1),
+            )
 
         service_cls.return_value.store_recibo.assert_called_once_with(
             bill,

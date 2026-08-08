@@ -32,7 +32,7 @@ def test_job_span_is_child_of_originating_request():
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     tracing.configure_tracing(provider=provider)
-    registry.register("test.trace.job")(lambda payload: None)
+    registry.register("test.trace.job")(lambda payload, context: None)
     try:
         carrier: dict = {}
         with span("request"):

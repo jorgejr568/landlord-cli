@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import structlog
 
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.payloads import S3DeletePayload
 from rentivo.jobs.registry import register
 from rentivo.storage.factory import get_storage
 
@@ -45,11 +46,11 @@ def _classify_boto_client_error(exc: Exception) -> str:
     return "retry"
 
 
-@register("s3.delete")
-def handle_s3_delete(payload: dict) -> None:
-    key = payload.get("key", "")
+@register("s3.delete", model=S3DeletePayload)
+def handle_s3_delete(payload: S3DeletePayload, context: JobContext) -> None:
+    key = payload.key
     if not key:
-        logger.warning("s3_delete_empty_key", payload=payload)
+        logger.warning("s3_delete_empty_key", payload=payload.model_dump())
         return
 
     storage = get_storage()

@@ -2,7 +2,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.email import handle_email_send
+from rentivo.jobs.payloads import EmailSendPayload
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _send(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_email_send(EmailSendPayload.model_validate(payload), CONTEXT)
 
 
 def test_handler_dispatches_event_to_send_with_full_ctx():
@@ -12,9 +21,7 @@ def test_handler_dispatches_event_to_send_with_full_ctx():
     ):
         instance = MagicMock()
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
-        handle_email_send(
+        _send(
             {
                 "event": "welcome",
                 "to_email": "alice@example.com",
@@ -37,9 +44,7 @@ def test_handler_routes_password_reset_through_send_too():
     ):
         instance = MagicMock()
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
-        handle_email_send(
+        _send(
             {
                 "event": "password_reset",
                 "to_email": "alice@example.com",
@@ -61,9 +66,7 @@ def test_handler_uses_default_empty_ctx_when_missing():
     ):
         instance = MagicMock()
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
-        handle_email_send({"event": "welcome", "to_email": "alice@example.com"})
+        _send({"event": "welcome", "to_email": "alice@example.com"})
 
         instance.send.assert_called_once_with("alice@example.com", "welcome", {})
 
@@ -76,10 +79,8 @@ def test_handler_raises_permanent_error_for_unknown_event():
         instance = MagicMock()
         instance.send.side_effect = KeyError("nope.event")
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
         with pytest.raises(PermanentJobError, match="nope.event"):
-            handle_email_send(
+            _send(
                 {
                     "event": "nope.event",
                     "to_email": "alice@example.com",
@@ -98,10 +99,8 @@ def test_handler_raises_permanent_error_for_template_not_found():
         instance = MagicMock()
         instance.send.side_effect = TemplateNotFound("welcome.html")
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
         with pytest.raises(PermanentJobError, match="welcome.html"):
-            handle_email_send(
+            _send(
                 {
                     "event": "welcome",
                     "to_email": "alice@example.com",
@@ -118,10 +117,8 @@ def test_handler_propagates_other_exceptions_for_retry():
         instance = MagicMock()
         instance.send.side_effect = RuntimeError("ses throttled")
         svc_cls.return_value = instance
-        from rentivo.jobs.handlers.email import handle_email_send
-
         with pytest.raises(RuntimeError, match="ses throttled"):
-            handle_email_send(
+            _send(
                 {
                     "event": "welcome",
                     "to_email": "alice@example.com",
@@ -140,7 +137,7 @@ def test_email_from_uses_ses_from_name(monkeypatch):
         patch("rentivo.jobs.handlers.email.get_email_backend"),
     ):
         svc_cls.return_value = MagicMock()
-        mod.handle_email_send({"event": "welcome", "to_email": "alice@example.com"})
+        _send({"event": "welcome", "to_email": "alice@example.com"})
 
         assert svc_cls.call_args.kwargs["from_address"] == "Rentivo <noreply@x.com>"
 
@@ -155,6 +152,6 @@ def test_email_from_empty_name_is_bare_email(monkeypatch):
         patch("rentivo.jobs.handlers.email.get_email_backend"),
     ):
         svc_cls.return_value = MagicMock()
-        mod.handle_email_send({"event": "welcome", "to_email": "alice@example.com"})
+        _send({"event": "welcome", "to_email": "alice@example.com"})
 
         assert svc_cls.call_args.kwargs["from_address"] == "noreply@x.com"

@@ -7,6 +7,20 @@ from datetime import datetime
 
 
 @dataclass(frozen=True)
+class JobContext:
+    """Per-run job identity handed to every handler alongside its payload.
+
+    ``ulid`` is the durable identity of the job (the queue row's ULID on the
+    database backend, the workflow id's ULID suffix on Temporal), so it is
+    stable across retries of the same job and usable as an operation token.
+    ``attempts`` is the 1-based number of the attempt now running.
+    """
+
+    ulid: str
+    attempts: int
+
+
+@dataclass(frozen=True)
 class Job:
     id: int
     ulid: str

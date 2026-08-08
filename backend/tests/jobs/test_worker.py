@@ -4,8 +4,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from rentivo.jobs import registry
-from rentivo.jobs.base import Job, PermanentJobError
+from rentivo.jobs.base import Job, JobContext, PermanentJobError
+from rentivo.jobs.payloads import JobPayload
 from rentivo.jobs.worker import _BACKOFF_SECONDS, Worker, next_run_after
+
+
+class _BillPayload(JobPayload):
+    bill_id: int
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +49,7 @@ class TestWorkerTick:
         called = {"count": 0}
 
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             called["count"] += 1
 
         job = _make_job(attempts=1)
@@ -65,10 +70,11 @@ class TestWorkerTick:
         assert audit.safe_log.call_args.kwargs["event_type"] == AuditEventType.JOB_SUCCEEDED
         assert audit.safe_log.call_args.kwargs["source"] == "worker"
 
-    @pytest.mark.parametrize("job_type", ["pdf.render", "recibo.render"])
-    def test_render_handlers_receive_stable_persistent_job_identity(self, job_type):
+    @pytest.mark.parametrize("job_type", ["pdf.render", "recibo.render", "t.test"])
+    def test_every_handler_receives_the_persistent_job_identity(self, job_type):
+        """Job identity is not a per-job-type favour: every handler gets it."""
         received = []
-        registry.register(job_type)(lambda payload: received.append(payload))
+        registry.register(job_type)(lambda payload, context: received.append((payload, context)))
         original_payload = {"bill_id": 42}
         job = Job(
             id=1,
@@ -83,12 +89,37 @@ class TestWorkerTick:
 
         Worker(repo, MagicMock(), worker_id="t:1").tick()
 
-        assert received == [{"bill_id": 42, "_job_ulid": job.ulid}]
+        assert received == [({"bill_id": 42}, JobContext(ulid=job.ulid, attempts=2))]
         assert original_payload == {"bill_id": 42}
+
+    def test_invalid_payload_dead_letters_without_retry(self):
+        """The registry decode runs inside the worker, so a payload that cannot
+        match its model fails permanently instead of burning every retry."""
+        registry.register("t.test", model=_BillPayload)(lambda payload, context: None)
+        job = Job(id=1, ulid="01HXYZ", job_type="t.test", payload={"bill_id": "42"}, attempts=1, max_attempts=5)
+        repo = MagicMock()
+        repo.claim_batch.return_value = [job]
+
+        Worker(repo, MagicMock(), worker_id="t:1").tick()
+
+        repo.reschedule.assert_not_called()
+        repo.mark_failed.assert_called_once()
+        assert "invalid t.test payload" in repo.mark_failed.call_args.args[1]
+
+    def test_decoded_payload_reaches_the_handler(self):
+        received = []
+        registry.register("t.test", model=_BillPayload)(lambda payload, context: received.append(payload))
+        job = Job(id=1, ulid="01HXYZ", job_type="t.test", payload={"bill_id": 42}, attempts=1, max_attempts=5)
+        repo = MagicMock()
+        repo.claim_batch.return_value = [job]
+
+        Worker(repo, MagicMock(), worker_id="t:1").tick()
+
+        assert received == [_BillPayload(bill_id=42)]
 
     def test_tick_reschedules_on_retryable_exception(self):
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             raise RuntimeError("boom")
 
         job = _make_job(attempts=1)
@@ -110,7 +141,7 @@ class TestWorkerTick:
 
     def test_tick_marks_failed_when_attempts_reached_max(self):
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             raise RuntimeError("boom")
 
         job = _make_job(attempts=5, max_attempts=5)
@@ -129,7 +160,7 @@ class TestWorkerTick:
 
     def test_tick_dead_letters_immediately_on_permanent_error(self):
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             raise PermanentJobError("template missing")
 
         job = _make_job(attempts=1, max_attempts=5)
@@ -170,7 +201,7 @@ class TestWorkerTick:
         as SP_TZ wall-clock by the repo and misfire retries by ~3h."""
 
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             raise RuntimeError("boom")
 
         job = _make_job(attempts=1)
@@ -185,7 +216,7 @@ class TestWorkerTick:
 
     def test_tick_truncates_extremely_long_errors(self):
         @registry.register("t.test")
-        def handler(payload):
+        def handler(payload, context):
             raise RuntimeError("x" * 10_000)
 
         job = _make_job(attempts=1)

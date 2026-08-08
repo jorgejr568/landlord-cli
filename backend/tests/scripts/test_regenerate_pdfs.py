@@ -139,9 +139,14 @@ class TestRegeneratePdfs:
             handler_bill_repo_cls.return_value.get_by_id.return_value = bill
             handler_billing_repo_cls.return_value.get_by_id.return_value = billing
 
+            from rentivo.jobs.base import JobContext
             from rentivo.jobs.handlers.pdf import handle_pdf_render
+            from rentivo.jobs.payloads import PdfRenderPayload
 
-            handle_pdf_render(call_args.args[1])
+            handle_pdf_render(
+                PdfRenderPayload.model_validate(call_args.args[1]),
+                JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1),
+            )
 
         handler_bill_repo_cls.return_value.claim_pending_pdf_render.assert_not_called()
         service_cls.return_value._render_pdf_sync.assert_called_once_with(
