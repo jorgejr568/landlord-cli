@@ -3,19 +3,13 @@ import { useNavigate, useParams } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { OrganizationForm, type OrganizationValues } from "./OrganizationForm";
 
 type Detail = components["schemas"]["OrganizationLoginDetailResponse"];
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
-}
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
-}
 
 function valuesFor(detail: Detail): OrganizationValues {
   return {
@@ -29,7 +23,6 @@ function valuesFor(detail: Detail): OrganizationValues {
 export function OrganizationEditPage() {
   const { orgUuid = "" } = useParams<{ orgUuid: string }>();
   const navigate = useNavigate();
-  const previousTitle = useRef(document.title);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
@@ -70,10 +63,7 @@ export function OrganizationEditPage() {
     saveRef.current?.abort();
     saveRef.current = null;
   }, []);
-  useEffect(() => {
-    document.title = detail ? `Editar ${detail.name} - Rentivo` : "Editar Organização - Rentivo";
-  }, [detail]);
-  useEffect(() => () => { document.title = previousTitle.current; }, []);
+  useDocumentTitle(detail ? `Editar ${detail.name} - Rentivo` : "Editar Organização - Rentivo");
 
   const submit = async (values: OrganizationValues) => {
     if (saveRef.current) return;
@@ -101,7 +91,7 @@ export function OrganizationEditPage() {
       if (controller.signal.aborted || generation !== generationRef.current) return;
       if (caught instanceof ApiError) {
         setError(Object.keys(caught.fields).length ? "" : caught.message);
-        setFieldErrors(normalizedFields(caught));
+        setFieldErrors(normalizedFieldErrors(caught));
       } else {
         setError("Não foi possível atualizar a organização.");
       }

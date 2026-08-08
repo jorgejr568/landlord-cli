@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill } from "./billSupport";
-import { errorMessage } from "./billSupport";
 
 type Transition = components["schemas"]["AvailableTransitionResponse"];
 

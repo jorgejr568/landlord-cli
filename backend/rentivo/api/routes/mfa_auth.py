@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from hashlib import sha256
 from secrets import compare_digest
 from typing import Any, Literal
@@ -11,9 +12,9 @@ from fastapi.responses import JSONResponse
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 from rentivo.api.authentication import reject_out_of_band_credentials
+from rentivo.api.cookies import client_ip, delete_challenge_cookie
 from rentivo.api.dependencies import get_services
 from rentivo.api.errors import ProblemException, problem, problem_response
-from rentivo.api.routes.auth import _authenticated_response, _client_ip, _delete_cookie
 from rentivo.api.schemas.auth import (
     AuthenticatedResponse,
     CredentialTransport,
@@ -22,9 +23,11 @@ from rentivo.api.schemas.auth import (
     PasskeyAuthCompleteRequest,
     WebAuthnAuthenticationOptions,
 )
+from rentivo.api.session_response import login_response
 from rentivo.context import Actor
 from rentivo.models.audit_log import AuditEventType
 from rentivo.models.auth_challenge import AuthChallenge
+from rentivo.models.user import User
 from rentivo.services.container import RequestServices
 from rentivo.settings import settings
 
@@ -98,7 +101,7 @@ def _actor(
 
 
 def _rate_identity(request: Request, user_id: int) -> str:
-    return f"{user_id}:{_client_ip(request)}"
+    return f"{user_id}:{client_ip(request)}"
 
 
 def _reserve_attempt(
@@ -117,29 +120,52 @@ def _reserve_attempt(
     return identity
 
 
-def _audit_failure(
+_ATTEMPT_FAILURES: dict[str, Callable[[], ProblemException]] = {
+    "totp": _invalid_code,
+    "recovery": _invalid_code,
+    "passkey": _invalid_passkey,
+}
+
+
+def _reject_attempt(
     services: RequestServices,
+    request: Request,
     challenge: AuthChallenge,
     *,
+    challenge_id: str,
+    nonce: str,
     email: str,
-    client_ip: str,
     method: str,
     credential_transport: CredentialTransport,
-) -> None:
+    record: bool = True,
+) -> ProblemException:
+    """Burn the attempt, audit the failure, and return the error to report.
+
+    ``record=False`` is for failures discovered after the challenge has already
+    been consumed: there is no longer a challenge to count a failure against.
+    """
+    if record:
+        services.auth_challenge.record_failure(
+            challenge_id,
+            nonce,
+            expected_phase="login",
+            expected_method=method,
+        )
     services.audit.safe_log_for(
         _actor(challenge, email, credential_transport),
         AuditEventType.MFA_VERIFY_FAILED,
         entity_type="user",
         entity_id=challenge.user_id,
-        metadata={"ip": client_ip, "method": method},
+        metadata={"ip": client_ip(request), "method": method},
     )
+    return _ATTEMPT_FAILURES[method]()
 
 
 def _finish_login(
     *,
     services: RequestServices,
     request: Request,
-    user: object,
+    user: User,
     via: str,
     audit_metadata: dict[str, Any],
     identity: str,
@@ -149,14 +175,14 @@ def _finish_login(
     result = services.login.complete_login(
         user=user,
         via=via,
-        client_ip=_client_ip(request),
+        client_ip=client_ip(request),
         user_agent=request.headers.get("user-agent", ""),
         audit_metadata=audit_metadata,
         source="web" if credential_transport == "cookie" else "mobile",
     )
-    response = _authenticated_response(result, credential_transport=credential_transport)
+    response = login_response(result, credential_transport=credential_transport)
     if credential_transport == "cookie":
-        _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+        delete_challenge_cookie(response)
     return response
 
 
@@ -189,21 +215,16 @@ async def _verify_code(
         else services.mfa.verify_recovery_code(user.id, payload.code)
     )
     if not verified:
-        services.auth_challenge.record_failure(
-            payload.challenge_id,
-            nonce,
-            expected_phase="login",
-            expected_method=method,
-        )
-        _audit_failure(
+        raise _reject_attempt(
             services,
+            request,
             challenge,
+            challenge_id=payload.challenge_id,
+            nonce=nonce,
             email=user.email,
-            client_ip=_client_ip(request),
             method=method,
             credential_transport=payload.credential_transport,
         )
-        raise _invalid_code()
     consumed = services.auth_challenge.consume(
         payload.challenge_id,
         nonce,
@@ -217,7 +238,7 @@ async def _verify_code(
         AuditEventType.MFA_VERIFY_SUCCESS,
         entity_type="user",
         entity_id=user.id,
-        metadata={"ip": _client_ip(request), "method": method},
+        metadata={"ip": client_ip(request), "method": method},
     )
     return _finish_login(
         services=services,
@@ -328,21 +349,16 @@ async def complete_passkey_authentication(
     credential_id = payload.credential.id
     passkey = services.mfa.get_passkey_by_credential_id(credential_id)
     if passkey is None or passkey.user_id != user.id:
-        services.auth_challenge.record_failure(
-            payload.challenge_id,
-            nonce,
-            expected_phase="login",
-            expected_method="passkey",
-        )
-        _audit_failure(
+        raise _reject_attempt(
             services,
+            request,
             challenge,
+            challenge_id=payload.challenge_id,
+            nonce=nonce,
             email=user.email,
-            client_ip=_client_ip(request),
             method="passkey",
             credential_transport=payload.credential_transport,
         )
-        raise _invalid_passkey()
     try:
         verification = webauthn.verify_authentication_response(
             credential=payload.credential.model_dump(mode="json", by_alias=True, exclude_unset=True),
@@ -354,21 +370,16 @@ async def complete_passkey_authentication(
         )
     except Exception:
         logger.warning("passkey_auth_failed", user_id=user.id)
-        services.auth_challenge.record_failure(
-            payload.challenge_id,
-            nonce,
-            expected_phase="login",
-            expected_method="passkey",
-        )
-        _audit_failure(
+        raise _reject_attempt(
             services,
+            request,
             challenge,
+            challenge_id=payload.challenge_id,
+            nonce=nonce,
             email=user.email,
-            client_ip=_client_ip(request),
             method="passkey",
             credential_transport=payload.credential_transport,
-        )
-        raise _invalid_passkey() from None
+        ) from None
     consumed = services.auth_challenge.consume(
         payload.challenge_id,
         nonce,
@@ -384,25 +395,29 @@ async def complete_passkey_authentication(
         verification.new_sign_count,
     )
     if not usage_updated:
-        _audit_failure(
+        # The challenge is already consumed above, so there is no failure left
+        # to record against it; only the audit trail and the error remain.
+        failure = _reject_attempt(
             services,
+            request,
             challenge,
+            challenge_id=payload.challenge_id,
+            nonce=nonce,
             email=user.email,
-            client_ip=_client_ip(request),
             method="passkey",
             credential_transport=payload.credential_transport,
+            record=False,
         )
-        failure = _invalid_passkey()
         response = problem_response(failure.problem)
         if payload.credential_transport == "cookie":
-            _delete_cookie(response, settings.challenge_cookie_name, httponly=True)
+            delete_challenge_cookie(response)
         return response
     services.audit.safe_log_for(
         _actor(challenge, user.email, payload.credential_transport),
         AuditEventType.MFA_PASSKEY_USED,
         entity_type="user",
         entity_id=user.id,
-        metadata={"ip": _client_ip(request), "passkey_uuid": passkey.uuid},
+        metadata={"ip": client_ip(request), "passkey_uuid": passkey.uuid},
     )
     return _finish_login(
         services=services,

@@ -6,26 +6,16 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatBrl, formatMonth, parseBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { AttachmentManager } from "./AttachmentManager";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
 type Bill = components["schemas"]["BillResponse"];
-type BillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"] & {
-  can_create_bills: boolean;
-  can_create_exports: boolean;
-  can_manage_theme: boolean;
-  can_read_attachments: boolean;
-  can_read_bills: boolean;
-  can_read_expenses: boolean;
-  can_read_theme: boolean;
-  can_upload_bill_receipts: boolean;
-  can_write_attachments: boolean;
-  can_write_expenses: boolean;
-};
-type Billing = Omit<components["schemas"]["BillingResponse"], "capabilities"> & { capabilities: BillingCapabilities };
+type Billing = components["schemas"]["BillingResponse"];
 type Expense = components["schemas"]["ExpenseResponse"];
 type ExpenseCategory = components["schemas"]["ExpenseCreateRequest"]["category"];
 type Organization = components["schemas"]["OrganizationResponse"];
@@ -66,10 +56,6 @@ const STATUS_LABELS: Record<string, string> = {
   published: "Publicado",
   sent: "Enviado"
 };
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
-}
 
 function StatusTag({ status }: { status: string }) {
   const dotted = status === "sent" || status === "paid" || status === "delayed_payment";
@@ -128,7 +114,7 @@ export function BillingDetailPage() {
       const billingResult = await apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", {
         params: { path: { billing_uuid: requestUuid } }, signal
       }));
-      const billing = billingResult.data as Billing;
+      const billing = billingResult.data;
       if (!isCurrent()) return;
       const [billResult, expenseResult, attachmentResult, organizationResult] = await Promise.all([
         billing.capabilities.can_read_bills
@@ -160,10 +146,8 @@ export function BillingDetailPage() {
   }, []);
 
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
     const mutationControllers = mutationControllersRef.current;
-    document.title = "Cobrança - Rentivo";
     activeActionRef.current = null;
     setActiveAction(null);
     setPendingExpense(null);
@@ -177,11 +161,10 @@ export function BillingDetailPage() {
       mutationControllers.forEach((mutationController) => mutationController.abort());
       mutationControllers.clear();
       activeActionRef.current = null;
-      document.title = previousTitle;
     };
   }, [billingUuid, load]);
   const data = loaded?.billingUuid === billingUuid ? loaded.data : null;
-  useEffect(() => { if (data) document.title = `${data.billing.name} - Rentivo`; }, [data]);
+  useDocumentTitle(data ? `${data.billing.name} - Rentivo` : "Cobrança - Rentivo");
   useEffect(() => {
     const first = Object.keys(expenseErrors)[0];
     if (first) document.querySelector<HTMLElement>(`[name="expense-${first}"]`)?.focus();
@@ -219,7 +202,7 @@ export function BillingDetailPage() {
       await load(token.billingUuid, token.controller.signal);
     } catch (caught) {
       if (actionIsCurrent(token)) {
-        if (caught instanceof ApiError && Object.keys(caught.fields).length) setExpenseErrors(normalizedFields(caught));
+        if (caught instanceof ApiError && Object.keys(caught.fields).length) setExpenseErrors(normalizedFieldErrors(caught));
         else setMutationError("Não foi possível adicionar a despesa.");
       }
     } finally {

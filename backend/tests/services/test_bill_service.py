@@ -21,13 +21,12 @@ from rentivo.repositories.sqlalchemy import (
     SQLAlchemyUserRepository,
 )
 from rentivo.services.bill_service import (
+    _INVOICE_PDF,
+    _RECIBO_PDF,
     BillService,
     StaleBillStatusError,
     StaleReceiptDeleteError,
-    _pdf_candidate_storage_key,
     _receipt_storage_key,
-    _recibo_storage_key,
-    _storage_key,
 )
 from rentivo.services.job_service import JobService
 from rentivo.services.pix_service import PixConfig, PixService
@@ -91,18 +90,18 @@ class TestStorageKey:
     def test_with_prefix(self):
         with patch("rentivo.services.bill_service.settings") as mock_settings:
             mock_settings.storage_prefix = "bills"
-            assert _storage_key("billing-uuid", "bill-uuid") == "bills/billing-uuid/bill-uuid.pdf"
+            assert _INVOICE_PDF.key("billing-uuid", "bill-uuid") == "bills/billing-uuid/bill-uuid.pdf"
 
     def test_without_prefix(self):
         with patch("rentivo.services.bill_service.settings") as mock_settings:
             mock_settings.storage_prefix = ""
-            assert _storage_key("billing-uuid", "bill-uuid") == "billing-uuid/bill-uuid.pdf"
+            assert _INVOICE_PDF.key("billing-uuid", "bill-uuid") == "billing-uuid/bill-uuid.pdf"
 
     def test_render_operation_uses_unique_candidate_key(self):
         with patch("rentivo.services.bill_service.settings") as mock_settings:
             mock_settings.storage_prefix = "bills"
             assert (
-                _storage_key(
+                _INVOICE_PDF.key(
                     "billing-uuid",
                     "bill-uuid",
                     "01JRENDEROPERATION000000001",
@@ -753,7 +752,7 @@ def test_competing_pdf_workers_publish_only_the_owned_candidate(
             billing,
             render_operation_id=operation_b,
         )
-        assert path == str(tmp_path / _pdf_candidate_storage_key(billing.uuid, bill.uuid, operation_b, b"worker-b"))
+        assert path == str(tmp_path / _INVOICE_PDF.candidate_key(billing.uuid, bill.uuid, operation_b, b"worker-b"))
         assert failed == []
         return b"worker-a"
 
@@ -771,12 +770,12 @@ def test_competing_pdf_workers_publish_only_the_owned_candidate(
     assert path is None
     assert failed == []
     persisted = bill_repo.get_by_id(bill.id)
-    expected_b_path = str(tmp_path / _pdf_candidate_storage_key(billing.uuid, bill.uuid, operation_b, b"worker-b"))
+    expected_b_path = str(tmp_path / _INVOICE_PDF.candidate_key(billing.uuid, bill.uuid, operation_b, b"worker-b"))
     assert persisted.pdf_path == expected_b_path
     assert persisted.pdf_render_status == "succeeded"
     assert storage.get(persisted.pdf_path) == b"worker-b"
     with pytest.raises(FileNotFoundError):
-        storage.get(_pdf_candidate_storage_key(billing.uuid, bill.uuid, operation_a, b"worker-a"))
+        storage.get(_INVOICE_PDF.candidate_key(billing.uuid, bill.uuid, operation_a, b"worker-a"))
     with pytest.raises(FileNotFoundError):
         storage.get(old_path)
 
@@ -914,7 +913,7 @@ def test_synchronous_render_publishes_owned_candidate_before_stale_async_worker(
 
     persisted = bill_repo.get_by_id(bill.id)
     assert sync_path == str(
-        tmp_path / _pdf_candidate_storage_key(billing.uuid, bill.uuid, sync_operation, b"sync-winner")
+        tmp_path / _INVOICE_PDF.candidate_key(billing.uuid, bill.uuid, sync_operation, b"sync-winner")
     )
     assert failed == []
     assert stale_path is None
@@ -923,7 +922,7 @@ def test_synchronous_render_publishes_owned_candidate_before_stale_async_worker(
     assert persisted.pdf_render_status == "succeeded"
     assert storage.get(persisted.pdf_path) == b"sync-winner"
     with pytest.raises(FileNotFoundError):
-        storage.get(_pdf_candidate_storage_key(billing.uuid, bill.uuid, async_operation, b"stale-async"))
+        storage.get(_INVOICE_PDF.candidate_key(billing.uuid, bill.uuid, async_operation, b"stale-async"))
     with pytest.raises(FileNotFoundError):
         storage.get(old_path)
 
@@ -1214,7 +1213,7 @@ def test_recibo_retry_recognizes_legacy_operation_only_path(
     stale_retry_bill = bill.model_copy(deep=True)
     storage = _RacingStorage(str(tmp_path))
     operation_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-    legacy_key = _recibo_storage_key(billing.uuid, bill.uuid, operation_id)
+    legacy_key = _RECIBO_PDF.key(billing.uuid, bill.uuid, operation_id)
     legacy_path = storage.save(legacy_key, b"legacy-receipt")
     bill_repo.update_recibo_pdf_path(bill.id, legacy_path)
     service = BillService(bill_repo, storage)
@@ -1254,7 +1253,7 @@ def test_rollback_bill_creation_removes_real_bill_receipts_and_storage(
         "application/pdf",
         render=False,
     )
-    invoice_key = _storage_key(billing.uuid, bill.uuid)
+    invoice_key = _INVOICE_PDF.key(billing.uuid, bill.uuid)
     storage.save(invoice_key, b"%PDF")
 
     service.rollback_bill_creation(bill, billing)
@@ -1360,8 +1359,8 @@ def test_rollback_bill_creation_without_receipt_repository_uses_predictable_keys
     service.rollback_bill_creation(bill, billing)
 
     assert [call.args[0] for call in storage.delete.call_args_list] == [
-        _storage_key(billing.uuid, bill.uuid),
-        _recibo_storage_key(billing.uuid, bill.uuid),
+        _INVOICE_PDF.key(billing.uuid, bill.uuid),
+        _RECIBO_PDF.key(billing.uuid, bill.uuid),
     ]
 
 
@@ -1997,7 +1996,7 @@ class TestRenderOrEnqueue:
         )
         self.bill_repo.finish_pdf_render.assert_not_called()
         self.storage.save.assert_called_once_with(
-            _pdf_candidate_storage_key(
+            _INVOICE_PDF.candidate_key(
                 "bg-uuid",
                 "b-uuid",
                 "01JRENDEROPERATION000000001",
@@ -2089,8 +2088,9 @@ class TestRenderOrEnqueue:
         assert failed == []
 
     def test_enqueue_falls_back_to_anonymous_when_no_actor(self):
-        """When actor=None, the job is enqueued via plain enqueue with
-        empty source/id/username — matches CLI behaviour pre-refactor."""
+        """When actor=None, the job is enqueued with no attribution —
+        JobService maps it to empty source/id/username, matching CLI
+        behaviour pre-refactor."""
         service = BillService(
             self.bill_repo,
             self.storage,
@@ -2104,13 +2104,11 @@ class TestRenderOrEnqueue:
         mock_pdf.generate.assert_not_called()
         self.bill_repo.begin_pdf_render.assert_called_once()
         render_operation_id = self.bill_repo.begin_pdf_render.call_args.args[1]
-        self.job_service.enqueue_for.assert_not_called()
-        self.job_service.enqueue.assert_called_once_with(
+        self.job_service.enqueue.assert_not_called()
+        self.job_service.enqueue_for.assert_called_once_with(
+            None,
             "pdf.render",
             {"bill_id": 42, "render_operation_id": render_operation_id},
-            source="",
-            actor_id=None,
-            actor_username="",
             max_attempts=3,
         )
         assert path is None
@@ -2127,7 +2125,7 @@ class TestRenderOrEnqueue:
         bill = self._bill()
         bill.pdf_path = "old.pdf"
         bill.pdf_render_status = "succeeded"
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
         self.bill_repo.finish_pdf_render.return_value = True
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
@@ -2152,7 +2150,7 @@ class TestRenderOrEnqueue:
         )
         bill = self._bill()
         bill.pdf_render_status = "succeeded"
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
         self.bill_repo.finish_pdf_render.side_effect = RuntimeError("database failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
@@ -2174,7 +2172,7 @@ class TestRenderOrEnqueue:
         bill.pdf_render_status = "succeeded"
         self.bill_repo.update.side_effect = lambda candidate: candidate
         self.bill_repo.restore_after_failed_render.return_value = True
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.update_bill(
@@ -2216,7 +2214,7 @@ class TestRenderOrEnqueue:
         else:
             self.bill_repo.restore_after_failed_render.return_value = restore_failure
         self.bill_repo.finish_pdf_render.return_value = True
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.update_bill(
@@ -2310,9 +2308,10 @@ class TestRenderOrEnqueue:
         with patch.object(service, "pdf_generator"):
             service.regenerate_pdf(draft_bill, self._billing())
 
-        # Only the invoice is enqueued (anonymous, since no actor); no recibo.render.
-        job_types = [c.args[0] for c in self.job_service.enqueue.call_args_list]
+        # Only the invoice is enqueued (unattributed, since no actor); no recibo.render.
+        job_types = [c.args[1] for c in self.job_service.enqueue_for.call_args_list]
         assert job_types == ["pdf.render"]
+        assert all(c.args[0] is None for c in self.job_service.enqueue_for.call_args_list)
 
     def test_add_receipt_uses_render_or_enqueue_in_async_mode(self):
 
@@ -2363,7 +2362,7 @@ class TestRenderOrEnqueue:
             file_size=4,
         )
         self.bill_repo.finish_pdf_render.return_value = True
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.add_receipt(bill, self._billing(), "r.pdf", b"data", "application/pdf")
@@ -2424,7 +2423,7 @@ class TestRenderOrEnqueue:
             sort_order=3,
         )
         self.bill_repo.finish_pdf_render.return_value = True
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.delete_receipt(receipt, bill, self._billing())
@@ -2447,7 +2446,7 @@ class TestRenderOrEnqueue:
         bill.pdf_render_status = "succeeded"
         receipt = Receipt(id=5, uuid="r-uuid", bill_id=42, filename="r.pdf")
         self.bill_repo.finish_pdf_render.side_effect = RuntimeError("restore failed")
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.delete_receipt(receipt, bill, self._billing())
@@ -2475,7 +2474,7 @@ class TestRenderOrEnqueue:
             service.delete_receipt(receipt, bill, self._billing())
 
         operation_id = self.bill_repo.begin_pdf_render.call_args.args[1]
-        self.job_service.enqueue.assert_called_once()
+        self.job_service.enqueue_for.assert_called_once()
         self.bill_repo.finish_pdf_render.assert_called_once_with(42, operation_id, "succeeded")
         assert bill.pdf_render_status == "succeeded"
 
@@ -2558,7 +2557,7 @@ class TestRenderOrEnqueue:
             Receipt(id=2, uuid="b", bill_id=42, filename="b.pdf", sort_order=1),
         ]
         self.bill_repo.finish_pdf_render.return_value = True
-        self.job_service.enqueue.side_effect = RuntimeError("enqueue failed")
+        self.job_service.enqueue_for.side_effect = RuntimeError("enqueue failed")
 
         with pytest.raises(RuntimeError, match="enqueue failed"):
             service.reorder_receipts(bill, self._billing(), ["b", "a"])
@@ -2703,10 +2702,8 @@ class TestResolveReciboIssuer:
         def get_by_id(self, _id):
             return self._obj
 
-    class _Pix:
-        def __init__(self, user=None, org=None):
-            self.user_repo = TestResolveReciboIssuer._Repo(user)
-            self.org_repo = TestResolveReciboIssuer._Repo(org)
+    def _pix(self, user=None, org=None):
+        return PixService(self._Repo(user), self._Repo(org))
 
     def _service(self, pix):
         return BillService(MagicMock(), MagicMock(), pix_service=pix)
@@ -2714,22 +2711,22 @@ class TestResolveReciboIssuer:
     def test_org_owned_uses_org_name(self):
         from rentivo.models.organization import Organization
 
-        svc = self._service(self._Pix(org=Organization(id=5, name="Imobiliária Central")))
+        svc = self._service(self._pix(org=Organization(id=5, name="Imobiliária Central")))
         billing = Billing(id=1, name="Apt 101", owner_type="organization", owner_id=5)
         assert svc._resolve_recibo_issuer(billing) == "Imobiliária Central"
 
     def test_user_owned_uses_account_email(self):
-        svc = self._service(self._Pix(user=User(id=7, email="dono@example.com", password_hash="h")))
+        svc = self._service(self._pix(user=User(id=7, email="dono@example.com", password_hash="h")))
         billing = Billing(id=1, name="Apt 101", owner_type="user", owner_id=7)
         assert svc._resolve_recibo_issuer(billing) == "dono@example.com"
 
     def test_falls_back_to_billing_name_when_owner_missing(self):
-        svc = self._service(self._Pix(user=None))
+        svc = self._service(self._pix(user=None))
         billing = Billing(id=1, name="Apt 101", owner_type="user", owner_id=7)
         assert svc._resolve_recibo_issuer(billing) == "Apt 101"
 
     def test_falls_back_to_billing_name_when_organization_missing(self):
-        svc = self._service(self._Pix(org=None))
+        svc = self._service(self._pix(org=None))
         billing = Billing(id=1, name="Apt 101", owner_type="organization", owner_id=7)
         assert svc._resolve_recibo_issuer(billing) == "Apt 101"
 
@@ -2987,13 +2984,11 @@ class TestReciboLifecycle:
         with patch("rentivo.services.bill_service.ULID", return_value=operation_id):
             service.change_status(self._bill(status="sent"), "paid", billing=self._billing())
 
-        job_service.enqueue_for.assert_not_called()
-        job_service.enqueue.assert_called_once_with(
+        job_service.enqueue.assert_not_called()
+        job_service.enqueue_for.assert_called_once_with(
+            None,
             "recibo.render",
             {"bill_id": 42, "render_operation_id": operation_id},
-            source="",
-            actor_id=None,
-            actor_username="",
             max_attempts=3,
         )
 
@@ -3030,9 +3025,8 @@ class TestReciboLifecycle:
 
         service.change_status(bill, "sent", billing=self._billing())
 
-        job_service.enqueue.assert_called_once_with(
-            "s3.delete", {"key": "k/recibo.pdf"}, source="", actor_id=None, actor_username=""
-        )
+        job_service.enqueue.assert_not_called()
+        job_service.enqueue_for.assert_called_once_with(None, "s3.delete", {"key": "k/recibo.pdf"})
         assert bill.recibo_pdf_path is None
 
     def test_change_status_leaving_paid_deletes_sync_without_job_service(self):

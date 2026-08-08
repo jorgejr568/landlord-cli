@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from rentivo.services.billing_stats import BillingStats
 
 _EMAIL_LOCAL = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+")
 _EMAIL_DOMAIN_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
@@ -157,6 +160,11 @@ class BillingStatsResponse(_StrictModel):
     billed_count: int
     total_expenses: int
     net_income: int
+
+    @classmethod
+    def from_stats(cls, stats: "BillingStats") -> Self:
+        """Every field mirrors a ``BillingStats`` attribute, including its properties."""
+        return cls.model_validate(stats, from_attributes=True)
 
 
 class BillingListItemResponse(_StrictModel):

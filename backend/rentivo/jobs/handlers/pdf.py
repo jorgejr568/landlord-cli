@@ -4,7 +4,8 @@ import structlog
 
 from rentivo.db import get_engine
 from rentivo.encryption.factory import get_encryption
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.payloads import PdfRenderPayload
 from rentivo.jobs.registry import register, register_on_fail
 from rentivo.repositories.sqlalchemy import (
     SQLAlchemyBillingRepository,
@@ -22,28 +23,12 @@ from rentivo.storage.factory import get_storage
 logger = structlog.get_logger(__name__)
 
 
-@register("pdf.render")
-def handle_pdf_render(payload: dict) -> None:
-    """Render a bill's PDF in the background.
-
-    Payload shape: ``{"bill_id": int}``.
-    """
-    bill_id = payload.get("bill_id")
-    if not isinstance(bill_id, int):
-        raise PermanentJobError(f"pdf.render requires int bill_id, got {bill_id!r}")
-    render_operation_id = payload.get("render_operation_id")
-    if render_operation_id is not None and not isinstance(render_operation_id, str):
-        raise PermanentJobError(f"pdf.render requires string render_operation_id, got {render_operation_id!r}")
-    receipt_cleanup = payload.get("receipt_cleanup")
-    if receipt_cleanup is not None:
-        if (
-            not isinstance(receipt_cleanup, dict)
-            or not isinstance(receipt_cleanup.get("uuid"), str)
-            or not isinstance(receipt_cleanup.get("storage_key"), str)
-        ):
-            raise PermanentJobError(f"pdf.render requires valid receipt_cleanup, got {receipt_cleanup!r}")
-        if render_operation_id is None:
-            raise PermanentJobError("pdf.render receipt_cleanup requires render_operation_id")
+@register("pdf.render", model=PdfRenderPayload)
+def handle_pdf_render(payload: PdfRenderPayload, context: JobContext) -> None:
+    """Render a bill's PDF in the background."""
+    bill_id = payload.bill_id
+    render_operation_id = payload.render_operation_id
+    receipt_cleanup = payload.receipt_cleanup
 
     engine = get_engine()
     with engine.connect() as conn:
@@ -53,23 +38,23 @@ def handle_pdf_render(payload: dict) -> None:
         bill = bill_repo.get_by_id(bill_id)
         storage = get_storage()
         if receipt_cleanup is not None:
-            active_receipt = receipt_repo.get_by_uuid(receipt_cleanup["uuid"])
+            active_receipt = receipt_repo.get_by_uuid(receipt_cleanup.uuid)
             if active_receipt is not None:
                 current_operation_id = bill_repo.get_pdf_render_state(bill_id)[0] if bill is not None else None
                 if current_operation_id == render_operation_id:
-                    raise RuntimeError(f"receipt {receipt_cleanup['uuid']} is still active")
+                    raise RuntimeError(f"receipt {receipt_cleanup.uuid} is still active")
                 logger.info(
                     "receipt_cleanup_cancelled",
                     bill_id=bill_id,
-                    receipt_uuid=receipt_cleanup["uuid"],
+                    receipt_uuid=receipt_cleanup.uuid,
                 )
                 return
-            if receipt_cleanup["storage_key"]:
-                storage.delete(receipt_cleanup["storage_key"])
+            if receipt_cleanup.storage_key:
+                storage.delete(receipt_cleanup.storage_key)
                 logger.info(
                     "receipt_cleanup_succeeded",
                     bill_id=bill_id,
-                    receipt_uuid=receipt_cleanup["uuid"],
+                    receipt_uuid=receipt_cleanup.uuid,
                 )
         if bill is None:
             raise PermanentJobError(f"bill {bill_id} not found (deleted or never existed)")
@@ -96,8 +81,10 @@ def handle_pdf_render(payload: dict) -> None:
 
         legacy_payload = render_operation_id is None
         if legacy_payload:
-            render_operation_id = payload.get("_job_ulid")
-            if not isinstance(render_operation_id, str) or len(render_operation_id) != 26:
+            # Payloads queued before the producer started minting an operation
+            # id fall back to the job's own durable identity as the token.
+            render_operation_id = context.ulid
+            if len(render_operation_id) != 26:
                 raise PermanentJobError("legacy pdf.render requires persistent job identity")
             if not bill_repo.claim_pending_pdf_render(bill_id, render_operation_id):
                 logger.info("pdf_render_legacy_claim_stale", bill_id=bill_id)

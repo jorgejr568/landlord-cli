@@ -6,7 +6,7 @@ from rentivo.email.ses import SESEmailBackend
 from rentivo.logging import _redact_event_dict
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_calls_ses_with_expected_payload(boto3_mock):
     client = MagicMock()
     client.send_email.return_value = {"MessageId": "amazon-msg-id"}
@@ -44,7 +44,7 @@ def test_send_calls_ses_with_expected_payload(boto3_mock):
     assert sent_kwargs["ConfigurationSetName"] == "rentivo-prod"
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_omits_configuration_set_when_empty(boto3_mock):
     client = MagicMock()
     client.send_email.return_value = {"MessageId": "x"}
@@ -60,7 +60,7 @@ def test_send_omits_configuration_set_when_empty(boto3_mock):
     assert "ConfigurationSetName" not in client.send_email.call_args.kwargs
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_email_includes_reply_to_addresses(boto3_mock):
     client = MagicMock()
     client.send_email.return_value = {"MessageId": "reply-to-id"}
@@ -85,15 +85,18 @@ def test_send_email_includes_reply_to_addresses(boto3_mock):
     assert client.send_email.call_args.kwargs["ReplyToAddresses"] == ["ana@x.com", "bruno@x.com"]
 
 
-@patch("rentivo.email.ses.boto3", None)
+@patch("rentivo.aws.boto3", None)
 def test_missing_boto3_raises():
+    import re
+
     import pytest
 
-    with pytest.raises(ImportError):
+    expected = "boto3 is required for SES email. Install it with: pip install rentivo[s3]"
+    with pytest.raises(ImportError, match=re.escape(expected)):
         SESEmailBackend(region="r", access_key_id="k", secret_access_key="s", from_address="f@x.com")
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_with_attachment_uses_send_raw_email(boto3_mock):
     client = MagicMock()
     client.send_raw_email.return_value = {"MessageId": "raw-msg-id"}
@@ -124,7 +127,7 @@ def test_send_with_attachment_uses_send_raw_email(boto3_mock):
     assert any(p.get_filename() == "fatura.pdf" for p in parsed.walk())
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_with_attachment_includes_configuration_set(boto3_mock):
     client = MagicMock()
     client.send_raw_email.return_value = {"MessageId": "raw-cfg-id"}
@@ -151,7 +154,7 @@ def test_send_with_attachment_includes_configuration_set(boto3_mock):
     assert raw_kwargs["ConfigurationSetName"] == "rentivo-prod"
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_raw_email_carries_reply_to_header(boto3_mock):
     client = MagicMock()
     client.send_raw_email.return_value = {"MessageId": "raw-reply-to-id"}
@@ -178,7 +181,7 @@ def test_send_raw_email_carries_reply_to_header(boto3_mock):
     assert parsed["Reply-To"] == "Ana <ana@x.com>, bruno@x.com"
 
 
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_passes_endpoint_url_when_provided(boto3_mock):
     client = MagicMock()
     client.send_email.return_value = {"MessageId": "id"}
@@ -194,7 +197,7 @@ def test_send_passes_endpoint_url_when_provided(boto3_mock):
 
 
 @patch("rentivo.email.ses.logger")
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_mock):
     """The subject is template-substituted and carries the tenant name and the
     encrypted billing name, so its plaintext must never reach a renderer. It is
@@ -236,7 +239,7 @@ def test_send_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_moc
 
 
 @patch("rentivo.email.ses.logger")
-@patch("rentivo.email.ses.boto3")
+@patch("rentivo.aws.boto3")
 def test_send_raw_logs_the_subject_and_the_processor_masks_it(boto3_mock, logger_mock):
     """Same contract as the non-attachment path: the subject is logged and the
     processor chain is what keeps its plaintext out of every sink."""

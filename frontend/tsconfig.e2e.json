@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Playwright specs run on Node, but `page.evaluate`/`addInitScript`
+    // callbacks are compiled against the browser globals they execute in, so
+    // the DOM libs stay alongside the Node types.
+    "types": ["node"]
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}

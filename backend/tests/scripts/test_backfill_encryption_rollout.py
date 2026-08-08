@@ -65,7 +65,7 @@ def test_full_rollout_base64_to_kms_via_backfill(db_connection, kms_mock):
     assert raw["pix_merchant_city"].startswith("b64:v1:")
 
     # --- Step 2: app switches to KMS backend; reads must still return plaintext ---
-    with patch("rentivo.encryption.kms.boto3") as mock_boto3:
+    with patch("rentivo.aws.boto3") as mock_boto3:
         mock_boto3.client.return_value = kms_mock
         kms_backend = KMSBackend(
             key_id="alias/rentivo",

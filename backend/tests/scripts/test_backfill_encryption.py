@@ -213,11 +213,11 @@ class TestBackfillEncryption:
 
     def test_main_invokes_run_with_factories(self, seeded_db, fake_encryption):
         """Smoke test for the CLI entrypoint — factories are wired correctly."""
-        from rentivo.scripts import backfill_encryption
+        from rentivo.scripts import _cli, backfill_encryption
 
         with (
-            patch.object(backfill_encryption, "initialize_db"),
-            patch.object(backfill_encryption, "get_connection", return_value=seeded_db),
+            patch.object(_cli, "initialize_db"),
+            patch.object(_cli, "get_connection", return_value=seeded_db),
             patch.object(backfill_encryption, "get_encryption", return_value=fake_encryption),
             patch("sys.argv", ["prog"]),
         ):
@@ -587,7 +587,7 @@ class TestBackfillUsersEmail:
         from sqlalchemy import text
 
         import rentivo.blind_index
-        from rentivo.scripts import backfill_encryption
+        from rentivo.scripts import _cli, backfill_encryption
         from tests.conftest import FakeEncryptingBackend
 
         monkeypatch.setattr(rentivo.blind_index, "_cached_key", b"\x0c" * 32)
@@ -601,8 +601,8 @@ class TestBackfillUsersEmail:
         db_connection.commit()
 
         with (
-            patch.object(backfill_encryption, "initialize_db"),
-            patch.object(backfill_encryption, "get_connection", return_value=db_connection),
+            patch.object(_cli, "initialize_db"),
+            patch.object(_cli, "get_connection", return_value=db_connection),
             patch.object(backfill_encryption, "get_encryption", return_value=FakeEncryptingBackend()),
             patch("sys.argv", ["prog", "--reset-blind-index"]),
         ):

@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 
 type Organization = components["schemas"]["OrganizationResponse"];
 
@@ -28,15 +29,11 @@ export function OrganizationListPage() {
     }
   }, []);
 
+  useDocumentTitle("Organizações - Rentivo");
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
-    document.title = "Organizações - Rentivo";
     void load(controller.signal);
-    return () => {
-      controller.abort();
-      document.title = previousTitle;
-    };
+    return () => controller.abort();
   }, [load]);
 
   if (error) return <LoadError message={error} onRetry={() => void load()} />;

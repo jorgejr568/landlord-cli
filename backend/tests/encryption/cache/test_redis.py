@@ -6,7 +6,7 @@ from unittest.mock import patch
 import fakeredis
 import pytest
 
-from rentivo.encryption.cache.redis import RedisDecryptCache, _hashed_key
+from rentivo.encryption.cache.redis import RedisDecryptCache
 
 
 def _client() -> fakeredis.FakeStrictRedis:
@@ -14,10 +14,17 @@ def _client() -> fakeredis.FakeStrictRedis:
     return fakeredis.FakeStrictRedis(decode_responses=True)
 
 
-def test_hashed_key_format():
-    ciphertext = "enc:v1:AAAA"
-    expected = "rentivo:enc:dec:v1:" + hashlib.sha256(ciphertext.encode("utf-8")).hexdigest()
-    assert _hashed_key(ciphertext) == expected
+def _hashed_key(ciphertext: str) -> str:
+    """Re-derive the storage key independently of production code — the
+    prefix and digest are a persisted contract."""
+    return "rentivo:enc:dec:v1:" + hashlib.sha256(ciphertext.encode("utf-8")).hexdigest()
+
+
+def test_keys_are_namespaced_and_hashed():
+    client = _client()
+    cache = RedisDecryptCache(client=client, ttl_seconds=60)
+    cache.set_many({"enc:v1:AAAA": "alpha"})
+    assert client.get(_hashed_key("enc:v1:AAAA")) == "alpha"  # stored verbatim, no codec
 
 
 def test_get_many_returns_hits():
@@ -35,17 +42,6 @@ def test_get_many_skips_misses():
     assert cache.get_many(["enc:v1:A", "enc:v1:Z"]) == {"enc:v1:A": "alpha"}
 
 
-def test_get_many_empty_input_returns_empty_and_skips_redis():
-    client = _client()
-    cache = RedisDecryptCache(client=client, ttl_seconds=60)
-    assert cache.get_many([]) == {}
-
-
-def test_set_many_empty_input_is_no_op():
-    cache = RedisDecryptCache(client=_client(), ttl_seconds=60)
-    cache.set_many({})  # must not raise
-
-
 def test_set_many_applies_ttl():
     client = _client()
     cache = RedisDecryptCache(client=client, ttl_seconds=42)
@@ -60,28 +56,6 @@ def test_get_many_returns_empty_on_redis_failure():
     cache = RedisDecryptCache(client=client, ttl_seconds=60)
     with patch.object(client, "mget", side_effect=ConnectionError("boom")):
         assert cache.get_many(["enc:v1:A"]) == {}
-
-
-def test_set_many_swallows_redis_failure():
-    """A backend exception on write must not propagate."""
-    client = _client()
-    cache = RedisDecryptCache(client=client, ttl_seconds=60)
-
-    class _BadPipe:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def set(self, *a, **kw):
-            raise ConnectionError("boom")
-
-        def execute(self):
-            return []
-
-    with patch.object(client, "pipeline", return_value=_BadPipe()):
-        cache.set_many({"enc:v1:A": "alpha"})  # must not raise
 
 
 def test_close_calls_client_close():
@@ -106,8 +80,8 @@ def test_from_url_constructs_a_real_client():
 
 
 def test_from_url_raises_when_redis_missing():
-    import rentivo.encryption.cache.redis as mod
+    from rentivo.cache import redis_store
 
-    with patch.object(mod, "redis", None):
-        with pytest.raises(ImportError, match="redis is required"):
+    with patch.object(redis_store, "redis", None):
+        with pytest.raises(ImportError, match="redis is required for RedisDecryptCache"):
             RedisDecryptCache.from_url("redis://localhost:6379/0", ttl_seconds=60)

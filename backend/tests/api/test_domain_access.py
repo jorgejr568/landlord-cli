@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from rentivo.api.domain_access import (
+    BillingAccess,
     require_role,
     resolve_bill_access,
     resolve_billing_access,
@@ -14,6 +15,7 @@ from rentivo.api.domain_access import (
 )
 from rentivo.api.errors import ProblemException
 from rentivo.api.principal import Principal
+from rentivo.constants.api_scopes import APIScope
 from rentivo.models.api_key import APIKey, APIKeyGrant
 from rentivo.models.bill import Bill
 from rentivo.models.billing import Billing
@@ -160,6 +162,53 @@ def test_resolve_organization_hides_every_inaccessible_resource(failure: str) ->
         resolve_organization_access(principal, services, "org-uuid")
 
     assert captured.value.problem.status == 404
+
+
+def test_principal_reports_only_the_scopes_the_key_carries() -> None:
+    principal = _principal()
+
+    assert principal.has_scope(APIScope.BILLS_READ) is True
+    assert principal.has_scope(APIScope.BILLS_WRITE) is False
+
+
+@pytest.mark.parametrize(
+    ("role", "scope", "roles", "expected"),
+    [
+        ("owner", APIScope.BILLS_READ, ("owner", "admin"), True),
+        ("manager", APIScope.BILLS_READ, ("owner", "admin"), False),
+        ("owner", APIScope.BILLS_WRITE, ("owner", "admin"), False),
+        ("manager", APIScope.BILLS_READ, (), True),
+        ("manager", APIScope.BILLS_WRITE, (), False),
+    ],
+)
+def test_access_allows_requires_both_the_role_and_the_scope(
+    role: str,
+    scope: APIScope,
+    roles: tuple[str, ...],
+    expected: bool,
+) -> None:
+    billing = Billing(id=9, uuid="billing-uuid", name="Aluguel", owner_id=7)
+    access = BillingAccess(billing=billing, role=role, principal=_principal())
+
+    assert access.allows(scope, roles=roles) is expected
+
+
+def test_bill_access_derivations_keep_the_billing_role_and_principal() -> None:
+    billing = Billing(id=9, uuid="billing-uuid", name="Aluguel", owner_id=7)
+    principal = _principal()
+    billing_access = BillingAccess(billing=billing, role="manager", principal=principal)
+    first = Bill(id=13, uuid="bill-uuid", billing_id=9, reference_month="2026-07")
+    second = Bill(id=14, uuid="other-uuid", billing_id=9, reference_month="2026-08")
+
+    bill_access = billing_access.for_bill(first)
+    replaced = bill_access.for_bill(second)
+
+    assert bill_access.bill is first
+    assert replaced.bill is second
+    for access in (bill_access, replaced):
+        assert access.billing is billing
+        assert access.role == "manager"
+        assert access.principal is principal
 
 
 def test_require_role_accepts_allowed_role_and_rejects_other_roles() -> None:

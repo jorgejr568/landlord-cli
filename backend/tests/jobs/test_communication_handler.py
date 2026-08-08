@@ -5,10 +5,19 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from rentivo.encryption.base64 import Base64Backend
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.communication import handle_communication_send
+from rentivo.jobs.payloads import CommunicationSendPayload
 from rentivo.models.communication import Communication
 from rentivo.repositories.sqlalchemy.communication import SQLAlchemyCommunicationRepository
 from tests.conftest import SCHEMA_DDL
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _send(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_communication_send(CommunicationSendPayload.model_validate(payload), CONTEXT)
 
 
 @pytest.fixture()
@@ -46,7 +55,6 @@ def _seed_comm(engine):
 
 def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
     sent = {}
@@ -65,7 +73,7 @@ def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
     monkeypatch.setattr(mod, "get_storage", lambda: FakeStorage())
     monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
 
-    handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
 
     assert sent["msg"].to == "joao@example.com"
     assert sent["msg"].attachments[0].content == b"%PDF-1.4 fake"
@@ -79,7 +87,6 @@ def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
 
 def test_handler_sets_reply_to_and_from_override(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
     from rentivo.models.recipient import Recipient
     from rentivo.repositories.sqlalchemy.reply_to import SQLAlchemyReplyToRecipientRepository
 
@@ -110,7 +117,7 @@ def test_handler_sets_reply_to_and_from_override(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
     monkeypatch.setattr(mod.settings, "communications_from_email", "cobranca@example.com", raising=False)
 
-    handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
 
     assert sent["msg"].from_address == "cobranca@example.com"
     assert sent["msg"].reply_to == ("Ana <ana@example.com>", "bruno@example.com")
@@ -118,7 +125,6 @@ def test_handler_sets_reply_to_and_from_override(engine, monkeypatch):
 
 def test_handler_no_reply_to_and_no_from_override(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
     sent = {}
@@ -139,7 +145,7 @@ def test_handler_no_reply_to_and_no_from_override(engine, monkeypatch):
     monkeypatch.setattr(mod.settings, "communications_from_email", "", raising=False)
     monkeypatch.setattr(mod.settings, "ses_from_email", "", raising=False)
 
-    handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
 
     assert sent["msg"].reply_to == ()
     assert sent["msg"].from_address == "noreply@localhost"
@@ -163,7 +169,6 @@ def _seed_recibo_comm(engine):
 def test_handler_attaches_recibo_for_payment_receipt(engine, monkeypatch):
     """A payment_receipt communication attaches the stored recibo PDF, not the invoice."""
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     with engine.connect() as c:
         c.execute(text("UPDATE bills SET recibo_pdf_path = 'k/recibo.pdf' WHERE id = 5"))
@@ -186,7 +191,7 @@ def test_handler_attaches_recibo_for_payment_receipt(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_storage", lambda: FakeStorage())
     monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
 
-    handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
 
     assert sent["key"] == "k/recibo.pdf"
     assert sent["msg"].attachments[0].content == b"%PDF-1.4 recibo"
@@ -196,35 +201,25 @@ def test_handler_attaches_recibo_for_payment_receipt(engine, monkeypatch):
 def test_handler_permanent_error_when_recibo_missing(engine, monkeypatch):
     """payment_receipt with no stored recibo fails permanently — never sends the invoice instead."""
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_recibo_comm(engine)  # bill.recibo_pdf_path stays NULL
     monkeypatch.setattr(mod, "get_engine", lambda: engine)
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     with pytest.raises(PermanentJobError, match="recibo"):
-        handle_communication_send({"communication_id": comm.id})
-
-
-def test_handler_rejects_non_int_id():
-    from rentivo.jobs.handlers.communication import handle_communication_send
-
-    with pytest.raises(PermanentJobError):
-        handle_communication_send({"communication_id": "x"})
+        _send({"communication_id": comm.id})
 
 
 def test_handler_permanent_error_when_communication_missing(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     monkeypatch.setattr(mod, "get_engine", lambda: engine)
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     with pytest.raises(PermanentJobError):
-        handle_communication_send({"communication_id": 99999})
+        _send({"communication_id": 99999})
 
 
 def test_handler_permanent_error_when_bill_missing(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
     with engine.connect() as c:
@@ -233,12 +228,11 @@ def test_handler_permanent_error_when_bill_missing(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_engine", lambda: engine)
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     with pytest.raises(PermanentJobError, match="missing"):
-        handle_communication_send({"communication_id": comm.id})
+        _send({"communication_id": comm.id})
 
 
 def test_handler_permanent_error_when_pdf_missing(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
     with engine.connect() as c:
@@ -247,7 +241,7 @@ def test_handler_permanent_error_when_pdf_missing(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_engine", lambda: engine)
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     with pytest.raises(PermanentJobError):
-        handle_communication_send({"communication_id": comm.id})
+        _send({"communication_id": comm.id})
 
 
 def test_handler_skips_already_sent_communication(engine, monkeypatch):
@@ -256,7 +250,6 @@ def test_handler_skips_already_sent_communication(engine, monkeypatch):
 
     import rentivo.jobs.handlers.communication as mod
     from rentivo.constants import SP_TZ
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
     with engine.connect() as c:
@@ -273,7 +266,7 @@ def test_handler_skips_already_sent_communication(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     monkeypatch.setattr(mod, "get_email_backend", lambda: BoomBackend())
 
-    handle_communication_send({"communication_id": comm.id})
+    _send({"communication_id": comm.id})
 
     assert "called" not in sent
     with engine.connect() as c:
@@ -283,7 +276,6 @@ def test_handler_skips_already_sent_communication(engine, monkeypatch):
 def test_handler_permanent_error_when_pdf_object_missing(engine, monkeypatch):
     """A key present in the DB but absent in storage fails permanently, not retried."""
     import rentivo.jobs.handlers.communication as mod
-    from rentivo.jobs.handlers.communication import handle_communication_send
 
     comm = _seed_comm(engine)
 
@@ -295,7 +287,7 @@ def test_handler_permanent_error_when_pdf_object_missing(engine, monkeypatch):
     monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
     monkeypatch.setattr(mod, "get_storage", lambda: MissingStorage())
     with pytest.raises(PermanentJobError):
-        handle_communication_send({"communication_id": comm.id})
+        _send({"communication_id": comm.id})
 
 
 def test_fail_hook_marks_failed(engine, monkeypatch):

@@ -10,6 +10,18 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   public var currentUser: UserProfile { snapshot.profile }
   public var recentActivities: [RecentActivity] { snapshot.activities }
+  public var usesLiveAPI: Bool { false }
+
+  // The demo store holds no server session: there is never a stored credential to resume, and
+  // signing out or deleting the account has nothing to revoke remotely. `AppModel` reaches these
+  // only through `AuthRepository`; the demo-specific screen transitions stay in `AppModel`,
+  // selected by `usesLiveAPI`.
+  public func restoreSession() async throws -> UserProfile? { nil }
+  public func exchangeMobileAuthorization(code: String) async throws -> UserProfile {
+    snapshot.profile
+  }
+  public func logout() async {}
+  public func deleteAccount(password: String) async throws {}
   public var demoSettings: DemoSettings {
     DemoSettings(
       delayEnabled: delayEnabled,
@@ -712,7 +724,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return snapshot.security
   }
 
-  public func setTOTPEnabled(_ enabled: Bool) async throws {
+  private func setTOTPEnabled(_ enabled: Bool) async throws {
     try await prepareOperation()
     try requireWriteAccess()
     snapshot.security.totpEnabled = enabled
@@ -757,29 +769,6 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     snapshot.security.recoveryCodeCount = codes.count
     recordActivity(kind: .security, title: "Códigos renovados", detail: "\(codes.count) códigos")
     return codes
-  }
-
-  public func addPasskey(name: String) async throws -> Passkey {
-    try await prepareOperation()
-    try requireWriteAccess()
-    guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      throw DemoError.operationFailed
-    }
-    let passkey = Passkey(id: PasskeyID(rawValue: UUID().uuidString), name: name, createdAt: Date(), lastUsedAt: nil)
-    snapshot.security.passkeys.append(passkey)
-    recordActivity(kind: .security, title: "Chave de acesso criada", detail: name)
-    return passkey
-  }
-
-  public func renamePasskey(id: PasskeyID, name: String) async throws {
-    try await prepareOperation()
-    try requireWriteAccess()
-    guard let index = snapshot.security.passkeys.firstIndex(where: { $0.id == id }),
-      !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    else {
-      throw DemoError.resourceNotFound
-    }
-    snapshot.security.passkeys[index].name = name
   }
 
   public func deletePasskey(id: PasskeyID) async throws {

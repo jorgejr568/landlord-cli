@@ -10,8 +10,9 @@ from rentivo.email.base import EmailAttachment
 from rentivo.email.factory import get_email_backend
 from rentivo.encryption.factory import get_encryption
 from rentivo.export.serializers import export_filename, format_label, serialize_rows
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
 from rentivo.jobs.factory import get_job_backend
+from rentivo.jobs.payloads import ExportGeneratePayload, ExportSendPayload
 from rentivo.jobs.registry import register
 from rentivo.repositories.sqlalchemy.audit_log import SQLAlchemyAuditLogRepository
 from rentivo.repositories.sqlalchemy.bill import SQLAlchemyBillRepository
@@ -33,18 +34,9 @@ def _bare(content_type: str) -> str:
     return content_type.split(";")[0]
 
 
-def _require_int(payload: dict, key: str) -> int:
-    value = payload.get(key)
-    if not isinstance(value, int):
-        raise PermanentJobError(f"export job requires int {key}, got {value!r}")
-    return value
-
-
-@register("export.generate")
-def handle_export_generate(payload: dict) -> None:
+@register("export.generate", model=ExportGeneratePayload)
+def handle_export_generate(payload: ExportGeneratePayload, context: JobContext) -> None:
     """Build a billing's bill export, upload it to storage, and enqueue export.send.
-
-    Payload: ``{"billing_id": int, "format": "csv"|"xlsx", "requested_by_user_id": int}``.
 
     The file is built off the request path, written to storage under
     ``{billing_uuid}/exports/{token}.{ext}``, and an ``export.send`` job is
@@ -55,9 +47,9 @@ def handle_export_generate(payload: dict) -> None:
     orphan object (a new run uses a fresh token). Orphans are harmless temp
     files; the eventual successful run's ``export.send`` deletes its own object.
     """
-    billing_id = _require_int(payload, "billing_id")
-    requested_by_user_id = _require_int(payload, "requested_by_user_id")
-    fmt = payload.get("format", "csv")
+    billing_id = payload.billing_id
+    requested_by_user_id = payload.requested_by_user_id
+    fmt = payload.format
 
     engine = get_engine()
     encryption = get_encryption()
@@ -99,12 +91,9 @@ def handle_export_generate(payload: dict) -> None:
     )
 
 
-@register("export.send")
-def handle_export_send(payload: dict) -> None:
+@register("export.send", model=ExportSendPayload)
+def handle_export_send(payload: ExportSendPayload, context: JobContext) -> None:
     """E-mail a previously-built export to the requesting account, then clean up.
-
-    Payload: ``{"storage_key", "content_type", "format", "bill_count",
-    "billing_id", "requested_by_user_id"}``.
 
     The requester's e-mail is resolved fresh from the encrypted ``users`` row
     (so no plaintext PII rides in the job payload). The file is pulled from
@@ -113,12 +102,12 @@ def handle_export_send(payload: dict) -> None:
     the temp object. At-least-once: a retry re-downloads and re-sends (a
     duplicate accounting export is benign) and re-enqueues the delete.
     """
-    billing_id = _require_int(payload, "billing_id")
-    user_id = _require_int(payload, "requested_by_user_id")
-    storage_key = payload["storage_key"]
-    content_type = payload["content_type"]
-    ext = payload.get("format", "csv")
-    bill_count = payload.get("bill_count", 0)
+    billing_id = payload.billing_id
+    user_id = payload.requested_by_user_id
+    storage_key = payload.storage_key
+    content_type = payload.content_type
+    ext = payload.format
+    bill_count = payload.bill_count
 
     engine = get_engine()
     encryption = get_encryption()

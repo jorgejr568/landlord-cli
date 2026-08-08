@@ -3,8 +3,10 @@ import { useNavigate } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { LoadError, LoadingState } from "../../components/PageState";
-import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { useAuth } from "../auth/AuthProvider";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 
@@ -14,10 +16,6 @@ type ActiveResponse = { controller: AbortController; generation: number };
 type ResponseOutcome =
   | { action: "accept"; data: components["schemas"]["InviteAcceptResponse"]; response: Response }
   | { action: "decline"; data: components["schemas"]["InviteDeclineResponse"]; response: Response };
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
-}
 
 export function InviteListPage() {
   const navigate = useNavigate();
@@ -48,11 +46,10 @@ export function InviteListPage() {
     }
   }, []);
 
+  useDocumentTitle("Convites - Rentivo");
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
     const generation = ++generationRef.current;
-    document.title = "Convites - Rentivo";
     void load(controller.signal, generation);
     return () => {
       generationRef.current += 1;
@@ -60,7 +57,6 @@ export function InviteListPage() {
       activeResponseRef.current?.controller.abort();
       activeResponseRef.current = null;
       pendingFocusRef.current = null;
-      document.title = previousTitle;
     };
   }, [load]);
 

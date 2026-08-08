@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from sqlalchemy import Connection, bindparam, text
 
 from rentivo.db import get_engine
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext
+from rentivo.jobs.payloads import AuthCleanupPayload
 from rentivo.jobs.registry import register
 
 AUTH_CLEANUP_BATCH_SIZE = 100
@@ -22,21 +23,6 @@ _STALE_CHALLENGE_IDS = text(
 _DELETE_STALE_CHALLENGES = text(
     "DELETE FROM auth_challenges WHERE id IN :ids AND (expires_at <= :cutoff OR consumed_at IS NOT NULL)"
 ).bindparams(bindparam("ids", expanding=True))
-
-
-def _parse_cutoff(payload: dict) -> datetime:
-    raw = payload.get("now")
-    if raw is None:
-        return datetime.now(UTC)
-    if not isinstance(raw, str):
-        raise PermanentJobError("auth.cleanup now must be an RFC 3339 UTC timestamp")
-    try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise PermanentJobError("auth.cleanup now must be an RFC 3339 UTC timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise PermanentJobError("auth.cleanup now must be an RFC 3339 UTC timestamp")
-    return parsed.astimezone(UTC)
 
 
 def _delete_expired_logins(connection: Connection, cutoff: datetime, limit: int) -> int:
@@ -71,9 +57,11 @@ def _delete_stale_challenges(connection: Connection, cutoff: datetime, limit: in
     return result.rowcount
 
 
-@register("auth.cleanup")
-def handle_auth_cleanup(payload: dict) -> dict[str, int]:
-    cutoff = _parse_cutoff(payload).replace(tzinfo=None)
+@register("auth.cleanup", model=AuthCleanupPayload)
+def handle_auth_cleanup(payload: AuthCleanupPayload, context: JobContext) -> dict[str, int]:
+    # Stored timestamps are naive UTC, so the cutoff is normalised to UTC and
+    # stripped of its offset before it reaches the comparisons.
+    cutoff = (payload.now or datetime.now(UTC)).astimezone(UTC).replace(tzinfo=None)
     with get_engine().begin() as connection:
         login_tokens_deleted = _delete_expired_logins(
             connection,

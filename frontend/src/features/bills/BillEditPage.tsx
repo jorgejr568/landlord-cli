@@ -6,13 +6,14 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
-import { formatBrlInput, formatIsoDate, formatMonth, parseBrl } from "../../lib/format";
+import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
+import {
+  formatBrlInput, formatIsoDate, formatMonth, parseBrl, parseDateInput
+} from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { ReceiptManager } from "./ReceiptManager";
 import type { Bill, BillLineItemRequest, Billing } from "./billSupport";
-import {
-  errorMessage, firstFieldError, normalizedFieldErrors, parseDateInput, useDocumentTitle
-} from "./billSupport";
 
 interface EditableLine {
   amount: string;

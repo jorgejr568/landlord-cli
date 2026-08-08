@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import structlog
 
-try:
-    import boto3
-except ImportError:  # pragma: no cover
-    boto3 = None  # type: ignore[assignment]
-
+from rentivo.aws import build_client
 from rentivo.observability import traced
 from rentivo.storage.base import FileRef, StorageBackend
 
@@ -23,20 +19,16 @@ class S3Storage(StorageBackend):
         endpoint_url: str = "",
         presigned_expiry: int = 604800,
     ) -> None:
-        if boto3 is None:
-            raise ImportError("boto3 is required for S3 storage. Install it with: pip install rentivo[s3]")
         self.bucket = bucket
         self.presigned_expiry = presigned_expiry
-
-        client_kwargs: dict = {
-            "service_name": "s3",
-            "region_name": region,
-            "aws_access_key_id": access_key_id,
-            "aws_secret_access_key": secret_access_key,
-        }
-        if endpoint_url:
-            client_kwargs["endpoint_url"] = endpoint_url
-        self.client = boto3.client(**client_kwargs)
+        self.client = build_client(
+            "s3",
+            region=region,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            endpoint_url=endpoint_url,
+            feature="S3 storage",
+        )
 
     @traced("s3.save")
     def save(self, key: str, data: bytes, content_type: str = "application/pdf") -> str:

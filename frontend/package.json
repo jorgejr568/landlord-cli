@@ -14,6 +14,7 @@
     "pretest": "../scripts/tests/smoke-production-stack-test.sh",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
+    "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "lint": "eslint ."
   },
   "dependencies": {

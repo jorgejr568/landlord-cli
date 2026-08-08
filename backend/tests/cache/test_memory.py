@@ -28,6 +28,7 @@ def test_clear_empties_cache(value):
 
 
 def test_entries_expire_under_a_controllable_timer(value):
+    """The ttl and timer arguments must reach the underlying store."""
     clock = {"t": 1000.0}
     cache = _cache(ttl=10, timer=lambda: clock["t"])
     try:
@@ -51,38 +52,11 @@ def test_max_entries_evicts_oldest(value):
         cache.close()
 
 
-def test_cleanup_thread_starts_and_stops():
+def test_cleanup_thread_starts_and_stops_under_its_own_name():
     cache = MemoryCache(ttl_seconds=4, max_entries=8, enable_cleanup_thread=True)
-    assert cache._cleanup_thread is not None
-    assert cache._cleanup_thread.is_alive()
+    thread = cache._store._cleanup_thread
+    assert thread is not None
+    assert thread.is_alive()
+    assert thread.name == "MemoryCache-cleanup"
     cache.close()
-    assert cache._cleanup_thread is None
-
-
-def test_effective_cleanup_interval_floors_at_one_second():
-    assert MemoryCache._effective_cleanup_interval(2, None) == 1.0
-    assert MemoryCache._effective_cleanup_interval(40, None) == 10.0
-    assert MemoryCache._effective_cleanup_interval(40, 3.0) == 3.0
-
-
-def test_cleanup_loop_body_runs_synchronously(value):
-    """Drive ``_cleanup_loop`` from the main thread so coverage observes the
-    loop body (Python 3.14's default coverage core does not trace background
-    threads)."""
-    import threading
-
-    now = [1000.0]
-    cache = MemoryCache(ttl_seconds=1, max_entries=10, timer=lambda: now[0], enable_cleanup_thread=False)
-    cache.set("a", value)
-    now[0] += 10  # past the TTL
-
-    cache._stop_event = threading.Event()
-    timer = threading.Timer(0.05, cache._stop_event.set)  # stop after one wait cycle
-    timer.start()
-    try:
-        cache._cleanup_loop(0.01)
-    finally:
-        timer.cancel()
-
-    with cache._lock:
-        assert "a" not in cache._cache
+    assert cache._store._cleanup_thread is None

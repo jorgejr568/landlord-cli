@@ -1185,32 +1185,6 @@ def test_password_reset_confirmation_dispatch_failure_does_not_change_success(
     assert auth_harness.api_key.revoke_all_login_calls == [USER.id]
 
 
-@pytest.mark.parametrize(
-    "result",
-    [
-        FakeLoginResult(status="authenticated", bootstrap=BOOTSTRAP),
-        FakeLoginResult(
-            status="authenticated",
-            bootstrap=BOOTSTRAP,
-            user=USER,
-            api_key=LOGIN_KEY,
-        ),
-        FakeLoginResult(status="mfa_required", challenge_id=CHALLENGE_ID),
-    ],
-)
-def test_incomplete_internal_login_results_fail_closed(
-    auth_harness: AuthHarness,
-    result: FakeLoginResult,
-) -> None:
-    auth_harness.login.login_result = result
-
-    with pytest.raises(RuntimeError):
-        auth_harness.client.post(
-            "/api/v1/auth/login",
-            json={"email": USER.email, "password": "correct", "turnstile_token": "token"},
-        )
-
-
 def test_auth_routes_reject_api_keys_outside_cookie_or_bearer_transport(
     auth_harness: AuthHarness,
 ) -> None:

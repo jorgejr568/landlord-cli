@@ -1,5 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
+import type { components } from "../../src/lib/api/schema";
+
 export const TEST_NOW = "2026-07-17T15:00:00.000Z";
 export const TEST_API_SECRET = "rntv-v1-e2e-only-not-a-real-credential";
 
@@ -12,40 +14,13 @@ export interface CapturedRequest {
   path: string;
 }
 
-interface SecuritySummary {
-  mfa: { organization_enforced: boolean; setup_required: boolean };
-  passkeys: Array<{
-    created_at: string;
-    last_used_at: string | null;
-    name: string;
-    uuid: string;
-  }>;
-  profile: {
-    email: string;
-    pix_key: string;
-    pix_merchant_city: string;
-    pix_merchant_name: string;
-  };
-  totp: { enabled: boolean; recovery_codes_remaining: number };
-}
-
-interface ApiKeyGrant {
-  available: boolean;
-  resource_id: string | null;
-  resource_type: "organization" | "user";
-}
-
-interface ApiKeyRecord {
-  created_at: string;
-  expires_at: string;
-  grants: ApiKeyGrant[];
-  hint: string;
-  last_used_at: string | null;
-  name: string;
-  revoked_at: string | null;
-  scopes: string[];
-  uuid: string;
-}
+// The generated OpenAPI client types are the single source of truth for every
+// mocked payload below. Aliases keep the route table readable without letting
+// the fixtures drift away from the committed contract.
+type Schemas = components["schemas"];
+type SecuritySummary = Schemas["SecuritySummaryResponse"];
+type ApiKeyRecord = Schemas["APIKeyResponse"];
+type ApiKeyGrant = Schemas["APIKeyGrantResponse"];
 
 export interface ApiMockOptions {
   apiKeys?: ApiKeyRecord[];
@@ -63,7 +38,7 @@ export interface ApiMockState {
   unexpectedRequests: string[];
 }
 
-export const authenticatedResponse = {
+export const authenticatedResponse: Schemas["SessionResponse"] = {
   bootstrap: {
     analytics: { events: [], gtm_container_id: "" },
     capabilities: {
@@ -98,16 +73,16 @@ export const authenticatedResponse = {
     user: { email: "ana@example.com", id: 42 }
   },
   status: "authenticated"
-} as const;
+};
 
-export const authConfig = {
+export const authConfig: Schemas["AuthConfigResponse"] = {
   analytics: { gtm_container_id: "" },
   feature_flags: {
     google_auth: false,
     turnstile: false,
     turnstile_site_key: ""
   }
-} as const;
+};
 
 export const defaultSecuritySummary: SecuritySummary = {
   mfa: { organization_enforced: false, setup_required: false },
@@ -128,7 +103,7 @@ export const defaultSecuritySummary: SecuritySummary = {
   totp: { enabled: true, recovery_codes_remaining: 6 }
 };
 
-export const apiKeyOptions = {
+export const apiKeyOptions: Schemas["APIKeyOptionsResponse"] = {
   default_expiration_days: 90,
   max_expiration_days: 365,
   organizations: [
@@ -151,7 +126,11 @@ export const apiKeyOptions = {
     "billings:write",
     "expenses:read"
   ]
-} as const;
+};
+
+const recoveryCodes: Schemas["RecoveryCodesResponse"] = {
+  recovery_codes: ["RECOVERY-ALPHA", "RECOVERY-BRAVO", "RECOVERY-CHARLIE"]
+};
 
 export const defaultApiKeys: ApiKeyRecord[] = [
   {
@@ -174,7 +153,7 @@ export const defaultApiKeys: ApiKeyRecord[] = [
   }
 ];
 
-export const emptyBillingList = {
+export const emptyBillingList: Schemas["BillingListResponse"] = {
   items: [],
   stats: {
     active_count: 0,
@@ -191,9 +170,9 @@ export const emptyBillingList = {
     year: 2026
   },
   user_pix_incomplete: true
-} as const;
+};
 
-export const defaultUserTheme = {
+export const defaultUserTheme: Schemas["ThemeResponse"] = {
   capabilities: { can_edit: true, can_reset: false },
   effective: {
     header_font: "Montserrat",
@@ -222,10 +201,21 @@ export const defaultUserTheme = {
     ]
   },
   stored: null
-} as const;
+};
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+/** Mirrors the API filling in `default_expiration_days` for an omitted expiration. */
+function defaultExpiration(): string {
+  const expiration = new Date(TEST_NOW);
+  expiration.setUTCDate(expiration.getUTCDate() + apiKeyOptions.default_expiration_days);
+  return expiration.toISOString();
+}
+
+function grantResponse(grant: Schemas["APIKeyGrantRequest"]): ApiKeyGrant {
+  return { ...grant, available: true };
 }
 
 function parseBody(value: string | null): unknown {
@@ -246,19 +236,23 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   });
 }
 
-async function fulfillAnonymous(route: Route) {
+async function fulfillProblem(route: Route, problem: Schemas["Problem"]) {
   await route.fulfill({
-    body: JSON.stringify({
-      code: "authentication_required",
-      detail: "Autenticação necessária.",
-      fields: {},
-      request_id: "e2e-request-id",
-      status: 401,
-      title: "Não autenticado",
-      type: "https://rentivo.com.br/problems/authentication_required"
-    }),
+    body: JSON.stringify(problem),
     contentType: "application/problem+json; charset=utf-8",
-    status: 401
+    status: problem.status
+  });
+}
+
+async function fulfillAnonymous(route: Route) {
+  await fulfillProblem(route, {
+    code: "authentication_required",
+    detail: "Autenticação necessária.",
+    fields: {},
+    request_id: "e2e-request-id",
+    status: 401,
+    title: "Não autenticado",
+    type: "https://rentivo.com.br/problems/authentication_required"
   });
 }
 
@@ -291,12 +285,18 @@ export async function installApiMocks(
   });
 
   let sessionMode: SessionMode = options.session ?? "authenticated";
-  const sessionResponse = {
+  const sessionResponse: Schemas["SessionResponse"] = {
     ...authenticatedResponse,
     bootstrap: {
       ...authenticatedResponse.bootstrap,
       pending_invite_count: options.pendingInviteCount ?? authenticatedResponse.bootstrap.pending_invite_count
     }
+  };
+  // `POST /auth/login` answers with `AuthenticatedResponse`, which carries the
+  // `credential_transport` discriminator that `GET /auth/session` does not.
+  const loginResponse: Schemas["CookieAuthenticatedResponse"] = {
+    ...sessionResponse,
+    credential_transport: "cookie"
   };
   let releasePendingSession: (() => void) | undefined;
   const pendingSession = new Promise<void>((resolve) => {
@@ -322,13 +322,14 @@ export async function installApiMocks(
     state.requests.push({ body, headers: request.headers(), method, path });
 
     if (path === "/auth/config" && method === "GET") {
-      await fulfillJson(route, {
+      const config: Schemas["AuthConfigResponse"] = {
         ...authConfig,
         feature_flags: {
           ...authConfig.feature_flags,
           google_auth: options.googleAuth ?? authConfig.feature_flags.google_auth
         }
-      });
+      };
+      await fulfillJson(route, config);
       return;
     }
     if (path === "/auth/session" && method === "GET") {
@@ -338,7 +339,7 @@ export async function installApiMocks(
       return;
     }
     if (path === "/auth/login" && method === "POST") {
-      await fulfillJson(route, sessionResponse);
+      await fulfillJson(route, loginResponse);
       return;
     }
     if (path === "/auth/logout" && method === "POST") {
@@ -350,11 +351,13 @@ export async function installApiMocks(
       return;
     }
     if (path === "/organizations" && method === "GET") {
-      await fulfillJson(route, { items: [] });
+      const organizations: Schemas["OrganizationListResponse"] = { items: [] };
+      await fulfillJson(route, organizations);
       return;
     }
     if (path === "/invites" && method === "GET") {
-      await fulfillJson(route, { items: [] });
+      const invites: Schemas["PendingInviteLoginListResponse"] = { items: [] };
+      await fulfillJson(route, invites);
       return;
     }
     if (path === "/themes/user" && method === "GET") {
@@ -370,9 +373,10 @@ export async function installApiMocks(
       return;
     }
     if (path === "/security/pix" && method === "POST") {
-      const update = body as Partial<SecuritySummary["profile"]>;
+      const update = body as Schemas["PixUpdateRequest"];
       security = { ...security, profile: { ...security.profile, ...update } };
-      await fulfillJson(route, { profile: security.profile });
+      const pixUpdate: Schemas["PixUpdateResponse"] = { profile: security.profile };
+      await fulfillJson(route, pixUpdate);
       return;
     }
     if (path === "/security/change-password" && method === "POST") {
@@ -384,24 +388,21 @@ export async function installApiMocks(
       return;
     }
     if (path === "/security/recovery-codes/regenerate" && method === "POST") {
-      await fulfillJson(route, {
-        recovery_codes: ["RECOVERY-ALPHA", "RECOVERY-BRAVO", "RECOVERY-CHARLIE"]
-      });
+      await fulfillJson(route, recoveryCodes);
       return;
     }
     if (path === "/security/totp/setup" && method === "POST") {
-      await fulfillJson(route, {
+      const setup: Schemas["TOTPSetupResponse"] = {
         provisioning_uri: "otpauth://totp/Rentivo:ana@example.com?issuer=Rentivo",
         qr_code_base64:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         secret: "E2EONLYTOTPSEED"
-      });
+      };
+      await fulfillJson(route, setup);
       return;
     }
     if (path === "/security/totp/confirm" && method === "POST") {
-      await fulfillJson(route, {
-        recovery_codes: ["RECOVERY-ALPHA", "RECOVERY-BRAVO", "RECOVERY-CHARLIE"]
-      });
+      await fulfillJson(route, recoveryCodes);
       return;
     }
     if (path === "/security/totp/disable" && method === "POST") {
@@ -409,7 +410,7 @@ export async function installApiMocks(
       return;
     }
     if (path === "/security/passkeys/register/begin" && method === "POST") {
-      await fulfillJson(route, {
+      const begin: Schemas["PasskeyRegistrationBeginResponse"] = {
         challenge_id: "passkey-challenge-e2e",
         options: {
           challenge: "AQIDBA",
@@ -419,12 +420,13 @@ export async function installApiMocks(
           rp: { id: "127.0.0.1", name: "Rentivo" },
           user: { displayName: "Ana", id: "AQIDBA", name: "ana@example.com" }
         }
-      });
+      };
+      await fulfillJson(route, begin);
       return;
     }
     if (path === "/security/passkeys/register/complete" && method === "POST") {
-      const registration = body as { name?: string };
-      const passkey = {
+      const registration = body as Partial<Schemas["PasskeyRegistrationCompleteRequest"]>;
+      const passkey: Schemas["PasskeyResponse"] = {
         created_at: TEST_NOW,
         last_used_at: null,
         name: registration.name ?? "Passkey E2E",
@@ -443,20 +445,18 @@ export async function installApiMocks(
       return;
     }
     if (path === "/api-keys" && method === "GET") {
-      await fulfillJson(route, { items: state.apiKeys });
+      const list: Schemas["APIKeyListResponse"] = { items: state.apiKeys };
+      await fulfillJson(route, list);
       return;
     }
     if (path === "/api-keys" && method === "POST") {
-      const create = body as {
-        expires_at: string;
-        grants: Array<{ resource_id: string; resource_type: "organization" | "user" }>;
-        name: string;
-        scopes: string[];
-      };
+      const create = body as Schemas["APIKeyCreateRequest"];
       const created: ApiKeyRecord = {
         created_at: TEST_NOW,
-        expires_at: create.expires_at,
-        grants: create.grants.map((grant) => ({ ...grant, available: true })),
+        // The client omits `expires_at` when the default expiration is kept,
+        // and the API still answers with a concrete expiration.
+        expires_at: create.expires_at ?? defaultExpiration(),
+        grants: create.grants.map(grantResponse),
         hint: "rntv-v1-e2e0••••ly",
         last_used_at: null,
         name: create.name,
@@ -465,15 +465,37 @@ export async function installApiMocks(
         uuid: "created-api-key-e2e"
       };
       state.apiKeys.unshift(created);
-      await fulfillJson(route, { ...created, secret: TEST_API_SECRET }, 201);
+      const issued: Schemas["APIKeyCreateResponse"] = { ...created, secret: TEST_API_SECRET };
+      await fulfillJson(route, issued, 201);
       return;
     }
     const keyMatch = path.match(/^\/api-keys\/([^/?]+)$/);
     if (keyMatch && method === "PATCH") {
-      const update = body as Pick<ApiKeyRecord, "grants" | "name" | "scopes">;
+      // Every field of `APIKeyUpdateRequest` is optional, and its grants are
+      // request grants without the `available` flag the response carries.
+      const update = body as Schemas["APIKeyUpdateRequest"];
       const index = state.apiKeys.findIndex((key) => key.uuid === keyMatch[1]);
-      state.apiKeys[index] = { ...state.apiKeys[index], ...update };
-      await fulfillJson(route, state.apiKeys[index]);
+      if (index === -1) {
+        await fulfillProblem(route, {
+          code: "not_found",
+          detail: "Chave de API não encontrada.",
+          fields: {},
+          request_id: "e2e-request-id",
+          status: 404,
+          title: "Não encontrado",
+          type: "https://rentivo.com.br/problems/not_found"
+        });
+        return;
+      }
+      const current = state.apiKeys[index];
+      const updated: ApiKeyRecord = {
+        ...current,
+        grants: update.grants ? update.grants.map(grantResponse) : current.grants,
+        name: update.name ?? current.name,
+        scopes: update.scopes ?? current.scopes
+      };
+      state.apiKeys[index] = updated;
+      await fulfillJson(route, updated);
       return;
     }
     if (keyMatch && method === "DELETE") {
@@ -484,10 +506,14 @@ export async function installApiMocks(
     }
 
     state.unexpectedRequests.push(`${method} ${path}`);
-    await route.fulfill({
-      body: JSON.stringify({ detail: `Unexpected E2E API request: ${method} ${path}` }),
-      contentType: "application/problem+json; charset=utf-8",
-      status: 501
+    await fulfillProblem(route, {
+      code: "not_implemented",
+      detail: `Unexpected E2E API request: ${method} ${path}`,
+      fields: {},
+      request_id: "e2e-request-id",
+      status: 501,
+      title: "Não implementado",
+      type: "https://rentivo.com.br/problems/not_implemented"
     });
   });
 

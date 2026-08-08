@@ -24,18 +24,16 @@ password-reset URLs.
 from __future__ import annotations
 
 import json
-import sys
 
 import structlog
 from rich.console import Console
 from rich.table import Table
 from sqlalchemy import Connection, text
 
-from rentivo.db import get_connection, initialize_db
 from rentivo.encryption.base import EncryptionBackend
 from rentivo.encryption.factory import get_encryption
 from rentivo.jobs.sqlalchemy import _ENVELOPE_KEY, encode_job_payload
-from rentivo.logging import configure_logging
+from rentivo.scripts._cli import boot, parse_dry_run
 
 logger = structlog.get_logger(__name__)
 console = Console()
@@ -92,10 +90,8 @@ def run(conn: Connection, encryption: EncryptionBackend, *, dry_run: bool) -> No
 
 
 def main() -> None:
-    configure_logging(cli=True)
-    dry_run = "--dry-run" in sys.argv
-    initialize_db()
-    conn = get_connection()
+    conn = boot()
+    dry_run = parse_dry_run()
     encryption = get_encryption()
     run(conn, encryption, dry_run=dry_run)
 

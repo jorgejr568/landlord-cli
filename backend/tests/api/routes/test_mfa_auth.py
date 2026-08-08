@@ -66,6 +66,7 @@ class FakeLoginResult:
         self.api_key = LOGIN_KEY
         self.access_credential = ACCESS_SECRET
         self.bootstrap = BOOTSTRAP
+        self.analytics_event = None
 
 
 class FakeAuthChallengeService:

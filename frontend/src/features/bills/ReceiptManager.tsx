@@ -4,10 +4,12 @@ import Sortable from "sortablejs";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { apiClient, apiRequest } from "../../lib/api/client";
+import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
+import { formatFileSize } from "../../lib/format";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { BillCapabilities, Receipt } from "./billSupport";
-import { errorMessage, formatFileSize, multipartBodySerializer } from "./billSupport";
+import { multipartBodySerializer } from "./billSupport";
 
 export interface ReceiptManagerProps {
   billingUuid: string;

@@ -122,8 +122,12 @@ _CREDENTIAL_FIELDS = frozenset(
 )
 
 # Keys whose values are PII rather than credentials: they must be partially
-# masked, not blanked, so logs stay useful. Keys are ``_normalize_field``
+# masked, not blanked, so logs stay useful. Keys are ``normalize_field``
 # normalized, so ``to_email`` / ``toEmail`` / ``To-Email`` all match.
+#
+# Public, and the single source of truth for "which field carries PII": the
+# ``redact_audit_logs`` backfill drives its rewrite off this table rather than
+# keeping its own copy, so the backfill cannot lag the live redactor.
 #
 # Why these must never appear in cleartext outside the process: ``users.email``
 # and ``billings.name`` are KMS-encrypted at rest (repositories/sqlalchemy/
@@ -132,7 +136,7 @@ _CREDENTIAL_FIELDS = frozenset(
 # IAM than the KMS key policy, and audit_logs.new_state is a plain JSON column
 # with no EncryptedType wrapper — so a plaintext value in any of those places
 # defeats the encryption boundary entirely.
-_PII_FIELDS: dict[str, PIIKind] = {
+PII_FIELDS: dict[str, PIIKind] = {
     "actorusername": PIIKind.EMAIL,
     "billingname": PIIKind.TEXT,
     "email": PIIKind.EMAIL,
@@ -146,6 +150,8 @@ _PII_FIELDS: dict[str, PIIKind] = {
     "to": PIIKind.EMAIL,
     "toemail": PIIKind.EMAIL,
 }
+# Pre-promotion name, still imported by tests/security/test_pii_log_redaction.py.
+_PII_FIELDS = PII_FIELDS
 _REDACTED = "[REDACTED]"
 _API_KEY_PATTERN = re.compile(r"rntv-v1-[A-Za-z0-9_-]{12,}")
 _BEARER_PATTERN = re.compile(r"(?i)(\bbearer\s+)(?P<value>\[REDACTED\]|[^\s,;\"')\]}]+)")
@@ -216,11 +222,11 @@ def _redact_credentials(value: Any, *, mask_pii: bool = False) -> Any:
 
 def _redact_mapping_item(key: Any, value: Any, *, mask_pii: bool) -> Any:
     """Credential fields win over PII fields: blanking is stricter than masking."""
-    normalized = _normalize_field(key)
+    normalized = normalize_field(key)
     if normalized in _CREDENTIAL_FIELDS:
         return _REDACTED
-    if mask_pii and normalized in _PII_FIELDS:
-        return _mask_pii_value(value, _PII_FIELDS[normalized])
+    if mask_pii and normalized in PII_FIELDS:
+        return _mask_pii_value(value, PII_FIELDS[normalized])
     return _redact_credentials(value, mask_pii=mask_pii)
 
 
@@ -246,7 +252,7 @@ def _redact_credential_string(value: str) -> str:
     value = _BEARER_PATTERN.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
 
     def replace_assignment(match: re.Match[str]) -> str:
-        field = _normalize_field(match.group("field"))
+        field = normalize_field(match.group("field"))
         assigned_value = match.group("value")
         if field not in _CREDENTIAL_FIELDS or field in _HEADER_FIELDS:
             return f"{match.group('prefix')}{_redact_credential_string(assigned_value)}"
@@ -257,7 +263,14 @@ def _redact_credential_string(value: str) -> str:
     return _CREDENTIAL_ASSIGNMENT_PATTERN.sub(replace_assignment, value)
 
 
-def _normalize_field(field: Any) -> str:
+def normalize_field(field: Any) -> str:
+    """Reduce a field name to its case- and separator-insensitive form.
+
+    ``to_email``, ``toEmail`` and ``To-Email`` all normalize to ``toemail``,
+    which is the form :data:`PII_FIELDS` and ``_CREDENTIAL_FIELDS`` are keyed
+    by. Public alongside :data:`PII_FIELDS`: any consumer of that table needs
+    this to look field names up in it.
+    """
     return "".join(character for character in str(field).casefold() if character.isalnum())
 
 

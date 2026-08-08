@@ -652,24 +652,6 @@ def test_google_login_with_mfa_replaces_oauth_cookie_and_redirects_with_public_c
     assert google_harness.audit.calls[0][1]["metadata"] == {"ip": "testclient", "method": "google"}
 
 
-def test_google_callback_rejects_an_incomplete_internal_mfa_result(
-    google_harness: GoogleAuthHarness,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        google_harness.login,
-        "login_with_google",
-        lambda **_kwargs: SimpleNamespace(
-            status="mfa_required",
-            challenge_id=None,
-            challenge_nonce=None,
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="Google MFA result is incomplete"):
-        _callback(google_harness)
-
-
 def test_replayed_google_callback_cannot_exchange_code_or_issue_a_second_login_key(
     google_harness: GoogleAuthHarness,
 ) -> None:

@@ -7,10 +7,20 @@ from datetime import date, datetime
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import Response
 from pydantic import ValidationError
 
 from rentivo.analytics import analytics_hash
+from rentivo.api.analytics import set_analytics
+from rentivo.api.bill_documents import (
+    has_invoice,
+    has_recibo,
+    invoice_downloadable,
+    is_rendering,
+    recibo_downloadable,
+    recibo_released,
+    recibo_state,
+)
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_scope
 from rentivo.api.domain_access import (
@@ -19,8 +29,16 @@ from rentivo.api.domain_access import (
     resolve_bill_access,
     resolve_billing_access,
 )
-from rentivo.api.errors import Problem, ProblemException, problem
+from rentivo.api.errors import Problem, ProblemException
 from rentivo.api.principal import Principal
+from rentivo.api.routes._pdf_streaming import (
+    bill_pdf_filename,
+    bill_pdf_ref,
+    rendered_pdf_response,
+    stored_file_response,
+    stream_bill_pdf,
+    stream_receipt,
+)
 from rentivo.api.schemas.bills import (
     AvailableTransitionResponse,
     BillCapabilitiesResponse,
@@ -43,14 +61,13 @@ from rentivo.api.schemas.bills import (
 from rentivo.bill_transitions import StatusTransition, transitions_for
 from rentivo.constants.api_scopes import APIScope
 from rentivo.models.audit_log import AuditEventType
-from rentivo.models.bill import Bill, BillLineItem, BillStatus, InvalidStatusTransition
+from rentivo.models.bill import Bill, BillLineItem, InvalidStatusTransition
 from rentivo.models.billing import Billing, ItemType
 from rentivo.models.communication import Communication
 from rentivo.models.receipt import ALLOWED_RECEIPT_TYPES, MAX_RECEIPT_SIZE, Receipt
 from rentivo.services.audit_serializers import serialize_bill, serialize_receipt
 from rentivo.services.bill_service import StaleBillDeleteError, StaleBillStatusError, StaleReceiptDeleteError
 from rentivo.services.container import RequestServices
-from rentivo.storage.base import FileRef
 
 router = APIRouter(prefix="/billings/{billing_uuid}/bills", tags=["bills"])
 
@@ -60,7 +77,6 @@ _files_read = require_scope(APIScope.FILES_READ)
 _files_write = require_scope(APIScope.FILES_WRITE)
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
 _DELETE_ROLES = frozenset({"owner", "admin"})
-_PDF_RENDER_PENDING = "pending"
 _BILL_CREATE_OPENAPI = {
     "requestBody": {
         "required": True,
@@ -93,30 +109,14 @@ class BrowserUploadFile(UploadFile):
         return {"type": "string", "format": "binary"}
 
 
-def _analytics(response: Response, event: str, **metadata: str | int) -> None:
-    response.headers["X-Rentivo-Analytics-Event"] = event
-    for name, value in metadata.items():
-        header = "-".join(part.title() for part in name.split("_"))
-        response.headers[f"X-Rentivo-Analytics-{header}"] = str(value)
-
-
-def _conflict(code: str, detail: str) -> ProblemException:
-    return ProblemException(problem(status=409, code=code, title="Conflito", detail=detail))
+_INVALID_BILL_DETAIL = "Os dados da fatura são inválidos."
 
 
 def _validation_error(exc: ValidationError | json.JSONDecodeError) -> ProblemException:
     fields: dict[str, str] = {}
     if isinstance(exc, ValidationError):
         fields = {".".join(str(part) for part in error["loc"]): error["msg"] for error in exc.errors()}
-    return ProblemException(
-        problem(
-            status=422,
-            code="validation_error",
-            title="Dados inválidos",
-            detail="Os dados da fatura são inválidos.",
-            fields=fields,
-        )
-    )
+    return ProblemException.invalid("validation_error", _INVALID_BILL_DETAIL, fields=fields)
 
 
 class _DuplicateVariableAmount(ValueError):
@@ -133,14 +133,10 @@ def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _duplicate_variable_amount_error() -> ProblemException:
-    return ProblemException(
-        problem(
-            status=422,
-            code="validation_error",
-            title="Dados inválidos",
-            detail="Os dados da fatura são inválidos.",
-            fields={"variable_amounts": "Cada item variável deve aparecer uma única vez."},
-        )
+    return ProblemException.invalid(
+        "validation_error",
+        _INVALID_BILL_DETAIL,
+        fields={"variable_amounts": "Cada item variável deve aparecer uma única vez."},
     )
 
 
@@ -153,10 +149,6 @@ async def _create_request(request: Request, form_payload: str | None) -> BillCre
         raise _duplicate_variable_amount_error() from None
     except (ValidationError, json.JSONDecodeError) as exc:
         raise _validation_error(exc) from None
-
-
-def _has_scope(principal: Principal, scope: APIScope) -> bool:
-    return scope.value in principal.api_key.scopes
 
 
 def _transition_responses(status: str, *, enabled: bool) -> tuple[AvailableTransitionResponse, ...]:
@@ -190,54 +182,34 @@ def _domain_due_date(value: date | None) -> str:
     return value.strftime("%d/%m/%Y") if value is not None else ""
 
 
-def _capabilities(
-    bill: Bill,
-    billing: Billing,
-    role: str,
-    principal: Principal,
-    services: RequestServices,
-) -> BillCapabilitiesResponse:
-    can_manage = role in _MANAGE_ROLES
-    can_delete = role in _DELETE_ROLES
-    bills_write = _has_scope(principal, APIScope.BILLS_WRITE)
-    files_read = _has_scope(principal, APIScope.FILES_READ)
-    files_write = _has_scope(principal, APIScope.FILES_WRITE)
-    communications_ready = _has_scope(principal, APIScope.COMMUNICATIONS_READ) and _has_scope(
-        principal,
+def _capabilities(access: BillAccess, services: RequestServices) -> BillCapabilitiesResponse:
+    bill = access.bill
+    can_manage_bills = access.allows(APIScope.BILLS_WRITE, roles=_MANAGE_ROLES)
+    can_manage_files = access.allows(APIScope.FILES_WRITE, roles=_MANAGE_ROLES)
+    files_read = access.allows(APIScope.FILES_READ)
+    pix_ready = not services.pix.billing_needs_setup(access.billing)
+    can_compose = access.allows(APIScope.COMMUNICATIONS_READ, roles=_MANAGE_ROLES) and access.allows(
         APIScope.COMMUNICATIONS_SEND,
     )
-    pix_ready = not services.pix.billing_needs_setup(billing)
-    can_compose = can_manage and communications_ready
-    # A queued render may replace both documents, so treat either one as stale until it finishes.
-    rendering = bill.pdf_render_status == _PDF_RENDER_PENDING
     return BillCapabilitiesResponse(
-        can_edit=can_manage and bills_write,
-        can_delete=can_delete and bills_write,
-        can_transition=can_manage and bills_write,
-        can_regenerate=can_manage and bills_write and pix_ready,
-        can_upload_receipts=can_manage and files_write and pix_ready,
-        can_delete_receipts=can_manage and files_write,
-        can_reorder_receipts=can_manage and files_write,
-        can_download_invoice=files_read and bool(bill.pdf_path) and not rendering,
-        can_download_recibo=(
-            files_read and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path) and not rendering
-        ),
+        can_edit=can_manage_bills,
+        can_delete=access.allows(APIScope.BILLS_WRITE, roles=_DELETE_ROLES),
+        can_transition=can_manage_bills,
+        can_regenerate=can_manage_bills and pix_ready,
+        can_upload_receipts=can_manage_files and pix_ready,
+        can_delete_receipts=can_manage_files,
+        can_reorder_receipts=can_manage_files,
+        can_download_invoice=files_read and invoice_downloadable(bill),
+        can_download_recibo=files_read and recibo_downloadable(bill),
         can_compose=can_compose,
-        can_send_invoice=can_compose and bool(bill.pdf_path) and not rendering,
-        can_send_recibo=(
-            can_compose and bill.status == BillStatus.PAID.value and bool(bill.recibo_pdf_path) and not rendering
-        ),
+        can_send_invoice=can_compose and invoice_downloadable(bill),
+        can_send_recibo=can_compose and recibo_downloadable(bill),
     )
 
 
-def _bill_response(
-    bill: Bill,
-    billing: Billing,
-    role: str,
-    principal: Principal,
-    services: RequestServices,
-) -> BillResponse:
-    capabilities = _capabilities(bill, billing, role, principal, services)
+def _bill_response(access: BillAccess, services: RequestServices) -> BillResponse:
+    bill = access.bill
+    capabilities = _capabilities(access, services)
     return BillResponse(
         uuid=bill.uuid,
         reference_month=bill.reference_month,
@@ -257,8 +229,8 @@ def _bill_response(
         status_updated_at=bill.status_updated_at,
         pdf_render_status=bill.pdf_render_status,
         created_at=bill.created_at,
-        has_invoice=bool(bill.pdf_path),
-        has_recibo=bool(bill.recibo_pdf_path),
+        has_invoice=has_invoice(bill),
+        has_recibo=has_recibo(bill),
         available_transitions=_transition_responses(bill.status, enabled=capabilities.can_transition),
         capabilities=capabilities,
     )
@@ -306,15 +278,15 @@ def _bill_detail_response(
     bill = access.bill
     receipts = (
         services.bill.list_receipts(bill.id)
-        if bill.id is not None and _has_scope(access.principal, APIScope.FILES_READ)
+        if bill.id is not None and access.principal.has_scope(APIScope.FILES_READ)
         else []
     )
     communications = (
         services.communication.list_for_bill(bill.id)
-        if bill.id is not None and _has_scope(access.principal, APIScope.COMMUNICATIONS_READ)
+        if bill.id is not None and access.principal.has_scope(APIScope.COMMUNICATIONS_READ)
         else []
     )
-    response = _bill_response(bill, access.billing, access.role, access.principal, services)
+    response = _bill_response(access, services)
     return BillDetailResponse(
         **response.model_dump(),
         receipts=tuple(_receipt_response(receipt) for receipt in receipts),
@@ -327,10 +299,40 @@ def _bill_detail_response(
 
 def _require_pix(billing: Billing, services: RequestServices) -> None:
     if services.pix.billing_needs_setup(billing):
-        raise _conflict(
+        raise ProblemException.conflict(
             "pix_setup_required",
             "Configure a chave PIX, o nome e a cidade do recebedor antes de continuar.",
         )
+
+
+def _stale_bill_status() -> ProblemException:
+    return ProblemException.conflict(
+        "stale_bill_status",
+        "O status da fatura foi alterado. Atualize a página e tente novamente.",
+    )
+
+
+def _invalid_status_transition() -> ProblemException:
+    return ProblemException.conflict("invalid_status_transition", "Transição de status inválida.")
+
+
+def _require_recibo_released(bill: Bill) -> None:
+    if not recibo_released(bill):
+        raise ProblemException.conflict(
+            "recibo_unavailable",
+            "O recibo só fica disponível quando a fatura está paga.",
+        )
+
+
+def _recibo_not_ready() -> ProblemException:
+    return ProblemException.conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
+
+
+def _require_stored_recibo(bill: Bill) -> None:
+    """Guard for the routes that can only hand over an already rendered recibo."""
+    _require_recibo_released(bill)
+    if recibo_state(bill) != "ready":
+        raise _recibo_not_ready()
 
 
 def _receipt_for_bill(access: BillAccess, services: RequestServices, receipt_uuid: str) -> Receipt:
@@ -338,16 +340,6 @@ def _receipt_for_bill(access: BillAccess, services: RequestServices, receipt_uui
     if receipt is None or receipt.bill_id != access.bill.id:
         raise ProblemException.not_found()
     return receipt
-
-
-def _file_response(ref: FileRef, *, content_type: str, filename: str) -> Response:
-    response: Response
-    if ref.kind == "local":
-        response = FileResponse(ref.location, media_type=content_type, filename=filename)
-    else:
-        response = RedirectResponse(ref.location, status_code=302)
-    response.headers["Cache-Control"] = "no-store"
-    return response
 
 
 def _audit_recibo_download(access: BillAccess, services: RequestServices) -> None:
@@ -477,9 +469,7 @@ async def list_bills(
 ) -> BillListResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     bills = services.bill.list_bills(access.billing.id)
-    return BillListResponse(
-        items=tuple(_bill_response(bill, access.billing, access.role, principal, services) for bill in bills)
-    )
+    return BillListResponse(items=tuple(_bill_response(access.for_bill(bill), services) for bill in bills))
 
 
 @router.post(
@@ -501,21 +491,16 @@ async def create_bill(
 ) -> BillDetailResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _MANAGE_ROLES)
-    if receipt_files and not _has_scope(principal, APIScope.FILES_WRITE):
+    if receipt_files and not principal.has_scope(APIScope.FILES_WRITE):
         raise ProblemException.forbidden("missing_scope", "A chave não possui o escopo necessário.")
     _require_pix(access.billing, services)
     create = await _create_request(request, cast(str | None, payload))
     required_variable_uuids = {item.uuid for item in access.billing.items if item.item_type == ItemType.VARIABLE}
     if set(create.variable_amounts) != required_variable_uuids:
-        message = "Informe o valor de todos os itens variáveis."
-        raise ProblemException(
-            problem(
-                status=422,
-                code="invalid_variable_amounts",
-                title="Dados inválidos",
-                detail=message,
-                fields={"variable_amounts": message},
-            )
+        raise ProblemException.invalid_field(
+            "invalid_variable_amounts",
+            "Informe o valor de todos os itens variáveis.",
+            "variable_amounts",
         )
     valid_uploads, skipped = await _validate_receipt_uploads(receipt_files or ())
     try:
@@ -530,16 +515,8 @@ async def create_bill(
             render=False,
         )
     except ValueError as exc:
-        raise ProblemException(
-            problem(
-                status=422,
-                code="invalid_variable_amounts",
-                title="Dados inválidos",
-                detail=str(exc),
-                fields={"variable_amounts": str(exc)},
-            )
-        ) from None
-    bill_access = BillAccess(bill=bill, billing=access.billing, role=access.role, principal=principal)
+        raise ProblemException.invalid_field("invalid_variable_amounts", str(exc), "variable_amounts") from None
+    bill_access = access.for_bill(bill)
     try:
         upload, attached_receipts = _attach_receipts(
             valid_uploads,
@@ -562,7 +539,7 @@ async def create_bill(
         new_state=serialize_bill(bill),
     )
     _audit_receipt_uploads(attached_receipts, bill_access, services)
-    _analytics(
+    set_analytics(
         response,
         "rentivo_bill_generated",
         billing_uuid_hash=analytics_hash(access.billing.uuid) or "",
@@ -648,15 +625,12 @@ async def update_bill(
         previous_state=previous_state,
         new_state=serialize_bill(updated),
     )
-    _analytics(
+    set_analytics(
         response,
         "rentivo_bill_edited",
         bill_uuid_hash=analytics_hash(updated.uuid) or "",
     )
-    return _bill_detail_response(
-        BillAccess(bill=updated, billing=access.billing, role=access.role, principal=principal),
-        services,
-    )
+    return _bill_detail_response(access.for_bill(updated), services)
 
 
 @router.delete(
@@ -677,7 +651,7 @@ async def delete_bill(
     try:
         services.bill.delete_bill(access.bill.id)
     except StaleBillDeleteError:
-        raise _conflict("stale_bill_delete", "A fatura já foi excluída por outra operação.") from None
+        raise ProblemException.conflict("stale_bill_delete", "A fatura já foi excluída por outra operação.") from None
     # Cleanup jobs are idempotent and are scheduled only after the conditional
     # soft-delete confirms this request won the race.
     services.storage_cleanup.enqueue_bill_delete_cascade(principal.actor, access.bill)
@@ -690,7 +664,7 @@ async def delete_bill(
         previous_state=previous_state,
     )
     response = Response(status_code=204)
-    _analytics(response, "rentivo_bill_deleted", bill_uuid_hash=analytics_hash(access.bill.uuid) or "")
+    set_analytics(response, "rentivo_bill_deleted", bill_uuid_hash=analytics_hash(access.bill.uuid) or "")
     return response
 
 
@@ -711,11 +685,11 @@ async def transition_bill(
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
     require_role(access.role, _MANAGE_ROLES)
     if payload.current_status is not None and payload.current_status.value != access.bill.status:
-        raise _conflict("stale_bill_status", "O status da fatura foi alterado. Atualize a página e tente novamente.")
+        raise _stale_bill_status()
     target = payload.target.value
     offered = {item.target for item in _transition_responses(access.bill.status, enabled=True)}
     if target not in offered:
-        raise _conflict("invalid_status_transition", "Transição de status inválida.")
+        raise _invalid_status_transition()
     previous_status = access.bill.status
     try:
         updated = services.bill.change_status(
@@ -725,12 +699,9 @@ async def transition_bill(
             actor=principal.actor,
         )
     except InvalidStatusTransition:
-        raise _conflict("invalid_status_transition", "Transição de status inválida.") from None
+        raise _invalid_status_transition() from None
     except StaleBillStatusError:
-        raise _conflict(
-            "stale_bill_status",
-            "O status da fatura foi alterado. Atualize a página e tente novamente.",
-        ) from None
+        raise _stale_bill_status() from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILL_STATUS_CHANGE,
@@ -740,16 +711,13 @@ async def transition_bill(
         previous_state={"status": previous_status},
         new_state={"status": updated.status},
     )
-    _analytics(
+    set_analytics(
         response,
         "rentivo_bill_status_changed",
         bill_uuid_hash=analytics_hash(updated.uuid) or "",
         new_status=updated.status,
     )
-    return _bill_detail_response(
-        BillAccess(bill=updated, billing=access.billing, role=access.role, principal=principal),
-        services,
-    )
+    return _bill_detail_response(access.for_bill(updated), services)
 
 
 @router.post(
@@ -780,12 +748,12 @@ async def regenerate_bill(
         previous_state={"pdf_render_status": previous_status},
         new_state={"pdf_render_status": access.bill.pdf_render_status},
     )
-    _analytics(
+    set_analytics(
         response,
         "rentivo_bill_regenerated",
         bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
     )
-    return _bill_response(access.bill, access.billing, access.role, principal, services)
+    return _bill_response(access, services)
 
 
 @router.get(
@@ -798,12 +766,11 @@ async def download_invoice(
     services: RequestServices = Depends(get_services),
 ) -> Response:
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
-    if not access.bill.pdf_path:
+    if not has_invoice(access.bill):
         raise ProblemException.not_found()
-    if access.bill.pdf_render_status == _PDF_RENDER_PENDING:
-        raise _conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
-    ref = services.bill.get_invoice_ref(access.bill)
-    return _file_response(ref, content_type="application/pdf", filename=f"fatura-{access.bill.uuid}.pdf")
+    if is_rendering(access.bill):
+        raise ProblemException.conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
+    return stream_bill_pdf(access.bill, services, kind="invoice")
 
 
 @router.get(
@@ -816,26 +783,19 @@ async def download_recibo(
     services: RequestServices = Depends(get_services),
 ) -> Response:
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
-    if access.bill.status != BillStatus.PAID.value:
-        raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
-    if access.bill.pdf_render_status == _PDF_RENDER_PENDING:
-        raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
-    filename = f"recibo-{access.bill.uuid}.pdf"
-    if access.bill.recibo_pdf_path:
-        response = _file_response(
-            services.bill.get_recibo_ref(access.bill),
-            content_type="application/pdf",
-            filename=filename,
-        )
+    _require_recibo_released(access.bill)
+    if is_rendering(access.bill):
+        raise _recibo_not_ready()
+    # Unlike the other recibo routes, this one renders on demand when nothing is stored yet.
+    if has_recibo(access.bill):
+        response = stream_bill_pdf(access.bill, services, kind="recibo")
     else:
-        pdf_bytes = services.bill.render_recibo(access.bill, access.billing)
-        response = Response(
-            content=bytes(pdf_bytes),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        response = rendered_pdf_response(
+            bytes(services.bill.render_recibo(access.bill, access.billing)),
+            filename=bill_pdf_filename(access.bill, kind="recibo"),
         )
     _audit_recibo_download(access, services)
-    _analytics(
+    set_analytics(
         response,
         "rentivo_recibo_downloaded",
         bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
@@ -857,12 +817,8 @@ async def get_recibo_download(
     services: RequestServices = Depends(get_services),
 ) -> ReciboDownloadResponse:
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
-    if access.bill.status != BillStatus.PAID.value:
-        raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
-    if access.bill.pdf_render_status == _PDF_RENDER_PENDING or not access.bill.recibo_pdf_path:
-        raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
-
-    ref = services.bill.get_recibo_ref(access.bill)
+    _require_stored_recibo(access.bill)
+    ref = bill_pdf_ref(access.bill, services, kind="recibo")
     if ref.kind == "local":
         download_url = str(
             request.url_for(
@@ -874,8 +830,8 @@ async def get_recibo_download(
     else:
         download_url = ref.location
         _audit_recibo_download(access, services)
-    filename = f"recibo-{access.bill.uuid}.pdf"
-    _analytics(
+    filename = bill_pdf_filename(access.bill, kind="recibo")
+    set_analytics(
         response,
         "rentivo_recibo_downloaded",
         bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
@@ -895,16 +851,13 @@ async def download_recibo_content(
     services: RequestServices = Depends(get_services),
 ) -> Response:
     access = resolve_bill_access(principal, services, billing_uuid, bill_uuid)
-    if access.bill.status != BillStatus.PAID.value:
-        raise _conflict("recibo_unavailable", "O recibo só fica disponível quando a fatura está paga.")
-    if access.bill.pdf_render_status == _PDF_RENDER_PENDING or not access.bill.recibo_pdf_path:
-        raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
-    ref = services.bill.get_recibo_ref(access.bill)
+    _require_stored_recibo(access.bill)
+    ref = bill_pdf_ref(access.bill, services, kind="recibo")
     _audit_recibo_download(access, services)
-    return _file_response(
+    return stored_file_response(
         ref,
         content_type="application/pdf",
-        filename=f"recibo-{access.bill.uuid}.pdf",
+        filename=bill_pdf_filename(access.bill, kind="recibo"),
     )
 
 
@@ -944,7 +897,7 @@ async def upload_receipts(
     _require_pix(access.billing, services)
     uploaded = await _upload_receipts(receipt_files, access, services, regenerate=True)
     if uploaded.attached:
-        _analytics(
+        set_analytics(
             response,
             "rentivo_receipt_uploaded",
             bill_uuid_hash=analytics_hash(access.bill.uuid) or "",
@@ -969,11 +922,7 @@ async def download_receipt(
     receipt = _receipt_for_bill(access, services, receipt_uuid)
     if not receipt.storage_key:
         raise ProblemException.not_found()
-    return _file_response(
-        services.bill.get_receipt_ref(receipt),
-        content_type=receipt.content_type,
-        filename=receipt.filename,
-    )
+    return stream_receipt(receipt, services)
 
 
 @router.delete(
@@ -996,7 +945,7 @@ async def delete_receipt(
     try:
         services.bill.delete_receipt(receipt, access.bill, access.billing, actor=principal.actor)
     except StaleReceiptDeleteError:
-        raise _conflict(
+        raise ProblemException.conflict(
             "stale_receipt_delete",
             "O comprovante foi alterado por outra operação. Atualize a página e tente novamente.",
         ) from None
@@ -1009,7 +958,7 @@ async def delete_receipt(
         previous_state=previous_state,
     )
     response = Response(status_code=204)
-    _analytics(response, "rentivo_receipt_deleted", bill_uuid_hash=analytics_hash(access.bill.uuid) or "")
+    set_analytics(response, "rentivo_receipt_deleted", bill_uuid_hash=analytics_hash(access.bill.uuid) or "")
     return response
 
 
@@ -1032,7 +981,7 @@ async def reorder_receipts(
     try:
         services.bill.reorder_receipts(access.bill, access.billing, order, actor=principal.actor)
     except ValueError as exc:
-        raise _conflict("invalid_receipt_order", str(exc)) from None
+        raise ProblemException.conflict("invalid_receipt_order", str(exc)) from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.RECEIPT_REORDER,

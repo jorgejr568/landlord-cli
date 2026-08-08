@@ -41,7 +41,9 @@ runs:
       uses: actions/cache@v4
       with:
         path: ios/.build
-        key: ${{ runner.os }}-spm-${{ hashFiles('ios/Package.resolved') }}
+        # The package is dependency-free, so key on the manifest itself;
+        # Package.resolved no longer exists and would yield a frozen key.
+        key: ${{ runner.os }}-spm-${{ hashFiles('ios/Package.swift') }}
         restore-keys: |
           ${{ runner.os }}-spm-
     - name: Run RentivoCore package tests

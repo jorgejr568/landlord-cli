@@ -4,10 +4,17 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 
 from rentivo.jobs import registry
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext
 from rentivo.jobs.handlers import auth_cleanup
+from rentivo.jobs.payloads import AuthCleanupPayload
 
 NOW = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _cleanup(payload: dict) -> dict[str, int]:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    return auth_cleanup.handle_auth_cleanup(AuthCleanupPayload.model_validate(payload), CONTEXT)
 
 
 @pytest.fixture()
@@ -108,7 +115,7 @@ def test_cleanup_removes_only_expired_login_tokens_and_expired_or_consumed_chall
     _seed_challenge(cleanup_engine, 4, expires_at=NOW + timedelta(minutes=1))
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
 
-    result = auth_cleanup.handle_auth_cleanup({"now": "2026-07-17T12:00:00Z"})
+    result = _cleanup({"now": "2026-07-17T12:00:00Z"})
 
     assert result == {"login_tokens_deleted": 2, "challenges_deleted": 3}
     assert _remaining_ids(cleanup_engine, "api_keys") == [3, 4]
@@ -123,8 +130,8 @@ def test_cleanup_is_idempotent_when_retried(
     _seed_challenge(cleanup_engine, 1, expires_at=NOW)
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
 
-    first = auth_cleanup.handle_auth_cleanup({"now": NOW.isoformat()})
-    second = auth_cleanup.handle_auth_cleanup({"now": NOW.isoformat()})
+    first = _cleanup({"now": NOW.isoformat()})
+    second = _cleanup({"now": NOW.isoformat()})
 
     assert first == {"login_tokens_deleted": 1, "challenges_deleted": 1}
     assert second == {"login_tokens_deleted": 0, "challenges_deleted": 0}
@@ -140,7 +147,7 @@ def test_cleanup_honors_the_batch_limit_for_each_table(
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
     monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
 
-    result = auth_cleanup.handle_auth_cleanup({"now": NOW.isoformat()})
+    result = _cleanup({"now": NOW.isoformat()})
 
     assert result == {"login_tokens_deleted": 2, "challenges_deleted": 2}
     assert _remaining_ids(cleanup_engine, "api_keys") == [3]
@@ -159,12 +166,6 @@ def test_cleanup_uses_current_utc_time_when_payload_omits_now(
     )
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
 
-    result = auth_cleanup.handle_auth_cleanup({})
+    result = _cleanup({})
 
     assert result["login_tokens_deleted"] == 1
-
-
-@pytest.mark.parametrize("now", [123, "not-a-timestamp", "2026-07-17T12:00:00"])
-def test_cleanup_rejects_invalid_or_naive_timestamps(now: object) -> None:
-    with pytest.raises(PermanentJobError, match="UTC timestamp"):
-        auth_cleanup.handle_auth_cleanup({"now": now})

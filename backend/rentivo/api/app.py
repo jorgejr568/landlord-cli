@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from rentivo.api.authentication import allow_mfa_setup, delete_legacy_session_cookie
+from rentivo.api.cookies import clear_auth_cookies
 from rentivo.api.errors import Problem, ProblemException, problem, problem_response
 from rentivo.api.routes.api_keys import router as api_keys_router
 from rentivo.api.routes.auth import router as auth_router
@@ -209,24 +210,7 @@ def create_app() -> FastAPI:
         response = problem_response(exc.problem)
         response.headers.update(exc.headers)
         if exc.problem.status == 401 and getattr(request.state, "clear_auth_cookies", False):
-            from rentivo.api.authentication import ACCESS_COOKIE_NAME
-            from rentivo.api.csrf import CSRF_COOKIE_NAME
-            from rentivo.settings import settings
-
-            response.delete_cookie(
-                settings.access_cookie_name or ACCESS_COOKIE_NAME,
-                path="/",
-                secure=settings.cookie_secure,
-                httponly=True,
-                samesite="lax",
-            )
-            response.delete_cookie(
-                settings.csrf_cookie_name or CSRF_COOKIE_NAME,
-                path="/",
-                secure=settings.cookie_secure,
-                httponly=False,
-                samesite="lax",
-            )
+            clear_auth_cookies(response, include_challenge=False)
         return response
 
     @app.exception_handler(RequestValidationError)

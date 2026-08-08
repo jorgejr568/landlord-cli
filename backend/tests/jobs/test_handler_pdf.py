@@ -2,9 +2,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.pdf import _on_pdf_render_failed, handle_pdf_render
+from rentivo.jobs.payloads import PdfRenderPayload
 
 LEGACY_JOB_ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+def _render(payload: dict, ulid: str = LEGACY_JOB_ULID) -> None:
+    """Decode a stored payload the way the registry does, then run the handler
+    with the job identity the driver would have supplied."""
+    handle_pdf_render(PdfRenderPayload.model_validate(payload), JobContext(ulid=ulid, attempts=1))
 
 
 def _patches():
@@ -52,9 +60,7 @@ def test_handler_claims_legacy_pending_render_with_operation_token():
         service = MagicMock()
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+        _render({"bill_id": 42})
 
         bill_repo.get_by_id.assert_called_once_with(42)
         billing_repo.get_by_id.assert_called_once_with(7)
@@ -94,9 +100,7 @@ def test_handler_discards_legacy_job_when_pending_render_claim_is_stale():
         billing_repo.get_by_id.return_value = billing
         billing_repo_cls.return_value = billing_repo
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+        _render({"bill_id": 42})
 
         bill_repo.claim_pending_pdf_render.assert_called_once_with(
             42,
@@ -131,59 +135,12 @@ def test_handler_forwards_render_operation_token_for_conditional_completion():
         service = MagicMock()
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render({"bill_id": 42, "render_operation_id": "01JRENDEROPERATION000000001"})
+        _render({"bill_id": 42, "render_operation_id": "01JRENDEROPERATION000000001"})
 
         service._render_pdf_sync.assert_called_once_with(
             bill,
             billing,
             render_operation_id="01JRENDEROPERATION000000001",
-        )
-
-
-def test_handler_rejects_non_int_bill_id():
-    from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-    with pytest.raises(PermanentJobError, match="bill_id"):
-        handle_pdf_render({"bill_id": "42"})
-    with pytest.raises(PermanentJobError, match="bill_id"):
-        handle_pdf_render({})
-
-
-def test_handler_rejects_non_string_render_operation_id():
-    from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-    with pytest.raises(PermanentJobError, match="render_operation_id"):
-        handle_pdf_render({"bill_id": 42, "render_operation_id": 7})
-
-
-@pytest.mark.parametrize(
-    "cleanup",
-    ["receipt", {}, {"uuid": 7, "storage_key": "key"}, {"uuid": "receipt", "storage_key": 7}],
-)
-def test_handler_rejects_invalid_receipt_cleanup(cleanup):
-    from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-    with pytest.raises(PermanentJobError, match="receipt_cleanup"):
-        handle_pdf_render(
-            {
-                "bill_id": 42,
-                "render_operation_id": "01JRENDEROPERATION000000001",
-                "receipt_cleanup": cleanup,
-            }
-        )
-
-
-def test_handler_rejects_receipt_cleanup_without_render_operation():
-    from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-    with pytest.raises(PermanentJobError, match="requires render_operation_id"):
-        handle_pdf_render(
-            {
-                "bill_id": 42,
-                "receipt_cleanup": {"uuid": "receipt-uuid", "storage_key": "receipts/file.pdf"},
-            }
         )
 
 
@@ -211,10 +168,8 @@ def test_handler_retries_guarded_cleanup_while_receipt_is_active():
         billing_repo_cls.return_value.get_by_id.return_value = MagicMock(id=7)
         receipt_repo_cls.return_value.get_by_uuid.return_value = MagicMock(uuid="receipt-uuid")
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(RuntimeError, match="still active"):
-            handle_pdf_render(
+            _render(
                 {
                     "bill_id": 42,
                     "render_operation_id": "01JRENDEROPERATION000000001",
@@ -246,9 +201,7 @@ def test_handler_discards_cancelled_guarded_cleanup_when_receipt_is_active():
         billing_repo_cls.return_value.get_by_id.return_value = MagicMock(id=7)
         receipt_repo_cls.return_value.get_by_uuid.return_value = MagicMock(uuid="receipt-uuid")
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render(
+        _render(
             {
                 "bill_id": 42,
                 "render_operation_id": "01JRENDEROPERATION000000001",
@@ -281,9 +234,7 @@ def test_handler_deletes_guarded_receipt_storage_before_render():
         storage_factory.return_value.delete.side_effect = lambda _key: events.append("cleanup")
         service_cls.return_value._render_pdf_sync.side_effect = lambda *_args, **_kwargs: events.append("render")
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render(
+        _render(
             {
                 "bill_id": 42,
                 "render_operation_id": "01JRENDEROPERATION000000001",
@@ -312,10 +263,8 @@ def test_handler_rejects_legacy_payload_without_persistent_job_identity():
         bill_repo_cls.return_value.get_by_id.return_value = MagicMock(id=42, billing_id=7)
         billing_repo_cls.return_value.get_by_id.return_value = MagicMock(id=7)
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(PermanentJobError, match="persistent job identity"):
-            handle_pdf_render({"bill_id": 42})
+            _render({"bill_id": 42}, ulid="")
 
 
 def test_handler_dead_letters_when_bill_missing():
@@ -337,10 +286,8 @@ def test_handler_dead_letters_when_bill_missing():
         bill_repo.get_by_id.return_value = None
         bill_repo_cls.return_value = bill_repo
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(PermanentJobError, match="bill .* not found"):
-            handle_pdf_render({"bill_id": 42})
+            _render({"bill_id": 42})
 
 
 def test_handler_dead_letters_when_billing_missing():
@@ -366,10 +313,8 @@ def test_handler_dead_letters_when_billing_missing():
         billing_repo.get_by_id.return_value = None
         billing_repo_cls.return_value = billing_repo
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(PermanentJobError, match="billing .* not found"):
-            handle_pdf_render({"bill_id": 42})
+            _render({"bill_id": 42})
 
 
 def test_handler_translates_pix_not_configured_to_permanent_and_marks_failed():
@@ -403,10 +348,8 @@ def test_handler_translates_pix_not_configured_to_permanent_and_marks_failed():
         service._render_pdf_sync.side_effect = ValueError(PIX_NOT_CONFIGURED_MESSAGE)
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(PermanentJobError, match="Configure a chave PIX"):
-            handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+            _render({"bill_id": 42})
 
         bill_repo.finish_pdf_render.assert_called_once_with(
             42,
@@ -445,10 +388,8 @@ def test_handler_pix_failure_only_marks_owned_operation_failed():
         service._render_pdf_sync.side_effect = ValueError(PIX_NOT_CONFIGURED_MESSAGE)
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(PermanentJobError, match="Configure a chave PIX"):
-            handle_pdf_render({"bill_id": 42, "render_operation_id": "01JRENDEROPERATION000000001"})
+            _render({"bill_id": 42, "render_operation_id": "01JRENDEROPERATION000000001"})
 
         bill_repo.finish_pdf_render.assert_called_once_with(
             42,
@@ -487,10 +428,8 @@ def test_handler_propagates_other_exceptions_for_retry():
         service._render_pdf_sync.side_effect = RuntimeError("S3 throttled")
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(RuntimeError, match="S3 throttled"):
-            handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+            _render({"bill_id": 42})
 
         bill_repo.finish_pdf_render.assert_called_once_with(
             42,
@@ -528,10 +467,8 @@ def test_handler_unrelated_value_error_propagates_for_retry():
         service._render_pdf_sync.side_effect = ValueError("Cannot update pdf_path for bill without an id")
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
         with pytest.raises(ValueError, match="pdf_path"):
-            handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+            _render({"bill_id": 42})
 
 
 def test_legacy_handler_reclaims_same_operation_after_worker_crash():
@@ -557,12 +494,10 @@ def test_legacy_handler_reclaims_same_operation_after_worker_crash():
         service = svc_cls.return_value
         service._render_pdf_sync.side_effect = [KeyboardInterrupt(), None]
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        payload = {"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID}
+        payload = {"bill_id": 42}
         with pytest.raises(KeyboardInterrupt):
-            handle_pdf_render(payload)
-        handle_pdf_render(payload)
+            _render(payload)
+        _render(payload)
 
         assert [item.args for item in bill_repo.claim_pending_pdf_render.call_args_list] == [
             (42, LEGACY_JOB_ULID),
@@ -600,9 +535,7 @@ def test_handler_legacy_success_does_not_use_unconditional_status_update():
         service = MagicMock()
         svc_cls.return_value = service
 
-        from rentivo.jobs.handlers.pdf import handle_pdf_render
-
-        handle_pdf_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+        _render({"bill_id": 42})
 
         service._render_pdf_sync.assert_called_once_with(
             bill,
@@ -630,8 +563,6 @@ def test_on_pdf_render_failed_only_marks_unowned_legacy_pending_render():
         bill_repo = MagicMock()
         bill_repo_cls.return_value = bill_repo
 
-        from rentivo.jobs.handlers.pdf import _on_pdf_render_failed
-
         _on_pdf_render_failed({"bill_id": 42})
 
         bill_repo.fail_pending_pdf_render_without_operation.assert_called_once_with(42)
@@ -656,8 +587,6 @@ def test_on_pdf_render_failed_only_marks_owned_operation_failed():
         bill_repo = MagicMock()
         bill_repo_cls.return_value = bill_repo
 
-        from rentivo.jobs.handlers.pdf import _on_pdf_render_failed
-
         _on_pdf_render_failed({"bill_id": 42, "render_operation_id": "01JRENDEROPERATION000000001"})
 
         bill_repo.finish_pdf_render.assert_called_once_with(
@@ -681,8 +610,6 @@ def test_on_pdf_render_failed_ignores_missing_bill_id():
         p["storage"],
         p["service_cls"],
     ):
-        from rentivo.jobs.handlers.pdf import _on_pdf_render_failed
-
         _on_pdf_render_failed({})  # missing bill_id
         _on_pdf_render_failed({"bill_id": "not-int"})
 

@@ -9,6 +9,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 with workflow.unsafe.imports_passed_through():
     from rentivo.jobs.backoff import backoff_seconds
     from rentivo.jobs.temporal.config import config_from_settings
+    from rentivo.jobs.temporal.registry import JOB_WORKFLOWS
     from rentivo.jobs.temporal.retry import is_permanent, should_give_up
 
 _FINALIZE = "rentivo.finalize_job"
@@ -89,57 +90,46 @@ async def _finalize(event: dict) -> None:
     )
 
 
-@workflow.defn(name="EmailSendWorkflow")
-class EmailSendWorkflow:
-    @workflow.run
+def _build_workflow(job_type: str, workflow_name: str) -> type:
+    """Build the workflow class for one row of the registration table.
+
+    Every per-job-type workflow is the same five lines with a different job
+    type, so the class is generated instead of transcribed. ``workflow_name``
+    is passed through to ``@workflow.defn`` verbatim: it is the name recorded
+    in Temporal history and must not change.
+    """
+
     async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("email.send", payload, ulid, max_attempts)
+        await _run_job(job_type, payload, ulid, max_attempts)
+
+    # Temporal requires the run method to be a non-local, module-level method of
+    # the workflow class: it resolves both by qualified name when rehydrating a
+    # workflow inside the sandbox. ``_install_workflows`` makes that true, so
+    # the closure advertises the qualified name it is about to be installed as.
+    run.__qualname__ = f"{workflow_name}.run"
+    cls = type(workflow_name, (), {"__module__": __name__, "__qualname__": workflow_name, "run": workflow.run(run)})
+    return workflow.defn(name=workflow_name)(cls)
 
 
-@workflow.defn(name="CommunicationSendWorkflow")
-class CommunicationSendWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("communication.send", payload, ulid, max_attempts)
+def _install_workflows() -> None:
+    """Publish one module-level workflow class per registration-table row.
+
+    Temporal's workflow sandbox re-imports this module and resolves each class
+    by module + qualified name, so the generated classes must be reachable as
+    module attributes under exactly the names they were built with.
+    """
+    for job_type, workflow_name in JOB_WORKFLOWS:
+        globals()[workflow_name] = _build_workflow(job_type, workflow_name)
 
 
-@workflow.defn(name="PdfRenderWorkflow")
-class PdfRenderWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("pdf.render", payload, ulid, max_attempts)
+_install_workflows()
 
 
-@workflow.defn(name="ReciboRenderWorkflow")
-class ReciboRenderWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("recibo.render", payload, ulid, max_attempts)
+def workflow_classes() -> tuple[type, ...]:
+    """The generated workflow classes, in registration-table order."""
+    return tuple(globals()[workflow_name] for _, workflow_name in JOB_WORKFLOWS)
 
 
-@workflow.defn(name="S3DeleteWorkflow")
-class S3DeleteWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("s3.delete", payload, ulid, max_attempts)
-
-
-@workflow.defn(name="ExportGenerateWorkflow")
-class ExportGenerateWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("export.generate", payload, ulid, max_attempts)
-
-
-@workflow.defn(name="ExportSendWorkflow")
-class ExportSendWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("export.send", payload, ulid, max_attempts)
-
-
-@workflow.defn(name="AuthCleanupWorkflow")
-class AuthCleanupWorkflow:
-    @workflow.run
-    async def run(self, payload: dict, ulid: str, max_attempts: int) -> None:
-        await _run_job("auth.cleanup", payload, ulid, max_attempts)
+def workflow_by_type() -> dict[str, type]:
+    """Map each job type to the workflow class that runs it."""
+    return {job_type: globals()[workflow_name] for job_type, workflow_name in JOB_WORKFLOWS}

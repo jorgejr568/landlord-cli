@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path, Response
 
+from rentivo.api.analytics import set_analytics
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_login_scope, require_resource_grant, require_scope
 from rentivo.api.errors import Problem, ProblemException, problem
@@ -22,7 +23,6 @@ from rentivo.services.container import RequestServices
 router = APIRouter(prefix="/invites", tags=["invites"])
 _read_principal = require_scope(APIScope.ORGANIZATIONS_READ)
 _members_principal = require_login_scope(APIScope.ORGANIZATIONS_MEMBERS)
-_ANALYTICS_HEADER = "X-Rentivo-Analytics-Event"
 
 
 def _response_conflict() -> ProblemException:
@@ -160,7 +160,7 @@ async def accept_invite(
     )
     _notify_response(invite, principal, services, response_label="aceitou")
     mfa_setup_required = services.mfa.user_requires_mfa_setup(principal.user.id)
-    response.headers[_ANALYTICS_HEADER] = "rentivo_invite_accepted"
+    set_analytics(response, "rentivo_invite_accepted")
     return InviteAcceptResponse(
         organization_uuid=organization_uuid,
         mfa_setup_required=mfa_setup_required,
@@ -193,5 +193,5 @@ async def decline_invite(
         new_state={"status": "declined"},
     )
     _notify_response(invite, principal, services, response_label="recusou")
-    response.headers[_ANALYTICS_HEADER] = "rentivo_invite_declined"
+    set_analytics(response, "rentivo_invite_declined")
     return InviteDeclineResponse(organization_uuid=organization_uuid)

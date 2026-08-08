@@ -4,6 +4,7 @@ from datetime import datetime
 
 import structlog
 
+from rentivo.context import Actor
 from rentivo.jobs.backend import JobBackend
 from rentivo.jobs.base import Job
 from rentivo.models.audit_log import AuditEventType
@@ -56,7 +57,7 @@ class JobService:
     @traced("job.enqueue_for")
     def enqueue_for(
         self,
-        actor,
+        actor: Actor | None,
         job_type: str,
         payload: dict,
         *,
@@ -65,7 +66,18 @@ class JobService:
     ) -> Job:
         """Convenience wrapper that unpacks an actor object into ``enqueue``
         kwargs. Duck-typed.
+
+        ``actor=None`` — an unattributed caller such as the CLI — falls back to
+        ``enqueue``'s own defaults (empty source and username, no actor id), so
+        the audit row is identical to a bare ``enqueue`` call.
         """
+        if actor is None:
+            return self.enqueue(
+                job_type,
+                payload,
+                run_after=run_after,
+                max_attempts=max_attempts,
+            )
         return self.enqueue(
             job_type,
             payload,

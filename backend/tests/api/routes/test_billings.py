@@ -870,6 +870,19 @@ def test_billing_capabilities_combine_live_role_with_independent_api_key_scopes(
     assert response.json()["capabilities"] == expected
 
 
+@pytest.mark.parametrize("role", ["admin", "manager", "viewer"])
+def test_only_the_owner_role_may_transfer_a_personal_billing(
+    billing_harness: BillingHarness,
+    role: str,
+) -> None:
+    billing_harness.services.authorization.role_overrides[PERSONAL_BILLING.id] = role
+
+    response = billing_harness.request("GET", f"/api/v1/billings/{PERSONAL_BILLING.uuid}")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["can_transfer"] is False
+
+
 def test_integration_billing_detail_redacts_contact_pii_from_complete_payload(
     billing_harness: BillingHarness,
 ) -> None:

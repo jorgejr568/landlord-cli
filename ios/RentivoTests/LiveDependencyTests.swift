@@ -11,15 +11,16 @@ import Testing
   let store = APIRentivoStore(inMemoryCredentialStore: true)
   let dependencies = AppDependencies.live(store: store)
 
-  let authStore = dependencies.auth as? APIRentivoStore
-  let billingStore = dependencies.billings as? APIRentivoStore
-  let organizationStore = dependencies.organizations as? APIRentivoStore
-  let downloadStore = dependencies.downloads as? APIRentivoStore
-  let exportStore = dependencies.exports as? APIRentivoStore
+  #expect(dependencies.auth === store)
+  #expect(dependencies.billings === store)
+  #expect(dependencies.organizations === store)
+  #expect(dependencies.downloads === store)
+  #expect(dependencies.exports === store)
 
-  #expect(authStore === store)
-  #expect(billingStore === store)
-  #expect(organizationStore === store)
-  #expect(downloadStore === store)
-  #expect(exportStore === store)
+  // Callers must never need to know the concrete store: everything the app branches on is
+  // declared by the protocols, so `usesLiveAPI` is what separates this wiring from
+  // `AppDependencies.mock`. Demo settings stay on a separate inert repository.
+  #expect(dependencies.auth.usesLiveAPI)
+  #expect(AppDependencies.mock().auth.usesLiveAPI == false)
+  #expect(dependencies.demo !== store)
 }

@@ -26,16 +26,15 @@ class TestRegeneratePdfs:
             ],
         )
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     def test_dry_run(
         self,
@@ -46,7 +45,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -64,16 +62,15 @@ class TestRegeneratePdfs:
 
         mock_job_backend.return_value.enqueue.assert_not_called()
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     @patch("rentivo.scripts.regenerate_pdfs.PixService")
     def test_enqueues_one_job_per_bill(
@@ -86,7 +83,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -143,9 +139,14 @@ class TestRegeneratePdfs:
             handler_bill_repo_cls.return_value.get_by_id.return_value = bill
             handler_billing_repo_cls.return_value.get_by_id.return_value = billing
 
+            from rentivo.jobs.base import JobContext
             from rentivo.jobs.handlers.pdf import handle_pdf_render
+            from rentivo.jobs.payloads import PdfRenderPayload
 
-            handle_pdf_render(call_args.args[1])
+            handle_pdf_render(
+                PdfRenderPayload.model_validate(call_args.args[1]),
+                JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1),
+            )
 
         handler_bill_repo_cls.return_value.claim_pending_pdf_render.assert_not_called()
         service_cls.return_value._render_pdf_sync.assert_called_once_with(
@@ -154,16 +155,15 @@ class TestRegeneratePdfs:
             render_operation_id=operation_id,
         )
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     @patch("rentivo.scripts.regenerate_pdfs.PixService")
     def test_enqueue_failure_releases_owned_render_operation(
@@ -176,7 +176,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -207,16 +206,15 @@ class TestRegeneratePdfs:
         mock_bill_repo.return_value.finish_pdf_render.assert_called_once_with(1, operation_id, "succeeded")
         assert bill.pdf_render_status == "succeeded"
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     def test_no_billings(
         self,
@@ -227,7 +225,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -241,16 +238,15 @@ class TestRegeneratePdfs:
 
         mock_job_backend.return_value.enqueue.assert_not_called()
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     def test_no_bills(
         self,
@@ -261,7 +257,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -277,16 +272,15 @@ class TestRegeneratePdfs:
 
         mock_job_backend.return_value.enqueue.assert_not_called()
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     @patch("rentivo.scripts.regenerate_pdfs.PixService")
     def test_skips_bills_with_missing_pix(
@@ -299,7 +293,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,
@@ -321,16 +314,15 @@ class TestRegeneratePdfs:
         mock_job_backend.return_value.enqueue.assert_not_called()
         mock_storage.return_value.save.assert_not_called()
 
-    @patch("rentivo.scripts.regenerate_pdfs.initialize_db")
+    @patch("rentivo.scripts._cli.initialize_db")
     @patch("rentivo.scripts.regenerate_pdfs.get_billing_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_bill_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_receipt_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_user_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_organization_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_storage")
     @patch("rentivo.scripts.regenerate_pdfs.get_audit_log_repository")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_repository")
-    @patch("rentivo.scripts.regenerate_pdfs.get_connection")
+    @patch("rentivo.scripts._cli.get_connection")
     @patch("rentivo.scripts.regenerate_pdfs.get_job_backend")
     @patch("rentivo.scripts.regenerate_pdfs.PixService")
     def test_summary_reports_pending_running_count(
@@ -343,7 +335,6 @@ class TestRegeneratePdfs:
         mock_storage,
         mock_org_repo,
         mock_user_repo,
-        mock_receipt_repo,
         mock_bill_repo,
         mock_billing_repo,
         mock_init_db,

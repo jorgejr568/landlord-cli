@@ -2,11 +2,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.recibo import handle_recibo_render
+from rentivo.jobs.payloads import ReciboRenderPayload
 from rentivo.models.bill import BillStatus
 
 LEGACY_JOB_ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 MODERN_OPERATION_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+
+
+def _render(payload: dict, ulid: str = LEGACY_JOB_ULID) -> None:
+    """Decode a stored payload the way the registry does, then run the handler
+    with the job identity the driver would have supplied."""
+    handle_recibo_render(ReciboRenderPayload.model_validate(payload), JobContext(ulid=ulid, attempts=1))
 
 
 def _patches():
@@ -62,9 +70,7 @@ def test_handler_renders_and_stores_recibo():
             billing,
         )
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-        handle_recibo_render({"bill_id": 42, "render_operation_id": MODERN_OPERATION_ID})
+        _render({"bill_id": 42, "render_operation_id": MODERN_OPERATION_ID})
 
         billing_repo.get_by_id.assert_called_once_with(7)
         service.store_recibo.assert_called_once_with(
@@ -101,27 +107,9 @@ def test_handler_reports_discarded_render_when_paid_version_changed():
         )
         service.store_recibo.return_value = None
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-        handle_recibo_render({"bill_id": 42, "render_operation_id": MODERN_OPERATION_ID})
+        _render({"bill_id": 42, "render_operation_id": MODERN_OPERATION_ID})
 
         logger.info.assert_called_once_with("recibo_render_discarded_stale", bill_id=42)
-
-
-def test_handler_rejects_non_int_bill_id():
-    from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-    with pytest.raises(PermanentJobError, match="bill_id"):
-        handle_recibo_render({"bill_id": "42"})
-    with pytest.raises(PermanentJobError, match="bill_id"):
-        handle_recibo_render({})
-
-
-def test_handler_rejects_non_string_render_operation_id():
-    from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-    with pytest.raises(PermanentJobError, match="render_operation_id"):
-        handle_recibo_render({"bill_id": 42, "render_operation_id": 7})
 
 
 def test_handler_derives_legacy_operation_from_persistent_job_identity():
@@ -149,9 +137,7 @@ def test_handler_derives_legacy_operation_from_persistent_job_identity():
             billing,
         )
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-        handle_recibo_render({"bill_id": 42, "_job_ulid": LEGACY_JOB_ULID})
+        _render({"bill_id": 42})
 
         service.store_recibo.assert_called_once_with(
             bill,
@@ -185,10 +171,8 @@ def test_handler_rejects_legacy_payload_without_persistent_job_identity():
             billing,
         )
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
         with pytest.raises(PermanentJobError, match="persistent job identity"):
-            handle_recibo_render({"bill_id": 42})
+            _render({"bill_id": 42}, ulid="")
 
 
 def test_handler_dead_letters_when_bill_missing():
@@ -209,10 +193,8 @@ def test_handler_dead_letters_when_bill_missing():
         bill_repo.get_by_id.return_value = None
         bill_repo_cls.return_value = bill_repo
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
         with pytest.raises(PermanentJobError, match="bill .* not found"):
-            handle_recibo_render({"bill_id": 42})
+            _render({"bill_id": 42})
 
 
 def test_handler_skips_when_bill_not_paid():
@@ -242,9 +224,7 @@ def test_handler_skips_when_bill_not_paid():
             billing,
         )
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
-        handle_recibo_render({"bill_id": 42})
+        _render({"bill_id": 42})
 
         billing_repo.get_by_id.assert_not_called()
         service.store_recibo.assert_not_called()
@@ -272,10 +252,8 @@ def test_handler_dead_letters_when_billing_missing():
         billing_repo.get_by_id.return_value = None
         billing_repo_cls.return_value = billing_repo
 
-        from rentivo.jobs.handlers.recibo import handle_recibo_render
-
         with pytest.raises(PermanentJobError, match="billing .* not found"):
-            handle_recibo_render({"bill_id": 42})
+            _render({"bill_id": 42})
 
 
 def test_handler_registers_under_recibo_render_key():

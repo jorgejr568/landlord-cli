@@ -11,11 +11,20 @@ from sqlalchemy.pool import StaticPool
 
 from rentivo.encryption.base64 import Base64Backend
 from rentivo.encryption.factory import get_encryption
-from rentivo.jobs.base import PermanentJobError
+from rentivo.jobs.base import JobContext, PermanentJobError
+from rentivo.jobs.handlers.export import handle_export_generate
+from rentivo.jobs.payloads import ExportGeneratePayload
 from rentivo.jobs.sqlalchemy import decode_job_payload
 from rentivo.models.billing import Billing
 from rentivo.repositories.sqlalchemy.billing import SQLAlchemyBillingRepository
 from tests.conftest import SCHEMA_DDL
+
+CONTEXT = JobContext(ulid="01ARZ3NDEKTSV4RRFFQ69G5FAV", attempts=1)
+
+
+def _generate(payload: dict) -> None:
+    """Decode a stored payload the way the registry does, then run the handler."""
+    handle_export_generate(ExportGeneratePayload.model_validate(payload), CONTEXT)
 
 
 @pytest.fixture()
@@ -78,14 +87,12 @@ def _patch(monkeypatch, engine, storage):
 
 
 def test_uploads_csv_and_enqueues_export_send(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_generate
-
     billing = _seed_billing(engine, name="São João")
     _add_bill(engine, billing)
     storage = _FakeStorage()
     _patch(monkeypatch, engine, storage)
 
-    handle_export_generate({"billing_id": billing.id, "format": "csv", "requested_by_user_id": 7})
+    _generate({"billing_id": billing.id, "format": "csv", "requested_by_user_id": 7})
 
     assert len(storage.objects) == 1
     key = next(iter(storage.objects))
@@ -106,14 +113,12 @@ def test_uploads_csv_and_enqueues_export_send(engine, monkeypatch):
 
 
 def test_uploads_xlsx(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_generate
-
     billing = _seed_billing(engine)
     _add_bill(engine, billing)
     storage = _FakeStorage()
     _patch(monkeypatch, engine, storage)
 
-    handle_export_generate({"billing_id": billing.id, "format": "xlsx", "requested_by_user_id": 1})
+    _generate({"billing_id": billing.id, "format": "xlsx", "requested_by_user_id": 1})
 
     key = next(iter(storage.objects))
     assert key.endswith(".xlsx")
@@ -125,13 +130,11 @@ def test_uploads_xlsx(engine, monkeypatch):
 
 
 def test_empty_billing_still_uploads_header_only(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_generate
-
     billing = _seed_billing(engine)
     storage = _FakeStorage()
     _patch(monkeypatch, engine, storage)
 
-    handle_export_generate({"billing_id": billing.id, "format": "csv", "requested_by_user_id": 1})
+    _generate({"billing_id": billing.id, "format": "csv", "requested_by_user_id": 1})
 
     key = next(iter(storage.objects))
     lines = storage.objects[key].decode("utf-8-sig").splitlines()
@@ -141,24 +144,8 @@ def test_empty_billing_still_uploads_header_only(engine, monkeypatch):
 
 
 def test_billing_not_found_raises_permanent(engine, monkeypatch):
-    from rentivo.jobs.handlers.export import handle_export_generate
-
     storage = _FakeStorage()
     _patch(monkeypatch, engine, storage)
     with pytest.raises(PermanentJobError):
-        handle_export_generate({"billing_id": 99999, "format": "csv", "requested_by_user_id": 1})
+        _generate({"billing_id": 99999, "format": "csv", "requested_by_user_id": 1})
     assert storage.objects == {}
-
-
-def test_non_int_billing_id_raises_permanent():
-    from rentivo.jobs.handlers.export import handle_export_generate
-
-    with pytest.raises(PermanentJobError):
-        handle_export_generate({"billing_id": "x", "format": "csv", "requested_by_user_id": 1})
-
-
-def test_non_int_requested_by_user_id_raises_permanent():
-    from rentivo.jobs.handlers.export import handle_export_generate
-
-    with pytest.raises(PermanentJobError):
-        handle_export_generate({"billing_id": 1, "format": "csv", "requested_by_user_id": "bad"})

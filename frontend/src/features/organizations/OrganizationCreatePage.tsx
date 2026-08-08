@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { OrganizationForm, type OrganizationValues } from "./OrganizationForm";
 
@@ -13,10 +15,6 @@ const EMPTY_VALUES: OrganizationValues = {
   pix_merchant_name: ""
 };
 
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
-}
-
 export function OrganizationCreatePage() {
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
@@ -24,14 +22,10 @@ export function OrganizationCreatePage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const previousTitle = document.title;
-    document.title = "Nova organização - Rentivo";
-    return () => {
-      document.title = previousTitle;
-      createRef.current?.abort();
-      createRef.current = null;
-    };
+  useDocumentTitle("Nova organização - Rentivo");
+  useEffect(() => () => {
+    createRef.current?.abort();
+    createRef.current = null;
   }, []);
 
   const submit = async (values: OrganizationValues) => {
@@ -57,7 +51,7 @@ export function OrganizationCreatePage() {
       whileCurrent(() => {
         if (caught instanceof ApiError) {
           setError(Object.keys(caught.fields).length ? "" : caught.message);
-          setFieldErrors(normalizedFields(caught));
+          setFieldErrors(normalizedFieldErrors(caught));
         } else {
           setError("Não foi possível criar a organização.");
         }

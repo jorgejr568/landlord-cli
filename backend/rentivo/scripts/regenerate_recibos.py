@@ -24,23 +24,20 @@ existed: their ``recibo_pdf_path`` is NULL, so this enqueues a render for each.
 
 from __future__ import annotations
 
-import sys
-
 from rich.console import Console
 from rich.table import Table
+from ulid import ULID
 
-from rentivo.db import get_connection, initialize_db
 from rentivo.jobs.factory import get_job_backend
-from rentivo.logging import configure_logging
 from rentivo.models import format_brl
-from rentivo.models.bill import Bill, BillStatus
-from rentivo.models.billing import Billing
+from rentivo.models.bill import BillStatus
 from rentivo.repositories.factory import (
     get_audit_log_repository,
     get_bill_repository,
     get_billing_repository,
     get_job_repository,
 )
+from rentivo.scripts._cli import boot, collect_bills, parse_dry_run
 from rentivo.services.audit_service import AuditService
 from rentivo.services.job_service import JobService
 
@@ -48,10 +45,8 @@ console = Console()
 
 
 def main() -> None:
-    configure_logging(cli=True)
-    dry_run = "--dry-run" in sys.argv
-
-    initialize_db()
+    conn = boot()
+    dry_run = parse_dry_run()
 
     billing_repo = get_billing_repository()
     bill_repo = get_bill_repository()
@@ -59,20 +54,17 @@ def main() -> None:
     job_repo = get_job_repository()
 
     audit_service = AuditService(audit_repo)
-    job_service = JobService(get_job_backend(get_connection()), audit_service)
+    job_service = JobService(get_job_backend(conn), audit_service)
 
-    billings = billing_repo.list_all()
+    billings, paid_bills = collect_bills(
+        billing_repo,
+        bill_repo,
+        keep=lambda bill: bill.status == BillStatus.PAID.value,
+    )
 
     if not billings:
         console.print("[yellow]Nenhuma cobranca encontrada.[/yellow]")
         return
-
-    paid_bills: list[tuple[Billing, Bill]] = []
-    for billing in billings:
-        assert billing.id is not None
-        for bill in bill_repo.list_by_billing(billing.id):
-            if bill.status == BillStatus.PAID.value:
-                paid_bills.append((billing, bill))
 
     if not paid_bills:
         console.print("[yellow]Nenhuma fatura paga encontrada.[/yellow]")
@@ -106,9 +98,14 @@ def main() -> None:
 
     enqueued = 0
     for billing, bill in paid_bills:
+        # Mint the render operation id here, exactly as BillService does when a
+        # bill transitions to PAID. Without it the handler falls back to the
+        # persistent job identity, so this script was the last producer keeping
+        # that legacy path reachable.
+        render_operation_id = str(ULID())
         job = job_service.enqueue(
             "recibo.render",
-            {"bill_id": bill.id},
+            {"bill_id": bill.id, "render_operation_id": render_operation_id},
             source="cli",
             max_attempts=3,
         )

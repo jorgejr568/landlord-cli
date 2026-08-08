@@ -9,6 +9,7 @@ from rentivo.jobs import handlers  # noqa: F401 — registers handlers
 from rentivo.jobs.temporal import activities, workflows
 from rentivo.jobs.temporal.client import build_client
 from rentivo.jobs.temporal.config import config_from_settings
+from rentivo.jobs.temporal.registry import JOB_TYPES
 
 logger = structlog.get_logger(__name__)
 
@@ -16,29 +17,14 @@ logger = structlog.get_logger(__name__)
 def worker_components() -> tuple[list, list]:
     """Return ``(workflows, activities)`` registered on the Temporal worker.
 
+    Both lists are derived from the registration table, plus the one
+    job-type-independent finalize activity.
+
     Pure and dependency-free so it is unit-testable without a Temporal server.
     """
-    wfs = [
-        workflows.EmailSendWorkflow,
-        workflows.CommunicationSendWorkflow,
-        workflows.PdfRenderWorkflow,
-        workflows.ReciboRenderWorkflow,
-        workflows.S3DeleteWorkflow,
-        workflows.ExportGenerateWorkflow,
-        workflows.ExportSendWorkflow,
-        workflows.AuthCleanupWorkflow,
-    ]
-    acts = [
-        activities.email_send_activity,
-        activities.communication_send_activity,
-        activities.pdf_render_activity,
-        activities.recibo_render_activity,
-        activities.s3_delete_activity,
-        activities.export_generate_activity,
-        activities.export_send_activity,
-        activities.auth_cleanup_activity,
-        activities.finalize_job_activity,
-    ]
+    wfs = list(workflows.workflow_classes())
+    acts = [activities.ACTIVITY_BY_JOB_TYPE[job_type] for job_type in JOB_TYPES]
+    acts.append(activities.finalize_job_activity)
     return wfs, acts
 
 

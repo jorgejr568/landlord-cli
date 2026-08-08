@@ -5,16 +5,18 @@ from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse
 from starlette.datastructures import UploadFile
 
 from rentivo.analytics import analytics_hash
+from rentivo.api.analytics import ANALYTICS_EVENT_HEADER, set_analytics
 from rentivo.api.authentication import reject_out_of_band_credentials
+from rentivo.api.bill_documents import invoice_state, recibo_state
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_resource_grant, require_scope
 from rentivo.api.domain_access import BillingAccess, require_role, resolve_billing_access
-from rentivo.api.errors import ProblemException, problem
+from rentivo.api.errors import ProblemException
 from rentivo.api.principal import Principal
+from rentivo.api.routes._pdf_streaming import stored_file_response
 from rentivo.api.schemas.billings import (
     AttachmentListResponse,
     AttachmentResponse,
@@ -80,9 +82,9 @@ _communications_read = require_scope(APIScope.COMMUNICATIONS_READ)
 _communications_send = require_scope(APIScope.COMMUNICATIONS_SEND)
 _exports_create = require_scope(APIScope.EXPORTS_CREATE)
 
+_OWNER_ROLES = frozenset({"owner"})
 _EDIT_ROLES = frozenset({"owner", "admin"})
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
-_PDF_RENDER_PENDING = "pending"
 
 _ATTACHMENT_UPLOAD_OPENAPI = {
     "requestBody": {
@@ -127,27 +129,9 @@ class AttachmentUploadForm:
     file: UploadFile
 
 
-def _field_problem(code: str, detail: str, field: str) -> ProblemException:
-    return ProblemException(
-        problem(
-            status=422,
-            code=code,
-            title="Dados inválidos",
-            detail=detail,
-            fields={field: detail},
-        )
-    )
-
-
-def _conflict(code: str, detail: str) -> ProblemException:
-    return ProblemException(problem(status=409, code=code, title="Conflito", detail=detail))
-
-
-def _analytics(response: Response, event: str, **metadata: str | int) -> None:
-    response.headers["X-Rentivo-Analytics-Event"] = event
-    for name, value in metadata.items():
-        header = "-".join(part.title() for part in name.split("_"))
-        response.headers[f"X-Rentivo-Analytics-{header}"] = str(value)
+def _analytics_204(event: str) -> Response:
+    """Empty success response whose only payload is the analytics event tag."""
+    return Response(status_code=204, headers={ANALYTICS_EVENT_HEADER: event})
 
 
 async def _attachment_upload_form(request: Request) -> AttachmentUploadForm:
@@ -155,33 +139,31 @@ async def _attachment_upload_form(request: Request) -> AttachmentUploadForm:
     form = await request.form()
     file = form.get("file")
     if not isinstance(file, UploadFile) or not file.filename:
-        raise _field_problem("invalid_attachment", "Nenhum arquivo selecionado.", "file")
+        raise ProblemException.invalid_field("invalid_attachment", "Nenhum arquivo selecionado.", "file")
     return AttachmentUploadForm(name=str(form.get("name", "")).strip(), file=file)
 
 
 def _capabilities(access: BillingAccess) -> BillingCapabilitiesResponse:
-    scopes = access.principal.api_key.scopes
-    can_edit = access.role in _EDIT_ROLES and APIScope.BILLINGS_WRITE.value in scopes
-    can_manage_bills = access.role in _MANAGE_ROLES and APIScope.BILLS_WRITE.value in scopes
+    can_edit = access.allows(APIScope.BILLINGS_WRITE, roles=_EDIT_ROLES)
+    can_manage_bills = access.allows(APIScope.BILLS_WRITE, roles=_MANAGE_ROLES)
     return BillingCapabilitiesResponse(
         can_edit=can_edit,
-        can_read_bills=APIScope.BILLS_READ.value in scopes,
+        can_read_bills=access.allows(APIScope.BILLS_READ),
         can_create_bills=can_manage_bills,
         can_manage_bills=can_manage_bills,
-        can_read_expenses=APIScope.EXPENSES_READ.value in scopes,
-        can_write_expenses=access.role in _MANAGE_ROLES and APIScope.EXPENSES_WRITE.value in scopes,
-        can_create_exports=APIScope.EXPORTS_CREATE.value in scopes,
-        can_read_attachments=APIScope.FILES_READ.value in scopes,
-        can_write_attachments=access.role in _EDIT_ROLES and APIScope.FILES_WRITE.value in scopes,
-        can_read_theme=access.role in _EDIT_ROLES and APIScope.THEMES_READ.value in scopes,
-        can_manage_theme=access.role in _EDIT_ROLES and APIScope.THEMES_WRITE.value in scopes,
-        can_upload_bill_receipts=can_manage_bills and APIScope.FILES_WRITE.value in scopes,
+        can_read_expenses=access.allows(APIScope.EXPENSES_READ),
+        can_write_expenses=access.allows(APIScope.EXPENSES_WRITE, roles=_MANAGE_ROLES),
+        can_create_exports=access.allows(APIScope.EXPORTS_CREATE),
+        can_read_attachments=access.allows(APIScope.FILES_READ),
+        can_write_attachments=access.allows(APIScope.FILES_WRITE, roles=_EDIT_ROLES),
+        can_read_theme=access.allows(APIScope.THEMES_READ, roles=_EDIT_ROLES),
+        can_manage_theme=access.allows(APIScope.THEMES_WRITE, roles=_EDIT_ROLES),
+        can_upload_bill_receipts=can_manage_bills and access.allows(APIScope.FILES_WRITE),
         can_delete=can_edit,
         can_transfer=(
-            access.role == "owner"
-            and access.billing.owner_type == "user"
-            and APIScope.BILLINGS_WRITE.value in scopes
-            and APIScope.ORGANIZATIONS_READ.value in scopes
+            access.billing.owner_type == "user"
+            and access.allows(APIScope.BILLINGS_WRITE, roles=_OWNER_ROLES)
+            and access.allows(APIScope.ORGANIZATIONS_READ)
         ),
     )
 
@@ -228,23 +210,6 @@ def _attachment(attachment: BillingAttachment) -> AttachmentResponse:
         file_size=attachment.file_size,
         sort_order=attachment.sort_order,
         created_at=attachment.created_at,
-    )
-
-
-def _stats(stats: BillingStats) -> BillingStatsResponse:
-    return BillingStatsResponse(
-        year=stats.year,
-        expected=stats.expected,
-        received=stats.received,
-        pending=stats.pending,
-        overdue=stats.overdue,
-        paid_count=stats.paid_count,
-        pending_count=stats.pending_count,
-        overdue_count=stats.overdue_count,
-        active_count=stats.active_count,
-        billed_count=stats.billed_count,
-        total_expenses=stats.total_expenses,
-        net_income=stats.net_income,
     )
 
 
@@ -313,6 +278,34 @@ def _replace_contacts(
     return tuple(saved)
 
 
+_CONTACT_LISTS: tuple[tuple[str, Literal["recipient", "reply_to"], AuditEventType, str], ...] = (
+    ("recipients", "recipient", AuditEventType.BILLING_RECIPIENTS_UPDATED, "recipient_count"),
+    ("reply_to", "reply_to", AuditEventType.BILLING_REPLY_TO_UPDATED, "reply_to_count"),
+)
+
+
+def _replace_provided_contacts(
+    *,
+    access: BillingAccess,
+    services: RequestServices,
+    payload: BillingCreateRequest | BillingUpdateRequest,
+    track_previous: bool,
+) -> None:
+    """Apply the contact lists the payload actually carries, recipients first."""
+    for field_name, service_name, event_type, count_key in _CONTACT_LISTS:
+        items = getattr(payload, field_name)
+        if items is not None:
+            _replace_contacts(
+                access=access,
+                services=services,
+                service_name=service_name,
+                items=items,
+                event_type=event_type,
+                count_key=count_key,
+                track_previous=track_previous,
+            )
+
+
 def _billing_response(access: BillingAccess, services: RequestServices) -> BillingResponse:
     billing = access.billing
     billing_id = billing.id
@@ -341,7 +334,7 @@ def _billing_response(access: BillingAccess, services: RequestServices) -> Billi
             )
             for template in templates
         ),
-        stats=_stats(services.billing_stats.stats_for_ids([billing_id])),
+        stats=BillingStatsResponse.from_stats(services.billing_stats.stats_for_ids([billing_id])),
         pix_needs_setup=services.pix.billing_needs_setup(billing),
         capabilities=_capabilities(access),
         created_at=billing.created_at,
@@ -411,7 +404,7 @@ async def list_billings(
             for access in accesses
         ),
         user_pix_incomplete=services.pix.owner_needs_setup("user", principal.user.id),
-        stats=_stats(stats),
+        stats=BillingStatsResponse.from_stats(stats),
     )
 
 
@@ -455,9 +448,9 @@ async def create_billing(
             owner_id=owner_id,
         )
     except _BillingItemReferenceError as exc:
-        raise _field_problem("invalid_billing_item", str(exc), exc.field) from None
+        raise ProblemException.invalid_field("invalid_billing_item", str(exc), exc.field) from None
     except ValueError as exc:
-        raise _field_problem("invalid_billing", str(exc), "pix_key") from None
+        raise ProblemException.invalid_field("invalid_billing", str(exc), "pix_key") from None
     assert billing.id is not None
     services.audit.safe_log_for(
         principal.actor,
@@ -468,27 +461,8 @@ async def create_billing(
         new_state=serialize_billing(billing),
     )
     access = resolve_billing_access(principal, services, billing.uuid)
-    if payload.recipients is not None:
-        _replace_contacts(
-            access=access,
-            services=services,
-            service_name="recipient",
-            items=payload.recipients,
-            event_type=AuditEventType.BILLING_RECIPIENTS_UPDATED,
-            count_key="recipient_count",
-            track_previous=False,
-        )
-    if payload.reply_to is not None:
-        _replace_contacts(
-            access=access,
-            services=services,
-            service_name="reply_to",
-            items=payload.reply_to,
-            event_type=AuditEventType.BILLING_REPLY_TO_UPDATED,
-            count_key="reply_to_count",
-            track_previous=False,
-        )
-    _analytics(response, "rentivo_billing_created")
+    _replace_provided_contacts(access=access, services=services, payload=payload, track_previous=False)
+    set_analytics(response, "rentivo_billing_created")
     return _billing_response(access, services)
 
 
@@ -522,11 +496,11 @@ async def update_billing(
         try:
             candidate.items = _billing_items(payload.items, access.billing.items)
         except _BillingItemReferenceError as exc:
-            raise _field_problem("invalid_billing_item", str(exc), exc.field) from None
+            raise ProblemException.invalid_field("invalid_billing_item", str(exc), exc.field) from None
     try:
         updated = services.billing.update_billing(candidate)
     except ValueError as exc:
-        raise _field_problem("invalid_billing", str(exc), "pix_key") from None
+        raise ProblemException.invalid_field("invalid_billing", str(exc), "pix_key") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILLING_UPDATE,
@@ -537,27 +511,8 @@ async def update_billing(
         new_state=serialize_billing(updated),
     )
     updated_access = BillingAccess(billing=updated, role=access.role, principal=principal)
-    if payload.recipients is not None:
-        _replace_contacts(
-            access=updated_access,
-            services=services,
-            service_name="recipient",
-            items=payload.recipients,
-            event_type=AuditEventType.BILLING_RECIPIENTS_UPDATED,
-            count_key="recipient_count",
-            track_previous=True,
-        )
-    if payload.reply_to is not None:
-        _replace_contacts(
-            access=updated_access,
-            services=services,
-            service_name="reply_to",
-            items=payload.reply_to,
-            event_type=AuditEventType.BILLING_REPLY_TO_UPDATED,
-            count_key="reply_to_count",
-            track_previous=True,
-        )
-    _analytics(response, "rentivo_billing_edited")
+    _replace_provided_contacts(access=updated_access, services=services, payload=payload, track_previous=True)
+    set_analytics(response, "rentivo_billing_edited")
     return _billing_response(updated_access, services)
 
 
@@ -583,7 +538,7 @@ async def delete_billing(
         entity_uuid=billing.uuid,
         previous_state=previous_state,
     )
-    return Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_billing_deleted"})
+    return _analytics_204("rentivo_billing_deleted")
 
 
 @router.post("/{billing_uuid}/transfer", status_code=204)
@@ -595,7 +550,7 @@ async def transfer_billing(
     services: RequestServices = Depends(get_services),
 ) -> Response:
     access = resolve_billing_access(principal, services, billing_uuid)
-    require_role(access.role, {"owner"})
+    require_role(access.role, _OWNER_ROLES)
     if access.billing.owner_type != "user":
         raise ProblemException.forbidden(
             "insufficient_role",
@@ -613,7 +568,7 @@ async def transfer_billing(
     try:
         services.billing.transfer_to_organization(billing.id, organization.id)
     except ValueError as exc:
-        raise _conflict("billing_transfer_conflict", str(exc)) from None
+        raise ProblemException.conflict("billing_transfer_conflict", str(exc)) from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILLING_TRANSFER,
@@ -630,7 +585,7 @@ async def transfer_billing(
         actor_user_id=principal.user.id,
         actor_email=principal.user.email,
     )
-    return Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_billing_transferred"})
+    return _analytics_204("rentivo_billing_transferred")
 
 
 async def _put_contacts(
@@ -655,7 +610,7 @@ async def _put_contacts(
         count_key=count_key,
         track_previous=True,
     )
-    _analytics(response, "rentivo_billing_edited")
+    set_analytics(response, "rentivo_billing_edited")
     return ContactListResponse(items=tuple(_contact(recipient, principal) for recipient in saved))
 
 
@@ -741,7 +696,7 @@ async def create_expense(
         entity_uuid=expense.uuid,
         new_state=serialize_expense(expense),
     )
-    _analytics(response, "rentivo_expense_created")
+    set_analytics(response, "rentivo_expense_created")
     return _expense(expense)
 
 
@@ -768,7 +723,7 @@ async def delete_expense(
         entity_uuid=expense.uuid,
         previous_state=previous_state,
     )
-    return Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_expense_deleted"})
+    return _analytics_204("rentivo_expense_deleted")
 
 
 @router.get("/{billing_uuid}/attachments", response_model=AttachmentListResponse)
@@ -811,7 +766,7 @@ async def upload_attachment(
             content_type=upload.file.content_type or "",
         )
     except ValueError as exc:
-        raise _field_problem("invalid_attachment", str(exc), "file") from None
+        raise ProblemException.invalid_field("invalid_attachment", str(exc), "file") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ATTACHMENT_UPLOAD,
@@ -820,7 +775,7 @@ async def upload_attachment(
         entity_uuid=attachment.uuid,
         new_state=serialize_billing_attachment(attachment, billing_uuid=access.billing.uuid),
     )
-    _analytics(response, "rentivo_billing_attachment_uploaded")
+    set_analytics(response, "rentivo_billing_attachment_uploaded")
     return _attachment(attachment)
 
 
@@ -849,18 +804,11 @@ async def download_attachment(
 ) -> Response:
     access = resolve_billing_access(principal, services, billing_uuid)
     attachment = _billing_attachment(access=access, services=services, attachment_uuid=attachment_uuid)
-    reference = services.billing_attachment.get_attachment_ref(attachment)
-    response: Response
-    if reference.kind == "local":
-        response = FileResponse(
-            reference.location,
-            media_type=attachment.content_type,
-            filename=attachment.filename,
-        )
-    else:
-        response = RedirectResponse(reference.location, status_code=302)
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    return stored_file_response(
+        services.billing_attachment.get_attachment_ref(attachment),
+        content_type=attachment.content_type,
+        filename=attachment.filename,
+    )
 
 
 @router.delete("/{billing_uuid}/attachments/{attachment_uuid}", status_code=204)
@@ -885,10 +833,7 @@ async def delete_attachment(
         entity_uuid=attachment.uuid,
         previous_state=previous_state,
     )
-    return Response(
-        status_code=204,
-        headers={"X-Rentivo-Analytics-Event": "rentivo_billing_attachment_deleted"},
-    )
+    return _analytics_204("rentivo_billing_attachment_deleted")
 
 
 @router.post("/{billing_uuid}/exports", response_model=ExportCreateResponse, status_code=202)
@@ -919,7 +864,7 @@ async def create_export(
         entity_uuid=access.billing.uuid,
         new_state={"format": payload.format},
     )
-    _analytics(response, "rentivo_data_exported")
+    set_analytics(response, "rentivo_data_exported")
     return ExportCreateResponse(format=payload.format)
 
 
@@ -956,7 +901,7 @@ def _selected_recipients(
     assert access.billing.id is not None
     by_uuid = {recipient.uuid: recipient for recipient in services.recipient.list_for_billing(access.billing.id)}
     if any(recipient_uuid not in by_uuid for recipient_uuid in recipient_uuids):
-        raise _field_problem(
+        raise ProblemException.invalid_field(
             "invalid_recipients",
             "Selecione somente destinatários desta cobrança.",
             "recipient_uuids",
@@ -998,16 +943,21 @@ async def send_communication(
     bill = _communication_bill(access, services, payload.bill_uuid)
     if payload.save_scope == "owner":
         require_role(access.role, _EDIT_ROLES)
-    rendering = bill.pdf_render_status == _PDF_RENDER_PENDING
     if payload.comm_type == CommType.PAYMENT_RECEIPT.value:
-        if rendering:
-            raise _conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
-        if not bill.recibo_pdf_path:
-            raise _conflict("receipt_unavailable", "O recibo ainda não está disponível para envio.")
-    elif rendering:
-        raise _conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
-    elif not bill.pdf_path:
-        raise _conflict("invoice_unavailable", "Gere o PDF da fatura antes de enviar a comunicação.")
+        state = recibo_state(bill)
+        if state == "rendering":
+            raise ProblemException.conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
+        if state == "missing":
+            raise ProblemException.conflict("receipt_unavailable", "O recibo ainda não está disponível para envio.")
+    else:
+        state = invoice_state(bill)
+        if state == "rendering":
+            raise ProblemException.conflict("invoice_not_ready", "A fatura ainda está sendo gerada.")
+        if state == "missing":
+            raise ProblemException.conflict(
+                "invoice_unavailable",
+                "Gere o PDF da fatura antes de enviar a comunicação.",
+            )
     recipients = _selected_recipients(access, services, payload.recipient_uuids)
     moderation = scan(f"{payload.subject}\n{payload.body}")
     if moderation.blocked:
@@ -1019,13 +969,13 @@ async def send_communication(
             entity_uuid=bill.uuid,
             new_state={"severe_count": len(moderation.severe), "mild_count": len(moderation.mild)},
         )
-        raise _field_problem(
+        raise ProblemException.invalid_field(
             "communication_blocked",
             "A mensagem contém conteúdo não permitido e não pode ser enviada.",
             "body",
         )
     if moderation.flagged and not payload.acknowledge_warning:
-        raise _field_problem(
+        raise ProblemException.invalid_field(
             "communication_warning_unacknowledged",
             "Reconheça o aviso de conteúdo antes de enviar.",
             "acknowledge_warning",
@@ -1074,7 +1024,7 @@ async def send_communication(
             entity_uuid=bill.uuid,
             new_state={"mild_count": len(moderation.mild)},
         )
-    _analytics(
+    set_analytics(
         response,
         "rentivo_communication_sent",
         bill_uuid_hash=analytics_hash(bill.uuid) or "",

@@ -3,6 +3,25 @@ import Foundation
 @MainActor
 public protocol AuthRepository: AnyObject {
   var currentUser: UserProfile { get }
+
+  /// Whether this store is backed by the real Rentivo API rather than the in-memory demo data.
+  /// Screens use it to pick their copy ("conectado ao Rentivo" versus "demonstração"), and
+  /// `AppModel` uses it for the flows that only exist against a server: browser-based
+  /// authorization, token revocation, and account deletion.
+  var usesLiveAPI: Bool { get }
+
+  /// Returns the profile behind an already-stored credential, or `nil` when there is no session
+  /// to resume.
+  func restoreSession() async throws -> UserProfile?
+
+  /// Trades a one-time authorization code minted by the web sign-in flow for an API session.
+  func exchangeMobileAuthorization(code: String) async throws -> UserProfile
+
+  /// Best-effort revocation of the current session; never throws, so callers can always drop
+  /// local state afterwards.
+  func logout() async
+
+  func deleteAccount(password: String) async throws
 }
 
 @MainActor

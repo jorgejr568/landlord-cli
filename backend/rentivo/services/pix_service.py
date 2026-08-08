@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import structlog
 
 from rentivo.models.billing import Billing
+from rentivo.models.organization import Organization
+from rentivo.models.user import User
 from rentivo.observability import traced
 from rentivo.repositories.base import OrganizationRepository, UserRepository
 
@@ -40,7 +42,7 @@ class PixService:
         # billing-list render resolves PIX for N billings that usually share one
         # owner (the logged-in user). Caching by (owner_type, owner_id) collapses
         # those N identical owner fetches into one query.
-        self._owner_cache: dict[tuple[str, int], PixConfig | None] = {}
+        self._owner_cache: dict[tuple[str, int], Organization | User | None] = {}
 
     @traced("pix.resolve_for_billing")
     def resolve_for_billing(self, billing: Billing) -> PixConfig | None:
@@ -52,21 +54,34 @@ class PixService:
 
     @traced("pix.get_owner_config")
     def get_owner_config(self, owner_type: str, owner_id: int) -> PixConfig | None:
+        owner = self._get_owner(owner_type, owner_id)
+        if owner is None:
+            return None
+        return _complete(owner.pix_key, owner.pix_merchant_name, owner.pix_merchant_city)
+
+    @traced("pix.resolve_owner_display_name")
+    def resolve_owner_display_name(self, billing: Billing) -> str | None:
+        """Human-readable label for a billing's owner: the organization name for
+        org-owned billings, the account email for user-owned ones (personal
+        accounts carry no name). None when the owner row is gone or its label is
+        empty, leaving the caller to pick its own fallback.
+        """
+        owner = self._get_owner(billing.owner_type, billing.owner_id)
+        if owner is None:
+            return None
+        display = owner.name if billing.owner_type == "organization" else owner.email
+        return display or None
+
+    def _get_owner(self, owner_type: str, owner_id: int) -> Organization | User | None:
         key = (owner_type, owner_id)
         if key not in self._owner_cache:
-            self._owner_cache[key] = self._load_owner_config(owner_type, owner_id)
+            self._owner_cache[key] = self._load_owner(owner_type, owner_id)
         return self._owner_cache[key]
 
-    def _load_owner_config(self, owner_type: str, owner_id: int) -> PixConfig | None:
+    def _load_owner(self, owner_type: str, owner_id: int) -> Organization | User | None:
         if owner_type == "organization":
-            org = self.org_repo.get_by_id(owner_id)
-            if org is None:
-                return None
-            return _complete(org.pix_key, org.pix_merchant_name, org.pix_merchant_city)
-        user = self.user_repo.get_by_id(owner_id)
-        if user is None:
-            return None
-        return _complete(user.pix_key, user.pix_merchant_name, user.pix_merchant_city)
+            return self.org_repo.get_by_id(owner_id)
+        return self.user_repo.get_by_id(owner_id)
 
     @traced("pix.owner_needs_setup")
     def owner_needs_setup(self, owner_type: str, owner_id: int) -> bool:

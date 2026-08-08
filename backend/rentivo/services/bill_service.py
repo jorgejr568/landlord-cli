@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
@@ -9,6 +10,7 @@ import structlog
 from ulid import ULID
 
 from rentivo.constants import SP_TZ
+from rentivo.context import Actor
 from rentivo.models.bill import Bill, BillLineItem, BillStatus, InvalidStatusTransition, is_transition_allowed
 from rentivo.models.billing import Billing, BillingItem, ItemType
 from rentivo.models.receipt import ALLOWED_RECEIPT_TYPES, MAX_RECEIPT_SIZE, Receipt
@@ -53,50 +55,49 @@ def _prefixed(path: str) -> str:
     return f"{prefix}/{path}" if prefix else path
 
 
-def _storage_key(billing_uuid: str, bill_uuid: str, operation_id: str | None = None) -> str:
-    operation_suffix = f".{operation_id}" if operation_id else ""
-    return _prefixed(f"{billing_uuid}/{bill_uuid}{operation_suffix}.pdf")
+@dataclass(frozen=True)
+class _PdfArtifact:
+    """Storage-key rules for one kind of generated PDF.
+
+    Invoice and recibo keys share every rule but their trailing extension, so a
+    single instance per artifact kind keeps the two key families provably in
+    sync. The emitted strings are a storage contract — S3 objects already exist
+    under them — so the suffix is the only thing that may vary.
+    """
+
+    suffix: str
+
+    def key(self, billing_uuid: str, bill_uuid: str, operation_id: str | None = None) -> str:
+        """Stable key for a bill's artifact, optionally scoped to one render
+        operation."""
+        operation_suffix = f".{operation_id}" if operation_id else ""
+        return _prefixed(f"{billing_uuid}/{bill_uuid}{operation_suffix}{self.suffix}")
+
+    def candidate_key(
+        self,
+        billing_uuid: str,
+        bill_uuid: str,
+        operation_id: str,
+        pdf_bytes: bytes,
+    ) -> str:
+        """Key for a not-yet-published render. The content digest keeps two
+        concurrent operations from overwriting each other's candidate file."""
+        digest = hashlib.sha256(pdf_bytes).hexdigest()[:16]
+        return _prefixed(f"{billing_uuid}/{bill_uuid}.{operation_id}.{digest}{self.suffix}")
+
+    def matches_operation(self, path: str | None, operation_id: str) -> bool:
+        """Whether ``path`` was produced by ``operation_id``, covering both the
+        plain and the digest-bearing candidate form."""
+        if path is None:
+            return False
+        filename = path.replace("\\", "/").rsplit("/", 1)[-1]
+        return filename.endswith(f".{operation_id}{self.suffix}") or (
+            f".{operation_id}." in filename and filename.endswith(self.suffix)
+        )
 
 
-def _pdf_candidate_storage_key(
-    billing_uuid: str,
-    bill_uuid: str,
-    operation_id: str,
-    pdf_bytes: bytes,
-) -> str:
-    digest = hashlib.sha256(pdf_bytes).hexdigest()[:16]
-    return _prefixed(f"{billing_uuid}/{bill_uuid}.{operation_id}.{digest}.pdf")
-
-
-def _pdf_path_matches_operation(path: str | None, operation_id: str) -> bool:
-    if path is None:
-        return False
-    filename = path.replace("\\", "/").rsplit("/", 1)[-1]
-    return filename.endswith(f".{operation_id}.pdf") or (f".{operation_id}." in filename and filename.endswith(".pdf"))
-
-
-def _recibo_storage_key(billing_uuid: str, bill_uuid: str, operation_id: str | None = None) -> str:
-    operation_suffix = f".{operation_id}" if operation_id else ""
-    return _prefixed(f"{billing_uuid}/{bill_uuid}{operation_suffix}.recibo.pdf")
-
-
-def _recibo_candidate_storage_key(
-    billing_uuid: str,
-    bill_uuid: str,
-    operation_id: str,
-    pdf_bytes: bytes,
-) -> str:
-    digest = hashlib.sha256(pdf_bytes).hexdigest()[:16]
-    return _prefixed(f"{billing_uuid}/{bill_uuid}.{operation_id}.{digest}.recibo.pdf")
-
-
-def _recibo_path_matches_operation(path: str | None, operation_id: str) -> bool:
-    if path is None:
-        return False
-    filename = path.replace("\\", "/").rsplit("/", 1)[-1]
-    return filename.endswith(f".{operation_id}.recibo.pdf") or (
-        f".{operation_id}." in filename and filename.endswith(".recibo.pdf")
-    )
+_INVOICE_PDF = _PdfArtifact(".pdf")
+_RECIBO_PDF = _PdfArtifact(".recibo.pdf")
 
 
 def _receipt_storage_key(billing_uuid: str, bill_uuid: str, receipt_uuid: str, content_type: str) -> str:
@@ -179,6 +180,23 @@ class BillService:
                 )
         return data, ordered
 
+    def _adopt_foreign_completion(self, bill: Bill, render_operation_id: str) -> tuple[bool, str | None]:
+        """Check whether another writer now owns this bill's PDF render slot.
+
+        Returns ``(foreign, adopted_path)``. When ``foreign`` is true the caller
+        must abandon its own render and report ``adopted_path``: the winner's
+        file when that writer already published the artifact this operation was
+        asked for (the retry is then idempotent), otherwise None.
+        """
+        operation_id, render_status, current_path = self.bill_repo.get_pdf_render_state(cast(int, bill.id))
+        if operation_id == render_operation_id:
+            return False, None
+        if render_status == "succeeded" and _INVOICE_PDF.matches_operation(current_path, render_operation_id):
+            bill.pdf_path = current_path
+            bill.pdf_render_status = "succeeded"
+            return True, current_path
+        return True, None
+
     @traced("bill.render_pdf_sync")
     def _render_pdf_sync(
         self,
@@ -198,16 +216,9 @@ class BillService:
         if bill.id is None:
             raise ValueError("Cannot update pdf_path for bill without an id")
         if render_operation_id is not None:
-            operation_id, render_status, current_path = self.bill_repo.get_pdf_render_state(bill.id)
-            if operation_id != render_operation_id:
-                if render_status == "succeeded" and _pdf_path_matches_operation(
-                    current_path,
-                    render_operation_id,
-                ):
-                    bill.pdf_path = current_path
-                    bill.pdf_render_status = "succeeded"
-                    return current_path, []
-                return None, []
+            foreign, adopted_path = self._adopt_foreign_completion(bill, render_operation_id)
+            if foreign:
+                return adopted_path, []
 
         theme = None
         if self.theme_service is not None:
@@ -236,24 +247,17 @@ class BillService:
                 )
 
         if render_operation_id is not None:
-            operation_id, render_status, current_path = self.bill_repo.get_pdf_render_state(bill.id)
-            if operation_id != render_operation_id:
-                if render_status == "succeeded" and _pdf_path_matches_operation(
-                    current_path,
-                    render_operation_id,
-                ):
-                    bill.pdf_path = current_path
-                    bill.pdf_render_status = "succeeded"
-                    return current_path, failed_uuids
-                return None, failed_uuids
-            key = _pdf_candidate_storage_key(
+            foreign, adopted_path = self._adopt_foreign_completion(bill, render_operation_id)
+            if foreign:
+                return adopted_path, failed_uuids
+            key = _INVOICE_PDF.candidate_key(
                 billing.uuid,
                 bill.uuid,
                 render_operation_id,
                 pdf_bytes,
             )
         else:
-            key = _storage_key(billing.uuid, bill.uuid)
+            key = _INVOICE_PDF.key(billing.uuid, bill.uuid)
         path = self.storage.save(key, pdf_bytes)
         logger.info("bill_pdf_stored", bill_uuid=bill.uuid, storage_key=key)
 
@@ -270,7 +274,7 @@ class BillService:
             if not published:
                 if referenced_path != path:
                     self.storage.delete(path)
-                if _pdf_path_matches_operation(referenced_path, render_operation_id):
+                if _INVOICE_PDF.matches_operation(referenced_path, render_operation_id):
                     bill.pdf_path = referenced_path
                     bill.pdf_render_status = "succeeded"
                     return referenced_path, failed_uuids
@@ -297,7 +301,7 @@ class BillService:
         self,
         bill: Bill,
         billing: Billing,
-        actor=None,
+        actor: Actor | None = None,
         *,
         failure_compensation: Callable[[str], bool] | None = None,
     ) -> tuple[str | None, list[str]]:
@@ -327,22 +331,12 @@ class BillService:
                     render_operation_id=render_operation_id,
                 )
             payload = {"bill_id": bill.id, "render_operation_id": render_operation_id}
-            if actor is not None:
-                self.job_service.enqueue_for(
-                    actor,
-                    "pdf.render",
-                    payload,
-                    max_attempts=3,
-                )
-            else:
-                self.job_service.enqueue(
-                    "pdf.render",
-                    payload,
-                    source="",
-                    actor_id=None,
-                    actor_username="",
-                    max_attempts=3,
-                )
+            self.job_service.enqueue_for(
+                actor,
+                "pdf.render",
+                payload,
+                max_attempts=3,
+            )
         except Exception:
             compensated = False
             if failure_compensation is not None:
@@ -382,7 +376,7 @@ class BillService:
         extras: list[tuple[str, int]],
         notes: str = "",
         due_date: str = "",
-        actor=None,
+        actor: Actor | None = None,
         render: bool = True,
     ) -> Bill:
         """Create a bill and render/enqueue its PDF.
@@ -471,7 +465,7 @@ class BillService:
         line_items: list[BillLineItem],
         notes: str,
         due_date: str = "",
-        actor=None,
+        actor: Actor | None = None,
     ) -> Bill:
         previous = bill.model_copy(deep=True)
         candidate = bill.model_copy(deep=True)
@@ -497,7 +491,7 @@ class BillService:
         return bill
 
     @traced("bill.regenerate_pdf")
-    def regenerate_pdf(self, bill: Bill, billing: Billing, actor=None) -> Bill:
+    def regenerate_pdf(self, bill: Bill, billing: Billing, actor: Actor | None = None) -> Bill:
         """Regenerate the PDF using current billing info (PIX key, etc.).
 
         With a JobService configured (web), enqueues a pdf.render job
@@ -522,15 +516,10 @@ class BillService:
         org-owned billings, the account email for user-owned billings. Falls
         back to the billing name when the owner can't be resolved (no
         pix_service, missing owner row, or empty name)."""
-        if self.pix_service is not None and billing.owner_id is not None:
-            if billing.owner_type == "organization":
-                org = self.pix_service.org_repo.get_by_id(billing.owner_id)
-                if org is not None and org.name:
-                    return org.name
-            else:
-                user = self.pix_service.user_repo.get_by_id(billing.owner_id)
-                if user is not None and user.email:
-                    return user.email
+        if self.pix_service is not None:
+            issuer = self.pix_service.resolve_owner_display_name(billing)
+            if issuer is not None:
+                return issuer
         return billing.name
 
     @traced("bill.render_recibo")
@@ -581,7 +570,7 @@ class BillService:
         pdf_bytes = bytes(self.render_recibo(bill, billing))
         previous_path = bill.recibo_pdf_path
         operation_id = render_operation_id or str(ULID())
-        key = _recibo_candidate_storage_key(billing.uuid, bill.uuid, operation_id, pdf_bytes)
+        key = _RECIBO_PDF.candidate_key(billing.uuid, bill.uuid, operation_id, pdf_bytes)
         owns_status_version, current_path = self.bill_repo.get_recibo_render_state(
             bill.id,
             bill.status_updated_at,
@@ -589,7 +578,7 @@ class BillService:
         if not owns_status_version:
             logger.info("recibo_store_discarded_stale", bill_uuid=bill.uuid, storage_key=key)
             return None
-        if _recibo_path_matches_operation(current_path, operation_id):
+        if _RECIBO_PDF.matches_operation(current_path, operation_id):
             bill.recibo_pdf_path = current_path
             logger.info("recibo_store_idempotent", bill_uuid=bill.uuid, storage_key=current_path)
             return current_path
@@ -630,7 +619,7 @@ class BillService:
         if not published:
             if referenced_path != path:
                 self.storage.delete_strict(path)
-            if _recibo_path_matches_operation(referenced_path, operation_id):
+            if _RECIBO_PDF.matches_operation(referenced_path, operation_id):
                 bill.recibo_pdf_path = referenced_path
                 logger.info("recibo_store_idempotent", bill_uuid=bill.uuid, storage_key=key)
                 return referenced_path
@@ -649,7 +638,7 @@ class BillService:
         logger.info("recibo_stored", bill_uuid=bill.uuid, storage_key=key)
         return path
 
-    def _enqueue_or_render_recibo(self, bill: Bill, billing: Billing | None, actor=None) -> None:
+    def _enqueue_or_render_recibo(self, bill: Bill, billing: Billing | None, actor: Actor | None = None) -> None:
         """Render the recibo synchronously (CLI) or enqueue a ``recibo.render``
         job (web). Called from ``change_status``, which has already validated
         ``bill.id`` is set."""
@@ -663,19 +652,9 @@ class BillService:
                 )
             return
         payload = {"bill_id": bill.id, "render_operation_id": render_operation_id}
-        if actor is not None:
-            self.job_service.enqueue_for(actor, "recibo.render", payload, max_attempts=3)
-        else:
-            self.job_service.enqueue(
-                "recibo.render",
-                payload,
-                source="",
-                actor_id=None,
-                actor_username="",
-                max_attempts=3,
-            )
+        self.job_service.enqueue_for(actor, "recibo.render", payload, max_attempts=3)
 
-    def _remove_recibo(self, bill: Bill, key: str | None, actor=None) -> None:
+    def _remove_recibo(self, bill: Bill, key: str | None, actor: Actor | None = None) -> None:
         """Delete a stored recibo and clear its key. Called when a bill leaves
         the PAID status (the quittance no longer reflects reality). Called from
         ``change_status``, which has already validated ``bill.id`` is set."""
@@ -684,10 +663,8 @@ class BillService:
         try:
             if self.job_service is None:
                 self.storage.delete(key)
-            elif actor is not None:
-                self.job_service.enqueue_for(actor, "s3.delete", {"key": key})
             else:
-                self.job_service.enqueue("s3.delete", {"key": key}, source="", actor_id=None, actor_username="")
+                self.job_service.enqueue_for(actor, "s3.delete", {"key": key})
         except Exception:
             logger.exception("recibo_delete_failed", bill_uuid=bill.uuid, storage_key=key)
             raise
@@ -734,7 +711,13 @@ class BillService:
         return result
 
     @traced("bill.change_status")
-    def change_status(self, bill: Bill, new_status: str, billing: Billing | None = None, actor=None) -> Bill:
+    def change_status(
+        self,
+        bill: Bill,
+        new_status: str,
+        billing: Billing | None = None,
+        actor: Actor | None = None,
+    ) -> Bill:
         BillStatus(new_status)  # raises ValueError if invalid
         if bill.id is None:
             raise ValueError("Cannot change status for bill without an id")
@@ -857,8 +840,8 @@ class BillService:
             [
                 bill.pdf_path or "",
                 bill.recibo_pdf_path or "",
-                _storage_key(billing.uuid, bill.uuid),
-                _recibo_storage_key(billing.uuid, bill.uuid),
+                _INVOICE_PDF.key(billing.uuid, bill.uuid),
+                _RECIBO_PDF.key(billing.uuid, bill.uuid),
             ]
         )
         if not self.bill_repo.delete_created(bill_id):
@@ -876,7 +859,7 @@ class BillService:
         filename: str,
         file_bytes: bytes,
         content_type: str,
-        actor=None,
+        actor: Actor | None = None,
         render: bool = True,
     ) -> tuple[Receipt, list[str]]:
         """Upload a receipt file and attach it to a bill, then regenerate the PDF.
@@ -941,8 +924,41 @@ class BillService:
             failed_uuids = []
         return receipt, failed_uuids
 
+    def _restore_render_status(
+        self,
+        bill: Bill,
+        receipt: Receipt,
+        operation_id: str,
+        previous_status: str,
+        *,
+        event: str,
+    ) -> None:
+        """Give back a render slot this call claimed but could not use.
+
+        Best effort: the caller is already unwinding with its own error, so a
+        failed restore is logged under ``event`` and swallowed rather than
+        masking the original failure. The in-memory bill only follows the
+        database when the restore actually won the slot back.
+        """
+        try:
+            restored = self.bill_repo.finish_pdf_render(
+                cast(int, bill.id),
+                operation_id,
+                previous_status,
+            )
+        except Exception:
+            logger.exception(
+                event,
+                receipt_uuid=receipt.uuid,
+                bill_uuid=bill.uuid,
+                render_operation_id=operation_id,
+            )
+        else:
+            if restored:
+                bill.pdf_render_status = previous_status
+
     @traced("bill.delete_receipt")
-    def delete_receipt(self, receipt: Receipt, bill: Bill, billing: Billing, actor=None) -> None:
+    def delete_receipt(self, receipt: Receipt, bill: Bill, billing: Billing, actor: Actor | None = None) -> None:
         """Delete a receipt and regenerate the bill PDF."""
         if self.receipt_repo is None:
             raise RuntimeError("Receipt repository not configured")
@@ -965,39 +981,20 @@ class BillService:
                 },
             }
             try:
-                if actor is not None:
-                    self.job_service.enqueue_for(
-                        actor,
-                        "pdf.render",
-                        payload,
-                        max_attempts=3,
-                    )
-                else:
-                    self.job_service.enqueue(
-                        "pdf.render",
-                        payload,
-                        source="",
-                        actor_id=None,
-                        actor_username="",
-                        max_attempts=3,
-                    )
+                self.job_service.enqueue_for(
+                    actor,
+                    "pdf.render",
+                    payload,
+                    max_attempts=3,
+                )
             except Exception:
-                try:
-                    restored = self.bill_repo.finish_pdf_render(
-                        bill.id,
-                        render_operation_id,
-                        previous_render_status,
-                    )
-                except Exception:
-                    logger.exception(
-                        "receipt_delete_render_restore_failed",
-                        receipt_uuid=receipt.uuid,
-                        bill_uuid=bill.uuid,
-                        render_operation_id=render_operation_id,
-                    )
-                else:
-                    if restored:
-                        bill.pdf_render_status = previous_render_status
+                self._restore_render_status(
+                    bill,
+                    receipt,
+                    render_operation_id,
+                    previous_render_status,
+                    event="receipt_delete_render_restore_failed",
+                )
                 raise
 
             try:
@@ -1009,22 +1006,13 @@ class BillService:
                 if not deleted:
                     raise StaleReceiptDeleteError("Receipt deletion lost render ownership")
             except Exception:
-                try:
-                    restored = self.bill_repo.finish_pdf_render(
-                        bill.id,
-                        render_operation_id,
-                        previous_render_status,
-                    )
-                except Exception:
-                    logger.exception(
-                        "receipt_delete_render_cancel_failed",
-                        receipt_uuid=receipt.uuid,
-                        bill_uuid=bill.uuid,
-                        render_operation_id=render_operation_id,
-                    )
-                else:
-                    if restored:
-                        bill.pdf_render_status = previous_render_status
+                self._restore_render_status(
+                    bill,
+                    receipt,
+                    render_operation_id,
+                    previous_render_status,
+                    event="receipt_delete_render_cancel_failed",
+                )
                 raise
             logger.info("receipt_deleted", receipt_uuid=receipt.uuid, bill_uuid=bill.uuid)
             return
@@ -1062,7 +1050,13 @@ class BillService:
         return self.receipt_repo.get_by_uuid(uuid)
 
     @traced("bill.reorder_receipts")
-    def reorder_receipts(self, bill: Bill, billing: Billing, receipt_uuids: list[str], actor=None) -> None:
+    def reorder_receipts(
+        self,
+        bill: Bill,
+        billing: Billing,
+        receipt_uuids: list[str],
+        actor: Actor | None = None,
+    ) -> None:
         """Reorder receipts by the given UUID list and regenerate the PDF."""
         if self.receipt_repo is None:
             raise RuntimeError("Receipt repository not configured")

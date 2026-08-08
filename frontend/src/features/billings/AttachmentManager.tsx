@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 
@@ -23,10 +24,6 @@ interface AttachmentManagerProps {
   mode: "detail" | "edit";
   onChanged: () => void | Promise<void>;
   onError: (message: string) => void;
-}
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
 }
 
 export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onChanged, onError }: AttachmentManagerProps) {
@@ -106,7 +103,7 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
     } catch (caught) {
       if (!mutationIsCurrent(token)) return;
       if (caught instanceof ApiError) {
-        const fields = normalizedFields(caught);
+        const fields = normalizedFieldErrors(caught);
         if (fields.file) {
           setFileError(fields.file);
           fileRef.current?.focus();

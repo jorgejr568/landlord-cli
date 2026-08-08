@@ -28,17 +28,14 @@ picks up the legacy plaintext rows.
 
 from __future__ import annotations
 
-import sys
-
 import structlog
 from rich.console import Console
 from rich.table import Table
 from sqlalchemy import Connection, text
 
-from rentivo.db import get_connection, initialize_db
 from rentivo.encryption.base import EncryptionBackend
 from rentivo.encryption.factory import get_encryption
-from rentivo.logging import configure_logging
+from rentivo.scripts._cli import boot, parse_dry_run, parse_flag
 
 logger = structlog.get_logger(__name__)
 console = Console()
@@ -240,11 +237,9 @@ def _reset_email_hash(conn: Connection, *, dry_run: bool) -> None:
 
 
 def main() -> None:
-    configure_logging(cli=True)
-    dry_run = "--dry-run" in sys.argv
-    reset_blind_index = "--reset-blind-index" in sys.argv
-    initialize_db()
-    conn = get_connection()
+    conn = boot()
+    dry_run = parse_dry_run()
+    reset_blind_index = parse_flag("--reset-blind-index")
     encryption = get_encryption()
     if reset_blind_index:
         _reset_email_hash(conn, dry_run=dry_run)

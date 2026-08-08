@@ -17,27 +17,21 @@ Behavior:
 
 from __future__ import annotations
 
-import sys
-
 from rich.console import Console
 from rich.table import Table
 from ulid import ULID
 
-from rentivo.db import get_connection, initialize_db
 from rentivo.jobs.factory import get_job_backend
-from rentivo.logging import configure_logging
 from rentivo.models import format_brl
-from rentivo.models.bill import Bill
-from rentivo.models.billing import Billing
 from rentivo.repositories.factory import (
     get_audit_log_repository,
     get_bill_repository,
     get_billing_repository,
     get_job_repository,
     get_organization_repository,
-    get_receipt_repository,  # noqa: F401 — kept so existing test mocks still bind cleanly
     get_user_repository,
 )
+from rentivo.scripts._cli import boot, collect_bills, parse_dry_run
 from rentivo.services.audit_service import AuditService
 from rentivo.services.job_service import JobService
 from rentivo.services.pix_service import PixService
@@ -47,10 +41,8 @@ console = Console()
 
 
 def main() -> None:
-    configure_logging(cli=True)
-    dry_run = "--dry-run" in sys.argv
-
-    initialize_db()
+    conn = boot()
+    dry_run = parse_dry_run()
 
     billing_repo = get_billing_repository()
     bill_repo = get_bill_repository()
@@ -62,19 +54,13 @@ def main() -> None:
 
     pix_service = PixService(user_repo, org_repo)
     audit_service = AuditService(audit_repo)
-    job_service = JobService(get_job_backend(get_connection()), audit_service)
+    job_service = JobService(get_job_backend(conn), audit_service)
 
-    billings = billing_repo.list_all()
+    billings, all_bills = collect_bills(billing_repo, bill_repo)
 
     if not billings:
         console.print("[yellow]Nenhuma cobranca encontrada.[/yellow]")
         return
-
-    all_bills: list[tuple[Billing, Bill]] = []
-    for billing in billings:
-        assert billing.id is not None
-        for bill in bill_repo.list_by_billing(billing.id):
-            all_bills.append((billing, bill))
 
     if not all_bills:
         console.print("[yellow]Nenhuma fatura encontrada.[/yellow]")

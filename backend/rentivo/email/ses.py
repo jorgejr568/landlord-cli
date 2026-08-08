@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import structlog
 
-try:
-    import boto3
-except ImportError:  # pragma: no cover
-    boto3 = None  # type: ignore[assignment]
-
+from rentivo.aws import build_client
 from rentivo.email.base import EmailBackend, EmailMessage
 from rentivo.email.mime import build_mime
 from rentivo.observability import traced
@@ -24,20 +20,16 @@ class SESEmailBackend(EmailBackend):
         endpoint_url: str = "",
         configuration_set: str = "",
     ) -> None:
-        if boto3 is None:
-            raise ImportError("boto3 is required for SES email. Install it with: pip install rentivo[s3]")
         self.from_address = from_address
         self.configuration_set = configuration_set
-
-        client_kwargs: dict = {
-            "service_name": "ses",
-            "region_name": region,
-            "aws_access_key_id": access_key_id,
-            "aws_secret_access_key": secret_access_key,
-        }
-        if endpoint_url:
-            client_kwargs["endpoint_url"] = endpoint_url
-        self.client = boto3.client(**client_kwargs)
+        self.client = build_client(
+            "ses",
+            region=region,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            endpoint_url=endpoint_url,
+            feature="SES email",
+        )
 
     @traced("ses.send")
     def send(self, message: EmailMessage) -> str:

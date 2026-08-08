@@ -4,29 +4,21 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { LoadError, LoadingState } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatBrlInput, parseBrl } from "../../lib/format";
+import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { AttachmentManager } from "./AttachmentManager";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
-type BillingCapabilities = components["schemas"]["BillingCapabilitiesResponse"] & {
-  can_read_attachments: boolean;
-  can_write_attachments: boolean;
-};
-type Billing = Omit<components["schemas"]["BillingResponse"], "capabilities"> & {
-  capabilities: BillingCapabilities;
-};
+type Billing = components["schemas"]["BillingResponse"];
 type UpdateRequest = components["schemas"]["BillingUpdateRequest"];
 
 interface LockedContacts {
   recipients: boolean;
   replyTo: boolean;
-}
-
-function normalizedFields(error: ApiError): Record<string, string> {
-  return Object.fromEntries(Object.entries(error.fields).map(([key, value]) => [key.replace(/^body\./, ""), value]));
 }
 
 function fullContacts(contacts: Billing["recipients"], prefix: string) {
@@ -96,7 +88,7 @@ export function BillingEditPage() {
       const billingResult = await apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", {
         params: { path: { billing_uuid: requestUuid } }, signal
       }));
-      const loadedBilling = billingResult.data as Billing;
+      const loadedBilling = billingResult.data;
       if (!isCurrent()) return;
       const attachmentResult = loadedBilling.capabilities.can_read_attachments
         ? await apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}/attachments", {
@@ -128,10 +120,8 @@ export function BillingEditPage() {
   }, [billingUuid]);
 
   useEffect(() => {
-    const previousTitle = document.title;
     const controller = new AbortController();
     const requestControllers = requestControllersRef.current;
-    document.title = "Editar cobrança - Rentivo";
     setSaving(false);
     saveControllerRef.current = null;
     void load(controller.signal);
@@ -140,10 +130,9 @@ export function BillingEditPage() {
       requestControllers.forEach((requestController) => requestController.abort());
       requestControllers.clear();
       saveControllerRef.current = null;
-      document.title = previousTitle;
     };
   }, [load]);
-  useEffect(() => { if (billing) document.title = `Editar ${billing.name} - Rentivo`; }, [billing]);
+  useDocumentTitle(billing ? `Editar ${billing.name} - Rentivo` : "Editar cobrança - Rentivo");
 
   const submit = async (values: BillingFormValues) => {
     if (saveControllerRef.current) return;
@@ -160,7 +149,7 @@ export function BillingEditPage() {
       navigate(`/billings/${requestUuid}`);
     } catch (caught) {
       if (!isCurrent()) return;
-      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFields(caught));
+      if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFieldErrors(caught));
       else setError(caught instanceof ApiError ? caught.message : "Não foi possível atualizar a cobrança.");
     } finally {
       const shouldUpdate = isCurrent();

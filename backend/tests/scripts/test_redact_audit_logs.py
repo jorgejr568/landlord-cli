@@ -307,11 +307,11 @@ class TestRedactAuditLogs:
         assert state["ctx_keys_count"] == 2
 
     def test_main_invokes_run_with_factories(self, seeded_audit_db):
-        from rentivo.scripts import redact_audit_logs
+        from rentivo.scripts import _cli, redact_audit_logs
 
         with (
-            patch.object(redact_audit_logs, "initialize_db"),
-            patch.object(redact_audit_logs, "get_connection", return_value=seeded_audit_db),
+            patch.object(_cli, "initialize_db"),
+            patch.object(_cli, "get_connection", return_value=seeded_audit_db),
             patch("sys.argv", ["prog"]),
         ):
             redact_audit_logs.main()
@@ -344,6 +344,31 @@ class TestRedactAuditLogs:
         result, changed = _redact_state(json.dumps([1, 2, 3]))
         assert result == json.dumps([1, 2, 3])
         assert changed is False
+
+    def test_redact_state_skips_non_string_values_under_a_pii_key(self, db_connection):
+        """Legacy rows are hand-written history: a PII key may hold a number, a
+        null or a nested object. The redactor only masks text, and one such row
+        must not abort the backfill for every row after it."""
+        from rentivo.scripts.redact_audit_logs import _redact_state
+
+        state = json.dumps(
+            {
+                "subject": 42,
+                "email": None,
+                "to": ["a@example.com"],
+                "pix_key": "alice@pix.com",
+            }
+        )
+
+        result, changed = _redact_state(state)
+
+        assert changed is True  # the one string value was still redacted
+        data = json.loads(result)
+        assert data["pix_key"] == "a****e@pix.com"
+        # Untouched, but preserved — the backfill never invents a value.
+        assert data["subject"] == 42
+        assert data["email"] is None
+        assert data["to"] == ["a@example.com"]
 
     def test_redact_state_redacts_invite_emails_and_drops_org_name(self, db_connection):
         """Legacy invite audit rows carried plaintext invited_email,

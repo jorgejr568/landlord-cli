@@ -33,3 +33,34 @@ def test_not_found_problem_exception_has_stable_problem_shape():
     assert error.problem.status == 404
     assert error.problem.code == "not_found"
     assert error.problem.fields == {}
+
+
+def test_conflict_problem_exception_carries_the_pt_br_title_and_detail():
+    error = ProblemException.conflict("recibo_not_ready", "O recibo ainda está sendo gerado.")
+
+    assert error.problem.status == 409
+    assert error.problem.code == "recibo_not_ready"
+    assert error.problem.title == "Conflito"
+    assert error.problem.detail == "O recibo ainda está sendo gerado."
+    assert error.problem.fields == {}
+
+
+def test_invalid_problem_exception_keeps_the_supplied_fields():
+    error = ProblemException.invalid(
+        "validation_error",
+        "Os dados da fatura são inválidos.",
+        fields={"reference_month": "obrigatório"},
+    )
+
+    assert error.problem.status == 422
+    assert error.problem.title == "Dados inválidos"
+    assert error.problem.fields == {"reference_month": "obrigatório"}
+
+
+def test_invalid_field_problem_exception_mirrors_the_detail_into_the_field():
+    error = ProblemException.invalid_field("invalid_billing", "Chave PIX inválida.", "pix_key")
+
+    assert error.problem.status == 422
+    assert error.problem.code == "invalid_billing"
+    assert error.problem.detail == "Chave PIX inválida."
+    assert error.problem.fields == {"pix_key": "Chave PIX inválida."}
