@@ -9,11 +9,17 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Description
@@ -21,9 +27,6 @@ import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,8 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.rentivo.designsystem.NoticeBanner
@@ -120,6 +125,46 @@ private fun NoticeOverlay(modifier: Modifier = Modifier) {
 }
 
 /**
+ * The floating tab bar: an inset, fully-rounded translucent capsule the content scrolls beneath,
+ * mirroring the iOS 26 floating `TabView` bar. There is deliberately no Material indicator pill —
+ * iOS marks the selected item with the emerald tint alone.
+ */
+@Composable
+private fun FloatingTabBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .navigationBarsPadding()
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium)
+      .clip(CircleShape)
+      .background(RentivoColors.surface.copy(alpha = 0.94f))
+      .padding(horizontal = RentivoSpacing.small, vertical = RentivoSpacing.small),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    TabItems.forEach { item ->
+      val active = selected == item.tab
+      val tint = if (active) RentivoColors.emerald else RentivoColors.secondaryInk
+      Column(
+        modifier = Modifier
+          .weight(1f)
+          .clip(CircleShape)
+          .clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = { onSelect(item.tab) },
+          )
+          .padding(vertical = RentivoSpacing.tiny + 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        Icon(imageVector = item.icon, contentDescription = item.title, tint = tint)
+        Text(text = item.title, style = RentivoTypography.metadata, color = tint)
+      }
+    }
+  }
+}
+
+/**
  * The four-tab shell shown to an authenticated user, mirroring the iOS `TabView`. Each tab hosts one
  * feature composable, which owns its own navigation stack.
  *
@@ -146,25 +191,7 @@ fun AuthenticatedTabView() {
 
   Scaffold(
     containerColor = RentivoColors.paper,
-    bottomBar = {
-      NavigationBar(containerColor = RentivoColors.surface) {
-        TabItems.forEach { item ->
-          NavigationBarItem(
-            selected = app.selectedTab == item.tab,
-            onClick = { app.selectedTab = item.tab },
-            icon = { Icon(imageVector = item.icon, contentDescription = null) },
-            label = { Text(text = item.title) },
-            colors = NavigationBarItemDefaults.colors(
-              selectedIconColor = RentivoColors.emerald,
-              selectedTextColor = RentivoColors.emerald,
-              indicatorColor = RentivoColors.emeraldLight,
-              unselectedIconColor = RentivoColors.secondaryInk,
-              unselectedTextColor = RentivoColors.secondaryInk,
-            ),
-          )
-        }
-      }
-    },
+    bottomBar = { FloatingTabBar(selected = app.selectedTab, onSelect = { app.selectedTab = it }) },
   ) { padding ->
     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
       // Iterating the fixed `entries` order rather than visit order keeps every tab at the same

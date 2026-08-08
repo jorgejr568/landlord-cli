@@ -3,16 +3,21 @@ package app.rentivo.designsystem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.rentivo.R
 import java.util.Locale
 
 /**
@@ -36,6 +41,28 @@ object RentivoColors {
   val coral = Color(red = 0.681f, green = 0.254f, blue = 0.205f)
   val blue = Color(red = 0.16f, green = 0.395f, blue = 0.714f)
   val lilac = Color(red = 0.446f, green = 0.346f, blue = 0.655f)
+
+  /**
+   * The label color of a destructive row or button ("Excluir conta", "Sair"), i.e. Apple's
+   * `systemRed`. It is deliberately *not* [coral]: [coral] is the muted status hue used by
+   * `BillStatus.CANCELLED` badges, whereas a destructive action reads as the platform red.
+   */
+  val destructiveText = Color(0xFFFF3B30)
+
+  /**
+   * A neutral, slightly recessed fill: [ink] at 10% composited over [surface]. Used for disabled
+   * control fills, where the iOS affordance is a gray plate rather than a washed-out accent.
+   */
+  val disabledFill = ink.copy(alpha = 0.10f).compositeOver(surface)
+
+  /**
+   * The track a segmented control sits in: [ink] at 7% over [paper], i.e. "paper, darkened
+   * slightly", matching `UISegmentedControl`'s recessed groove.
+   */
+  val segmentedTrack = ink.copy(alpha = 0.07f).compositeOver(paper)
+
+  /** The hairline between rows of an inset-grouped list. iOS draws a 1px separator at ~12% ink. */
+  val separator = ink.copy(alpha = 0.12f)
 }
 
 /** Layout rhythm. The Swift tokens are `CGFloat` points; the Android equivalents are `Dp`. */
@@ -49,39 +76,59 @@ object RentivoSpacing {
 }
 
 /**
+ * Nunito, the Android stand-in for iOS's SF Rounded (`design: .rounded`).
+ *
+ * SF Rounded is not licensable off-Apple-platforms, so the app bundles Nunito — an open, geometric
+ * sans with rounded terminals whose proportions and x-height track SF Rounded closely enough that
+ * the two apps read as one product. The four weights map onto the ones the type scale uses:
+ * regular (400) for body copy, semibold (600) for metadata, bold (700) for titles and black (900)
+ * for the display style.
+ *
+ * The TTFs in `res/font` are the Google Fonts releases of Nunito by Vernon Adams, Cyreal and Jacques
+ * Le Bailly, licensed under the SIL Open Font License 1.1. Coverage was verified to include the full
+ * PT-BR diacritic set, so accented copy never falls back to a different family mid-word.
+ */
+val RentivoFontFamily = FontFamily(
+  Font(R.font.nunito_regular, FontWeight.Normal),
+  Font(R.font.nunito_semibold, FontWeight.SemiBold),
+  Font(R.font.nunito_bold, FontWeight.Bold),
+  Font(R.font.nunito_black, FontWeight.Black),
+)
+
+/**
  * Text styles ported from the iOS `RentivoTypography` enum.
  *
- * iOS uses `design: .rounded` (SF Rounded), which has no Android counterpart, so the rounded,
- * friendly feel is approximated with the platform sans family at heavier weights. Only [money]
- * keeps a hard requirement: it must be monospaced so digits stay column-aligned across rows.
+ * iOS uses `design: .rounded` (SF Rounded); [RentivoFontFamily] is the bundled equivalent, so every
+ * style below is rounded except [money], which keeps a hard requirement: it must be monospaced so
+ * digits stay column-aligned across rows.
  *
  * Point sizes come from the iOS text styles at the default Dynamic Type size:
  * `largeTitle` 34, `title2` 22, `title3` 20, `headline` 17, `subheadline` 15, `caption` 12.
  */
 object RentivoTypography {
   val display = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Black,
     fontSize = 34.sp,
     lineHeight = 41.sp,
   )
 
   val title = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Bold,
     fontSize = 22.sp,
     lineHeight = 28.sp,
   )
 
   val cardTitle = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Bold,
     fontSize = 17.sp,
     lineHeight = 22.sp,
   )
 
   val metadata = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.SemiBold,
     fontSize = 12.sp,
     lineHeight = 16.sp,
@@ -96,7 +143,7 @@ object RentivoTypography {
 
   /** iOS `body`. Default copy inside cards. */
   val body = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 17.sp,
     lineHeight = 22.sp,
@@ -104,7 +151,7 @@ object RentivoTypography {
 
   /** iOS `subheadline`. Secondary copy, banner messages, list detail lines. */
   val subheadline = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 15.sp,
     lineHeight = 20.sp,
@@ -115,7 +162,7 @@ object RentivoTypography {
 
   /** iOS `caption`, unemphasized. */
   val caption = TextStyle(
-    fontFamily = FontFamily.Default,
+    fontFamily = RentivoFontFamily,
     fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
     lineHeight = 16.sp,
@@ -147,26 +194,83 @@ object RentivoTypography {
 /**
  * Light-only scheme. There is deliberately no dark variant: the palette above is a fixed
  * neo-brutalist set and the iOS app it mirrors renders in light appearance only.
+ *
+ * Every neutral and container slot is pinned, not just the ones Rentivo-authored UI reads.
+ * `lightColorScheme()` fills anything left unset from Material's *baseline* palette, which is a
+ * violet-tinted tonal ramp — and stock components reach for exactly those leftovers: `Switch` takes
+ * its unchecked track from `surfaceContainerHighest`, `SegmentedButton` its active container from
+ * `secondaryContainer`, `Snackbar` its plate from `inverseSurface`. Leaving them at the default is
+ * what put lavender into an otherwise cream app, so the neutrals map onto the paper/surface pair and
+ * the containers onto Rentivo accents.
  */
 private val RentivoLightColorScheme = lightColorScheme(
   primary = RentivoColors.emerald,
   onPrimary = Color.White,
   primaryContainer = RentivoColors.emeraldLight,
   onPrimaryContainer = RentivoColors.ink,
+  inversePrimary = RentivoColors.emeraldLight,
   secondary = RentivoColors.blue,
   onSecondary = Color.White,
+  secondaryContainer = RentivoColors.emeraldLight,
+  onSecondaryContainer = RentivoColors.ink,
   tertiary = RentivoColors.lilac,
   onTertiary = Color.White,
+  tertiaryContainer = RentivoColors.paper,
+  onTertiaryContainer = RentivoColors.ink,
   background = RentivoColors.paper,
   onBackground = RentivoColors.ink,
   surface = RentivoColors.surface,
   onSurface = RentivoColors.ink,
   surfaceVariant = RentivoColors.paper,
   onSurfaceVariant = RentivoColors.secondaryInk,
+  surfaceTint = RentivoColors.emerald,
+  inverseSurface = RentivoColors.ink,
+  inverseOnSurface = RentivoColors.surface,
   error = RentivoColors.coral,
   onError = Color.White,
+  errorContainer = RentivoColors.coral.copy(alpha = 0.14f).compositeOver(RentivoColors.surface),
+  onErrorContainer = RentivoColors.coral,
   outline = RentivoColors.ink,
   outlineVariant = RentivoColors.secondaryInk,
+  scrim = RentivoColors.ink,
+  surfaceBright = RentivoColors.surface,
+  surfaceDim = RentivoColors.segmentedTrack,
+  surfaceContainerLowest = Color.White,
+  surfaceContainerLow = RentivoColors.surface,
+  surfaceContainer = RentivoColors.surface,
+  surfaceContainerHigh = RentivoColors.paper,
+  surfaceContainerHighest = RentivoColors.paper,
+)
+
+/**
+ * Switch colors matching the iOS `Toggle`: a white thumb on a hairline-outlined paper track when
+ * off, and a filled emerald track when on.
+ *
+ * Stock `SwitchDefaults.colors()` would take the unchecked track from `surfaceContainerHighest` and
+ * its border from `outline`; the scheme above already neutralizes those, but a `Switch` also picks
+ * up `onSurfaceVariant` for the unchecked thumb, which renders it gray rather than white. Passing
+ * the whole set explicitly is the only way to get the iOS look, so screens should hand this to
+ * every `Switch` rather than relying on the defaults.
+ */
+@Composable
+fun rentivoSwitchColors(): SwitchColors = SwitchDefaults.colors(
+  checkedThumbColor = Color.White,
+  checkedTrackColor = RentivoColors.emerald,
+  checkedBorderColor = RentivoColors.emerald,
+  checkedIconColor = RentivoColors.emerald,
+  uncheckedThumbColor = Color.White,
+  uncheckedTrackColor = RentivoColors.paper,
+  uncheckedBorderColor = RentivoColors.secondaryInk,
+  uncheckedIconColor = RentivoColors.paper,
+  disabledCheckedThumbColor = Color.White,
+  disabledCheckedTrackColor = RentivoColors.emerald.copy(alpha = 0.45f)
+    .compositeOver(RentivoColors.surface),
+  disabledCheckedBorderColor = Color.Transparent,
+  disabledCheckedIconColor = RentivoColors.emerald,
+  disabledUncheckedThumbColor = Color.White,
+  disabledUncheckedTrackColor = RentivoColors.disabledFill,
+  disabledUncheckedBorderColor = RentivoColors.secondaryInk.copy(alpha = 0.45f),
+  disabledUncheckedIconColor = RentivoColors.disabledFill,
 )
 
 @Composable

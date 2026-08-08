@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import androidx.activity.viewModels
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.ViewModel
@@ -45,6 +46,10 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    // The app renders light-only, so the status bar must always use dark icons — without this the
+    // default (light icons) is invisible against the cream background.
+    WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
 
     // Publish this instance's launcher before anything can reach the authenticator, which resolves
     // it through the holder on every call rather than capturing one activity forever.
