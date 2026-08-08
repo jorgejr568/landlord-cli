@@ -42,7 +42,9 @@ CREATE TABLE jobs (
     failed_at DATETIME
 )"""
 
-# Matches Alembic head: a7b8c9d0e1f2 (replace UUID4 with ULID)
+# Mirrors the schema produced by the whole Alembic chain (head at the time of
+# writing: 69034275ea88, add jobs retention index). Keep it in step with every
+# new revision that changes a table these tests touch.
 SCHEMA_DDL = (
     """
 CREATE TABLE billings (

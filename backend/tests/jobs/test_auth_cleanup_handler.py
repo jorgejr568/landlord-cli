@@ -166,21 +166,61 @@ def test_cleanup_is_idempotent_when_retried(
     assert second == {"login_tokens_deleted": 0, "challenges_deleted": 0, "jobs_deleted": 0}
 
 
-def test_cleanup_honors_the_batch_limit_for_each_table(
+def test_cleanup_drains_several_login_token_batches_in_a_single_run(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for row_id in range(1, 6):
+        _seed_api_key(cleanup_engine, row_id, is_login_token=True, expires_at=NOW)
+    _seed_api_key(cleanup_engine, 6, is_login_token=True, expires_at=NOW + timedelta(minutes=1))
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
+
+    result = _cleanup({"now": NOW.isoformat()})
+
+    assert result["login_tokens_deleted"] == 5
+    assert _remaining_ids(cleanup_engine, "api_keys") == [6]
+
+
+def test_cleanup_drains_several_challenge_batches_in_a_single_run(
+    cleanup_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for row_id in range(1, 6):
+        _seed_challenge(cleanup_engine, row_id, expires_at=NOW)
+    _seed_challenge(cleanup_engine, 6, expires_at=NOW + timedelta(minutes=1))
+    monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
+
+    result = _cleanup({"now": NOW.isoformat()})
+
+    assert result["challenges_deleted"] == 5
+    assert _remaining_ids(cleanup_engine, "auth_challenges") == [6]
+
+
+def test_cleanup_applies_the_purge_cap_to_each_table_independently(
     cleanup_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for row_id in range(1, 4):
         _seed_api_key(cleanup_engine, row_id, is_login_token=True, expires_at=NOW)
         _seed_challenge(cleanup_engine, row_id, expires_at=NOW)
+    old = NOW - timedelta(days=365)
+    for n in range(3):
+        _seed_job(cleanup_engine, f"OLD{n}", status="succeeded", updated_at=old)
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
+    monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
     monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_MAX_PURGED_ROWS", 2, raising=False)
 
     result = _cleanup({"now": NOW.isoformat()})
 
-    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 2, "jobs_deleted": 0}
+    # The cap is a per-table budget, so a backlog in one table cannot starve
+    # the others: each stops at 2 and leaves its last row for the next run.
+    assert result == {"login_tokens_deleted": 2, "challenges_deleted": 2, "jobs_deleted": 2}
     assert _remaining_ids(cleanup_engine, "api_keys") == [3]
     assert _remaining_ids(cleanup_engine, "auth_challenges") == [3]
+    assert _remaining_job_ulids(cleanup_engine) == ["OLD2"]
 
 
 def test_cleanup_uses_current_utc_time_when_payload_omits_now(
@@ -305,7 +345,7 @@ def test_cleanup_stops_at_the_purge_cap_and_resumes_on_the_next_run(
     monkeypatch.setattr(auth_cleanup, "get_engine", lambda: cleanup_engine, raising=False)
     monkeypatch.setattr(auth_cleanup.settings, "job_retention_days", 30)
     monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_BATCH_SIZE", 2, raising=False)
-    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_MAX_PURGED_JOBS", 4, raising=False)
+    monkeypatch.setattr(auth_cleanup, "AUTH_CLEANUP_MAX_PURGED_ROWS", 4, raising=False)
     old = datetime(2026, 1, 1, tzinfo=UTC)
     for n in range(6):
         _seed_job(cleanup_engine, f"OLD{n}", status="succeeded", updated_at=old)
