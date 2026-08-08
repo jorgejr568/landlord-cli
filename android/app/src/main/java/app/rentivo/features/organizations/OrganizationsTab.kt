@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.rentivoPage
 import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.ThemeTarget

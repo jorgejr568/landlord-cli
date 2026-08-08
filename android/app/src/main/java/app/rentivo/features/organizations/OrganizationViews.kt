@@ -83,6 +83,7 @@ import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
+import app.rentivo.designsystem.OpaqueOverlay
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.SectionTitle
 import app.rentivo.designsystem.ptBRCount
@@ -1021,28 +1022,6 @@ private fun BillingSection(
         }
       }
     }
-  }
-}
-
-/**
- * A full-bleed, opaque layer above the tab content — the Compose stand-in for both a SwiftUI
- * `.sheet` and a `NavigationStack` push.
- *
- * The empty click listener is load-bearing: a `Box` that only paints a background does not consume
- * pointer events, so taps would otherwise reach the list rendered underneath.
- */
-@Composable
-internal fun OpaqueOverlay(content: @Composable () -> Unit) {
-  Box(
-    modifier = Modifier
-      .rentivoPage()
-      .clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = null,
-        onClick = {},
-      ),
-  ) {
-    content()
   }
 }
 
