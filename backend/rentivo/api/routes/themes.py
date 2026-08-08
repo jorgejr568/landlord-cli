@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, Path, Response
 
+from rentivo.api.analytics import set_analytics
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_resource_grant, require_scope
 from rentivo.api.domain_access import require_role, resolve_billing_access, resolve_organization_access
@@ -27,8 +28,6 @@ router = APIRouter(prefix="/themes", tags=["themes"])
 _read_principal = require_scope(APIScope.THEMES_READ)
 _write_principal = require_scope(APIScope.THEMES_WRITE)
 _THEME_ADMIN_ROLES = frozenset({"owner", "admin"})
-_ANALYTICS_EVENT_HEADER = "X-Rentivo-Analytics-Event"
-_ANALYTICS_SCOPE_HEADER = "X-Rentivo-Analytics-Scope"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +79,7 @@ def _can_edit(principal: Principal) -> bool:
 
 
 def _set_theme_analytics(response: Response, scope: str) -> None:
-    response.headers[_ANALYTICS_EVENT_HEADER] = "rentivo_theme_changed"
-    response.headers[_ANALYTICS_SCOPE_HEADER] = scope
+    set_analytics(response, "rentivo_theme_changed", scope=scope)
 
 
 def _persisted_id(entity_id: int | None) -> int:

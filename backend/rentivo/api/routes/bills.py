@@ -630,7 +630,7 @@ async def update_bill(
         "rentivo_bill_edited",
         bill_uuid_hash=analytics_hash(updated.uuid) or "",
     )
-    return _bill_detail_response(access.with_bill(updated), services)
+    return _bill_detail_response(access.for_bill(updated), services)
 
 
 @router.delete(
@@ -717,7 +717,7 @@ async def transition_bill(
         bill_uuid_hash=analytics_hash(updated.uuid) or "",
         new_status=updated.status,
     )
-    return _bill_detail_response(access.with_bill(updated), services)
+    return _bill_detail_response(access.for_bill(updated), services)
 
 
 @router.post(

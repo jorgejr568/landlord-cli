@@ -17,11 +17,12 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
+from rentivo.api.analytics import analytics_headers
 from rentivo.api.authentication import allow_mfa_setup, reject_out_of_band_credentials
 from rentivo.api.cookies import clear_auth_cookies, client_ip, delete_challenge_cookie, set_challenge_cookie
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_login_scope
-from rentivo.api.errors import ProblemException, problem
+from rentivo.api.errors import ProblemException
 from rentivo.api.principal import Principal
 from rentivo.api.schemas.security import (
     AccountDeleteRequest,
@@ -95,22 +96,6 @@ def _webauthn_user_handle(user_id: int) -> bytes:
     ).digest()
 
 
-def _validation_problem(*, code: str, detail: str, field: str) -> ProblemException:
-    return ProblemException(
-        problem(
-            status=422,
-            code=code,
-            title="Dados inválidos",
-            detail=detail,
-            fields={field: detail},
-        )
-    )
-
-
-def _conflict(code: str, detail: str) -> ProblemException:
-    return ProblemException(problem(status=409, code=code, title="Conflito", detail=detail))
-
-
 def _send_mfa_changed_email(
     request: Request,
     principal: Principal,
@@ -179,7 +164,7 @@ async def update_pix(
         )
     except ValueError as exc:
         detail = str(exc)
-        raise _validation_problem(code="invalid_pix_key", detail=detail, field="pix_key") from None
+        raise ProblemException.invalid_field("invalid_pix_key", detail, "pix_key") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.USER_UPDATE,
@@ -200,11 +185,7 @@ async def change_password(
     services: RequestServices = Depends(get_services),
 ) -> Response:
     if payload.new_password != payload.confirm_password:
-        raise _validation_problem(
-            code="validation_error",
-            detail="As senhas não coincidem.",
-            field="confirm_password",
-        )
+        raise ProblemException.invalid_field("validation_error", "As senhas não coincidem.", "confirm_password")
     if not services.login.change_password(
         principal=principal,
         current_password=payload.current_password,
@@ -235,7 +216,7 @@ async def change_password(
         )
     except Exception:
         logger.exception("password_changed_dispatch_failed", user_id=principal.user.id)
-    return Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_password_changed"})
+    return Response(status_code=204, headers=analytics_headers("rentivo_password_changed"))
 
 
 @router.post("/totp/setup", response_model=TOTPSetupResponse)
@@ -251,7 +232,7 @@ async def setup_totp(
             principal.user.email,
         )
     except ValueError as exc:
-        raise _conflict("totp_already_enabled", str(exc)) from None
+        raise ProblemException.conflict("totp_already_enabled", str(exc)) from None
     payload = TOTPSetupResponse(
         secret=totp.secret,
         provisioning_uri=provisioning_uri,
@@ -287,11 +268,7 @@ async def confirm_totp(
     response_payload = RecoveryCodesResponse(recovery_codes=tuple(recovery_codes))
     return JSONResponse(
         response_payload.model_dump(mode="json"),
-        headers={
-            "Cache-Control": "no-store",
-            "X-Rentivo-Analytics-Event": "rentivo_mfa_enabled",
-            "X-Rentivo-Analytics-Method": "totp",
-        },
+        headers={"Cache-Control": "no-store", **analytics_headers("rentivo_mfa_enabled", method="totp")},
     )
 
 
@@ -308,12 +285,12 @@ async def disable_totp(
     try:
         services.mfa.disable_totp(principal.user.id)
     except LastMFAFactorError:
-        raise _conflict(
+        raise ProblemException.conflict(
             "mfa_required_by_organization",
             "Você não pode desativar MFA enquanto pertence a uma organização que exige MFA.",
         ) from None
     except ValueError:
-        raise _conflict("totp_not_enabled", "TOTP não está ativado.") from None
+        raise ProblemException.conflict("totp_not_enabled", "TOTP não está ativado.") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.MFA_TOTP_DISABLED,
@@ -321,7 +298,7 @@ async def disable_totp(
         entity_id=principal.user.id,
     )
     _send_mfa_changed_email(request, principal, services, "totp_disabled")
-    response = Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_mfa_disabled"})
+    response = Response(status_code=204, headers=analytics_headers("rentivo_mfa_disabled"))
     clear_auth_cookies(response, include_challenge=True)
     return response
 
@@ -338,7 +315,7 @@ async def delete_account(
     try:
         services.account_deletion.delete_account(principal.user.id)
     except SoleOrganizationAdminError as exc:
-        raise _conflict("organization_admin_transfer_required", str(exc)) from None
+        raise ProblemException.conflict("organization_admin_transfer_required", str(exc)) from None
     # The wipe is irreversible and now committed: record the audit trail before
     # attempting the (best-effort) notification so a failed email dispatch can
     # never leave the deletion unaudited.
@@ -364,10 +341,7 @@ async def delete_account(
         )
     except Exception:
         logger.exception("account_deleted_dispatch_failed", user_id=principal.user.id)
-    response = Response(
-        status_code=204,
-        headers={"X-Rentivo-Analytics-Event": "rentivo_account_deleted"},
-    )
+    response = Response(status_code=204, headers=analytics_headers("rentivo_account_deleted"))
     clear_auth_cookies(response, include_challenge=True)
     return response
 
@@ -381,7 +355,7 @@ async def regenerate_recovery_codes(
     try:
         recovery_codes = services.mfa.regenerate_recovery_codes(principal.user.id)
     except ValueError:
-        raise _conflict("totp_required", "TOTP não está ativado.") from None
+        raise ProblemException.conflict("totp_required", "TOTP não está ativado.") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.MFA_RECOVERY_REGENERATED,
@@ -391,10 +365,7 @@ async def regenerate_recovery_codes(
     payload = RecoveryCodesResponse(recovery_codes=tuple(recovery_codes))
     return JSONResponse(
         payload.model_dump(mode="json"),
-        headers={
-            "Cache-Control": "no-store",
-            "X-Rentivo-Analytics-Event": "rentivo_recovery_codes_regenerated",
-        },
+        headers={"Cache-Control": "no-store", **analytics_headers("rentivo_recovery_codes_regenerated")},
     )
 
 
@@ -516,10 +487,7 @@ async def complete_passkey_registration(
     response_payload = _passkey(passkey)
     response = JSONResponse(
         response_payload.model_dump(mode="json"),
-        headers={
-            "Cache-Control": "no-store",
-            "X-Rentivo-Analytics-Event": "rentivo_passkey_added",
-        },
+        headers={"Cache-Control": "no-store", **analytics_headers("rentivo_passkey_added")},
     )
     delete_challenge_cookie(response)
     return response
@@ -536,7 +504,7 @@ async def delete_passkey(
     try:
         services.mfa.delete_passkey(passkey_uuid, principal.user.id)
     except LastMFAFactorError:
-        raise _conflict(
+        raise ProblemException.conflict(
             "mfa_required_by_organization",
             "Você não pode remover o último fator de MFA exigido pela organização.",
         ) from None
@@ -550,6 +518,6 @@ async def delete_passkey(
         metadata={"passkey_uuid": passkey_uuid},
     )
     _send_mfa_changed_email(request, principal, services, "passkey_deleted")
-    response = Response(status_code=204, headers={"X-Rentivo-Analytics-Event": "rentivo_passkey_removed"})
+    response = Response(status_code=204, headers=analytics_headers("rentivo_passkey_removed"))
     clear_auth_cookies(response, include_challenge=True)
     return response

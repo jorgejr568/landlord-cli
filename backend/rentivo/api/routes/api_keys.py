@@ -84,14 +84,7 @@ def _audit_state(key: APIKey) -> dict[str, object]:
 
 
 def _validation_error() -> ProblemException:
-    return ProblemException(
-        problem(
-            status=422,
-            code="validation_error",
-            title="Dados inválidos",
-            detail="Os dados da chave de integração são inválidos.",
-        )
-    )
+    return ProblemException.invalid("validation_error", "Os dados da chave de integração são inválidos.")
 
 
 def _creation_rate_limited() -> ProblemException:

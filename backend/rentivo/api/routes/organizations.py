@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path, Response
 
+from rentivo.api.analytics import set_analytics
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_login_scope, require_resource_grant, require_scope
 from rentivo.api.domain_access import OrganizationAccess, require_role, resolve_organization_access
-from rentivo.api.errors import Problem, ProblemException, problem
+from rentivo.api.errors import Problem, ProblemException
 from rentivo.api.principal import Principal
 from rentivo.api.schemas.billings import BillingStatsResponse
 from rentivo.api.schemas.organizations import (
@@ -41,29 +42,6 @@ _write_principal = require_login_scope(APIScope.ORGANIZATIONS_WRITE)
 _members_principal = require_login_scope(APIScope.ORGANIZATIONS_MEMBERS)
 _ADMIN_ROLES = frozenset({OrgRole.ADMIN.value})
 _BILLING_ROLES = frozenset({OrgRole.ADMIN.value, OrgRole.MANAGER.value})
-_ANALYTICS_HEADER = "X-Rentivo-Analytics-Event"
-
-
-def _conflict(code: str, detail: str) -> ProblemException:
-    return ProblemException(
-        problem(
-            status=409,
-            code=code,
-            title="Conflito",
-            detail=detail,
-        )
-    )
-
-
-def _validation_error() -> ProblemException:
-    return ProblemException(
-        problem(
-            status=422,
-            code="validation_error",
-            title="Dados inválidos",
-            detail="As configurações da organização são inválidas.",
-        )
-    )
 
 
 def _capabilities(principal: Principal, role: str) -> OrganizationCapabilitiesResponse:
@@ -236,7 +214,7 @@ async def create_organization(
         new_state=serialize_organization(organization),
     )
     member = services.organization.get_member(organization.id, principal.user.id)
-    response.headers[_ANALYTICS_HEADER] = "rentivo_organization_created"
+    set_analytics(response, "rentivo_organization_created")
     return _organization_response(organization, member, principal)
 
 
@@ -274,7 +252,7 @@ async def update_organization(
     try:
         updated = services.organization.update_organization(organization)
     except ValueError:
-        raise _validation_error() from None
+        raise ProblemException.invalid("validation_error", "As configurações da organização são inválidas.") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ORGANIZATION_UPDATE,
@@ -331,7 +309,7 @@ async def update_member_role(
     access = _admin_access(principal, services, organization_uuid)
     member = services.organization.get_member(access.organization.id, user_id)
     if member is None:
-        raise _conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
+        raise ProblemException.conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
     old_role = member.role
     services.organization.update_member_role(access.organization.id, user_id, payload.role)
     updated_member = member.model_copy(update={"role": payload.role})
@@ -378,17 +356,17 @@ async def remove_member(
 ) -> Response:
     access = _admin_access(principal, services, organization_uuid)
     if user_id == principal.user.id:
-        raise _conflict("membership_conflict", "Você não pode remover a si mesmo.")
+        raise ProblemException.conflict("membership_conflict", "Você não pode remover a si mesmo.")
     member = services.organization.get_member(access.organization.id, user_id)
     if member is None:
-        raise _conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
+        raise ProblemException.conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
     removed = services.organization.remove_member(
         access.organization.id,
         user_id,
         expected_role=member.role,
     )
     if not removed:
-        raise _conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
+        raise ProblemException.conflict("membership_conflict", "A associação do membro foi alterada ou removida.")
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ORGANIZATION_REMOVE_MEMBER,
@@ -427,7 +405,7 @@ async def create_invite(
             principal.user.id,
         )
     except ValueError:
-        raise _conflict("invite_conflict", "Não foi possível criar este convite.") from None
+        raise ProblemException.conflict("invite_conflict", "Não foi possível criar este convite.") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.INVITE_SEND,
@@ -450,7 +428,7 @@ async def create_invite(
             },
         },
     )
-    response.headers[_ANALYTICS_HEADER] = "rentivo_invite_sent"
+    set_analytics(response, "rentivo_invite_sent")
     return _invite_response(invite)
 
 
@@ -512,7 +490,7 @@ async def transfer_billing(
             expected_owner_id=principal.user.id,
         )
     except ValueError:
-        raise _conflict(
+        raise ProblemException.conflict(
             "billing_transfer_conflict",
             "A cobrança não pode mais ser transferida para esta organização.",
         ) from None

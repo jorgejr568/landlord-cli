@@ -201,7 +201,7 @@ def test_bill_access_derivations_keep_the_billing_role_and_principal() -> None:
     second = Bill(id=14, uuid="other-uuid", billing_id=9, reference_month="2026-08")
 
     bill_access = billing_access.for_bill(first)
-    replaced = bill_access.with_bill(second)
+    replaced = bill_access.for_bill(second)
 
     assert bill_access.bill is first
     assert replaced.bill is second

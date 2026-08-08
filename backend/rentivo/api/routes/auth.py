@@ -7,6 +7,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from rentivo.api.analytics import analytics_headers, set_analytics
 from rentivo.api.authentication import (
     allow_mfa_setup,
     reject_out_of_band_credentials,
@@ -42,8 +43,6 @@ from rentivo.services.user_service import UserAlreadyRegisteredError
 from rentivo.settings import settings
 
 logger = structlog.get_logger(__name__)
-ANALYTICS_EVENT_HEADER = "X-Rentivo-Analytics-Event"
-_ANALYTICS_REASON_HEADER = "X-Rentivo-Analytics-Reason"
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
@@ -96,13 +95,7 @@ def _login_failure_problem(*, rate_limited: bool) -> ProblemException:
             detail="E-mail ou senha inválidos.",
         )
         reason = "bad_credentials"
-    return ProblemException(
-        value,
-        headers={
-            ANALYTICS_EVENT_HEADER: "rentivo_login_failed",
-            _ANALYTICS_REASON_HEADER: reason,
-        },
-    )
+    return ProblemException(value, headers=analytics_headers("rentivo_login_failed", reason=reason))
 
 
 @router.post("/signup", response_model=AuthenticatedResponse)
@@ -259,7 +252,7 @@ async def logout(
         entity_id=principal.user.id,
     )
     response = Response(status_code=204)
-    response.headers[ANALYTICS_EVENT_HEADER] = "rentivo_logout"
+    set_analytics(response, "rentivo_logout")
     clear_auth_cookies(response, include_challenge=False)
     return response
 
@@ -346,7 +339,7 @@ async def password_reset(
         entity_id=user_id,
     )
     response = Response(status_code=204)
-    response.headers[ANALYTICS_EVENT_HEADER] = "rentivo_password_reset_completed"
+    set_analytics(response, "rentivo_password_reset_completed")
     clear_auth_cookies(response, include_challenge=True)
     return response
 

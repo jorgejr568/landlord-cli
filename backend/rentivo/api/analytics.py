@@ -13,8 +13,15 @@ ANALYTICS_HEADER_PREFIX = "X-Rentivo-Analytics"
 ANALYTICS_EVENT_HEADER = f"{ANALYTICS_HEADER_PREFIX}-Event"
 
 
-def set_analytics(response: Response, event: str, **metadata: str | int) -> None:
-    response.headers[ANALYTICS_EVENT_HEADER] = event
+def analytics_headers(event: str, **metadata: str | int) -> dict[str, str]:
+    """Header mapping for an event, for responses built from a header dict."""
+    headers = {ANALYTICS_EVENT_HEADER: event}
     for name, value in metadata.items():
         header = "-".join(part.title() for part in name.split("_"))
-        response.headers[f"{ANALYTICS_HEADER_PREFIX}-{header}"] = str(value)
+        headers[f"{ANALYTICS_HEADER_PREFIX}-{header}"] = str(value)
+    return headers
+
+
+def set_analytics(response: Response, event: str, **metadata: str | int) -> None:
+    """Tag an already-built response with an event."""
+    response.headers.update(analytics_headers(event, **metadata))

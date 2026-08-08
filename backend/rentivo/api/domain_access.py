@@ -44,7 +44,7 @@ class BillAccess:
     def allows(self, scope: APIScope, *, roles: Collection[str] = ()) -> bool:
         return _allows(self.principal, self.role, scope, roles)
 
-    def with_bill(self, bill: Bill) -> "BillAccess":
+    def for_bill(self, bill: Bill) -> "BillAccess":
         return BillAccess(bill=bill, billing=self.billing, role=self.role, principal=self.principal)
 
 

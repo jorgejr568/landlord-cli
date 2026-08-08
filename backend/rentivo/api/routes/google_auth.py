@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from rentivo.api.analytics import set_analytics
 from rentivo.api.authentication import reject_out_of_band_credentials
 from rentivo.api.cookies import (
     client_ip,
@@ -12,7 +13,6 @@ from rentivo.api.cookies import (
 )
 from rentivo.api.dependencies import get_services
 from rentivo.api.errors import Problem, ProblemException, problem, problem_response
-from rentivo.api.routes.auth import ANALYTICS_EVENT_HEADER
 from rentivo.api.schemas.auth import AuthenticatedResponse, MFARequiredResponse
 from rentivo.api.session_response import login_response, mfa_response
 from rentivo.services.container import RequestServices
@@ -131,6 +131,6 @@ async def google_callback(
             delete_challenge_cookie(response)
             analytics_event = result.analytics_event or {}
             if event_name := analytics_event.get("event"):
-                response.headers[ANALYTICS_EVENT_HEADER] = str(event_name)
+                set_analytics(response, str(event_name))
     response.headers["Cache-Control"] = "no-store"
     return response
