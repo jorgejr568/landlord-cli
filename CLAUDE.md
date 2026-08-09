@@ -54,11 +54,13 @@ Always run Python tools through `uv run --project backend ...`; do not use bare
   packaged as the `RentivoCore` Swift package defined by `ios/Package.swift`
   (Swift tools 6.0, macOS 14 / iOS 17 minimums) and covered by
   `swift test --package-path ios`, which requires a full Xcode toolchain
-  (Swift Testing is unavailable in CommandLineTools alone).
+  (Swift Testing is unavailable in CommandLineTools alone). See
+  `docs/mobile.md`.
 - `android/` is the Kotlin and Jetpack Compose application under the
   `app.rentivo` package. Its domain and data layers are pure JVM code covered
-  by `make android-test`, which needs a JDK 21 toolchain and the Android SDK
-  but no emulator.
+  by `make android-test`, which needs the Android SDK but no emulator. The
+  build declares no JDK toolchain pin; CI runs on JDK 21 (Temurin), so use the
+  same to stay aligned. See `docs/mobile.md`.
 
 The browser talks only to the FastAPI contract. When an API schema changes,
 update the committed OpenAPI snapshot and generated TypeScript client with the

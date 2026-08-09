@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jorgejr568/rentivo/actions/workflows/test-pr.yaml"><img src="https://github.com/jorgejr568/rentivo/actions/workflows/test-pr.yaml/badge.svg" alt="Complete Release Gate"></a>
+  <a href="https://github.com/jorgejr568/rentivo/actions/workflows/deploy.yml"><img src="https://github.com/jorgejr568/rentivo/actions/workflows/deploy.yml/badge.svg" alt="deploy"></a>
   <a href="https://codecov.io/gh/jorgejr568/rentivo"><img src="https://codecov.io/gh/jorgejr568/rentivo/branch/main/graph/badge.svg" alt="codecov"></a>
   <a href="https://github.com/jorgejr568/rentivo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="GPL-3.0"></a>
 </p>
@@ -97,9 +97,10 @@ triage.
 
 `android/` is a single-module Gradle project (`:app`, application ID
 `app.rentivo`) written in Kotlin with Jetpack Compose, targeting minSdk 26 and
-compile/target SDK 35. Gradle needs a JDK 21 toolchain and an Android SDK
-located through `android/local.properties` or `ANDROID_HOME`. Open `android/`
-in Android Studio to run it in an emulator.
+compile/target SDK 35. The build declares no JDK toolchain pin; CI runs on JDK
+21 (Temurin), so use the same to stay aligned. An Android SDK is located
+through `android/local.properties` or `ANDROID_HOME`. Open `android/` in
+Android Studio to run it in an emulator.
 
 ```bash
 make android-build           # ./gradlew assembleDebug
@@ -152,6 +153,8 @@ complete-gate-tested immutable SHA and image digests. Local `stack-build` and
 | `make scripts-test` | Run the standalone CI helper script tests |
 | `make openapi-export` / `openapi-generate` | Refresh API snapshot / generated types |
 | `make openapi-check` | Verify committed OpenAPI artifacts are current |
+| `make ios-test` | Run the `RentivoCore` Swift package suite (requires full Xcode) |
+| `make ios-openapi-sync` / `ios-openapi-check` | Refresh / verify the iOS contract copy |
 | `make android-build` / `android-test` | Assemble the debug APK / run JVM unit tests |
 | `make android-openapi-sync` / `android-openapi-check` | Refresh / verify the Android contract copy |
 | `make e2e` / `e2e-update` | Run Playwright / update reviewed baselines |
@@ -211,7 +214,7 @@ ios/
   Package.swift       RentivoCore Swift package manifest
   Rentivo/            SwiftUI app; RentivoCore package Domain/Data sources
   Rentivo.xcodeproj   Xcode app project
-  RentivoTests/       RentivoCore package tests
+  RentivoTests/       Shared tests: RentivoCore package suite and the Xcode-hosted target
   RentivoUITests/     Xcode UI tests
 android/
   app/src/main/java/app/rentivo/
