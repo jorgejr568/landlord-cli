@@ -6,7 +6,7 @@ and merging that change to `main`.
 
 ## How a release happens
 
-1. Open a PR that bumps `MARKETING_VERSION` (for example `1.0.1` -> `1.0.2`).
+1. Open a PR that bumps `MARKETING_VERSION` (for example `1.2` -> `1.3`).
    Leave `CURRENT_PROJECT_VERSION` alone — CI supplies the build number.
 2. The PR runs the normal release gate. The macOS `ios` job runs only when the
    PR touches `ios/`, `.github/actions/ios-unit-tests/`, `scripts/ios-ci.sh`,
@@ -60,11 +60,11 @@ no approval step between merging a version bump and the upload.
 `ios-release.yml` creates no tag and no GitHub Release — it has no
 `contents: write` on the `release` job and never calls `git tag` or
 `gh release`. Tagging is a manual step the operator does afterwards, and the
-convention in this repository is an annotated `ios/vX.Y` tag on the commit that
-bumped `MARKETING_VERSION` (`ios/v1.1` and `ios/v1.2` exist, subjects
-`Release iOS 1.1` and `Release iOS 1.2`). The `ios/` prefix keeps these off the
-`v*.*.*` pattern that triggers `.github/workflows/release.yml` for the backend
-stack — the two release trains share no version and no cadence.
+convention in this repository is an annotated `ios/v<MARKETING_VERSION>` tag on
+the commit that bumped `MARKETING_VERSION` (`ios/v1.1` and `ios/v1.2` exist,
+subjects `Release iOS 1.1` and `Release iOS 1.2`). The `ios/` prefix keeps these
+off the `v*.*.*` pattern that triggers `.github/workflows/release.yml` for the
+backend stack — the two release trains share no version and no cadence.
 
 Once the build reports `state=VALID`, tag the release commit and push it:
 

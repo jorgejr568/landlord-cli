@@ -54,7 +54,8 @@ Notes:
   whenever data practices change.
 - **Android:** `android/` is a 1:1 port of this app with the same two uploads
   (`ActivityResultContracts.OpenDocument()` in
-  `app/rentivo/features/bills/BillViews.kt` and `BillingOperationsViews.kt`,
+  `android/app/src/main/java/app/rentivo/features/bills/BillViews.kt` and
+  `android/app/src/main/java/app/rentivo/features/bills/BillingOperationsViews.kt`,
   hitting the same endpoints), so it will need an equivalent Google Play
   **Data Safety** declaration covering the same data — including the uploaded
   files — with the same no-tracking answer. Play uses its own taxonomy and asks

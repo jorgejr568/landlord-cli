@@ -11,12 +11,13 @@ A single authenticated read fans out into dozens of nested spans, e.g.:
 
 ```
 HTTP POST /api/v1/auth/login
-├─ user.authenticate
-│  ├─ user_repo.get_by_email → SELECT → encryption.decrypt_many (count=N)
-│  └─ auth.verify_password            (bcrypt compare)
-└─ login.complete
-   ├─ audit.safe_log_for → audit.log → audit_log_repo.create → INSERT
-   └─ known_device.notify_if_new → known_device_repo.upsert → UPDATE
+└─ login.password
+   ├─ user.authenticate
+   │  ├─ user_repo.get_by_email → SELECT → encryption.decrypt_many (count=N)
+   │  └─ auth.verify_password            (bcrypt compare)
+   └─ login.complete
+      ├─ audit.safe_log_for → audit.log → audit_log_repo.create → INSERT
+      └─ known_device.notify_if_new → known_device_repo.upsert → UPDATE
 ```
 
 ## Quick start
@@ -251,15 +252,12 @@ configure them in. At minimum, production dashboards and alerts must cover:
 | Dependencies | KMS, SES, S3, Redis, and OTLP error/latency rates |
 | Release | immutable SHA/image digests, migration revision, rollout timestamps |
 
-The production release baseline — again, thresholds to encode in the external
-monitoring system, not settings this repository reads — is: readiness must not
-fail twice or remain down for 60 seconds; sustained 5xx above 1% for five
-minutes or above 5% for one minute aborts rollout; p95 latency over twice
-baseline for five minutes aborts; and no `auth_cleanup_scheduled` log for longer
-than `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS`, stale running work, or queue age
-over five minutes requires maintenance and investigation. See the
-[production release runbook](runbooks/production-release.md) for the complete
-go/abort and recovery procedure.
+The go/abort baseline that a release is judged against — readiness, 5xx rate,
+p95 latency, and worker/queue signals — is defined once, in the
+[production release runbook](runbooks/production-release.md), together with the
+complete abort and recovery procedure; the numbers are deliberately not
+restated here. They are, like everything above, thresholds to encode in the
+external monitoring system, not settings this repository reads.
 
 Logs and traces must carry the release SHA or immutable image identity through
 deployment metadata. Use request IDs to correlate browser reports, Nginx access

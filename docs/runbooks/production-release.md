@@ -69,12 +69,15 @@ Complete every item before announcing the maintenance window:
    check) are both blockers in the `release-gate` job's `needs` list, but their
    filters — `scripts/ios-ci.sh paths-changed` and
    `scripts/android-ci.sh paths-changed` — are computed unconditionally, for
-   every event, against `github.event.before`. On a `deploy.yml` run that base
-   is the real previous tip of `main`, so a deployment whose commits touched
-   neither `ios/` nor `android/` (nor `frontend/openapi.json`, which the
-   Android filter also watches) will legitimately show both jobs skipped, and
-   `release-gate` counts a skip as passing. Confirm the skip matches the diff
-   rather than assuming it. On a `release.yml` tag run the base is unusable
+   every event. Their base is `github.event.pull_request.base.sha` on a
+   `pull_request` event and `github.event.before` otherwise, chosen by the
+   `BASE_SHA` expression on the `changes` job's filter step. On a `deploy.yml`
+   run that base is the real previous tip of `main`, so a deployment whose
+   commits touched neither `ios/` nor `android/` (nor `frontend/openapi.json`,
+   which the Android filter also watches) will legitimately show both jobs
+   skipped, and `release-gate` counts a skip as passing. Confirm the skip
+   matches the diff rather than assuming it. On a `release.yml` tag run the
+   base is unusable
    (all zeros for a new tag), and both helpers deliberately report `true` in
    that case, so both mobile jobs run in full on every tag.
 
@@ -252,10 +255,16 @@ proceeds unattended through four jobs and then stops:
    digests and runs `scripts/smoke-production-stack.sh` plus the
    `production-stack` Playwright project against it. Nothing is rebuilt.
 
-The fifth job, `deploy`, declares `environment: production`. The run pauses
-there awaiting that environment's approval, and approving it is the release
-commander's go decision. Only after approval does `deploy` resolve the expected
-Alembic revision with `alembic heads` and POST the deployment request.
+The fifth job, `deploy`, declares `environment: production`. Whether the run
+actually pauses there is a property of that environment's protection rules,
+which are configured in GitHub outside this repository rather than in the
+workflow file. With required reviewers on the `production` environment — the
+expected setup, and what makes the paragraph above true — the run waits there
+for approval, and giving that approval is the release commander's go decision.
+If the run does not pause, the environment is misconfigured and the go/no-go
+control is missing; fix that before relying on this path. Only after approval
+does `deploy` resolve the expected Alembic revision with `alembic heads` and
+POST the deployment request.
 
 The request must complete these ordered stages: `configuration`,
 `production_integrations`, `migration`, `rollout`, and `smoke`. Configuration
