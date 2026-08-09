@@ -108,8 +108,10 @@ Backend coverage is 100 percent and is configured in
 Temporal test server where required; migration and concurrency contracts run
 against MariaDB in CI. Frontend authored code also maintains 100 percent
 coverage. The iOS `RentivoCore` package suite (`make ios-test`) runs on
-`macos-15` CI runners with a full Xcode toolchain; it is not part of the
-SQLite/Temporal or Vitest suites and has no coverage gate configured yet.
+`macos-15` CI runners with a full Xcode toolchain, where CI also runs the
+Xcode-hosted `RentivoTests` target via `xcodebuild` (only `RentivoUITests` is
+excluded); it is not part of the SQLite/Temporal or Vitest suites and has no
+coverage gate configured yet.
 
 Before opening a PR, run the checks relevant to the change:
 
