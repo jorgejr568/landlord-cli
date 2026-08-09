@@ -6,7 +6,7 @@ and merging that change to `main`.
 
 ## How a release happens
 
-1. Open a PR that bumps `MARKETING_VERSION` (for example `1.0.1` -> `1.0.2`).
+1. Open a PR that bumps `MARKETING_VERSION` (for example `1.2` -> `1.3`).
    Leave `CURRENT_PROJECT_VERSION` alone — CI supplies the build number.
 2. The PR runs the normal release gate. The macOS `ios` job runs only when the
    PR touches `ios/`, `.github/actions/ios-unit-tests/`, `scripts/ios-ci.sh`,
@@ -18,7 +18,13 @@ and merging that change to `main`.
    `IOS_PATH_PATTERN` in `scripts/ios-ci.sh`, and it must name every input the
    job actually runs: the composite action holding its steps and the OpenAPI
    sync script are in there for exactly that reason, and
-   `backend/tests/test_preview_infrastructure.py` asserts they stay.
+   `scripts/tests/ios-ci-test.sh` asserts they stay — it constructs a repo with
+   only `.github/actions/ios-unit-tests/action.yml` or only
+   `scripts/sync-ios-openapi.sh` changed and requires `paths-changed` to answer
+   `true`. Those shell tests are not a backend suite: they run in the gate's
+   own `scripts` job (which is never path-filtered, precisely because it owns
+   the tests for the classifiers that gate everything else) and locally under
+   `make scripts-test`.
 3. Merging to `main` starts `.github/workflows/ios-release.yml`. Its `detect`
    job compares `MARKETING_VERSION` in `project.pbxproj` at the pushed commit
    against its value at `github.event.before` — the commit `main` pointed at
@@ -48,6 +54,30 @@ and merging that change to `main`.
 The upload is automatic and irreversible. A build number is consumed
 permanently and an uploaded build can only be expired, never deleted. There is
 no approval step between merging a version bump and the upload.
+
+## After the upload: tag the release commit
+
+`ios-release.yml` creates no tag and no GitHub Release — it has no
+`contents: write` on the `release` job and never calls `git tag` or
+`gh release`. Tagging is a manual step the operator does afterwards, and the
+convention in this repository is an annotated `ios/v<MARKETING_VERSION>` tag on
+the commit that bumped `MARKETING_VERSION` (`ios/v1.1` and `ios/v1.2` exist,
+subjects `Release iOS 1.1` and `Release iOS 1.2`). The `ios/` prefix keeps these
+off the `v*.*.*` pattern that triggers `.github/workflows/release.yml` for the
+backend stack — the two release trains share no version and no cadence.
+
+Once the build reports `state=VALID`, tag the release commit and push it:
+
+```bash
+git fetch origin main
+git tag -a ios/v<MARKETING_VERSION> <release-commit-sha> \
+  -m "Release iOS <MARKETING_VERSION>"
+git push origin ios/v<MARKETING_VERSION>
+```
+
+Tag the commit the workflow actually built — the one whose `project.pbxproj`
+carries the new `MARKETING_VERSION` — not whatever `main` has drifted to since.
+Pushing this tag starts nothing; it is a record.
 
 ## Triage: why a release didn't happen
 
@@ -142,13 +172,31 @@ account, and none is needed. The archive is produced with
 `method: app-store-connect` and `-allowProvisioningUpdates` uses Xcode
 cloud-managed distribution signing driven by the App Store Connect API key.
 
-Both macOS jobs select the newest **non-beta** `/Applications/Xcode_*.app` and
-fail if none exists. The runner images ship a beta alongside the release, and
-`Xcode_26.0_beta.app` sorts after `Xcode_16.4.app` under `sort -V`, so betas
-are excluded rather than ranked: App Store Connect rejects a binary built with
-a beta toolchain during processing — after the build number has already been
-consumed. The chosen toolchain is printed by `xcodebuild -version` into the job
-log and the evidence artifact.
+The two macOS jobs exclude betas the same way but rank the survivors
+differently, and the difference is deliberate.
+
+`release` picks strictly the newest non-beta toolchain: its "Select the newest
+non-beta installed Xcode" step is
+`ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -1`, and it
+fails outright if that yields nothing rather than falling back. The chosen
+toolchain is printed by `xcodebuild -version` into the job log and the evidence
+artifact.
+
+`verify` delegates its steps to `.github/actions/ios-unit-tests`, whose "Select
+an Xcode with an available iPhone simulator" step iterates the same non-beta
+list newest-first (`sort -Vr`) and takes the first candidate for which
+`xcrun simctl list devices available` actually reports an iPhone, with the
+image-default `/Applications/Xcode.app` appended as the last fallback. It has
+to: the runner images pre-install iOS simulator runtimes only for the image's
+default Xcode, so blindly selecting the newest one can leave `xcodebuild
+-showdestinations` with no iPhone destination and the unit tests unrunnable.
+
+Why they may legitimately disagree: only the `release` job's output reaches
+Apple. Betas are excluded from both because App Store Connect rejects a binary
+built with a beta toolchain during processing — after the build number has
+already been consumed. But beyond that, the binary must be built with the
+newest shipping toolchain, whereas the tests only need *a* working simulator,
+so `verify` is free to drop back to an older Xcode that has one.
 
 Archiving with signing enabled does **not** work on this account: automatic
 signing asks for an *iOS App Development* profile during an archive, and
@@ -262,16 +310,22 @@ ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> \
 with `uv run --with pyjwt` instead of `uv run --project backend`; adding
 `pyjwt` to the backend's locked dependencies for a release script would be
 worse. Its pure helpers (`normalize_builds`, `find_build`, `classify`,
-`next_page_path`, `is_transient_status`) and `command_wait`'s polling loop are
-unit-tested under the backend environment by
+`next_page_path`, `is_transient_status`, `is_pending_association_status`,
+`select_beta_group`) and the `command_wait` and `command_distribute` polling
+loops are unit-tested under the backend environment by
 `scripts/tests/test_asc_builds.py`, which the release-gate `scripts` job runs
 with `uv run --project backend --no-sync pytest
 scripts/tests/test_asc_builds.py -q`, and `make scripts-test` runs locally
 alongside the shell tests. `jwt` itself is imported lazily inside the script so
 those pure helpers stay importable without `pyjwt` installed.
 
-Besides `list`, the same script exposes `check` (used by the `preflight` job)
-and `wait` (used by `release` after upload, with `--timeout`/`--interval`).
+Besides `list`, the same script exposes three more subcommands: `check` (used
+by the `preflight` job), `wait` (used by `release` after upload, with
+`--timeout`/`--interval`), and `distribute` (used by `release` to attach the
+build to its TestFlight group — also `--timeout`/`--interval`, plus an optional
+`--group` that defaults to `None` so `select_beta_group` derives the app's
+single internal group). All four take `--bundle-id`; every one except `list`
+also requires `--version` and `--build`.
 
 ## What CI still does not do
 

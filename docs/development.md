@@ -9,6 +9,15 @@ MariaDB. Nginx is the single browser entrypoint in the default Compose topology.
 - Node.js 22+ and npm
 - Docker and Docker Compose
 
+Optional, and only needed for the mobile apps:
+
+- A full Xcode install for `make ios-test`. Swift Testing, used by the iOS
+  suite, is not available in Xcode Command Line Tools alone.
+- JDK 21 plus the Android SDK for the `android-*` targets. The build declares
+  no Gradle toolchain, so nothing pins the JDK — 21 is the version CI runs.
+  Gradle also needs an SDK location from `android/local.properties`
+  (gitignored) or `ANDROID_HOME`.
+
 ```bash
 git clone https://github.com/jorgejr568/rentivo.git
 cd rentivo
@@ -29,7 +38,12 @@ make compose-dev
 open http://localhost:8080
 ```
 
-Services are `db`, one-shot `migrate`, `api`, `worker`, `frontend`, and `proxy`.
+Services are `db`, one-shot `validate`, one-shot `migrate`, `api`, `worker`,
+`frontend`, and `proxy`. `validate` runs the production settings check and must
+exit successfully before `migrate` starts; `api` and `worker` start only after
+`migrate` completes. `jaeger`, `temporal`, and `temporal-ui` are also declared
+but sit behind the `observability` and `temporal` Compose profiles, so they stay
+down unless explicitly started (see [Optional profiles](#optional-profiles)).
 The proxy listens on `127.0.0.1:8080`; MariaDB listens on `127.0.0.1:3306`.
 The frontend and API are internal to Compose.
 
@@ -50,6 +64,9 @@ make compose-shell          # shell in the API container
 make compose-createuser     # create a login user
 make compose-dev-down       # stop the development stack
 ```
+
+`make compose-createuser` prompts for `Username:`, but the value it stores is
+the user's e-mail address — logins are by e-mail, so type one.
 
 All `compose-*` development helpers use this same `.env` plus `.env.db` contract
 and the development override. Override `RENTIVO_DEV_DB_ENV_FILE` or
@@ -87,7 +104,17 @@ make frontend-install        # npm ci from the lockfile
 make frontend-dev            # Vite development server
 make frontend-build          # typecheck and production bundle
 make frontend-test-cov       # Vitest with 100% coverage
+make frontend-check          # the aggregate frontend gate
 ```
+
+`make frontend-check` is the single command to run before a frontend PR: it
+chains coverage, `typecheck`, `typecheck:e2e`, `lint`, and `build`.
+
+`frontend/package.json` declares a `pretest` hook
+(`scripts/tests/smoke-production-stack-test.sh`) that npm runs before Vitest.
+A failure in that shell suite therefore aborts `npm test`, `make
+frontend-test-cov`, and `make frontend-check` before a single React test runs —
+read the first lines of the output rather than assuming a component broke.
 
 FastAPI owns the OpenAPI contract. Refresh both committed artifacts after an
 API route or schema change:
@@ -99,6 +126,10 @@ make openapi-check           # non-mutating CI freshness check
 ```
 
 Do not hand-edit generated OpenAPI types.
+
+`frontend/openapi.json` is the source of two further committed copies, one per
+mobile app. Refresh them in the same change with `make ios-openapi-sync` and
+`make android-openapi-sync`; see the iOS and Android sections below.
 
 ## iOS development
 
@@ -112,9 +143,11 @@ open ios/Rentivo.xcodeproj    # run the app in the simulator
 make ios-test                 # swift test --package-path ios
 ```
 
-CI runs `make ios-test`'s equivalent on `macos-15` runners; it currently
-covers only the `RentivoCore` package, not the `Rentivo` app or
-`RentivoUITests` targets via `xcodebuild`.
+`make ios-test` runs the package suite only, which covers the Domain and Data
+layers — `App`, `DesignSystem`, `Features`, and `Resources` are excluded from
+the package and are not exercised by it. CI runs the Xcode-hosted
+`RentivoTests` target on top of that, so a green `make ios-test` is weaker than
+a green CI run — see [mobile.md](mobile.md#ios) for exactly what CI adds.
 
 The iOS app carries its own copy of the OpenAPI contract at
 `ios/Rentivo/openapi.json`, which must stay byte-identical to
@@ -125,7 +158,53 @@ make ios-openapi-sync     # copy frontend/openapi.json into ios/Rentivo
 make ios-openapi-check    # non-mutating CI freshness check
 ```
 
-Refresh the iOS copy any time the frontend OpenAPI snapshot changes.
+Refresh the iOS copy in the same change as the frontend snapshot; it is a
+reference contract, not a build input
+([mobile.md](mobile.md#api-contract-sync)). Architecture and the authentication
+handoff are described in [mobile.md](mobile.md).
+
+## Android development
+
+The Android app is a Gradle project rooted at `android/` with a single `:app`
+module under the `app.rentivo` package, built with Jetpack Compose. It targets
+`minSdk` 26 and `compileSdk`/`targetSdk` 35, and compiles to JVM target 17.
+Gradle itself is wrapper 8.13 with AGP 8.7.3 and Kotlin 2.1.20; the build
+declares no toolchain, so run it on **JDK 21** to match CI. Gradle also needs
+the Android SDK location, taken from `android/local.properties` (gitignored, so
+create it locally) or from `ANDROID_HOME`.
+
+```bash
+make android-build           # cd android && ./gradlew assembleDebug
+make android-test            # cd android && ./gradlew testDebugUnitTest
+```
+
+The unit tests are pure JVM code — 30 test classes covering the domain and data
+layers. There is no `androidTest` source set, so no emulator or connected
+device is involved.
+
+`make android-test` is weaker than CI: the CI composite action
+(`.github/actions/android-unit-tests/action.yml`) also runs `:app:lintDebug`,
+which has no Make target — run it directly from `android/` before pushing if
+you want the same coverage locally. The Android job is path-gated by
+`scripts/android-ci.sh paths-changed`; [mobile.md](mobile.md#android) lists what
+triggers it.
+
+The app keeps its own copy of the API contract at `android/app/openapi.json`,
+byte-identical to `frontend/openapi.json`:
+
+```bash
+make android-openapi-sync     # copy frontend/openapi.json into android/app
+make android-openapi-check    # non-mutating CI freshness check
+```
+
+As on iOS, that copy is a reference contract rather than a build input — the
+wire DTOs are hand-written in
+`android/app/src/main/java/app/rentivo/data/api/RemoteDTOs.kt`
+([mobile.md](mobile.md#api-contract-sync)). See [mobile.md](mobile.md) for the
+shared mobile architecture.
+
+There is no release automation for Android yet — unlike iOS, no workflow
+builds, signs, or uploads a release artifact.
 
 ## End-to-end and visual tests
 
@@ -156,6 +235,11 @@ server, so a policy applied at the proxy would break hot reload, and two layers
 emitting a `Content-Security-Policy` would make the browser enforce the
 intersection of both.
 
+Alongside the two content-security policies, the same snippet sets three
+unconditional headers: `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY` (the legacy companion to `frame-ancestors`), and
+`Referrer-Policy: strict-origin-when-cross-origin`.
+
 Two policies ship together:
 
 - `Content-Security-Policy` enforces only `base-uri`, `object-src`,
@@ -182,22 +266,27 @@ exercises the real Nginx image.
 
 ## Tests, lint, and hooks
 
+Run the checks relevant to what you changed:
+
 ```bash
+make fmt                     # ruff format + autofix, before linting
 make lint
 make test
 make test-cov
-npm --prefix frontend run lint
-npm --prefix frontend run typecheck
-make frontend-test-cov
+make frontend-check          # coverage, typechecks, lint, build
 make openapi-check
-make ios-test            # requires full Xcode; see iOS development above
-make ios-openapi-check
+make e2e
+make scripts-test            # if scripts/ or the CI script tests changed
+make ios-openapi-check       # if the API schema changed
+make ios-test                # if ios/ changed; requires full Xcode
+make android-openapi-check   # if the API schema changed
+make android-test            # if android/ changed; JVM only, no emulator
 ```
 
 Backend and authored frontend code enforce 100% coverage. Backend tests run in
 parallel and normally use isolated SQLite databases. `make install` registers
-pre-commit hooks for formatting, lint, and the full test suite. The iOS suite
-has no coverage gate configured.
+pre-commit hooks for formatting, lint, and the full test suite. The iOS and
+Android suites have no coverage gate configured.
 
 ## Jobs and worker
 
@@ -256,7 +345,26 @@ IDs; never invent them by hand.
 ## Disposable production-topology rehearsal
 
 Use production-equivalent disposable values in separate application and
-database files to test source topology and startup ordering locally:
+database files to test source topology and startup ordering locally.
+
+The two files play different roles. `RENTIVO_APP_ENV_FILE` is loaded into the
+backend containers as their settings; `RENTIVO_DB_ENV_FILE` is Compose's
+`--env-file`, so it must supply everything the Compose files interpolate. Seven
+variables there are marked required in `docker-compose.yml` and fail the command
+outright when missing, before any container starts:
+
+- `RENTIVO_PUBLIC_ORIGIN` — the public HTTPS origin, applied to the API's
+  public, app, and WebAuthn origins
+- `RENTIVO_WEBAUTHN_RP_ID` — must equal that origin's hostname
+- `RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR` — the address or CIDR the proxy trusts
+  for forwarded headers
+- `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` —
+  MariaDB container provisioning
+
+`RENTIVO_PORT` (default `8080`), `MYSQL_PORT` (default `3306`),
+`RENTIVO_PROXY_IP` (default `172.30.0.10`), and `RENTIVO_APP_SUBNET` (default
+`172.30.0.0/24`) are optional overrides in the same file. `.env.db.example`
+shows the shape.
 
 ```bash
 make stack-config \
@@ -288,6 +396,7 @@ image digests; follow the
 | `make backfill-encryption` / `-dry` | Encrypt historical plaintext rows after enabling KMS |
 | `make backfill-encryption-reset-blind-index` | Rebuild the user email blind index after key rotation |
 | `make redact-audit-logs` / `-dry` | Redact historical audit-log PII |
+| `make encrypt-job-payloads` / `-dry` | Encrypt historical plaintext job payloads |
 
 ## Troubleshooting
 

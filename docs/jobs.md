@@ -25,6 +25,7 @@ Tunables (see [`configuration.md`](configuration.md) for the full reference):
 | `RENTIVO_JOB_WORKER_IDLE_SLEEP_SECONDS` | `5.0` | Sleep when the queue is empty |
 | `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS` | `600` | Reclaim window for jobs left `running` by a dead worker |
 | `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` | `3600` | How often the worker makes sure an `auth.cleanup` job is queued (`0` disables) |
+| `RENTIVO_JOB_RETENTION_DAYS` | `30` | Days to retain `succeeded`/`failed` job rows before the cleanup purge deletes them (`0` disables the purge) |
 
 ### Payload encryption at rest
 
@@ -93,9 +94,18 @@ each driver is responsible for producing it.
 Each `auth.cleanup` run deletes expired login tokens, stale authentication
 challenges, and `succeeded`/`failed` job rows whose `updated_at` is older than
 `RENTIVO_JOB_RETENTION_DAYS` (default 30; `0` disables the job purge). All three
-purges drain in batches of 100 until no eligible row remains or the run has
-removed 10,000 rows from that table (`AUTH_CLEANUP_MAX_PURGED_ROWS`), so a large
-backlog is worked down over consecutive runs. The whole run — all three drains —
+purges drain in batches of 100 (`_drain` in
+`backend/rentivo/jobs/handlers/auth_cleanup.py`) and stop on any of three
+conditions: nothing purgeable is left, the run has removed 10,000 rows from that
+table (`AUTH_CLEANUP_MAX_PURGED_ROWS`), or a delete removed fewer rows than the
+batch it was given. That last stop is a deliberate concession to concurrency: a
+short delete almost always means the table is drained, but it can also mean a
+concurrent cleanup run already deleted part of the batch, and stopping is the
+conservative choice — the concurrent run, or the next one, picks up the rest.
+Either way a large backlog is worked down over consecutive runs. The job purge
+is backed by the `idx_jobs_retention` index on `(status, updated_at)`
+(`backend/alembic/versions/69034275ea88_add_jobs_retention_index.py`), which
+covers both terminal states with one index. The whole run — all three drains —
 happens inside a single transaction; the per-table cap is what bounds how long
 that transaction stays open, while the batch size only bounds the size of each
 statement's `IN` list. `pending` and `running` job rows are never touched, so a
@@ -154,7 +164,17 @@ Both drivers present the same `JobBackend.enqueue(...)` seam and the same observ
 The same registry handlers (`backend/rentivo/jobs/handlers/`) run under **both** drivers — the handler code is identical and unaware of the driver. Adding a new background job:
 
 1. **Always:** register the handler with `@register("job.type")` in `backend/rentivo/jobs/handlers/`. This is all the database driver needs.
-2. **For Temporal as well:** add a `@workflow.defn` workflow class plus its activity in `backend/rentivo/jobs/temporal/`, and add a `_WORKFLOW_BY_TYPE` entry mapping the job type to that workflow (`backend/rentivo/jobs/temporal/backend.py`).
+2. **For Temporal as well:** add one `(job_type, WorkflowName)` row to the
+   `JOB_WORKFLOWS` registration table in
+   `backend/rentivo/jobs/temporal/registry.py`. That table is the only place a
+   job type is transcribed; everything else is derived from it —
+   `workflows.py` generates the `@workflow.defn` class per row,
+   `activities.py` generates the activity (registered under the job type
+   verbatim), and `backend.py` builds `_WORKFLOW_BY_TYPE` from
+   `workflow_by_type()`. Both names in the row are protocol, not implementation
+   detail: the workflow name and the activity name are written into Temporal
+   workflow history, so neither may be renamed once in use — a running or
+   scheduled workflow keeps referring to the name it was started with.
 
 The shared backoff schedule lives once in `backend/rentivo/jobs/backoff.py` and is reused by both drivers, so retry semantics stay in lockstep.
 
@@ -219,13 +239,37 @@ operated cluster rather than the profile's local SQLite service.
 ## Operations and draining
 
 Monitor the database driver by status (`pending`, `running`, `succeeded`, and
-`failed`), oldest due `pending` age, attempts, job type, and worker heartbeat.
-Alert when the heartbeat is absent for two minutes, a running claim exceeds
-`RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS`, failures increase, or oldest queue age
-exceeds five minutes. For Temporal, monitor the same job outcomes plus task-queue
-pollers, workflow failures, and schedule-to-start latency.
+`failed`), oldest due `pending` age, attempts, and job type.
 
-Neither driver currently performs graceful `SIGTERM` draining. Before a
+The worker emits **no heartbeat** and the `worker` service has no container
+healthcheck, so liveness has to be read from the two signals that do exist:
+
+- **The `jobs` table.** `claim_batch` stamps `claimed_at = NOW()` and
+  `claimed_by = "<hostname>:<pid>"` on every row it claims
+  (`backend/rentivo/jobs/sqlalchemy.py`). Advancing `claimed_at` values, and the
+  set of distinct `claimed_by` values, are the closest thing to a liveness
+  signal — with the caveat that an idle worker claims nothing and therefore
+  writes nothing.
+- **Worker logs.** `worker_started` / `worker_stopped` bracket the process,
+  `job_succeeded`, `job_retry_scheduled`, and `job_failed` mark each outcome,
+  and `auth_cleanup_scheduled` fires roughly once per
+  `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` (hourly at the default). A worker that
+  is up but idle still logs `auth_cleanup_scheduled` on its cadence, so its
+  absence is the practical stand-in for a missed heartbeat.
+
+Alert when a running claim exceeds `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS`,
+failures increase, or oldest queue age exceeds five minutes. For Temporal,
+monitor the same job outcomes plus task-queue pollers, workflow failures, and
+schedule-to-start latency. The alert rules and thresholds themselves live in the
+operator's monitoring system; the repository ships no alerting configuration.
+
+On `SIGTERM` or `SIGINT` the worker sets a stopping flag
+(`_install_signal_handlers` in `backend/rentivo/jobs/worker.py`); the batch
+already in flight runs to completion and the poll loop then exits cleanly,
+logging `worker_stopped`. What neither driver does is **drain the queue** —
+work still `pending` is simply left for the next worker. Jobs are orphaned in
+`running` only on `SIGKILL` (for example a Docker stop-timeout expiring
+mid-batch), and those are recovered by the stuck-reclaim window. Before a
 production rollout:
 
 1. Put the application in edge maintenance mode and stop schedules/integrations

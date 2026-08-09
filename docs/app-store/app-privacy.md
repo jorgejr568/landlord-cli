@@ -17,13 +17,30 @@ All items below: **Collected**, **Linked to the user's identity**,
 | Financial Info | Payment Info | PIX key used to generate charge QR codes |
 | Financial Info | Other Financial Info | Rent charges, bills, expenses, receipt amounts |
 | Identifiers | User ID | Internal account id tying data to the account |
+| User Content | Photos or Videos | Payment proofs and billing attachments uploaded by the user (PDF or image) |
 | User Content | Other User Content | Tenant/recipient names and e-mails entered by the user |
+
+Photos or Videos is declared because the app has two upload paths, both
+accepting `[UTType.pdf, UTType.image]` through `.fileImporter`, and a
+photographed receipt is the routine case rather than an edge case:
+
+- "Adicionar comprovante" on the bill detail screen
+  (`ios/Rentivo/Features/Bills/BillViews.swift`) sends the file as the
+  `receipt_files` multipart part of
+  `POST /api/v1/billings/{billing_uuid}/bills/{bill_uuid}/receipts`.
+- Billing attachments
+  (`ios/Rentivo/Features/Bills/BillingOperationsViews.swift`) send it to
+  `POST /api/v1/billings/{billing_uuid}/attachments`.
+
+The file leaves the device and is stored server-side against the account, which
+is collection under Apple's definition. It is *not* library access: there is no
+`PHPhotoLibrary`/`PhotosPicker` usage and no `NSPhotoLibraryUsageDescription`
+prompt — the document picker returns only the single file the user chose.
 
 ## Everything else → Not collected
 
-Location, Health & Fitness, Messages, Photos or Videos, Audio, Browsing
-History, Search History, Purchases, Usage Data, Diagnostics, Sensitive Info,
-Contacts, Other Data.
+Location, Health & Fitness, Messages, Audio, Browsing History, Search History,
+Purchases, Usage Data, Diagnostics, Sensitive Info, Contacts, Other Data.
 
 Notes:
 - **Tracking (ATT):** answer **No** — no data is used to track users across
@@ -35,3 +52,14 @@ Notes:
   the boundary, which matches Apple's guidance for web-login flows.
 - Keep this file in sync with `frontend/src/features/legal/PrivacyPolicyPage.tsx`
   whenever data practices change.
+- **Android:** `android/` is a 1:1 port of this app with the same two uploads
+  (`ActivityResultContracts.OpenDocument()` in
+  `android/app/src/main/java/app/rentivo/features/bills/BillViews.kt` and
+  `android/app/src/main/java/app/rentivo/features/bills/BillingOperationsViews.kt`,
+  hitting the same endpoints), so it will need an equivalent Google Play
+  **Data Safety** declaration covering the same data — including the uploaded
+  files — with the same no-tracking answer. Play uses its own taxonomy and asks
+  separately about collection versus sharing, so it is a translation of these
+  answers rather than a copy. Nothing is due yet: there is no Play listing and
+  no Android release automation — `android/` appears in `.github/workflows/`
+  only as the PR-gate `android` job.
