@@ -1,17 +1,26 @@
 # Production Release Runbook
 
-This runbook governs the Rentivo 5.0 big-bang release and later releases of the
-React/Vite, FastAPI, worker, MariaDB, and Nginx stack. The release is atomic:
-one immutable source SHA supplies every application image, one Alembic job runs
-before application services, and traffic moves to that tested stack once.
+This runbook governs releases of the React/Vite, FastAPI, worker, MariaDB, and
+Nginx stack. A release is atomic: one immutable source SHA supplies every
+application image, one Alembic job runs before application services, and
+traffic moves to that tested stack once.
 
-The first 5.0 cutover has one narrowly scoped exception to the normal rollback
-policy: retain the verified pre-cutover legacy web and worker image digests
-together with the verified pre-cutover database backup as one rollback
-artifact. These three parts are inseparable because the pre-cutover images must
-never run against the 5.0 schema. Later releases must not use the legacy images;
-they recover with the previous React/FastAPI digests, a forward fix, or a
-matching verified database restore.
+The 5.0 big-bang cutover it was originally written for is done: `5.0.0`
+shipped on 2026-07-19 and `5.1.0` on 2026-08-06 (`CHANGELOG.md`). Everything in
+the body of this runbook is the normal release path. The cutover-only material
+is retained verbatim in the final section, "Appendix: the first 5.0 cutover",
+because `.github/workflows/rollback.yml` still accepts its `first-5.0-cutover`
+kind; it is history, not a step you perform.
+
+Recovery for a normal release means the previous React/FastAPI digests, a
+forward fix, or a matching verified database restore — never the pre-cutover
+legacy images.
+
+Platforms release on independent tracks. This runbook covers the web stack;
+`docs/runbooks/ios-release.md` covers the iOS app. The Android app has no
+release automation at all: `android/` appears in `.github/workflows/` only as
+the PR-gate `android` job, so there is no publishing, signing, or store-upload
+workflow to run for it yet.
 
 ## Ownership and release record
 
@@ -30,10 +39,6 @@ Create a release record containing the UTC window, owners, immutable Git SHA,
 API/worker/frontend image references and digests, previous production SHA and
 digests, expected Alembic revision, backup identifier, restore-rehearsal result,
 migration duration, rollout timestamps, smoke result, and final decision.
-For the first 5.0 cutover, also record the pre-cutover web and worker image
-digests, their OCI source/revision and attestation verification, the paired
-backup identifier and checksum, and the restore rehearsal. Retain or expire all
-three parts together.
 
 ## Preflight
 
@@ -44,12 +49,37 @@ Complete every item before announcing the maintenance window:
    Compose validation, backend dependency, secret, and configuration scans,
    image builds, the real-stack smoke/E2E suite, and the populated production
    migration rehearsal from `55dc25bae00d` to the repository's single Alembic
-   head. Gate jobs are path-filtered by `scripts/ci-changed-areas.sh`, so jobs
-   whose input areas are untouched by the push show as skipped and still count
-   as passing; `publish-images` in `deploy.yml` builds and publishes the
-   release images itself regardless. Production images are built and published
-   without a blocking vulnerability scan, and frontend dependency auditing is
-   not part of the gate either; see
+   head.
+
+   `scripts/ci-changed-areas.sh` path filtering applies **only on a pull
+   request**. The `changes` job in `.github/workflows/test-pr.yaml` runs the
+   classifier under `if [ "$EVENT_NAME" = "pull_request" ]` and otherwise
+   hardcodes `backend=true frontend=true docker=true scripts=true`. A gate
+   invoked through `workflow_call` — which is how both `deploy.yml` and
+   `release.yml` run it — therefore executes those four areas in full, as does
+   a `workflow_dispatch` or a direct push. The reason is in the job's own
+   comment: interleaved merges mean an area verified at PR time can be stale by
+   the time the deploy-path gate runs. Do not expect skipped `backend`,
+   `frontend`, `docker`, or `scripts` jobs on a release run; a skip there means
+   something is wrong, not that the area was untouched.
+
+   The two mobile jobs are the one legitimate exception. `ios` (macOS,
+   `RentivoCore` plus the Xcode-hosted `RentivoTests`) and `android` (Ubuntu,
+   `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and the OpenAPI copy
+   check) are both blockers in the `release-gate` job's `needs` list, but their
+   filters — `scripts/ios-ci.sh paths-changed` and
+   `scripts/android-ci.sh paths-changed` — are computed unconditionally, for
+   every event, against `github.event.before`. On a `deploy.yml` run that base
+   is the real previous tip of `main`, so a deployment whose commits touched
+   neither `ios/` nor `android/` (nor `frontend/openapi.json`, which the
+   Android filter also watches) will legitimately show both jobs skipped, and
+   `release-gate` counts a skip as passing. Confirm the skip matches the diff
+   rather than assuming it. On a `release.yml` tag run the base is unusable
+   (all zeros for a new tag), and both helpers deliberately report `true` in
+   that case, so both mobile jobs run in full on every tag.
+
+   Production images are built and published without a blocking vulnerability
+   scan, and frontend dependency auditing is not part of the gate either; see
    [Weekly image vulnerability scan](#weekly-image-vulnerability-scan) and
    [Weekly npm audit report](#weekly-npm-audit-report) for the scheduled
    workflows that cover them instead.
@@ -107,30 +137,6 @@ The rehearsal must verify:
 Record the rehearsal evidence and the exact restore procedure in the release
 record. Abort before migration if either objective is missed.
 
-For the first 5.0 cutover, the gate must first upgrade a populated schema at
-revision `55dc25bae00d` through the complete migration chain to the
-repository's single Alembic head. Its before/after evidence must preserve
-representative users,
-MFA and passkeys, organizations and memberships, billings and billing items,
-bills, receipts, expenses, and audit data; it must also prove all billing-item
-UUIDs are populated and distinct. An empty-database upgrade or a final-migration
-round trip is not a populated production migration rehearsal.
-
-Before entering the release window, run the protected
-`.github/workflows/prepare-legacy-rollback.yml` workflow with the exact
-40-character pre-cutover SHA. It must prove that SHA is an ancestor of `main`,
-run the detached legacy test suite, build separate `Dockerfile` web and
-`Dockerfile.worker` worker images, scan both exact images, attest both digests,
-and record their immutable `legacy-web@sha256:...` and
-`legacy-worker@sha256:...` references. A retry publishes a distinct traceable
-tag, so record only the final digest references as rollback evidence.
-
-Pull both prepared images by digest, verify their OCI source/revision labels and
-GitHub attestations, start them against the isolated restored database, and run
-the pre-cutover web and worker smoke suite. Record both digests beside the
-backup as the one rollback artifact. An untested local image, a rebuilt image,
-or either image paired with a different backup is not a rollback artifact.
-
 ## Enter maintenance and drain work
 
 1. Put the external TLS terminator/load balancer into maintenance mode. Reject
@@ -143,12 +149,26 @@ or either image paired with a different backup is not a rollback artifact.
 
    ```bash
    RENTIVO_APP_ENV_FILE=/etc/rentivo/app.env \
-     docker compose --env-file /etc/rentivo/db.env stop worker
+     docker compose --env-file /etc/rentivo/db.env stop worker --timeout 120
    ```
 
-   The worker does not gracefully drain on `SIGTERM`; an interrupted job is
-   reclaimed after `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS`. Never stop it while
-   `running` is nonzero unless the release commander accepts that retry.
+   The worker does handle `SIGTERM`: `Worker.run_forever` in
+   `backend/rentivo/jobs/worker.py` installs a handler that only sets a
+   `_stopping` flag, so the current `tick()` finishes its whole claimed batch,
+   the loop exits, and the process logs `worker_stopped`. It does not abandon a
+   job it has already started.
+
+   The risk is the stop timeout, not the signal. `docker compose stop` sends
+   `SIGTERM` and then `SIGKILL` after 10 seconds by default, and the `worker`
+   service in `docker-compose.yml` declares no `stop_grace_period`. A batch
+   still running a slow job — PDF generation, an S3 upload, an SES send — is
+   killed mid-flight, and its `jobs` row stays `running` with `claimed_at` set
+   until another worker reclaims it after
+   `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS` (default 600). Pass a `--timeout`
+   comfortably longer than the slowest job so the batch can finish, and still
+   prefer stopping only once `running` is zero. Stopping while `running` is
+   nonzero means accepting that reclaim delay and a possible re-run of a
+   partially applied job; that call belongs to the release commander.
 4. For Temporal, wait for running workflows on `rentivo-jobs` to complete, stop
    producers, then stop the worker. Record outstanding workflow IDs.
 5. Create the verified cutover backup and recheck that no writes occurred after
@@ -210,14 +230,40 @@ should be patched — usually by bumping the affected package in
 
 ## Migrate and roll out exactly once
 
-The protected deployment workflow is the canonical production entrypoint. It
-must receive the tested SHA/digests and complete these ordered stages:
-`configuration`, `production_integrations`, `migration`, `rollout`, and
-`smoke`. Configuration validation and real KMS, S3, SES, and job backend
-reachability must succeed before migration. It then runs one `migrate` job,
-waits for success, starts `api`, `worker`, `frontend`, and `proxy`, and reports
-all five stages as one result. The automation must deploy image references by
-recorded digest, not rebuild or resolve mutable tags. Trigger it once.
+`.github/workflows/deploy.yml` ("Deploy Tested Production SHA") is the
+canonical production entrypoint, and it is **not** operator-dispatched. Its
+only trigger is `push: branches: [main]`, so every merge to `main` starts a
+deployment run; the `rentivo-production` concurrency group with
+`cancel-in-progress: false` queues runs rather than cancelling them. There is
+no "trigger it once" step to perform.
+
+The operator's go/no-go control is the approval gate, not the trigger. The run
+proceeds unattended through four jobs and then stops:
+
+1. `gate` — calls `test-pr.yaml` through `workflow_call` (the full gate, with
+   PR-only path filtering disabled as described in Preflight).
+2. `publish-images` — builds and pushes the API, worker, and frontend images
+   tagged with the commit SHA and attests each digest's provenance.
+3. `resolve-images` — re-resolves each tag to a digest, requires it to equal
+   the published digest, verifies the `org.opencontainers.image.revision` and
+   `.source` labels, and runs `gh attestation verify` against
+   `deploy.yml` as the expected signer workflow.
+4. `verify-images` — boots a production-shaped Compose stack from those exact
+   digests and runs `scripts/smoke-production-stack.sh` plus the
+   `production-stack` Playwright project against it. Nothing is rebuilt.
+
+The fifth job, `deploy`, declares `environment: production`. The run pauses
+there awaiting that environment's approval, and approving it is the release
+commander's go decision. Only after approval does `deploy` resolve the expected
+Alembic revision with `alembic heads` and POST the deployment request.
+
+The request must complete these ordered stages: `configuration`,
+`production_integrations`, `migration`, `rollout`, and `smoke`. Configuration
+validation and real KMS, S3, SES, and job backend reachability must succeed
+before migration. The receiver then runs one `migrate` job, waits for success,
+starts `api`, `worker`, `frontend`, and `proxy`, and reports all five stages as
+one result. It must deploy image references by recorded digest, never rebuild
+or resolve mutable tags.
 
 There is no supported direct/manual production rollout. The repository Compose
 services contain local `build:` definitions and therefore cannot consume the
@@ -262,13 +308,33 @@ For the first 15 minutes, abort or re-enter maintenance immediately on any of:
 - sustained 5xx rate above 1% for 5 minutes, or any burst above 5% for 1 minute;
 - p95 API latency more than twice the pre-release baseline for 5 minutes;
 - authentication, MFA, billing, invoice download, or logout smoke failure;
-- worker heartbeat absent for 2 minutes, a `running` job older than the stuck
-  threshold, failed-job growth, or queue age above 5 minutes;
+- the worker is not visibly progressing — see below — or a `running` job is
+  older than `RENTIVO_JOB_WORKER_STUCK_AFTER_SECONDS`, failed jobs are growing,
+  or queue age exceeds 5 minutes;
 - elevated frontend runtime errors, KMS/SES/S3 failures, or a security control
   failing closed for valid production traffic.
 
-Do not ignore an alert because health endpoints are green. Record the decision
-and request IDs for every failure.
+The worker publishes no heartbeat and the `worker` service in
+`docker-compose.yml` declares no `healthcheck`, so there is no liveness signal
+to poll and no "heartbeat absent" condition to alert on. Judge it from what it
+actually emits:
+
+- its startup log line `worker_started` with its `worker_id`, and the absence
+  of a later `worker_stopped`;
+- `jobs` rows advancing — `claimed_at`/`claimed_by` being set on newly claimed
+  work and rows leaving `running`;
+- the per-job logs `job_succeeded`, `job_retry_scheduled`, and `job_failed`;
+- the container still running under `docker compose ps`.
+
+A worker that has claimed nothing is indistinguishable from an idle one when
+the queue is empty, so enqueue a known job (for example by exercising a
+smoke-test flow that produces one) rather than inferring health from silence.
+
+Alert thresholds are not defined in this repository. Every numeric threshold
+above is a target for the operator's external monitoring and must be configured
+there; nothing in the repo evaluates them. Do not ignore an alert because
+health endpoints are green. Record the decision and request IDs for every
+failure.
 
 ## Enable traffic and verify
 
@@ -277,8 +343,10 @@ and request IDs for every failure.
    application digest.
 3. Re-run readiness and the read-only smoke checks at 5, 15, 30, and 60 minutes.
 4. Watch 4xx/5xx rate, p50/p95/p99 latency, frontend errors and Web Vitals,
-   worker heartbeat, pending/running/failed jobs, oldest queue age, database
-   connections/locks, KMS, SES, S3, CPU, memory, and disk.
+   worker progress (`worker_started` without a later `worker_stopped`, and
+   `jobs.claimed_at`/`claimed_by` advancing — there is no heartbeat to watch),
+   pending/running/failed jobs, oldest queue age, database connections/locks,
+   KMS, SES, S3, CPU, memory, and disk.
 5. Verify existing users receive the expected fresh-login experience, new
    accounts have empty billings/invoices/organizations/config state, API-key
    organization grants and scopes are enforced, and logout revokes the hidden
@@ -286,6 +354,45 @@ and request IDs for every failure.
 6. Close the release only after the 60-minute observation window, alert state is
    normal, smoke data is removed, support has no unexplained regression, and
    the release record is complete.
+
+## Tag and publish the GitHub Release
+
+Tagging is a separate, later action from deploying: `deploy.yml` runs off the
+merge to `main` and never creates a tag. Publishing the release is done by
+pushing an annotated `vX.Y.Z` tag at the already-deployed SHA, which triggers
+`.github/workflows/release.yml` ("Release Tested Production SHA", `on: push:
+tags: v*.*.*`).
+
+Prepare two things in the commit *before* tagging, because the workflow
+hard-fails on either and a failed run leaves the tag pushed:
+
+- `CHANGELOG.md` must contain a section headed exactly `## [X.Y.Z]` for the
+  tag's version. The `release` job extracts everything between that heading and
+  the next `## [` (or the link-reference block) into `release-notes.md` and
+  errors with `No CHANGELOG.md section found for version <X.Y.Z>` if the
+  extraction is empty.
+- `backend/pyproject.toml`'s `version` must equal the tag minus its leading
+  `v`. A mismatch fails with `backend/pyproject.toml version (...) does not
+  match tag (...)`.
+
+The workflow runs three jobs:
+
+1. `gate` — the full `test-pr.yaml` gate again, on the tagged SHA, via
+   `workflow_call` (so, again, no PR path filtering).
+2. `verify-images` — for each of `api`, `worker`, and `frontend`, resolves
+   `ghcr.io/<repo>/<image>:<sha>` to a digest, pulls it, requires the
+   `org.opencontainers.image.revision` label to equal the tagged SHA and
+   `.source` to equal this repository, and runs `gh attestation verify` with
+   `--signer-workflow .../deploy.yml --source-digest <sha>
+   --deny-self-hosted-runners`. It builds nothing. Tagging a SHA whose images
+   `deploy.yml` never published will fail here.
+3. `release` — extracts the notes, checks the backend version, and calls
+   `gh release create <tag> --notes-file release-notes.md --verify-tag`. It is
+   idempotent: an existing release for the tag is left alone.
+
+Because the tag itself is what triggers the run, a failure means fixing the
+underlying commit and tagging again. Record the release URL in the release
+record.
 
 ## Recovery
 
@@ -304,11 +411,10 @@ workflow pulls every image, verifies its OCI source and revision, and verifies
 its GitHub attestation from the expected trusted workflow before contacting the
 production receiver.
 
-- For `first-5.0-cutover`, set `expected_alembic_revision` to
-  `55dc25bae00d` and supply `legacy_web_ref`, `legacy_worker_ref`,
-  the `legacy_attestation_source_sha` recorded by the preparation workflow,
-  `database_backup_id`, and the verified `database_backup_sha256` including its
-  `sha256:` prefix. Leave `api_ref`, `worker_ref`, and `frontend_ref` empty.
+- `first-5.0-cutover` is historical and not a recovery path for any current
+  release; it is documented in the appendix. The workflow still accepts the
+  kind and still hard-requires `expected_alembic_revision` to be
+  `55dc25bae00d`.
 - For `new-stack`, supply `api_ref`, `worker_ref`, and `frontend_ref` from the
   same verified release. This is an image-only rollback: leave both legacy refs
   and both database backup inputs empty. The receiver must perform a
@@ -330,34 +436,6 @@ numerically, including fractional seconds. Restore evidence must echo the
 backup ID, checksum, and resulting revision; image-only evidence must echo the
 live schema revision and must not report a database restore. Attach the
 dispatch URL and response evidence to the release record.
-
-### First 5.0 cutover rollback
-
-Use this procedure only during the first 5.0 cutover and only when the release
-commander decides that forward recovery cannot fit the approved outage. The
-verified pre-cutover legacy web and worker image digests and their paired
-database backup are the one rollback artifact; never mix any part with another
-version.
-
-1. Enter maintenance mode and verify that browser, API, scheduler, and
-   integration writes are blocked.
-2. Stop the API and worker, drain or stop all job producers, and preserve the
-   failed 5.0 database for investigation.
-3. Restore the verified pre-cutover database backup to the production database;
-   verify its checksum, expected pre-cutover schema revision, critical row
-   counts, foreign keys, and sampled decryptions.
-4. Redeploy the verified pre-cutover legacy web and worker images by digest
-   through the protected runtime path with rebuild and tag resolution disabled.
-   Verify both running containers report exactly the recorded digests.
-5. Run the pre-cutover smoke suite against operator-only traffic, including
-   authentication, billing reads/writes, invoice retrieval, and worker output.
-6. Re-enable traffic only after readiness, smoke, alerts, and database checks
-   pass; record the rollback timestamps and the data-loss interval from the
-   restored backup consistency point.
-
-Destroy normal deployment access to these artifacts after the 5.0 cutover is
-formally closed. Later releases must not use the legacy images, even if the
-digests remain in retention storage.
 
 ### Redeploy the previous new-stack version
 
@@ -385,6 +463,95 @@ and dispatch `new-stack-restore` with the verified backup and matching previous
 new-stack digests. Verify revision and critical row counts, then run the full
 smoke suite. Record and communicate all data lost after the backup consistency
 point.
+
+## Appendix: the first 5.0 cutover (completed 2026-07-19)
+
+**This is a historical record, not a procedure to run.** The big-bang cutover
+from the pre-5.0 stack completed with the `5.0.0` release on 2026-07-19
+(`CHANGELOG.md`); `5.1.0` followed on 2026-08-06. Nothing here applies to a
+current release. It is retained because
+`.github/workflows/rollback.yml` still declares the `first-5.0-cutover`
+rollback kind and still hard-requires `expected_alembic_revision` to equal
+`55dc25bae00d`, so the inputs below remain the only correct way to drive that
+kind if it were ever dispatched.
+
+### Rollback artifact and release record (historical)
+
+The cutover had one narrowly scoped exception to the normal rollback policy:
+the verified pre-cutover legacy web and worker image digests were retained
+together with the verified pre-cutover database backup as a single, inseparable
+rollback artifact, because the pre-cutover images must never run against the
+5.0 schema.
+
+The release record additionally carried the pre-cutover web and worker image
+digests, their OCI source/revision and attestation verification, the paired
+backup identifier and checksum, and the restore rehearsal. All three parts were
+retained or expired together.
+
+### Cutover migration rehearsal (historical)
+
+The gate had to first upgrade a populated schema at revision `55dc25bae00d`
+through the complete migration chain to the repository's single Alembic head.
+Its before/after evidence had to preserve representative users, MFA and
+passkeys, organizations and memberships, billings and billing items, bills,
+receipts, expenses, and audit data; it also had to prove all billing-item UUIDs
+were populated and distinct. An empty-database upgrade or a final-migration
+round trip was not a populated production migration rehearsal. (The gate's
+`migrations` job still runs this same populated upgrade from `55dc25bae00d`
+today — see Preflight item 1.)
+
+### Legacy rollback image preparation (historical)
+
+Before entering the release window, the protected
+`.github/workflows/prepare-legacy-rollback.yml` workflow was run with the exact
+40-character pre-cutover SHA. It had to prove that SHA was an ancestor of
+`main`, run the detached legacy test suite, build separate `Dockerfile` web and
+`Dockerfile.worker` worker images, scan both exact images, attest both digests,
+and record their immutable `legacy-web@sha256:...` and
+`legacy-worker@sha256:...` references. A retry publishes a distinct traceable
+tag, so only the final digest references counted as rollback evidence.
+
+Both prepared images were pulled by digest, their OCI source/revision labels and
+GitHub attestations verified, started against the isolated restored database,
+and exercised with the pre-cutover web and worker smoke suite. Both digests were
+recorded beside the backup as the one rollback artifact. An untested local
+image, a rebuilt image, or either image paired with a different backup was not
+a rollback artifact.
+
+### First 5.0 cutover rollback procedure (historical)
+
+This procedure applied only during the first 5.0 cutover, and only when the
+release commander decided that forward recovery could not fit the approved
+outage. The verified pre-cutover legacy web and worker image digests and their
+paired database backup were the one rollback artifact; no part was ever to be
+mixed with another version.
+
+To dispatch it, `rollback_kind` was `first-5.0-cutover` with
+`expected_alembic_revision` set to `55dc25bae00d`, supplying `legacy_web_ref`,
+`legacy_worker_ref`, the `legacy_attestation_source_sha` recorded by the
+preparation workflow, `database_backup_id`, and the verified
+`database_backup_sha256` including its `sha256:` prefix, leaving `api_ref`,
+`worker_ref`, and `frontend_ref` empty.
+
+1. Enter maintenance mode and verify that browser, API, scheduler, and
+   integration writes are blocked.
+2. Stop the API and worker, drain or stop all job producers, and preserve the
+   failed 5.0 database for investigation.
+3. Restore the verified pre-cutover database backup to the production database;
+   verify its checksum, expected pre-cutover schema revision, critical row
+   counts, foreign keys, and sampled decryptions.
+4. Redeploy the verified pre-cutover legacy web and worker images by digest
+   through the protected runtime path with rebuild and tag resolution disabled.
+   Verify both running containers report exactly the recorded digests.
+5. Run the pre-cutover smoke suite against operator-only traffic, including
+   authentication, billing reads/writes, invoice retrieval, and worker output.
+6. Re-enable traffic only after readiness, smoke, alerts, and database checks
+   pass; record the rollback timestamps and the data-loss interval from the
+   restored backup consistency point.
+
+Normal deployment access to these artifacts was to be destroyed once the 5.0
+cutover was formally closed. Later releases must not use the legacy images,
+even if the digests remain in retention storage.
 
 Outside the explicitly bounded first 5.0 procedure, never route traffic to,
 rebuild, or restore the pre-cutover application. It is not a supported artifact,
