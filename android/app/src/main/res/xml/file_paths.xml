@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The only path the app ever shares: the downloads subdirectory of the private cache that
+  DownloadedFileStore owns. Nothing else in the cache — or anywhere else on disk — is exposed.
+-->
+<paths>
+    <cache-path
+        name="downloads"
+        path="RentivoDownloads/" />
+</paths>

@@ -55,6 +55,10 @@ Always run Python tools through `uv run --project backend ...`; do not use bare
   (Swift tools 6.0, macOS 14 / iOS 17 minimums) and covered by
   `swift test --package-path ios`, which requires a full Xcode toolchain
   (Swift Testing is unavailable in CommandLineTools alone).
+- `android/` is the Kotlin and Jetpack Compose application under the
+  `app.rentivo` package. Its domain and data layers are pure JVM code covered
+  by `make android-test`, which needs a JDK 21 toolchain and the Android SDK
+  but no emulator.
 
 The browser talks only to the FastAPI contract. When an API schema changes,
 update the committed OpenAPI snapshot and generated TypeScript client with the
@@ -62,7 +66,9 @@ existing npm/Make targets, then verify `make openapi-check`. The iOS app keeps
 its own copy of the contract at `ios/Rentivo/openapi.json`, which must stay
 byte-identical to `frontend/openapi.json`; refresh it with
 `make ios-openapi-sync` and verify it with `make ios-openapi-check` whenever
-the API schema changes.
+the API schema changes. The Android app does the same with
+`android/app/openapi.json`, refreshed by `make android-openapi-sync` and
+verified by `make android-openapi-check`.
 
 ## HTTP and security
 
@@ -116,6 +122,8 @@ make e2e
 make scripts-test            # if scripts/ or the CI script tests changed
 make ios-openapi-check       # if the API schema changed
 make ios-test                # if ios/ changed (requires full Xcode)
+make android-openapi-check   # if the API schema changed
+make android-test            # if android/ changed (JVM only, no emulator)
 ```
 
 The complete release gate also renders production/development Compose,
@@ -125,7 +133,11 @@ images locally to catch Dockerfile breakage. Gate jobs are path-filtered by
 `scripts/ci-changed-areas.sh`, which classifies the diff into `backend`,
 `frontend`, `docker`, and `scripts` areas; a job whose input areas are
 untouched is skipped and counts as passing, and any `.github/` change or an
-unusable base marks every gate area as changed. Image vulnerability scanning is
+unusable base marks every gate area as changed. The mobile jobs are filtered
+separately: `scripts/ios-ci.sh paths-changed` gates the iOS job and
+`scripts/android-ci.sh paths-changed` gates the Android job, which builds,
+unit-tests, and lints `android/` and verifies its OpenAPI copy whenever
+`android/` or `frontend/openapi.json` changes. Image vulnerability scanning is
 not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
 the production images weekly and keeps the `Weekly image vulnerability report`
 issue (label `image-vulnerability-report`) up to date. The frontend npm audit

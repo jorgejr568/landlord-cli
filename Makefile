@@ -162,11 +162,27 @@ ios-openapi-check:
 ios-test:
 	swift test --package-path ios
 
+# Gradle needs a JDK 21 toolchain on PATH or in JAVA_HOME, and the Android SDK
+# location in android/local.properties (or ANDROID_HOME).
+.PHONY: android-openapi-sync android-openapi-check android-build android-test
+android-openapi-sync:
+	./scripts/sync-android-openapi.sh sync
+
+android-openapi-check:
+	./scripts/sync-android-openapi.sh check
+
+android-build:
+	cd android && ./gradlew assembleDebug
+
+android-test:
+	cd android && ./gradlew testDebugUnitTest
+
 # Standalone CI scripts: outside backend/pyproject.toml's testpaths, so neither
 # `make test` nor the pre-commit hook reaches them.
 .PHONY: scripts-test
 scripts-test:
 	./scripts/tests/ios-ci-test.sh
+	./scripts/tests/android-ci-test.sh
 	./scripts/tests/ci-changed-areas-test.sh
 	$(PYTEST) scripts/tests/test_asc_builds.py -q
 
