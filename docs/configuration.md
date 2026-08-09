@@ -10,7 +10,7 @@ Invalid values fail fast at process startup with a clear error.
 |----------|---------|-------------|
 | `RENTIVO_DB_URL` | `mysql+pymysql://rentivo:rentivo@db:3306/rentivo` | SQLAlchemy URL (MariaDB, PyMySQL driver). Use host `localhost` for processes on your machine. |
 
-`docker-compose.yml` never sets `RENTIVO_DB_URL`: the production stack takes it from the application env file like any other setting. Only `docker-compose.dev.yml` overrides it, pointing the backend services at the internal `db` service using the `MYSQL_*` values.
+`docker-compose.yml` never sets `RENTIVO_DB_URL`: the production stack takes it from the application env file like any other setting. Only `docker-compose.dev.yml` overrides it, pointing the `migrate`, `api`, and `worker` services — but not `validate`, which only receives `RENTIVO_ENVIRONMENT: dev` — at the internal `db` service using the `MYSQL_*` values.
 
 The `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_PORT` variables provision the MariaDB **container**. They belong in `.env.db` (see [`.env.db.example`](../.env.db.example)), which Compose reads as its `--env-file`, not in the application `.env` — the app never reads them.
 
@@ -200,8 +200,12 @@ The settings class ignores unknown environment variables, so a variable put in t
 | Variable | Default | Read by |
 |----------|---------|---------|
 | `RENTIVO_PUBLIC_ORIGIN` | *(required)* | `docker-compose.yml`, which fans it out into the API's `RENTIVO_PUBLIC_URL`, `RENTIVO_PUBLIC_APP_URL`, and `RENTIVO_WEBAUTHN_ORIGIN` |
-| `RENTIVO_WEBAUTHN_RP_ID` | *(required)* | `docker-compose.yml`, passed through to the API service |
 | `RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR` | *(required)* | The `proxy` service's Nginx template |
+| `MYSQL_ROOT_PASSWORD` | *(required)* | The `db` service — MariaDB container provisioning |
+| `MYSQL_DATABASE` | *(required)* | The `db` service — database created on first boot |
+| `MYSQL_USER` | *(required)* | The `db` service — application database user |
+| `MYSQL_PASSWORD` | *(required)* | The `db` service — password for that user |
+| `MYSQL_PORT` | `3306` | Host port published by the `db` service |
 | `RENTIVO_PORT` | `8080` | Host port published by the `proxy` service |
 | `RENTIVO_PROXY_IP` | `172.30.0.10` | Proxy address on the internal network; also the API's `--forwarded-allow-ips` |
 | `RENTIVO_APP_SUBNET` | `172.30.0.0/24` | Subnet of the internal `app-edge` network |
@@ -214,6 +218,8 @@ Three more select which files are used, and are read by the `Makefile` and Compo
 | `RENTIVO_DB_ENV_FILE` | `.env.db` | Compose `--env-file` for the production-topology `stack-*` targets |
 | `RENTIVO_DEV_DB_ENV_FILE` | `.env.db` | Compose `--env-file` for the `compose-*` development targets |
 
-The three marked *(required)* use Compose's `:?` syntax: leaving one unset aborts the command before any container starts.
+The variables marked *(required)* use Compose's `:?` syntax: leaving one unset aborts the command before any container starts. `RENTIVO_WEBAUTHN_RP_ID` is required in the same file and the same way, but it is a real application setting rather than a Compose-only variable — see the note below.
 
-Note also that the Compose files **hard-set** several documented settings on the `api` service, so editing them in the application env file has no effect under Compose: `RENTIVO_COOKIE_SECURE` and the three cookie names (`__Host-` prefixed in `docker-compose.yml`, unprefixed and insecure in `docker-compose.dev.yml`), the three public/WebAuthn origins, and `RENTIVO_ENVIRONMENT`.
+Note also that the Compose files **hard-set** several documented settings on the `api` service, so editing them in the application env file has no effect under Compose: `RENTIVO_COOKIE_SECURE` and the three cookie names (`__Host-` prefixed in `docker-compose.yml`, unprefixed and insecure in `docker-compose.dev.yml`), the three public/WebAuthn origins, `RENTIVO_WEBAUTHN_RP_ID`, and `RENTIVO_ENVIRONMENT`.
+
+`RENTIVO_WEBAUTHN_RP_ID` is the case worth spelling out: the application does read it (documented under [WebAuthn / Passkeys](#webauthn--passkeys), and production-validated against `RENTIVO_WEBAUTHN_ORIGIN`), but under Compose its value never comes from the application env file. `docker-compose.yml` interpolates `${RENTIVO_WEBAUTHN_RP_ID:?…}` onto the `api` service, so the value comes from the `--env-file` (`.env.db` by default); `docker-compose.dev.yml` replaces it outright with `localhost`.

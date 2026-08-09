@@ -13,9 +13,10 @@ Optional, and only needed for the mobile apps:
 
 - A full Xcode install for `make ios-test`. Swift Testing, used by the iOS
   suite, is not available in Xcode Command Line Tools alone.
-- JDK 21 plus the Android SDK for the `android-*` targets. Gradle refuses to
-  start on an older JDK, and it needs an SDK location from
-  `android/local.properties` (gitignored) or `ANDROID_HOME`.
+- JDK 21 plus the Android SDK for the `android-*` targets. The build declares
+  no Gradle toolchain, so nothing pins the JDK — 21 is the version CI runs.
+  Gradle also needs an SDK location from `android/local.properties`
+  (gitignored) or `ANDROID_HOME`.
 
 ```bash
 git clone https://github.com/jorgejr568/rentivo.git
@@ -144,15 +145,9 @@ make ios-test                 # swift test --package-path ios
 
 `make ios-test` runs the package suite only, which covers the Domain and Data
 layers — `App`, `DesignSystem`, `Features`, and `Resources` are excluded from
-the package and are not exercised by it.
-
-CI (`.github/actions/ios-unit-tests/action.yml`, on `macos-15` runners) runs
-more than that: first `swift test --package-path ios`, then the Xcode-hosted
-`RentivoTests` target through `xcodebuild ... test -only-testing:RentivoTests`
-against a resolved iPhone simulator destination. Only `RentivoUITests` is
-deliberately kept out of the required PR path. So a green `make ios-test` is
-weaker than a green CI run; the same test files compile in both modes through a
-`#if canImport(RentivoCore)` guard.
+the package and are not exercised by it. CI runs the Xcode-hosted
+`RentivoTests` target on top of that, so a green `make ios-test` is weaker than
+a green CI run — see [mobile.md](mobile.md#ios) for exactly what CI adds.
 
 The iOS app carries its own copy of the OpenAPI contract at
 `ios/Rentivo/openapi.json`, which must stay byte-identical to
@@ -163,37 +158,36 @@ make ios-openapi-sync     # copy frontend/openapi.json into ios/Rentivo
 make ios-openapi-check    # non-mutating CI freshness check
 ```
 
-Refresh the iOS copy any time the frontend OpenAPI snapshot changes.
-Architecture, the authentication handoff, and contract sync across both mobile
-apps are described in [mobile.md](mobile.md).
+Refresh the iOS copy in the same change as the frontend snapshot; it is a
+reference contract, not a build input
+([mobile.md](mobile.md#api-contract-sync)). Architecture and the authentication
+handoff are described in [mobile.md](mobile.md).
 
 ## Android development
 
 The Android app is a Gradle project rooted at `android/` with a single `:app`
 module under the `app.rentivo` package, built with Jetpack Compose. It targets
-`minSdk` 26 and `compileSdk`/`targetSdk` 35, and compiles to JVM target 17 —
-but Gradle itself (wrapper 8.13, AGP 8.7.3, Kotlin 2.1.20) needs a **JDK 21**
-toolchain on `PATH` or in `JAVA_HOME`. Gradle also needs the Android SDK
-location, taken from `android/local.properties` (gitignored, so create it
-locally) or from `ANDROID_HOME`.
+`minSdk` 26 and `compileSdk`/`targetSdk` 35, and compiles to JVM target 17.
+Gradle itself is wrapper 8.13 with AGP 8.7.3 and Kotlin 2.1.20; the build
+declares no toolchain, so run it on **JDK 21** to match CI. Gradle also needs
+the Android SDK location, taken from `android/local.properties` (gitignored, so
+create it locally) or from `ANDROID_HOME`.
 
 ```bash
-make android-build           # :app:assembleDebug
-make android-test            # :app:testDebugUnitTest
+make android-build           # cd android && ./gradlew assembleDebug
+make android-test            # cd android && ./gradlew testDebugUnitTest
 ```
 
-The unit tests are pure JVM code — 31 test classes covering the domain and data
+The unit tests are pure JVM code — 30 test classes covering the domain and data
 layers. There is no `androidTest` source set, so no emulator or connected
 device is involved.
 
-`make android-test` is weaker than CI. The CI composite action
-(`.github/actions/android-unit-tests/action.yml`) runs
-`./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`, and there
-is no Make target for `lintDebug` — run it directly from `android/` before
-pushing if you want the same coverage locally. The Android job is path-gated by
-`scripts/android-ci.sh paths-changed`, which triggers on `android/`, the
-composite action, the Android CI and sync scripts, `frontend/openapi.json`, and
-the workflow file itself.
+`make android-test` is weaker than CI: the CI composite action
+(`.github/actions/android-unit-tests/action.yml`) also runs `:app:lintDebug`,
+which has no Make target — run it directly from `android/` before pushing if
+you want the same coverage locally. The Android job is path-gated by
+`scripts/android-ci.sh paths-changed`; [mobile.md](mobile.md#android) lists what
+triggers it.
 
 The app keeps its own copy of the API contract at `android/app/openapi.json`,
 byte-identical to `frontend/openapi.json`:
@@ -203,11 +197,10 @@ make android-openapi-sync     # copy frontend/openapi.json into android/app
 make android-openapi-check    # non-mutating CI freshness check
 ```
 
-As on iOS, that copy is a reference document rather than a build input: no
-generator runs against it, and the wire DTOs are hand-written with
-kotlinx.serialization in
-`android/app/src/main/java/app/rentivo/data/api/RemoteDTOs.kt`. Keeping it
-current is what makes drift reviewable. See [mobile.md](mobile.md) for the
+As on iOS, that copy is a reference contract rather than a build input — the
+wire DTOs are hand-written in
+`android/app/src/main/java/app/rentivo/data/api/RemoteDTOs.kt`
+([mobile.md](mobile.md#api-contract-sync)). See [mobile.md](mobile.md) for the
 shared mobile architecture.
 
 There is no release automation for Android yet — unlike iOS, no workflow

@@ -132,9 +132,10 @@ guard. The job is path-gated by `scripts/ios-ci.sh paths-changed`.
 `ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
 `.github/workflows/ios-release.yml`, which archives, signs, uploads to App
 Store Connect, and distributes to TestFlight. The build number is
-`github.run_number`, not a value in the project file. Releases are tagged
-`ios/v<MARKETING_VERSION>`. Full procedure and triage:
-[`runbooks/ios-release.md`](runbooks/ios-release.md).
+`github.run_number`, not a value in the project file. The workflow creates no
+tag and no GitHub Release; tagging the release commit `ios/v<MARKETING_VERSION>`
+is a manual operator step after the upload reports `state=VALID`. Full procedure
+and triage: [`runbooks/ios-release.md`](runbooks/ios-release.md).
 
 ## Android
 
@@ -148,19 +149,22 @@ package and `applicationId` are both `app.rentivo`.
 | `minSdk` | 26 |
 | `compileSdk` / `targetSdk` | 35 |
 | JVM target | 17 |
-| JDK to run Gradle | **21** |
+| JDK to run Gradle | **21** (CI convention; no toolchain pin) |
 
-Gradle also needs the Android SDK location, from `android/local.properties`
-(gitignored — create it locally) or `ANDROID_HOME`.
+The build declares no Gradle toolchain, so nothing forces a particular JDK —
+use 21 to match CI (Temurin 21 in
+`.github/actions/android-unit-tests/action.yml`). Gradle also needs the Android
+SDK location, from `android/local.properties` (gitignored — create it locally)
+or `ANDROID_HOME`.
 
 **Build and test.**
 
 ```bash
-make android-build           # ./gradlew :app:assembleDebug
-make android-test            # ./gradlew :app:testDebugUnitTest
+make android-build           # cd android && ./gradlew assembleDebug
+make android-test            # cd android && ./gradlew testDebugUnitTest
 ```
 
-Tests are pure JVM — 31 test classes under `android/app/src/test`. There is no
+Tests are pure JVM — 30 test classes under `android/app/src/test`. There is no
 `androidTest` source set, so no emulator or connected device is ever involved.
 
 **CI.** `.github/actions/android-unit-tests/action.yml` on `ubuntu-latest` runs
@@ -169,8 +173,9 @@ verifies the OpenAPI copy. There is no Make target for `lintDebug`, so
 `make android-test` is weaker than CI — run lint from `android/` directly
 before pushing if you want parity. The job is path-gated by
 `scripts/android-ci.sh paths-changed`, which triggers on `android/`, the
-composite action, the Android CI and sync scripts, `frontend/openapi.json`, and
-the workflow file.
+composite action, the Android CI and sync scripts, the CI script's own shell
+test (`scripts/tests/android-ci-test.sh`), `frontend/openapi.json`, and the
+workflow file.
 
 **Release.** There is none yet. `versionCode` is `1` and `versionName` is
 `1.0.0`, there is no signing configuration, and no workflow builds, signs, or
