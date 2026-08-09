@@ -2,11 +2,16 @@
 
 All notable changes to Rentivo are documented in this file.
 
-The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). See [`CLAUDE.md` → Versioning & Releases](CLAUDE.md#versioning--releases) for the bump policy.
+The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). See [`CONTRIBUTING.md` → Versioning & releases](CONTRIBUTING.md#versioning--releases) for the bump policy.
 
 > Note: this changelog was seeded from 187 commits of pre-SemVer history. Some pre-v3.0.0 dates are not strictly monotonic top-to-bottom (rebase artifacts) — entries are ordered by SemVer, not by date.
 
 ## [Unreleased]
+### Added
+- Native Android app under `android/` (Kotlin, Jetpack Compose, package `app.rentivo`, minSdk 26): a 1:1 port of the iOS app covering authentication through the mobile web handoff, the home dashboard, billings, bills, organizations and invitations, billing operations, account, security, API keys, and the theme editor, with the neo-brutalist design system ported to Compose and PT-BR copy matching iOS. The domain and data layers are pure JVM code with the live API client, encrypted credential storage, and the demo store; `android/app/openapi.json` is committed byte-identical to `frontend/openapi.json` and kept in sync by `make android-openapi-sync` / `make android-openapi-check`. A path-filtered `android` release-gate job builds, unit-tests, and lints it and verifies the contract copy; `make android-test` runs the suite on the JVM with no emulator (#204).
+
+### Security
+- Terminal-state job rows are purged past a retention window, bounding how long encrypted third-party PII survives in the `jobs` table. `RENTIVO_JOB_RETENTION_DAYS` (default 30, `0` disables) drives a batched purge folded into the `auth.cleanup` handler, backed by a new additive `idx_jobs_retention` index; `pending`/`running` rows are never touched. The login-token, challenge, and job purges now share one drain loop capped at 10k rows per table per run. `auth.cleanup` itself was never enqueued, leaving all three purges dormant: the database worker now self-schedules it every `RENTIVO_AUTH_CLEANUP_INTERVAL_SECONDS` (default 3600, `0` disables) unless one is pending, running, or recently finished, while Temporal deployments schedule it themselves (#186).
 
 ## [5.1.0] - 2026-08-06
 ### Added
