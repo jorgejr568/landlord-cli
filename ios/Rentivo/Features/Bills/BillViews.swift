@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 private struct EditableBillLine: Identifiable {
@@ -582,7 +584,11 @@ private struct ReceiptManagerView: View {
   let canWrite: Bool
   let onMutation: () async -> Void
   @State private var downloadedFile: DownloadedFile?
+  @State private var showingSourceChooser = false
   @State private var showingFileImporter = false
+  @State private var showingCamera = false
+  @State private var showingPhotosPicker = false
+  @State private var photoSelection: PhotosPickerItem?
   @State private var pendingDeletion: Receipt?
 
   var body: some View {
@@ -631,7 +637,7 @@ private struct ReceiptManagerView: View {
       }
       if canWrite {
         Button {
-          showingFileImporter = true
+          showingSourceChooser = true
         } label: {
           Label("Adicionar comprovante", systemImage: "plus")
         }
@@ -639,6 +645,16 @@ private struct ReceiptManagerView: View {
       }
     }
     .downloadedFileSheet($downloadedFile)
+    .confirmationDialog(
+      "Adicionar comprovante",
+      isPresented: $showingSourceChooser,
+      titleVisibility: .visible
+    ) {
+      ForEach(ReceiptSource.available) { source in
+        Button(source.label) { present(source) }
+      }
+      Button("Cancelar", role: .cancel) {}
+    }
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],
@@ -646,6 +662,21 @@ private struct ReceiptManagerView: View {
     ) { result in
       guard case .success(let urls) = result, let url = urls.first else { return }
       Task { await add(fileURL: url) }
+    }
+    .fullScreenCover(isPresented: $showingCamera) {
+      ReceiptCameraPicker(
+        onCapture: { image in
+          showingCamera = false
+          Task { await add(capturedPhoto: image) }
+        },
+        onCancel: { showingCamera = false }
+      )
+      .ignoresSafeArea()
+    }
+    .photosPicker(isPresented: $showingPhotosPicker, selection: $photoSelection, matching: .images)
+    .onChange(of: photoSelection) { _, selection in
+      guard let selection else { return }
+      Task { await add(photoItem: selection) }
     }
     .confirmationDialog(
       "Excluir este comprovante?",
@@ -664,11 +695,44 @@ private struct ReceiptManagerView: View {
     }
   }
 
+  private func present(_ source: ReceiptSource) {
+    switch source {
+    case .files: showingFileImporter = true
+    case .camera: showingCamera = true
+    case .photos: showingPhotosPicker = true
+    }
+  }
+
   private func add(fileURL: URL) async {
     do {
       let accessGranted = fileURL.startAccessingSecurityScopedResource()
       defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
       let upload = try FileUpload.from(url: fileURL)
+      await send(upload)
+    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  }
+
+  private func add(capturedPhoto image: UIImage) async {
+    guard let upload = FileUpload.capturedPhoto(image) else {
+      app.showNotice("Não foi possível preparar a foto do comprovante.", kind: .warning)
+      return
+    }
+    await send(upload)
+  }
+
+  private func add(photoItem: PhotosPickerItem) async {
+    photoSelection = nil
+    do {
+      guard let upload = try await photoItem.receiptUpload() else {
+        app.showNotice("Não foi possível ler a foto selecionada.", kind: .warning)
+        return
+      }
+      await send(upload)
+    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  }
+
+  private func send(_ upload: FileUpload) async {
+    do {
       _ = try await app.dependencies.bills.addReceipt(
         billingID: billingID,
         billID: bill.id,

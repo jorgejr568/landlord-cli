@@ -31,6 +31,8 @@
       </array>
     </dict>
   </array>
+  <key>NSCameraUsageDescription</key>
+  <string>A câmera é usada para fotografar comprovantes de pagamento.</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.finance</string>
   <key>ITSAppUsesNonExemptEncryption</key>
