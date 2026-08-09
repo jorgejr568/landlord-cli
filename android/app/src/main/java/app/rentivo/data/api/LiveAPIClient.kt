@@ -1,6 +1,7 @@
 package app.rentivo.data.api
 
 import app.rentivo.data.DownloadedFileStore
+import app.rentivo.data.ReceiptCaptureStore
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.LocalizedError
 import app.rentivo.domain.UserProfile
@@ -68,6 +69,7 @@ class LiveAPIClient(
   private val baseUrl: HttpUrl = PRODUCTION_URL,
   private val credentials: CredentialStore,
   private val downloads: DownloadedFileStore,
+  private val captures: ReceiptCaptureStore,
   private val client: OkHttpClient = defaultClient(),
   private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -267,11 +269,15 @@ class LiveAPIClient(
 
   /**
    * Drops what an authenticated session leaves behind on disk: documents the user downloaded
-   * through the share sheet. There is no HTTP response cache to clear — [defaultClient] installs
-   * none, so nothing an authenticated request returned was ever written to disk by the transport.
+   * through the share sheet, and receipt photos the camera wrote into the cache. A capture is
+   * normally deleted as soon as its upload settles, but a process death between the shot and the
+   * upload leaves one behind, and it must not outlive the session it was taken in. There is no
+   * HTTP response cache to clear — [defaultClient] installs none, so nothing an authenticated
+   * request returned was ever written to disk by the transport.
    */
   private fun purgeLocalArtifacts() {
     downloads.purge()
+    captures.purge()
   }
 
   private fun fileExtension(mediaType: String): String = when (mediaType.lowercase()) {

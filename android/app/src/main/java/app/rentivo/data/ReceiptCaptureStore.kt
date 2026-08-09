@@ -1,14 +1,9 @@
-package app.rentivo.features.bills
+package app.rentivo.data
 
-import app.rentivo.domain.DemoError
-import app.rentivo.domain.FileUpload
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Owns the on-disk lifecycle of the photos the camera writes when a receipt is captured.
@@ -18,9 +13,9 @@ import kotlinx.coroutines.withContext
  * `res/xml/file_paths.xml` exposes to the FileProvider — instead of the cache root, so a capture
  * can never be confused with a downloaded document and the whole batch can be cleared at once.
  *
- * Pure JVM on purpose, like [app.rentivo.data.DownloadedFileStore]: the caller supplies the
- * directory (in production, a subdirectory of the app's cache dir), so this class and its tests
- * never need an Android context.
+ * Pure JVM on purpose, like [DownloadedFileStore]: the caller supplies the directory (in
+ * production, a subdirectory of the app's cache dir), so this class and its tests never need an
+ * Android context.
  */
 class ReceiptCaptureStore(val directory: File) {
 
@@ -38,23 +33,37 @@ class ReceiptCaptureStore(val directory: File) {
     return File(directory, captureFilename(instant = instant, zone = zone))
   }
 
+  /**
+   * Removes every capture this store produced, so no photo taken during an authenticated session
+   * outlives it. Best effort, like [DownloadedFileStore.purge]: purging a directory that no longer
+   * exists is a no-op.
+   */
+  fun purge() {
+    directory.deleteRecursively()
+  }
+
   companion object {
     /**
      * Name of the cache subdirectory holding camera captures. It must stay in sync with the
      * `captures` `cache-path` entry of `res/xml/file_paths.xml`, or the camera app cannot be
-     * granted write access to the destination.
+     * granted write access to the destination. `FileProviderPathsTest` pins the two together.
      */
     const val DIRECTORY_NAME: String = "RentivoCaptures"
-
-    /** What the camera contract always writes, and what the upload is therefore labelled with. */
-    const val MEDIA_TYPE: String = "image/jpeg"
 
     private const val FILENAME_PREFIX = "comprovante"
     private const val FILENAME_EXTENSION = "jpg"
     private val filenameTimestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
-    /** The capture's local-time filename, e.g. `comprovante-20260809-143012.jpg`. */
-    fun captureFilename(instant: Instant, zone: ZoneId): String {
+    /**
+     * The local-time filename a generated receipt carries, e.g. `comprovante-20260809-143012.jpg`.
+     *
+     * Used for camera destinations and, in `app.rentivo.data.api`, for an image the app had to
+     * re-encode: neither has a document name of its own, and both end up as JPEG.
+     */
+    fun captureFilename(
+      instant: Instant = Instant.now(),
+      zone: ZoneId = ZoneId.systemDefault(),
+    ): String {
       val timestamp = filenameTimestamp.format(instant.atZone(zone))
       return "$FILENAME_PREFIX-$timestamp.$FILENAME_EXTENSION"
     }
@@ -68,30 +77,4 @@ class ReceiptCaptureStore(val directory: File) {
       runCatching { file.delete() }
     }
   }
-}
-
-/**
- * Reads a finished camera capture into a [FileUpload].
- *
- * Unlike a picked document, a capture needs no resolver round-trip: the app named the file and the
- * camera contract only ever writes JPEG, so both the filename and the media type are already
- * known. An empty file means the camera reported success without writing anything, which would
- * otherwise reach the API as a zero-byte receipt.
- *
- * Suspends on [ioDispatcher] because reading the photo is blocking and the caller is a picker
- * callback running on the main dispatcher.
- */
-suspend fun fileUploadFromCapture(
-  file: File,
-  ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-): FileUpload = withContext(ioDispatcher) {
-  val data = if (file.isFile) file.readBytes() else ByteArray(0)
-  if (data.isEmpty()) {
-    throw DemoError("Não foi possível ler a foto capturada. Tente novamente.")
-  }
-  FileUpload(
-    data = data,
-    filename = file.name,
-    mediaType = ReceiptCaptureStore.MEDIA_TYPE,
-  )
 }

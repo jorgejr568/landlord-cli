@@ -44,9 +44,11 @@
         </activity>
 
         <!--
-          Grants the share sheet read access to a single downloaded file at a time. The documents
-          live in the app's private cache, so a content:// URI plus a one-shot read grant is the
-          only way another app can open one.
+          The only bridge between this app's private cache and another app, in both directions:
+          read access to a single downloaded file handed to the share sheet, and write access to a
+          single capture destination handed to the camera app. Both live in the cache, so a
+          content:// URI plus a one-shot grant is the only way another app can touch one; the two
+          directories exposed are listed in @xml/file_paths.
         -->
         <provider
             android:name="androidx.core.content.FileProvider"

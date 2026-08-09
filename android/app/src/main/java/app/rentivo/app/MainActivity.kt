@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.rentivo.data.AppDependencies
 import app.rentivo.data.DownloadedFileStore
+import app.rentivo.data.ReceiptCaptureStore
 import app.rentivo.data.LiveDemoRepository
 import app.rentivo.data.api.APIRentivoStore
 import app.rentivo.data.api.EncryptedCredentialStore
@@ -204,7 +205,8 @@ internal class AppGraph(
  * `--ui-testing` / `--screenshot-authenticated`).
  *
  * The live branch owns the only instances of the credential store, the download store and the API
- * client, so the token, the downloads directory and the 401 handling all share one lifetime.
+ * client, so the token, the cache directories the session writes to and the 401 handling all share
+ * one lifetime.
  */
 internal fun createAppGraph(context: Context, useMockData: Boolean): AppGraph {
   if (useMockData) {
@@ -213,6 +215,7 @@ internal fun createAppGraph(context: Context, useMockData: Boolean): AppGraph {
   val client = LiveAPIClient(
     credentials = EncryptedCredentialStore(context),
     downloads = DownloadedFileStore(File(context.cacheDir, DOWNLOADS_DIRECTORY_NAME)),
+    captures = ReceiptCaptureStore(File(context.cacheDir, ReceiptCaptureStore.DIRECTORY_NAME)),
   )
   return AppGraph(
     dependencies = liveDependencies(APIRentivoStore(client), LiveDemoRepository()),

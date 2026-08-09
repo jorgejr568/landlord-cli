@@ -1,6 +1,7 @@
 package app.rentivo.data.api
 
 import app.rentivo.data.DownloadedFileStore
+import app.rentivo.data.ReceiptCaptureStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,10 @@ internal fun unexpected(call: CapturedCall): MockResponse =
 internal fun makeIsolatedDownloadsStore(): DownloadedFileStore =
   DownloadedFileStore(Files.createTempDirectory("rentivo-downloads").toFile())
 
+/** Its own captures directory per test, for the same reason as [makeIsolatedDownloadsStore]. */
+internal fun makeIsolatedCapturesStore(): ReceiptCaptureStore =
+  ReceiptCaptureStore(Files.createTempDirectory("rentivo-captures").toFile())
+
 /**
  * Watches [LiveAPIClient.sessionExpired] from a real dispatcher.
  *
@@ -138,10 +143,12 @@ internal fun liveClient(
   server: MockWebServer,
   credentials: CredentialStore = MemoryCredentialStore(token = "stored-token"),
   downloads: DownloadedFileStore = makeIsolatedDownloadsStore(),
+  captures: ReceiptCaptureStore = makeIsolatedCapturesStore(),
   okHttp: OkHttpClient = LiveAPIClient.defaultClient(),
 ): LiveAPIClient = LiveAPIClient(
   baseUrl = server.url("/"),
   credentials = credentials,
   downloads = downloads,
+  captures = captures,
   client = okHttp,
 )

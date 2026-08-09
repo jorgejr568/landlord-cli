@@ -1,13 +1,17 @@
 package app.rentivo.data.api
 
 import android.content.ContentResolver
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import app.rentivo.domain.DemoError
 import app.rentivo.domain.FileUpload
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 
 /**
@@ -38,6 +42,58 @@ suspend fun fileUploadFromUri(
     data = data,
     filename = filename,
     mediaType = mediaType ?: mediaTypeFromExtension(filename) ?: DEFAULT_MEDIA_TYPE,
+  )
+}
+
+/**
+ * Brings a file read from any source — document, photo picker or camera — in line with what the
+ * API stores, and refuses it here when it cannot be.
+ *
+ * The bytes decide the media type: the photo picker hands over HEIC on most recent devices, and an
+ * OEM camera in HEIF mode writes HEIF into the `.jpg` destination this app named, so neither the
+ * provider's label nor the extension can be trusted. Anything the API would not store is decoded
+ * and re-encoded as JPEG under a generated name; an image no decoder on the device understands
+ * becomes PT-BR copy instead of a receipt the server would silently skip.
+ *
+ * Suspends on [ioDispatcher]: decoding and re-encoding a photo is the most expensive step of the
+ * whole flow, and the caller is a picker callback running on the main dispatcher.
+ *
+ * Throws [DemoError] when the file is unusable or over the size limit.
+ */
+suspend fun prepareReceiptUpload(
+  source: FileUpload,
+  ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+): FileUpload = withContext(ioDispatcher) {
+  val actualMediaType = sniffImageMediaType(source.data) ?: source.mediaType
+  val prepared = when (receiptMediaDecision(actualMediaType)) {
+    ReceiptMediaDecision.ACCEPT -> if (actualMediaType == source.mediaType) {
+      source
+    } else {
+      FileUpload(data = source.data, filename = source.filename, mediaType = actualMediaType)
+    }
+
+    ReceiptMediaDecision.TRANSCODE_TO_JPEG -> transcodeToJpeg(source)
+  }
+  requireReceiptWithinSizeLimit(prepared)
+}
+
+/** Quality high enough that a photographed receipt stays readable, low enough to stay small. */
+private const val JPEG_QUALITY = 85
+
+private fun transcodeToJpeg(source: FileUpload): FileUpload {
+  val bitmap = BitmapFactory.decodeByteArray(source.data, 0, source.data.size)
+    ?: throw DemoError(RECEIPT_UNSUPPORTED_MESSAGE)
+  val encoded = ByteArrayOutputStream()
+  val compressed = try {
+    bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, encoded)
+  } finally {
+    bitmap.recycle()
+  }
+  if (!compressed || encoded.size() == 0) throw DemoError(RECEIPT_UNSUPPORTED_MESSAGE)
+  return FileUpload(
+    data = encoded.toByteArray(),
+    filename = transcodedReceiptFilename(),
+    mediaType = JPEG_MEDIA_TYPE,
   )
 }
 

@@ -1,5 +1,6 @@
 package app.rentivo.features.bills
 
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,6 +73,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +87,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.data.ReceiptCaptureStore
+import app.rentivo.data.api.fileUploadFromCapture
 import app.rentivo.data.api.fileUploadFromUri
+import app.rentivo.data.api.prepareReceiptUpload
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
@@ -1248,9 +1253,15 @@ private fun ReceiptManagerSection(
   val captures = remember(context) {
     ReceiptCaptureStore(File(context.cacheDir, ReceiptCaptureStore.DIRECTORY_NAME))
   }
+  val hasCamera = remember(context) {
+    context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+  }
   // The camera contract reports success or failure, not the URI it was handed, so the destination
-  // has to survive from launch to callback.
-  var pendingCapture by remember { mutableStateOf<File?>(null) }
+  // has to survive from launch to callback — and the activity can be destroyed in between, since
+  // the camera app is what the user is looking at. Saved rather than remembered, because the
+  // result registry redelivers the capture after recreation and a remembered destination would be
+  // null by then: the photo would be dropped and its file left behind.
+  var pendingCapturePath by rememberSaveable { mutableStateOf<String?>(null) }
 
   suspend fun report(throwable: Throwable) {
     app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
@@ -1282,7 +1293,7 @@ private fun ReceiptManagerSection(
   val documentPicker =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
       if (uri == null) return@rememberLauncherForActivityResult
-      uploadReceipt { fileUploadFromUri(resolver = resolver, uri = uri) }
+      uploadReceipt { prepareReceiptUpload(fileUploadFromUri(resolver = resolver, uri = uri)) }
     }
 
   // The system photo picker: it hands over one image without the app holding any storage
@@ -1290,34 +1301,38 @@ private fun ReceiptManagerSection(
   val photoPicker =
     rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
       if (uri == null) return@rememberLauncherForActivityResult
-      uploadReceipt { fileUploadFromUri(resolver = resolver, uri = uri) }
+      uploadReceipt { prepareReceiptUpload(fileUploadFromUri(resolver = resolver, uri = uri)) }
     }
 
   val cameraPicker =
     rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
-      val destination = pendingCapture ?: return@rememberLauncherForActivityResult
-      pendingCapture = null
+      val destination = pendingCapturePath?.let(::File)
+        ?: return@rememberLauncherForActivityResult
+      pendingCapturePath = null
       if (!captured) {
         ReceiptCaptureStore.remove(destination)
         return@rememberLauncherForActivityResult
       }
       uploadReceipt(cleanup = { ReceiptCaptureStore.remove(destination) }) {
-        fileUploadFromCapture(destination)
+        prepareReceiptUpload(fileUploadFromCapture(destination))
       }
     }
 
   // Creating the destination, granting it to the camera and resolving a camera app can all fail
   // (no camera on the device, a full cache), and none of it happens inside a coroutine.
   fun launchCamera() {
+    val destination = runCatching { captures.makeDestination() }.getOrElse { throwable ->
+      scope.launch { report(throwable) }
+      return
+    }
+    pendingCapturePath = destination.absolutePath
     try {
-      val destination = captures.makeDestination()
-      pendingCapture = destination
       cameraPicker.launch(
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", destination),
       )
     } catch (throwable: Throwable) {
-      pendingCapture?.let { ReceiptCaptureStore.remove(it) }
-      pendingCapture = null
+      pendingCapturePath = null
+      ReceiptCaptureStore.remove(destination)
       scope.launch { report(throwable) }
     }
   }
@@ -1449,15 +1464,20 @@ private fun ReceiptManagerSection(
               documentPicker.launch(arrayOf("application/pdf", "image/*"))
             },
           )
-          ReceiptSourceMenuItem(
-            text = "Câmera",
-            icon = Icons.Filled.PhotoCamera,
-            testTag = "bill.receipts.source.camera",
-            onClick = {
-              sourceMenuOpen = false
-              launchCamera()
-            },
-          )
+          // Camera hardware is optional (see the manifest's `uses-feature`), so a device without
+          // any is offered only the two sources that can work — as on iOS, where the source is
+          // hidden when the picker reports it unavailable.
+          if (hasCamera) {
+            ReceiptSourceMenuItem(
+              text = "Câmera",
+              icon = Icons.Filled.PhotoCamera,
+              testTag = "bill.receipts.source.camera",
+              onClick = {
+                sourceMenuOpen = false
+                launchCamera()
+              },
+            )
+          }
           ReceiptSourceMenuItem(
             text = "Fotos",
             icon = Icons.Filled.PhotoLibrary,
