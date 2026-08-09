@@ -6,7 +6,7 @@ from io import BytesIO
 
 import structlog
 from fpdf import FPDF
-from PIL import Image
+from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
 
 from rentivo.observability import traced
@@ -17,6 +17,12 @@ logger = structlog.get_logger(__name__)
 def _image_to_pdf(image_bytes: bytes) -> bytes:
     """Convert an image (JPEG/PNG) to a single-page PDF respecting aspect ratio."""
     img = Image.open(BytesIO(image_bytes))
+
+    # Phone cameras record rotation as EXIF metadata instead of rotating pixels.
+    # Bake it in before reading the size, otherwise an upright receipt is
+    # measured (and embedded) sideways. ``in_place=True`` mutates ``img`` and
+    # returns ``None`` by contract, so there is no result to reassign.
+    ImageOps.exif_transpose(img, in_place=True)
 
     # Convert RGBA to RGB for PDF compatibility
     if img.mode in ("RGBA", "P"):

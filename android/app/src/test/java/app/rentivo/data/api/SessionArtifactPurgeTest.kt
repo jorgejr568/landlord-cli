@@ -12,13 +12,14 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Purging what a session left on disk. Each test injects its own downloads directory, because
- * these are the tests that actually call `purge()` on a real one.
+ * Purging what a session left on disk. Each test injects its own downloads and captures
+ * directories, because these are the tests that actually call `purge()` on real ones.
  */
 class SessionArtifactPurgeTest {
 
   private val server = MockWebServer()
   private val downloads = makeIsolatedDownloadsStore()
+  private val captures = makeIsolatedCapturesStore()
 
   @Before
   fun start() {
@@ -29,6 +30,7 @@ class SessionArtifactPurgeTest {
   fun stop() {
     server.shutdown()
     downloads.purge()
+    captures.purge()
   }
 
   private fun pdfResponse(): MockResponse = MockResponse()
@@ -39,7 +41,7 @@ class SessionArtifactPurgeTest {
   @Test
   fun `signing out removes files downloaded during the session`() = runTest {
     server.routeWithSession { pdfResponse() }
-    val client = liveClient(server, downloads = downloads)
+    val client = liveClient(server, downloads = downloads, captures = captures)
     assertNotNull(client.restoreSession())
     val file = client.download(
       path = "/api/v1/billings/b/bills/1/invoice",
@@ -54,6 +56,22 @@ class SessionArtifactPurgeTest {
   }
 
   @Test
+  fun `signing out removes a receipt capture the upload never got to clean up`() = runTest {
+    server.routeWithSession { pdfResponse() }
+    val client = liveClient(server, downloads = downloads, captures = captures)
+    assertNotNull(client.restoreSession())
+    // What a process death between the shot and the upload leaves behind.
+    val leaked = captures.makeDestination()
+    leaked.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()))
+    assertTrue(leaked.exists())
+
+    client.logout()
+
+    assertFalse(leaked.exists())
+    assertFalse(captures.directory.exists())
+  }
+
+  @Test
   fun `an expired session removes files downloaded during it`() = runTest {
     server.routeWithSession { call ->
       if (call.path.endsWith("/invoice")) {
@@ -62,7 +80,7 @@ class SessionArtifactPurgeTest {
         jsonResponse("""{"detail":"Sessão expirada."}""", code = 401)
       }
     }
-    val client = liveClient(server, downloads = downloads)
+    val client = liveClient(server, downloads = downloads, captures = captures)
     assertNotNull(client.restoreSession())
     val file = client.download(
       path = "/api/v1/billings/b/bills/1/invoice",

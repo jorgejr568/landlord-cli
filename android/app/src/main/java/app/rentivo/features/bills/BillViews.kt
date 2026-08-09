@@ -1,6 +1,8 @@
 package app.rentivo.features.bills
 
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,8 +39,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FindInPage
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Verified
@@ -68,6 +73,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,9 +84,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
+import app.rentivo.data.ReceiptCaptureStore
+import app.rentivo.data.api.fileUploadFromCapture
 import app.rentivo.data.api.fileUploadFromUri
+import app.rentivo.data.api.prepareReceiptUpload
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
@@ -116,6 +126,7 @@ import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
+import app.rentivo.domain.FileUpload
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Money
 import app.rentivo.domain.PDFRenderStatus
@@ -123,6 +134,7 @@ import app.rentivo.domain.Receipt
 import app.rentivo.domain.ReceiptID
 import app.rentivo.domain.ReferenceMonth
 import app.rentivo.domain.ValidationIssue
+import java.io.File
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
@@ -1232,31 +1244,96 @@ private fun ReceiptManagerSection(
 ) {
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
-  val resolver = LocalContext.current.contentResolver
+  val context = LocalContext.current
+  val resolver = context.contentResolver
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var pendingDeletion by remember { mutableStateOf<Receipt?>(null) }
   var openMenuFor by remember { mutableStateOf<ReceiptID?>(null) }
+  var sourceMenuOpen by remember { mutableStateOf(false) }
+  val captures = remember(context) {
+    ReceiptCaptureStore(File(context.cacheDir, ReceiptCaptureStore.DIRECTORY_NAME))
+  }
+  val hasCamera = remember(context) {
+    context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+  }
+  // The camera contract reports success or failure, not the URI it was handed, so the destination
+  // has to survive from launch to callback — and the activity can be destroyed in between, since
+  // the camera app is what the user is looking at. Saved rather than remembered, because the
+  // result registry redelivers the capture after recreation and a remembered destination would be
+  // null by then: the photo would be dropped and its file left behind.
+  var pendingCapturePath by rememberSaveable { mutableStateOf<String?>(null) }
 
   suspend fun report(throwable: Throwable) {
     app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
   }
 
-  val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-    if (uri == null) return@rememberLauncherForActivityResult
+  /**
+   * The one upload path every source funnels into. [cleanup] runs whatever the outcome, so a
+   * temporary capture is deleted after a failed upload just as it is after a successful one.
+   */
+  fun uploadReceipt(cleanup: () -> Unit = {}, build: suspend () -> FileUpload) {
     scope.launch {
       try {
-        val upload = fileUploadFromUri(resolver = resolver, uri = uri)
         app.dependencies.bills.addReceipt(
           billingID = billingID,
           billID = bill.id,
-          upload = upload,
+          upload = build(),
         )
         onMutation()
       } catch (cancellation: CancellationException) {
         throw cancellation
       } catch (throwable: Throwable) {
         report(throwable)
+      } finally {
+        cleanup()
       }
+    }
+  }
+
+  val documentPicker =
+    rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+      if (uri == null) return@rememberLauncherForActivityResult
+      uploadReceipt { prepareReceiptUpload(fileUploadFromUri(resolver = resolver, uri = uri)) }
+    }
+
+  // The system photo picker: it hands over one image without the app holding any storage
+  // permission, which is why photos are a separate source from documents rather than a filter.
+  val photoPicker =
+    rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+      if (uri == null) return@rememberLauncherForActivityResult
+      uploadReceipt { prepareReceiptUpload(fileUploadFromUri(resolver = resolver, uri = uri)) }
+    }
+
+  val cameraPicker =
+    rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+      val destination = pendingCapturePath?.let(::File)
+        ?: return@rememberLauncherForActivityResult
+      pendingCapturePath = null
+      if (!captured) {
+        ReceiptCaptureStore.remove(destination)
+        return@rememberLauncherForActivityResult
+      }
+      uploadReceipt(cleanup = { ReceiptCaptureStore.remove(destination) }) {
+        prepareReceiptUpload(fileUploadFromCapture(destination))
+      }
+    }
+
+  // Creating the destination, granting it to the camera and resolving a camera app can all fail
+  // (no camera on the device, a full cache), and none of it happens inside a coroutine.
+  fun launchCamera() {
+    val destination = runCatching { captures.makeDestination() }.getOrElse { throwable ->
+      scope.launch { report(throwable) }
+      return
+    }
+    pendingCapturePath = destination.absolutePath
+    try {
+      cameraPicker.launch(
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", destination),
+      )
+    } catch (throwable: Throwable) {
+      pendingCapturePath = null
+      ReceiptCaptureStore.remove(destination)
+      scope.launch { report(throwable) }
     }
   }
 
@@ -1364,12 +1441,55 @@ private fun ReceiptManagerSection(
       }
     }
     if (canWrite) {
-      RentivoTonalButton(
-        onClick = { picker.launch(arrayOf("application/pdf", "image/*")) },
-        modifier = Modifier.testTag("bill.receipts.add"),
-      ) {
-        Icon(imageVector = Icons.Filled.Add, contentDescription = null)
-        Text(text = "Adicionar comprovante", style = RentivoTypography.body)
+      // The three sources hang off the button that opens them, like the per-receipt menu above:
+      // tapping outside or pressing back dismisses without choosing one.
+      Box {
+        RentivoTonalButton(
+          onClick = { sourceMenuOpen = true },
+          modifier = Modifier.testTag("bill.receipts.add"),
+        ) {
+          Icon(imageVector = Icons.Filled.Add, contentDescription = null)
+          Text(text = "Adicionar comprovante", style = RentivoTypography.body)
+        }
+        DropdownMenu(
+          expanded = sourceMenuOpen,
+          onDismissRequest = { sourceMenuOpen = false },
+        ) {
+          ReceiptSourceMenuItem(
+            text = "Arquivos",
+            icon = Icons.Filled.Folder,
+            testTag = "bill.receipts.source.files",
+            onClick = {
+              sourceMenuOpen = false
+              documentPicker.launch(arrayOf("application/pdf", "image/*"))
+            },
+          )
+          // Camera hardware is optional (see the manifest's `uses-feature`), so a device without
+          // any is offered only the two sources that can work — as on iOS, where the source is
+          // hidden when the picker reports it unavailable.
+          if (hasCamera) {
+            ReceiptSourceMenuItem(
+              text = "Câmera",
+              icon = Icons.Filled.PhotoCamera,
+              testTag = "bill.receipts.source.camera",
+              onClick = {
+                sourceMenuOpen = false
+                launchCamera()
+              },
+            )
+          }
+          ReceiptSourceMenuItem(
+            text = "Fotos",
+            icon = Icons.Filled.PhotoLibrary,
+            testTag = "bill.receipts.source.photos",
+            onClick = {
+              sourceMenuOpen = false
+              photoPicker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+              )
+            },
+          )
+        }
       }
     }
   }
@@ -1410,6 +1530,24 @@ private fun ReceiptManagerSection(
       containerColor = RentivoColors.surface,
     )
   }
+}
+
+/** One entry of the "Adicionar comprovante" source menu. */
+@Composable
+private fun ReceiptSourceMenuItem(
+  text: String,
+  icon: ImageVector,
+  testTag: String,
+  onClick: () -> Unit,
+) {
+  DropdownMenuItem(
+    text = { Text(text = text) },
+    onClick = onClick,
+    leadingIcon = {
+      Icon(imageVector = icon, contentDescription = null, tint = RentivoColors.ink)
+    },
+    modifier = Modifier.testTag(testTag),
+  )
 }
 
 // MARK: - Shared pieces
