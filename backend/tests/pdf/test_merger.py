@@ -53,6 +53,20 @@ def _make_landscape_image() -> bytes:
     return buf.getvalue()
 
 
+def _make_exif_rotated_jpeg() -> bytes:
+    """Create a JPEG stored landscape but tagged EXIF orientation 6 (upright).
+
+    Phone cameras write the sensor buffer as-is and record the rotation in EXIF.
+    Honoring the tag turns this 800x400 buffer into a 400x800 portrait image.
+    """
+    img = Image.new("RGB", (800, 400), color="orange")
+    exif = img.getexif()
+    exif[274] = 6  # ExifTags.Base.Orientation — rotate 270 degrees on display
+    buf = BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    return buf.getvalue()
+
+
 class TestMergeReceipts:
     def test_no_receipts_returns_original(self):
         invoice = _make_pdf(2)
@@ -156,6 +170,18 @@ class TestImageToPdf:
         result = _image_to_pdf(png)
         reader = PdfReader(BytesIO(result))
         assert len(reader.pages) == 1
+
+    def test_exif_orientation_is_honored(self):
+        # Stored 800x400 but tagged orientation 6, so it displays as 400x800.
+        jpeg = _make_exif_rotated_jpeg()
+        result = _image_to_pdf(jpeg)
+        reader = PdfReader(BytesIO(result))
+        assert len(reader.pages) == 1
+        page = reader.pages[0]
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        # Ignoring the EXIF tag would pick landscape A4 for the raw 800x400 size.
+        assert height > width
 
     def test_square_image(self):
         img = Image.new("RGB", (500, 500), color="white")
