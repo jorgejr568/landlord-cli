@@ -669,11 +669,22 @@ private struct ReceiptManagerView: View {
           showingCamera = false
           Task { await add(capturedPhoto: image) }
         },
-        onCancel: { showingCamera = false }
+        onCancel: { showingCamera = false },
+        onFailure: {
+          showingCamera = false
+          app.showNotice("Não foi possível usar a foto capturada.", kind: .warning)
+        }
       )
       .ignoresSafeArea()
     }
-    .photosPicker(isPresented: $showingPhotosPicker, selection: $photoSelection, matching: .images)
+    // `.compatible` asks the picker to transcode HEIC assets to JPEG; the upload path clamps the
+    // format anyway, since the picker only transcodes when it can.
+    .photosPicker(
+      isPresented: $showingPhotosPicker,
+      selection: $photoSelection,
+      matching: .images,
+      preferredItemEncoding: .compatible
+    )
     .onChange(of: photoSelection) { _, selection in
       guard let selection else { return }
       Task { await add(photoItem: selection) }
@@ -707,7 +718,10 @@ private struct ReceiptManagerView: View {
     do {
       let accessGranted = fileURL.startAccessingSecurityScopedResource()
       defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
-      let upload = try FileUpload.from(url: fileURL)
+      guard let upload = try FileUpload.from(url: fileURL).clampedToAcceptedReceiptFormat() else {
+        app.showNotice("Não foi possível ler o arquivo selecionado.", kind: .warning)
+        return
+      }
       await send(upload)
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
@@ -732,6 +746,11 @@ private struct ReceiptManagerView: View {
   }
 
   private func send(_ upload: FileUpload) async {
+    guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
+      app.showNotice(
+        "O comprovante excede o limite de \(ReceiptUploadLimit.label).", kind: .warning)
+      return
+    }
     do {
       _ = try await app.dependencies.bills.addReceipt(
         billingID: billingID,

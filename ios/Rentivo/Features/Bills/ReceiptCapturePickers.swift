@@ -30,6 +30,7 @@ enum ReceiptSource: String, Identifiable, CaseIterable {
 struct ReceiptCameraPicker: UIViewControllerRepresentable {
   let onCapture: (UIImage) -> Void
   let onCancel: () -> Void
+  let onFailure: () -> Void
 
   func makeUIViewController(context: Context) -> UIImagePickerController {
     let controller = UIImagePickerController()
@@ -56,7 +57,7 @@ struct ReceiptCameraPicker: UIViewControllerRepresentable {
       didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
       guard let image = info[.originalImage] as? UIImage else {
-        picker.onCancel()
+        picker.onFailure()
         return
       }
       picker.onCapture(image)
@@ -68,10 +69,27 @@ struct ReceiptCameraPicker: UIViewControllerRepresentable {
   }
 }
 
+extension UIImage {
+  /// `jpegData` leaves the pixels as captured and records the rotation as EXIF metadata, which not
+  /// every consumer of the uploaded receipt honors. Redrawing through a renderer bakes the
+  /// orientation into the pixels, so the encoded bytes are upright on their own.
+  fileprivate func uprightJPEGData(compressionQuality: CGFloat) -> Data? {
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = scale
+    format.opaque = true
+    let upright = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+      draw(in: CGRect(origin: .zero, size: size))
+    }
+    return upright.jpegData(compressionQuality: compressionQuality)
+  }
+}
+
 extension FileUpload {
   /// A captured photo only exists as pixels, so it is re-encoded as JPEG and named here.
   static func capturedPhoto(_ image: UIImage, compressionQuality: CGFloat = 0.8) -> Self? {
-    guard let data = image.jpegData(compressionQuality: compressionQuality) else { return nil }
+    guard let data = image.uprightJPEGData(compressionQuality: compressionQuality) else {
+      return nil
+    }
     let descriptor = ReceiptMediaDescriptor.jpeg
     return Self(
       data: data,
@@ -79,18 +97,49 @@ extension FileUpload {
       mediaType: descriptor.mediaType
     )
   }
+
+  /// Library bytes are uploaded as they are when the server already accepts their format, and are
+  /// otherwise decoded and re-encoded as JPEG. Returns `nil` when the bytes are not a decodable
+  /// image, which is the only case the caller cannot recover from.
+  static func libraryPhoto(data: Data, descriptor: ReceiptMediaDescriptor) -> Self? {
+    guard ReceiptMediaDescriptor.requiresReencoding(mediaType: descriptor.mediaType) else {
+      return Self(
+        data: data,
+        filename: ReceiptFilename.captured(filenameExtension: descriptor.filenameExtension),
+        mediaType: descriptor.mediaType
+      )
+    }
+    guard let image = UIImage(data: data) else { return nil }
+    return capturedPhoto(image)
+  }
+
+  /// The file importer accepts any image, so a file picked from Arquivos can carry a format the
+  /// server drops — an iCloud HEIC, a TIFF scan. Accepted formats pass through untouched, anything
+  /// else is decoded and re-encoded as JPEG under its own name, and `nil` means the bytes were not
+  /// a decodable image.
+  func clampedToAcceptedReceiptFormat() -> Self? {
+    guard !ReceiptMediaDescriptor.isAllowed(mediaType: mediaType) else { return self }
+    guard let image = UIImage(data: data), let reencoded = Self.capturedPhoto(image) else {
+      return nil
+    }
+    return Self(
+      data: reencoded.data,
+      filename: ReceiptFilename.reencoded(
+        from: filename, filenameExtension: ReceiptMediaDescriptor.jpeg.filenameExtension),
+      mediaType: reencoded.mediaType
+    )
+  }
 }
 
 extension PhotosPickerItem {
-  /// Loads the picked asset's bytes tagged with its own media type. Returns `nil` when the item
-  /// carries no data representation the picker can hand over.
+  /// Loads the picked asset's bytes in a format the server accepts. Returns `nil` when the item
+  /// carries no data representation the picker can hand over, or when those bytes are neither an
+  /// accepted format nor a decodable image.
   func receiptUpload() async throws -> FileUpload? {
     guard let data = try await loadTransferable(type: Data.self) else { return nil }
-    let descriptor = ReceiptMediaDescriptor.inferred(from: supportedContentTypes)
-    return FileUpload(
+    return FileUpload.libraryPhoto(
       data: data,
-      filename: ReceiptFilename.captured(filenameExtension: descriptor.filenameExtension),
-      mediaType: descriptor.mediaType
+      descriptor: ReceiptMediaDescriptor.inferred(from: supportedContentTypes)
     )
   }
 }
