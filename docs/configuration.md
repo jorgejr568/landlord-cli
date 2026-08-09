@@ -8,9 +8,11 @@ Invalid values fail fast at process startup with a clear error.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENTIVO_DB_URL` | `mysql+pymysql://rentivo:rentivo@db:3306/rentivo` | SQLAlchemy URL (MariaDB, PyMySQL driver). Use host `localhost` for processes on your machine; containers started via docker compose are pinned to the `db` service by `docker-compose.yml` and ignore this value. |
+| `RENTIVO_DB_URL` | `mysql+pymysql://rentivo:rentivo@db:3306/rentivo` | SQLAlchemy URL (MariaDB, PyMySQL driver). Use host `localhost` for processes on your machine. |
 
-The `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_PORT` variables in `.env` provision the MariaDB **container** (read by `docker-compose.yml`, not the app).
+`docker-compose.yml` never sets `RENTIVO_DB_URL`: the production stack takes it from the application env file like any other setting. Only `docker-compose.dev.yml` overrides it, pointing the backend services at the internal `db` service using the `MYSQL_*` values.
+
+The `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_PORT` variables provision the MariaDB **container**. They belong in `.env.db` (see [`.env.db.example`](../.env.db.example)), which Compose reads as its `--env-file`, not in the application `.env` — the app never reads them.
 
 ## Web
 
@@ -19,7 +21,7 @@ The `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MY
 | `RENTIVO_SECRET_KEY` | `change-me-in-production` | Session signing key. With the default value a random key is generated at boot (sessions reset on restart, a warning is logged). **Rotation caveat:** this key also derives the HMAC key for the `users.email_hash` blind index — after rotating, run `make backfill-encryption-reset-blind-index` or email lookups will silently miss every pre-rotation user. |
 | `RENTIVO_PUBLIC_URL` | *(empty)* | Canonical public origin (no trailing slash) for `robots.txt` / `sitemap.xml` / OG tags. Empty = derive from the incoming request. |
 | `RENTIVO_PUBLIC_APP_URL` | `http://localhost:8000` | Canonical app URL used inside transactional emails (links, CTAs). |
-| `RENTIVO_ENVIRONMENT` | `production` | One of `production` / `staging` / `dev`. Populates the analytics environment dimension. |
+| `RENTIVO_ENVIRONMENT` | `production` | One of `production` / `staging` / `dev`. More than an analytics dimension: `production` turns on the full [production hard requirements](#production-hard-requirements) check, and `staging` enforces `RENTIVO_COOKIE_SECURE=true` plus `__Host-` cookie names. Compose pins it — `production` in `docker-compose.yml`, `dev` in the development overlay — so the value in `.env` is ignored under Compose. |
 | `RENTIVO_ACCESS_COOKIE_NAME` | `__Host-rentivo_access` | Browser login-key cookie. Staging/production require a `__Host-` name. |
 | `RENTIVO_CHALLENGE_COOKIE_NAME` | `__Host-rentivo_challenge` | Short-lived authentication challenge cookie. |
 | `RENTIVO_CSRF_COOKIE_NAME` | `__Host-rentivo_csrf` | Non-HttpOnly double-submit CSRF cookie. |
@@ -50,7 +52,7 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RENTIVO_LOG_LEVEL` | `INFO` | structlog level. |
-| `RENTIVO_LOG_JSON` | `false` | Emit JSON logs (recommended in production). |
+| `RENTIVO_LOG_JSON` | `false` | Emit JSON logs. **Required to be `true` in production** — startup fails otherwise. |
 | `RENTIVO_LOG_CLOUDWATCH_ENABLED` | `false` | Ship a JSON copy of logs to CloudWatch Logs via watchtower (stdout is unaffected). When tracing is on, each log also carries `trace_id`/`span_id`. |
 | `RENTIVO_LOG_CLOUDWATCH_GROUP` | `rentivo` | Target CloudWatch log group. |
 | `RENTIVO_LOG_CLOUDWATCH_STREAM` | *(empty)* | Log stream name; empty = watchtower default `{machine_name}/{program_name}`. |
@@ -66,11 +68,21 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 | `RENTIVO_WEBAUTHN_RP_NAME` | `Rentivo` | Display name shown in browser passkey prompts. |
 | `RENTIVO_WEBAUTHN_ORIGIN` | `http://localhost:8000` | Expected origin for WebAuthn ceremonies. |
 
+## Google sign-in (OAuth)
+
+Optional "Sign in with Google" flow served at `/api/v1/auth/google/start` and `/api/v1/auth/google/callback`. Disabled by default; when disabled the routes reject requests and the frontend hides the button.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RENTIVO_GOOGLE_AUTH_ENABLED` | `false` | Master switch. Enabling it without **both** credentials below fails at boot. |
+| `RENTIVO_GOOGLE_CLIENT_ID` | *(empty)* | OAuth client ID from the Google Cloud console. |
+| `RENTIVO_GOOGLE_CLIENT_SECRET` | *(empty)* | OAuth client secret for the same client. |
+
 ## Storage (invoice PDFs)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENTIVO_STORAGE_BACKEND` | `local` | `local` or `s3`. |
+| `RENTIVO_STORAGE_BACKEND` | `local` | `local` or `s3`. **`local` is rejected in production**, where `s3` additionally requires `RENTIVO_S3_BUCKET` and `RENTIVO_S3_REGION`. |
 | `RENTIVO_STORAGE_LOCAL_PATH` | `./invoices` | Directory for the local backend. |
 | `RENTIVO_STORAGE_PREFIX` | `bills` | Key prefix prepended to stored objects. |
 | `RENTIVO_S3_BUCKET` | *(empty)* | S3 bucket (s3 backend only). |
@@ -84,7 +96,7 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENTIVO_EMAIL_BACKEND` | `local` | `local` or `ses`. The local backend writes `.eml` files instead of calling AWS. |
+| `RENTIVO_EMAIL_BACKEND` | `local` | `local` or `ses`. The local backend writes `.eml` files instead of calling AWS. **`local` is rejected in production**, where `ses` additionally requires `RENTIVO_SES_REGION` and `RENTIVO_SES_FROM_EMAIL`. |
 | `RENTIVO_EMAIL_LOCAL_PATH` | `./outbox` | Output directory for the local backend. |
 | `RENTIVO_SES_REGION` | *(empty)* | AWS SES region (ses backend only). |
 | `RENTIVO_SES_ACCESS_KEY_ID` | *(empty)* | AWS access key. |
@@ -100,7 +112,7 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENTIVO_ENCRYPTION_BACKEND` | `base64` | `base64` or `kms`. **base64 is reversible obfuscation, NOT encryption** — use `kms` in production. After switching, run `make backfill-encryption` (preview with `make backfill-encryption-dry`). |
+| `RENTIVO_ENCRYPTION_BACKEND` | `base64` | `base64` or `kms`. **base64 is reversible obfuscation, NOT encryption**, and is rejected outright in production — `kms` is mandatory there. After switching, run `make backfill-encryption` (preview with `make backfill-encryption-dry`) and `make encrypt-job-payloads`. |
 | `RENTIVO_KMS_KEY_ID` | *(empty)* | KMS key id or alias. Required (with region) when backend is `kms`. **Enable deletion protection** — losing the key loses all encrypted PII permanently. |
 | `RENTIVO_KMS_REGION` | *(empty)* | AWS region. Required when backend is `kms`. |
 | `RENTIVO_KMS_ACCESS_KEY_ID` | *(empty)* | AWS access key. |
@@ -137,7 +149,7 @@ Used for KPI rollups on the billing list, and future consumers.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENTIVO_TURNSTILE_SITE_KEY` | *(empty)* | Set **both** keys to enable, leave **both** empty to disable (validated at boot). Gates `/login`, `/signup`, `/forgot-password`. |
+| `RENTIVO_TURNSTILE_SITE_KEY` | *(empty)* | Set **both** keys to enable, leave **both** empty to disable (validated at boot). Gates the JSON API endpoints `POST /api/v1/auth/signup`, `POST /api/v1/auth/login`, and `POST /api/v1/auth/password/forgot` — not SPA routes. |
 | `RENTIVO_TURNSTILE_SECRET_KEY` | *(empty)* | Server-side verification key. |
 | `RENTIVO_TURNSTILE_VERIFY_URL` | Cloudflare public URL | Override for self-hosted gateways. |
 
@@ -164,3 +176,44 @@ Used for KPI rollups on the billing list, and future consumers.
 | `RENTIVO_TEMPORAL_ACTIVITY_START_TO_CLOSE_TIMEOUT_SECONDS` | `600` | Per-attempt activity timeout. |
 
 Temporal is an optional driver — the `database` driver is fully supported in production and requires no additional services. See `docs/jobs.md`.
+
+## Production hard requirements
+
+With `RENTIVO_ENVIRONMENT=production`, a startup check refuses to boot on an insecure configuration and reports every problem at once. The Compose `validate` service runs exactly this check before migrations, so a bad configuration fails the stack rather than the first request. On top of the per-setting rules noted above (`LOG_JSON`, and the `local`/`base64` backend bans), production requires:
+
+- `RENTIVO_DB_URL` must not use the default `rentivo:rentivo` credentials.
+- `RENTIVO_SECRET_KEY` must be a stable non-default secret.
+- `RENTIVO_API_KEY_LOGIN_TTL_SECONDS` must be exactly `86400`.
+- `RENTIVO_PUBLIC_URL`, `RENTIVO_PUBLIC_APP_URL`, and `RENTIVO_WEBAUTHN_ORIGIN` must each be an HTTPS, non-localhost origin.
+- `RENTIVO_WEBAUTHN_RP_ID` must equal the hostname of `RENTIVO_WEBAUTHN_ORIGIN`.
+- `RENTIVO_COOKIE_SECURE` must be `true`, and all three cookie names must keep the `__Host-` prefix.
+
+Two cross-field rules apply in **every** environment, production or not:
+
+- `RENTIVO_API_KEY_INTEGRATION_DEFAULT_TTL_DAYS` must not exceed `RENTIVO_API_KEY_INTEGRATION_MAX_TTL_DAYS`.
+- `RENTIVO_API_KEY_INTEGRATION_MAX_TTL_DAYS` must not exceed `365`.
+
+## Variables Compose reads that the app does not
+
+The settings class ignores unknown environment variables, so a variable put in the wrong file is silently dropped rather than rejected. The following are read by Compose itself — not by the application — and belong in the file passed as `--env-file` (`.env.db` by default), not in the application env file:
+
+| Variable | Default | Read by |
+|----------|---------|---------|
+| `RENTIVO_PUBLIC_ORIGIN` | *(required)* | `docker-compose.yml`, which fans it out into the API's `RENTIVO_PUBLIC_URL`, `RENTIVO_PUBLIC_APP_URL`, and `RENTIVO_WEBAUTHN_ORIGIN` |
+| `RENTIVO_WEBAUTHN_RP_ID` | *(required)* | `docker-compose.yml`, passed through to the API service |
+| `RENTIVO_TRUSTED_TLS_TERMINATOR_CIDR` | *(required)* | The `proxy` service's Nginx template |
+| `RENTIVO_PORT` | `8080` | Host port published by the `proxy` service |
+| `RENTIVO_PROXY_IP` | `172.30.0.10` | Proxy address on the internal network; also the API's `--forwarded-allow-ips` |
+| `RENTIVO_APP_SUBNET` | `172.30.0.0/24` | Subnet of the internal `app-edge` network |
+
+Three more select which files are used, and are read by the `Makefile` and Compose:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RENTIVO_APP_ENV_FILE` | `.env` | Application settings file loaded into the backend containers |
+| `RENTIVO_DB_ENV_FILE` | `.env.db` | Compose `--env-file` for the production-topology `stack-*` targets |
+| `RENTIVO_DEV_DB_ENV_FILE` | `.env.db` | Compose `--env-file` for the `compose-*` development targets |
+
+The three marked *(required)* use Compose's `:?` syntax: leaving one unset aborts the command before any container starts.
+
+Note also that the Compose files **hard-set** several documented settings on the `api` service, so editing them in the application env file has no effect under Compose: `RENTIVO_COOKIE_SECURE` and the three cookie names (`__Host-` prefixed in `docker-compose.yml`, unprefixed and insecure in `docker-compose.dev.yml`), the three public/WebAuthn origins, and `RENTIVO_ENVIRONMENT`.
