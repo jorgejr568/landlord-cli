@@ -182,6 +182,7 @@ android-test:
 .PHONY: scripts-test
 scripts-test:
 	./scripts/tests/ios-ci-test.sh
+	./scripts/tests/android-ci-test.sh
 	./scripts/tests/ci-changed-areas-test.sh
 	$(PYTEST) scripts/tests/test_asc_builds.py -q
 
