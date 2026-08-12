@@ -8,7 +8,11 @@ struct RentivoMacApp: App {
   init() {
     #if DEBUG
       let arguments = ProcessInfo.processInfo.arguments
-      let usesMockData = arguments.contains("--ui-testing") || arguments.contains("--screenshot-authenticated")
+      let usesMockData =
+        arguments.contains("--ui-testing")
+        || arguments.contains(ScreenshotExporter.authenticatedArgument)
+        // The anonymous screenshot must render the mock login screen, not a live session restore.
+        || ScreenshotExporter.isRequested(arguments: arguments)
       let model = usesMockData
         ? AppModel(store: MockRentivoStore(fixtures: .canonical))
         : AppModel(dependencies: .live())
@@ -16,7 +20,7 @@ struct RentivoMacApp: App {
       let model = AppModel(dependencies: .live())
     #endif
     #if DEBUG
-      if arguments.contains("--screenshot-authenticated") {
+      if arguments.contains(ScreenshotExporter.authenticatedArgument) {
         model.signIn()
         if let tabIndex = arguments.firstIndex(of: "--screenshot-tab"),
           arguments.indices.contains(tabIndex + 1)
@@ -30,6 +34,7 @@ struct RentivoMacApp: App {
         }
         model.notice = nil
       }
+      ScreenshotExporter.installIfRequested(app: model, arguments: arguments)
     #endif
     _app = State(initialValue: model)
   }
