@@ -144,15 +144,7 @@ struct OrganizationListView: View {
   }
 
   private func load() async {
-    // Only show the loading spinner when nothing is on screen yet; the toolbar refresh and every
-    // section revisit (`.task(id: app.dataRevision)`) otherwise refresh in place instead of
-    // tearing down the list.
-    switch state {
-    case .idle, .failed:
-      state = .loading
-    case .loading, .loaded, .empty:
-      break
-    }
+    state.prepareForRefresh()
     do {
       let organizations = try await app.dependencies.organizations.listOrganizations()
       let billings = try await app.dependencies.billings.listBillings()
@@ -165,12 +157,7 @@ struct OrganizationListView: View {
       pendingCount = try await app.dependencies.invitations.listPendingInvitations().count
       state = values.isEmpty ? .empty : .loaded(values)
     } catch {
-      switch state {
-      case .loaded, .empty:
-        app.reportFailure(error)
-      default:
-        state = .failed(DemoError(error))
-      }
+      state.settleFailure(error, reportingTo: app)
     }
   }
 }
@@ -505,17 +492,9 @@ struct OrganizationDetailView: View {
   }
 
   private func load() async {
-    // Same "don't blank on refresh" rule as the organization list: every
-    // member/role/MFA/billing mutation calls `refreshAll()` -> `load()`, and
-    // `.task(id: app.dataRevision)` reruns on demo-state changes too, so
-    // resetting to `.loading` unconditionally would flash a spinner over an
-    // already-visible organization on every one of those actions.
-    switch state {
-    case .idle, .failed:
-      state = .loading
-    case .loading, .loaded, .empty:
-      break
-    }
+    // Every member/role/MFA/billing mutation on this screen calls `refreshAll()` -> `load()`, so
+    // `prepareForRefresh()` is what keeps the organization on screen through all of them.
+    state.prepareForRefresh()
     do {
       let loadedOrganization = try await app.dependencies.organizations.organization(
         id: organizationID
@@ -524,12 +503,7 @@ struct OrganizationDetailView: View {
       billings = loadedBillings
       state = .loaded(loadedOrganization)
     } catch {
-      switch state {
-      case .loaded, .empty:
-        app.reportFailure(error)
-      default:
-        state = .failed(DemoError(error))
-      }
+      state.settleFailure(error, reportingTo: app)
     }
   }
 

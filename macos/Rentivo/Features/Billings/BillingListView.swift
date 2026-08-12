@@ -132,10 +132,7 @@ struct BillingListView: View {
   }
 
   private func load() async {
-    let hadContent = state.value != nil
-    if !hadContent {
-      state = .loading
-    }
+    state.prepareForRefresh()
     do {
       let billings = try await app.dependencies.billings.listBillings()
       var items: [BillingPortfolioItem] = []
@@ -151,14 +148,7 @@ struct BillingListView: View {
         state = items.isEmpty ? .empty : .loaded(items)
       }
     } catch {
-      // Preserve already-loaded content across a failed refresh instead of tearing
-      // down the scroll view; only surface the full-page error state when there was
-      // nothing previously loaded to fall back to.
-      if hadContent {
-        app.reportFailure(error)
-      } else {
-        state = .failed(DemoError(error))
-      }
+      state.settleFailure(error, reportingTo: app)
     }
   }
 }

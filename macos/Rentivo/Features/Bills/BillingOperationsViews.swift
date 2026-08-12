@@ -158,13 +158,13 @@ struct ExpenseListView: View {
   }
 
   private func load() async {
-    state = .loading
+    state.prepareForRefresh()
     do {
       let expenses = try await app.dependencies.expenses.listExpenses(billingID: billingID)
       withAnimation(BillingsMotion.load) {
         state = expenses.isEmpty ? .empty : .loaded(expenses)
       }
-    } catch { state = .failed(DemoError(error)) }
+    } catch { state.settleFailure(error, reportingTo: app) }
   }
 
   private func remove(_ expense: Expense) async {
@@ -341,13 +341,13 @@ struct AttachmentListView: View {
   }
 
   private func load() async {
-    state = .loading
+    state.prepareForRefresh()
     do {
       let values = try await app.dependencies.attachments.listAttachments(billingID: billingID)
       withAnimation(BillingsMotion.load) {
         state = values.isEmpty ? .empty : .loaded(values)
       }
-    } catch { state = .failed(DemoError(error)) }
+    } catch { state.settleFailure(error, reportingTo: app) }
   }
 
   private func add(fileURL: URL) async {

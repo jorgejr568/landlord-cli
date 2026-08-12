@@ -203,7 +203,8 @@ final class AppModel {
   /// Reports a failed action as a warning banner, translated through `DemoError` so every screen
   /// surfaces the same PT-BR copy for the same failure. This is what a `catch` around a
   /// user-initiated action reaches for; a screen that has nothing to show yet still owns the
-  /// choice to fail its whole page (`state = .failed(DemoError(error))`) instead.
+  /// choice to fail its whole page instead — `LoadState.settleFailure(_:reportingTo:)` is that
+  /// choice, made once for every screen that loads content.
   func reportFailure(_ error: some Error) {
     showNotice(DemoError(error).message, kind: .warning)
   }

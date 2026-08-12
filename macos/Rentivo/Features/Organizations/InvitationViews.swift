@@ -47,25 +47,12 @@ struct InvitationListView: View {
   }
 
   private func load() async {
-    // Only blank the sheet with a spinner on first load; a `dataRevision`
-    // bump while the sheet is open (e.g. toggling a demo setting) refreshes
-    // in place instead of tearing down the currently-shown list.
-    switch state {
-    case .idle, .failed:
-      state = .loading
-    case .loading, .loaded, .empty:
-      break
-    }
+    state.prepareForRefresh()
     do {
       let invitations = try await app.dependencies.invitations.listPendingInvitations()
       state = invitations.isEmpty ? .empty : .loaded(invitations)
     } catch {
-      switch state {
-      case .loaded, .empty:
-        app.reportFailure(error)
-      default:
-        state = .failed(DemoError(error))
-      }
+      state.settleFailure(error, reportingTo: app)
     }
   }
 

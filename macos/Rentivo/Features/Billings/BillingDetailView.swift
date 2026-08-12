@@ -278,7 +278,7 @@ struct BillingDetailView: View {
   }
 
   private func load() async {
-    state = .loading
+    state.prepareForRefresh()
     do {
       let data = BillingDetailData(
         billing: try await app.dependencies.billings.billing(id: billingID),
@@ -289,7 +289,7 @@ struct BillingDetailView: View {
         state = .loaded(data)
       }
     } catch {
-      state = .failed(DemoError(error))
+      state.settleFailure(error, reportingTo: app)
     }
   }
 

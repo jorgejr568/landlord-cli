@@ -109,9 +109,11 @@ struct SecurityView: View {
   }
 
   private func load() async {
-    state = .loading
+    // Every MFA/passkey/password mutation below ends in `load()`, so this is also what keeps the
+    // security summary on screen while one of them refreshes it.
+    state.prepareForRefresh()
     do { state = .loaded(try await app.dependencies.security.securitySummary()) } catch {
-      state = .failed(DemoError(error))
+      state.settleFailure(error, reportingTo: app)
     }
   }
 

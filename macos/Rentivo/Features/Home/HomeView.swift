@@ -84,16 +84,7 @@ struct HomeView: View {
   }
 
   private func load() async {
-    // Only blank the screen with a spinner when nothing has been shown yet
-    // (first launch or a previously-failed load). The toolbar refresh and every
-    // section revisit (`.task(id: app.dataRevision)`) otherwise refresh the
-    // dashboard in place, keeping the current cards on screen.
-    switch state {
-    case .idle, .failed:
-      state = .loading
-    case .loading, .loaded, .empty:
-      break
-    }
+    state.prepareForRefresh()
     do {
       let summary = try await app.dependencies.dashboard.dashboardSummary()
       let billings = try await app.dependencies.billings.listBillings()
@@ -116,11 +107,7 @@ struct HomeView: View {
       // state that has no create action on this screen.
       state = .loaded(data)
     } catch {
-      if state.value != nil {
-        app.reportFailure(error)
-      } else {
-        state = .failed(DemoError(error))
-      }
+      state.settleFailure(error, reportingTo: app)
     }
   }
 }

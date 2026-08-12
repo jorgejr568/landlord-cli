@@ -128,11 +128,11 @@ struct APIKeyListView: View {
   }
 
   private func load() async {
-    state = .loading
+    state.prepareForRefresh()
     do {
       let keys = try await app.dependencies.apiKeys.listAPIKeys()
       state = keys.isEmpty ? .empty : .loaded(keys)
-    } catch { state = .failed(DemoError(error)) }
+    } catch { state.settleFailure(error, reportingTo: app) }
   }
 
   private func revoke(_ key: APIKeyMetadata) async {
