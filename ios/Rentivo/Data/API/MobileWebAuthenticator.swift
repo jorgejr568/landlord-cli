@@ -188,11 +188,15 @@ public final class MobileWebAuthenticator {
   public init() {}
 
   public func authorize() async throws -> String {
-    throw LiveAPIError.server(message: "A autenticação pelo navegador requer o app para iOS.")
+    throw LiveAPIError.server(
+      message: "A autenticação pelo navegador requer o aplicativo nativo do Rentivo."
+    )
   }
 
   public func logout() async throws {
-    throw LiveAPIError.server(message: "A saída pelo navegador requer o app para iOS.")
+    throw LiveAPIError.server(
+      message: "A saída pelo navegador requer o aplicativo nativo do Rentivo."
+    )
   }
 }
 #endif
