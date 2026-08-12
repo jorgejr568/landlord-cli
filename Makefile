@@ -162,6 +162,23 @@ ios-openapi-check:
 ios-test:
 	swift test --package-path ios
 
+# The macOS app is ad-hoc signed for local builds; `macos-dmg` packages the
+# drag-to-Applications installer into dist/.
+MACOS_XCODEBUILD := xcodebuild -project macos/Rentivo.xcodeproj -scheme Rentivo
+
+.PHONY: macos-build macos-test macos-dmg macos-app-icon
+macos-build:
+	$(MACOS_XCODEBUILD) -configuration Debug build CODE_SIGN_IDENTITY=-
+
+macos-test:
+	$(MACOS_XCODEBUILD) -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
+
+macos-dmg:
+	./scripts/macos-dmg.sh
+
+macos-app-icon:
+	./scripts/macos-app-icon.sh
+
 # Gradle needs a JDK 21 toolchain on PATH or in JAVA_HOME, and the Android SDK
 # location in android/local.properties (or ANDROID_HOME).
 .PHONY: android-openapi-sync android-openapi-check android-build android-test
@@ -182,6 +199,7 @@ android-test:
 .PHONY: scripts-test
 scripts-test:
 	./scripts/tests/ios-ci-test.sh
+	./scripts/tests/macos-ci-test.sh
 	./scripts/tests/android-ci-test.sh
 	./scripts/tests/ci-changed-areas-test.sh
 	$(PYTEST) scripts/tests/test_asc_builds.py -q
