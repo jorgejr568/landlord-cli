@@ -215,12 +215,17 @@ setting or scheme that points a build at a local backend.
 ## Build and test
 
 ```bash
-open macos/Rentivo.xcodeproj   # run it
+open macos/Rentivo.xcodeproj   # run it from Xcode
 make macos-build               # xcodebuild … -configuration Debug build CODE_SIGN_IDENTITY=-
+make macos-run                 # macos-build, then open the built Rentivo.app
 make macos-test                # xcodebuild … -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
 ```
 
-Both targets need a full Xcode install. `make macos-test` runs the
+`make macos-run` reads the product location back from the build settings
+(Xcode's default DerivedData path is hashed) and launches a fresh instance, so
+the binary you just built runs even when an older copy is already open.
+
+All targets need a full Xcode install. `make macos-test` runs the
 `RentivoMacTests` target — one file per feature plus `AppModel` and `AppTab` —
 against a `platform=macOS` destination, so no simulator is involved. It
 exercises the macOS app layer; the Domain and Data layers below it

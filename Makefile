@@ -166,9 +166,16 @@ ios-test:
 # drag-to-Applications installer into dist/.
 MACOS_XCODEBUILD := xcodebuild -project macos/Rentivo.xcodeproj -scheme Rentivo
 
-.PHONY: macos-build macos-test macos-dmg macos-app-icon
+.PHONY: macos-build macos-run macos-test macos-dmg macos-app-icon
 macos-build:
 	$(MACOS_XCODEBUILD) -configuration Debug build CODE_SIGN_IDENTITY=-
+
+# Builds and launches the Debug app. The product lands in Xcode's default
+# DerivedData (a hashed path), so the location is read back from the build
+# settings rather than hardcoded. `open -n` starts a fresh instance so the
+# just-built binary runs even when an older copy is already open.
+macos-run: macos-build
+	open -n "$$($(MACOS_XCODEBUILD) -configuration Debug -showBuildSettings 2>/dev/null | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p' | head -1)/Rentivo.app"
 
 macos-test:
 	$(MACOS_XCODEBUILD) -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
