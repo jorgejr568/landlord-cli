@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
@@ -20,6 +20,13 @@ type SignupRequest = components["schemas"]["SignupRequest"];
 export function SignupPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Read from the URL, not from the sticky handoff marker: a stale state would
+  // make LoginPage authorize a session the app is no longer waiting on.
+  const mobileState = searchParams.get("mobile_state");
+  const mobileLoginPath = mobileState
+    ? `/login?mobile_state=${encodeURIComponent(mobileState)}`
+    : "/login";
   const { withHandoff } = useMobileHandoff();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,9 +49,9 @@ export function SignupPage() {
 
   useEffect(() => {
     if (auth.status === "authenticated" && auth.bootstrap) {
-      navigate(postLoginPath(auth.bootstrap), { replace: true });
+      navigate(mobileState ? mobileLoginPath : postLoginPath(auth.bootstrap), { replace: true });
     }
-  }, [auth.bootstrap, auth.status, navigate]);
+  }, [auth.bootstrap, auth.status, mobileLoginPath, mobileState, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,7 +74,7 @@ export function SignupPage() {
         apiClient.POST("/api/v1/auth/signup", { body: payload })
       );
       auth.authenticate(data);
-      navigate(postLoginPath(data.bootstrap));
+      navigate(mobileState ? mobileLoginPath : postLoginPath(data.bootstrap));
     } catch (caught: unknown) {
       setError(
         caught instanceof ApiError
