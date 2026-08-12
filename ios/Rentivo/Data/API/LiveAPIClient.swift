@@ -32,8 +32,11 @@ extension Notification.Name {
   public static let liveAPIClientSessionExpired = Notification.Name("LiveAPIClient.sessionExpired")
 }
 
-actor LiveAPIClient {
-  static let productionURL = URL(string: "https://rentivo.com.br")!
+// `public` only so app targets can read `productionURL` (the "Sobre e suporte" links point at the
+// same site the client talks to). Every member below stays internal, including `init`, so this
+// widens the module's API surface by exactly the type name and that one address.
+public actor LiveAPIClient {
+  public static let productionURL = URL(string: "https://rentivo.com.br")!
 
   private let session: URLSession
   private let credentials: any CredentialStore
