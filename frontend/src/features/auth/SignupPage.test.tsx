@@ -67,6 +67,48 @@ describe("SignupPage", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
   });
 
+  it("returns to the mobile authorization page after signing up inside the app", async () => {
+    const user = userEvent.setup();
+    renderAuth(<SignupPage />, {
+      handlers: {
+        "/api/v1/auth/signup": () => jsonResponse(AUTHENTICATED_RESPONSE)
+      },
+      path: "/signup?mobile_state=native-state"
+    });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Criar Conta" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/login?mobile_state=native-state"
+      )
+    );
+    expect(screen.getByTestId("location")).not.toHaveTextContent("/billings");
+  });
+
+  it("returns an existing session to the mobile authorization page", async () => {
+    renderAuth(<SignupPage />, {
+      path: "/signup?mobile_state=native-state",
+      session: "authenticated"
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/login?mobile_state=native-state"
+      )
+    );
+    expect(screen.getByTestId("location")).not.toHaveTextContent("/billings");
+  });
+
+  it("sends an existing web session to the dashboard", async () => {
+    renderAuth(<SignupPage />, { path: "/signup", session: "authenticated" });
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
+  });
+
   it("shows duplicate-email errors, restores focus, and resets Turnstile", async () => {
     const user = userEvent.setup();
     const reset = vi.fn();

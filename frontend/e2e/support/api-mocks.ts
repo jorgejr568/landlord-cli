@@ -292,8 +292,9 @@ export async function installApiMocks(
       pending_invite_count: options.pendingInviteCount ?? authenticatedResponse.bootstrap.pending_invite_count
     }
   };
-  // `POST /auth/login` answers with `AuthenticatedResponse`, which carries the
-  // `credential_transport` discriminator that `GET /auth/session` does not.
+  // `POST /auth/login` and `POST /auth/signup` answer with
+  // `AuthenticatedResponse`, which carries the `credential_transport`
+  // discriminator that `GET /auth/session` does not.
   const loginResponse: Schemas["CookieAuthenticatedResponse"] = {
     ...sessionResponse,
     credential_transport: "cookie"
@@ -340,6 +341,19 @@ export async function installApiMocks(
     }
     if (path === "/auth/login" && method === "POST") {
       await fulfillJson(route, loginResponse);
+      return;
+    }
+    if (path === "/auth/signup" && method === "POST") {
+      await fulfillJson(route, loginResponse);
+      return;
+    }
+    if (path === "/auth/mobile/authorize" && method === "POST") {
+      const authorize = body as Schemas["MobileAuthorizationRequest"];
+      const authorization: Schemas["MobileAuthorizationResponse"] = {
+        authorization_code: "mobile-authorization-code-e2e",
+        state: authorize.state
+      };
+      await fulfillJson(route, authorization, 201);
       return;
     }
     if (path === "/auth/logout" && method === "POST") {
