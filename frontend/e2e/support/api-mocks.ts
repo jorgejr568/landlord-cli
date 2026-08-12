@@ -342,6 +342,19 @@ export async function installApiMocks(
       await fulfillJson(route, loginResponse);
       return;
     }
+    if (path === "/auth/signup" && method === "POST") {
+      await fulfillJson(route, loginResponse);
+      return;
+    }
+    if (path === "/auth/mobile/authorize" && method === "POST") {
+      const authorize = body as Schemas["MobileAuthorizationRequest"];
+      const authorization: Schemas["MobileAuthorizationResponse"] = {
+        authorization_code: "mobile-authorization-code-e2e",
+        state: authorize.state
+      };
+      await fulfillJson(route, authorization, 201);
+      return;
+    }
     if (path === "/auth/logout" && method === "POST") {
       await route.fulfill({ status: 204 });
       return;
