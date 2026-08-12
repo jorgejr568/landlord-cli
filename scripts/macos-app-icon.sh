@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Regenerates macos/Rentivo/Resources/Assets.xcassets/AppIcon.appiconset from the iOS app icon.
 #
 # The iOS catalog holds the single source of truth for the artwork (one 1024x1024 PNG). macOS needs
