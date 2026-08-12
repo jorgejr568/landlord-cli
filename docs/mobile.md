@@ -9,6 +9,14 @@ This guide covers what the two apps share and where they differ. For the
 day-to-day commands, see [`development.md`](development.md); for the iOS
 release procedure, see [`runbooks/ios-release.md`](runbooks/ios-release.md).
 
+There is a third native client, `macos/`, but it is not a third port: it links
+the `RentivoCore` package from `ios/` and only ports the app layer. Every
+statement below about parity, DTOs, contract copies, and release automation
+covers iOS and Android alone — see [`macos.md`](macos.md) for how the Mac app
+diverges. Anything in the Domain and Data layers described here is shared with
+it, so a change to `ios/Rentivo/Domain` or `ios/Rentivo/Data` is a change to the
+macOS app as well.
+
 ## Parity
 
 The apps deliberately mirror each other, so a change to one is a reviewable
