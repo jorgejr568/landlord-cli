@@ -9,10 +9,11 @@ MariaDB. Nginx is the single browser entrypoint in the default Compose topology.
 - Node.js 22+ and npm
 - Docker and Docker Compose
 
-Optional, and only needed for the mobile apps:
+Optional, and only needed for the native apps:
 
-- A full Xcode install for `make ios-test`. Swift Testing, used by the iOS
-  suite, is not available in Xcode Command Line Tools alone.
+- A full Xcode install for `make ios-test` and the `macos-*` targets. Swift
+  Testing, used by the iOS suite, is not available in Xcode Command Line Tools
+  alone.
 - JDK 21 plus the Android SDK for the `android-*` targets. The build declares
   no Gradle toolchain, so nothing pins the JDK — 21 is the version CI runs.
   Gradle also needs an SDK location from `android/local.properties`
@@ -129,7 +130,9 @@ Do not hand-edit generated OpenAPI types.
 
 `frontend/openapi.json` is the source of two further committed copies, one per
 mobile app. Refresh them in the same change with `make ios-openapi-sync` and
-`make android-openapi-sync`; see the iOS and Android sections below.
+`make android-openapi-sync`; see the iOS and Android sections below. There is no
+third copy for macOS — that app links the `RentivoCore` package instead of
+carrying its own contract.
 
 ## iOS development
 
@@ -162,6 +165,32 @@ Refresh the iOS copy in the same change as the frontend snapshot; it is a
 reference contract, not a build input
 ([mobile.md](mobile.md#api-contract-sync)). Architecture and the authentication
 handoff are described in [mobile.md](mobile.md).
+
+## macOS development
+
+The macOS app lives in `macos/Rentivo` and does **not** duplicate the Domain and
+Data layers: `macos/Rentivo.xcodeproj` links the `RentivoCore` package from
+`ios/` through a local package reference (`../ios`), so only `App/`,
+`DesignSystem/`, `Features/`, and `Resources/` are macOS-authored. Xcode is
+required.
+
+```bash
+open macos/Rentivo.xcodeproj   # run the app
+make macos-build               # Debug build, ad-hoc signed
+make macos-test                # RentivoMacTests on a platform=macOS destination
+make macos-dmg                 # drag-to-Applications installer in dist/
+make macos-app-icon            # regenerate the icon set from the iOS artwork
+```
+
+`make macos-test` covers the macOS app layer only; the layers below it belong to
+`make ios-test`. Because both apps build from the same package, a change under
+`ios/Rentivo/Domain` or `ios/Rentivo/Data` should run both — and it triggers the
+macOS CI job, which is path-gated by `scripts/macos-ci.sh paths-changed`.
+
+There is no `macos-openapi-*` target and no macOS release workflow. Packaging,
+demo-mode launch arguments, and the platform adaptations (sidebar navigation,
+Finder drag-and-drop receipts, save-panel downloads) are described in
+[macos.md](macos.md).
 
 ## Android development
 

@@ -18,7 +18,8 @@ Built for Brazilian landlords: tenant-facing output is in **PT-BR**, with
 - Recurring billing templates and one-click monthly bill generation
 - PDF invoices, PIX QR codes, receipt attachments, and payment receipts
 - React/Vite browser application backed by the versioned FastAPI API
-- Native iOS (SwiftUI) and Android (Jetpack Compose) apps on the same contract
+- Native iOS and macOS (SwiftUI) and Android (Jetpack Compose) apps on the same
+  contract
 - API-key authentication with scopes and per-organization grants
 - One-day hidden login keys for browser sessions, revoked on logout
 - TOTP MFA, passkeys (WebAuthn), Google login, and password recovery
@@ -117,6 +118,29 @@ copies are reference contracts kept byte-identical to `frontend/openapi.json`
 by `make ios-openapi-check` and `make android-openapi-check`, not build inputs.
 See the [mobile apps guide](docs/mobile.md).
 
+## macOS app
+
+`macos/Rentivo` is a native SwiftUI client for the Mac (bundle
+`br.com.rentivo.macos`, macOS 14 minimum, Swift 6). It is not a third port of
+the Domain and Data layers: `macos/Rentivo.xcodeproj` links the same
+`RentivoCore` package from `ios/` through a local package reference, so only the
+app layer — shell, design system, features — is macOS-authored. It therefore
+keeps no `openapi.json` copy of its own and needs no contract sync step. Open
+`macos/Rentivo.xcodeproj` in Xcode to run it.
+
+```bash
+make macos-build       # ad-hoc signed Debug build
+make macos-test        # RentivoMacTests on platform=macOS (requires full Xcode)
+make macos-dmg         # drag-to-Applications installer in dist/
+make macos-app-icon    # regenerate the icon set from the iOS artwork
+```
+
+The macOS job runs on `macos-15`, path-gated by `scripts/macos-ci.sh` — which
+also watches the `RentivoCore` sources under `ios/`, since a change there
+changes this app. There is no macOS release automation: the DMG is the
+distribution artifact, and it is not Developer ID signed or notarized. See the
+[macOS app guide](docs/macos.md).
+
 ## Production configuration
 
 Production uses separate database interpolation and application environment
@@ -184,8 +208,8 @@ origins, local storage/email, and reversible encryption. See the generated
 ## Architecture
 
 The repository is a uv workspace with independently packaged backend and
-frontend applications, plus a Swift Package Manager package for the iOS app and
-a Gradle project for the Android app.
+frontend applications, plus a Swift Package Manager package shared by the iOS
+and macOS apps and a Gradle project for the Android app.
 
 ```text
 backend/
@@ -216,6 +240,11 @@ ios/
   Rentivo.xcodeproj   Xcode app project
   RentivoTests/       Shared tests: RentivoCore package suite and the Xcode-hosted target
   RentivoUITests/     Xcode UI tests
+macos/
+  Config/             App Info.plist and sandbox entitlements
+  Rentivo/            SwiftUI app layer: App/, DesignSystem/, Features/, Resources/
+  Rentivo.xcodeproj   Xcode app project; links RentivoCore from ../ios
+  RentivoMacTests/    macOS app-layer unit tests
 android/
   app/src/main/java/app/rentivo/
     domain/           Models, money, and validation
@@ -237,6 +266,7 @@ infra/proxy/           Nginx edge configuration
 | [Configuration](docs/configuration.md) | Environment variables and validation rules |
 | [Development](docs/development.md) | Local and Compose development workflows |
 | [Mobile apps](docs/mobile.md) | iOS/Android architecture, contract sync, and auth handoff |
+| [macOS app](docs/macos.md) | macOS app layer, `RentivoCore` reuse, DMG packaging, and CI gating |
 | [Job drivers](docs/jobs.md) | Database and optional Temporal job execution |
 | [Observability](docs/observability.md) | Logging, traces, profiles, and production signals |
 | [Production release](docs/runbooks/production-release.md) | Big-bang deployment and recovery runbook |
@@ -252,6 +282,7 @@ infra/proxy/           Nginx edge configuration
 |---|---|
 | Frontend | React, Vite, TypeScript |
 | iOS app | Swift, SwiftUI, Swift Package Manager (RentivoCore) |
+| macOS app | Swift, SwiftUI/AppKit, linking the same RentivoCore package |
 | Android app | Kotlin, Jetpack Compose, Gradle |
 | Backend API | FastAPI, Uvicorn |
 | Database | MariaDB 11, SQLAlchemy Core |

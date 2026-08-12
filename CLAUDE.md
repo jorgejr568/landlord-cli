@@ -61,6 +61,13 @@ Always run Python tools through `uv run --project backend ...`; do not use bare
   by `make android-test`, which needs the Android SDK but no emulator. The
   build declares no JDK toolchain pin; CI runs on JDK 21 (Temurin), so use the
   same to stay aligned. See `docs/mobile.md`.
+- `macos/Rentivo` is the SwiftUI application for the Mac (bundle
+  `br.com.rentivo.macos`, macOS 14 minimum, Swift 6). Unlike iOS and Android it
+  does not port the Domain and Data layers: `macos/Rentivo.xcodeproj` links the
+  `RentivoCore` package from `ios/` through a local package reference
+  (`../ios`), so only `App`, `DesignSystem`, and `Features` are macOS-authored.
+  A change under `ios/Rentivo/Domain` or `ios/Rentivo/Data` is therefore a
+  change to the macOS app too. See `docs/macos.md`.
 
 The browser talks only to the FastAPI contract. When an API schema changes,
 update the committed OpenAPI snapshot and generated TypeScript client with the
@@ -70,7 +77,10 @@ byte-identical to `frontend/openapi.json`; refresh it with
 `make ios-openapi-sync` and verify it with `make ios-openapi-check` whenever
 the API schema changes. The Android app does the same with
 `android/app/openapi.json`, refreshed by `make android-openapi-sync` and
-verified by `make android-openapi-check`.
+verified by `make android-openapi-check`. The macOS app keeps no contract copy
+of its own — it consumes the `RentivoCore` package — so there is no
+`macos-openapi-*` target and an API schema change needs no macOS-specific sync
+step.
 
 ## HTTP and security
 
@@ -113,7 +123,11 @@ coverage. The iOS `RentivoCore` package suite (`make ios-test`) runs on
 `macos-15` CI runners with a full Xcode toolchain, where CI also runs the
 Xcode-hosted `RentivoTests` target via `xcodebuild` (only `RentivoUITests` is
 excluded); it is not part of the SQLite/Temporal or Vitest suites and has no
-coverage gate configured yet.
+coverage gate configured yet. The macOS `RentivoMacTests` target
+(`make macos-test`) covers the macOS app layer against a `platform=macOS`
+destination — no simulator — and likewise has no coverage gate; the layers
+underneath it are covered by `make ios-test`, so a `RentivoCore` change should
+run both.
 
 Before opening a PR, run the checks relevant to the change:
 
@@ -126,9 +140,13 @@ make e2e
 make scripts-test            # if scripts/ or the CI script tests changed
 make ios-openapi-check       # if the API schema changed
 make ios-test                # if ios/ changed (requires full Xcode)
+make macos-test              # if macos/ or the RentivoCore package changed
 make android-openapi-check   # if the API schema changed
 make android-test            # if android/ changed (JVM only, no emulator)
 ```
+
+There is no `make macos-openapi-check`; the macOS app has no contract copy to
+verify.
 
 The complete release gate also renders production/development Compose,
 round-trips migrations on MariaDB, boots functional and production-settings
@@ -137,12 +155,17 @@ images locally to catch Dockerfile breakage. Gate jobs are path-filtered by
 `scripts/ci-changed-areas.sh`, which classifies the diff into `backend`,
 `frontend`, `docker`, and `scripts` areas; a job whose input areas are
 untouched is skipped and counts as passing, and any `.github/` change or an
-unusable base marks every gate area as changed. The mobile jobs are filtered
-separately: `scripts/ios-ci.sh paths-changed` gates the iOS job and
+unusable base marks every gate area as changed. The native-app jobs are filtered
+separately: `scripts/ios-ci.sh paths-changed` gates the iOS job,
+`scripts/macos-ci.sh paths-changed` gates the macOS job, and
 `scripts/android-ci.sh paths-changed` gates the Android job, which builds,
 unit-tests, and lints `android/` and verifies its OpenAPI copy whenever
-`android/` or `frontend/openapi.json` changes. Image vulnerability scanning is
-not part of the gate: `.github/workflows/image-vulnerability-scan.yml` scans
+`android/` or `frontend/openapi.json` changes. The macOS filter covers `macos/`,
+the `macos-*` scripts, and the `RentivoCore` package inputs inside `ios/`
+(`Package.swift`, `Domain/`, `Data/`, `RentivoTests/`) — the iOS app layer is
+deliberately excluded so an iOS-only UI change does not spend a macOS runner.
+Image vulnerability scanning is not part of the gate:
+`.github/workflows/image-vulnerability-scan.yml` scans
 the production images weekly and keeps the `Weekly image vulnerability report`
 issue (label `image-vulnerability-report`) up to date. The frontend npm audit
 works the same way: `.github/workflows/npm-audit-report.yml` audits
@@ -173,10 +196,18 @@ The iOS app releases independently: changing `MARKETING_VERSION` in
 `.github/workflows/ios-release.yml`, which archives, signs, and uploads to App
 Store Connect. See `docs/runbooks/ios-release.md`.
 
+The macOS app has no release workflow. `make macos-dmg` runs
+`scripts/macos-dmg.sh`, which builds Release and writes a drag-to-Applications
+installer to `dist/Rentivo-<MARKETING_VERSION>.dmg`; that image is the whole
+distribution story today, and local builds are ad-hoc signed rather than
+Developer ID signed and notarized. `make macos-app-icon` regenerates the macOS
+icon set from the iOS artwork and must be re-run when that artwork changes. See
+`docs/macos.md`.
+
 ## Contribution rules
 
 - Code, comments, and identifiers are English; customer-facing copy —
-  including the iOS app's UI — is PT-BR.
+  including the iOS, Android, and macOS app UIs — is PT-BR.
 - Preserve repository, storage, encryption, email, cache, and job abstractions.
 - Keep dependencies locked with `uv.lock` and `frontend/package-lock.json`.
 - Use Conventional Commit PR titles and complete every PR template section.

@@ -29,11 +29,12 @@ conventions live at the top level; operational procedures live under
 | [`runbooks/production-release.md`](runbooks/production-release.md) | How do I deploy the web stack, verify it, and roll back? |
 | [`runbooks/ios-release.md`](runbooks/ios-release.md) | How is an iOS build released to App Store Connect, and what do I do when it fails? |
 
-## Mobile
+## Native apps
 
 | Document | Answers |
 |---|---|
 | [`mobile.md`](mobile.md) | How are the iOS and Android apps structured, how do they stay on contract, and how does sign-in work? |
+| [`macos.md`](macos.md) | How does the macOS app reuse `RentivoCore`, where does it diverge from iOS, and how is it packaged? |
 | [`app-store/app-privacy.md`](app-store/app-privacy.md) | What do we answer on the App Store Connect App Privacy questionnaire? |
 
 ## Security and compliance

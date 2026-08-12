@@ -5,12 +5,12 @@ struct LiveSession: Sendable {
   let profile: UserProfile
 }
 
-enum LiveAPIError: LocalizedError, Sendable {
+public enum LiveAPIError: LocalizedError, Sendable {
   case server(message: String, statusCode: Int? = nil)
   case invalidResponse
   case sessionExpired
 
-  var errorDescription: String? {
+  public var errorDescription: String? {
     switch self {
     case .server(let message, _): message
     case .invalidResponse: "Não foi possível interpretar a resposta do Rentivo."
@@ -18,7 +18,7 @@ enum LiveAPIError: LocalizedError, Sendable {
     }
   }
 
-  var statusCode: Int? {
+  public var statusCode: Int? {
     guard case let .server(_, statusCode) = self else { return nil }
     return statusCode
   }
@@ -29,11 +29,14 @@ extension Notification.Name {
   /// has no stored token) while serving an authenticated request. `AppModel`
   /// observes this to move the app back to the anonymous state; posting is
   /// harmless if nothing is listening (e.g. before the app has authenticated).
-  static let liveAPIClientSessionExpired = Notification.Name("LiveAPIClient.sessionExpired")
+  public static let liveAPIClientSessionExpired = Notification.Name("LiveAPIClient.sessionExpired")
 }
 
-actor LiveAPIClient {
-  static let productionURL = URL(string: "https://rentivo.com.br")!
+// `public` only so app targets can read `productionURL` (the "Sobre e suporte" links point at the
+// same site the client talks to). Every member below stays internal, including `init`, so this
+// widens the module's API surface by exactly the type name and that one address.
+public actor LiveAPIClient {
+  public static let productionURL = URL(string: "https://rentivo.com.br")!
 
   private let session: URLSession
   private let credentials: any CredentialStore
