@@ -135,15 +135,9 @@ struct BillingListView: View {
     state.prepareForRefresh()
     do {
       let billings = try await app.dependencies.billings.listBillings()
-      var items: [BillingPortfolioItem] = []
-      for billing in billings {
-        items.append(
-          BillingPortfolioItem(
-            billing: billing,
-            bills: try await app.dependencies.bills.listBills(billingID: billing.id)
-          )
-        )
-      }
+      let items = try await BillLoading.billsByBilling(
+        for: billings, using: app.dependencies.bills
+      ).map { BillingPortfolioItem(billing: $0.billing, bills: $0.bills) }
       withAnimation(BillingsMotion.load) {
         state = items.isEmpty ? .empty : .loaded(items)
       }

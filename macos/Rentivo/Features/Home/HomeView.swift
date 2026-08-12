@@ -88,10 +88,9 @@ struct HomeView: View {
     do {
       let summary = try await app.dependencies.dashboard.dashboardSummary()
       let billings = try await app.dependencies.billings.listBillings()
-      var bills: [Bill] = []
-      for billing in billings {
-        bills.append(contentsOf: try await app.dependencies.bills.listBills(billingID: billing.id))
-      }
+      let bills = try await BillLoading.billsByBilling(
+        for: billings, using: app.dependencies.bills
+      ).flatMap(\.bills)
       let names = Dictionary(uniqueKeysWithValues: billings.map { ($0.id, $0.name) })
       let data = HomeData(
         summary: summary,
