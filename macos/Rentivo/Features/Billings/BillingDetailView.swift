@@ -113,7 +113,7 @@ struct BillingDetailView: View {
         Text(billing.description)
           .foregroundStyle(RentivoColors.secondaryInk)
         Label(billing.owner.name, systemImage: "person.crop.square")
-          .font(.subheadline.weight(.semibold))
+          .font(RentivoTypography.bodyStrong)
         HStack {
           Label(
             billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado",
@@ -152,7 +152,7 @@ struct BillingDetailView: View {
         "Seu perfil pode consultar, mas não alterar esta cobrança.",
         systemImage: "eye.fill"
       )
-      .font(.footnote.weight(.semibold))
+      .font(RentivoTypography.captionStrong)
       .foregroundStyle(RentivoColors.secondaryInk)
     }
   }
@@ -166,9 +166,9 @@ struct BillingDetailView: View {
             HStack {
               VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
                 Text(item.description)
-                  .font(.subheadline.weight(.semibold))
+                  .font(RentivoTypography.bodyStrong)
                 Text(item.type.label)
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
               Spacer()
@@ -207,7 +207,7 @@ struct BillingDetailView: View {
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.small) {
                   Text(bill.referenceMonth.displayFormatted.capitalized)
-                    .font(.headline)
+                    .font(RentivoTypography.cardTitle)
                   StatusBadge(status: bill.status)
                 }
                 Spacer()
@@ -215,7 +215,7 @@ struct BillingDetailView: View {
                   MoneyText(money: bill.effectiveTotal)
                   if let dueDate = bill.dueDate {
                     Text("Vence \(dueDate.displayFormatted)")
-                      .font(.caption)
+                      .font(RentivoTypography.caption)
                       .foregroundStyle(RentivoColors.secondaryInk)
                   }
                 }
@@ -250,7 +250,7 @@ struct BillingDetailView: View {
 
   private func valueRow(_ label: String, _ money: Money, _ color: Color) -> some View {
     HStack {
-      Text(label).font(.subheadline.weight(.semibold))
+      Text(label).font(RentivoTypography.bodyStrong)
       Spacer()
       MoneyText(money: money, color: color)
     }
@@ -262,15 +262,15 @@ struct BillingDetailView: View {
       RentivoCard {
         VStack(alignment: .leading, spacing: RentivoSpacing.small) {
           ForEach(billing.recipients) { recipient in
-            Text(recipient.name).font(.subheadline.weight(.semibold))
+            Text(recipient.name).font(RentivoTypography.bodyStrong)
             Text(recipient.email)
-              .font(.caption)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
           if let replyTo = billing.replyTo {
             Divider()
             Label("Respostas para \(replyTo)", systemImage: "arrowshape.turn.up.left")
-              .font(.caption)
+              .font(RentivoTypography.caption)
           }
         }
       }

@@ -60,7 +60,7 @@ private struct CurrencyCentavosFieldPreviewContainer: View {
     Form {
       CurrencyCentavosField("Valor da parcela", centavos: $centavos)
       Text("Centavos armazenados: \(centavos)")
-        .font(.caption)
+        .font(RentivoTypography.caption)
         .foregroundStyle(RentivoColors.secondaryInk)
     }
   }

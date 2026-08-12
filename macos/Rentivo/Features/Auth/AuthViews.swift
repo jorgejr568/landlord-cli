@@ -34,7 +34,7 @@ private struct AuthScaffold<Content: View>: View {
             .font(RentivoTypography.display)
             .foregroundStyle(RentivoColors.ink)
           Text(subtitle)
-            .font(.body)
+            .font(RentivoTypography.body)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
         RentivoCard { content }
@@ -63,7 +63,7 @@ struct LoginView: View {
       VStack(alignment: .leading, spacing: RentivoSpacing.large) {
         if let validationMessage {
           Label(validationMessage, systemImage: "exclamationmark.circle.fill")
-            .font(.footnote.weight(.semibold))
+            .font(RentivoTypography.captionStrong)
             .foregroundStyle(RentivoColors.coral)
             .accessibilityIdentifier("login.error")
         }
@@ -81,7 +81,7 @@ struct LoginView: View {
         .disabled(isAuthenticating)
         .accessibilityIdentifier("login.submit")
         Text("O login continua no site seguro do Rentivo para concluir a verificação de segurança.")
-          .font(.footnote)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
     }

@@ -49,7 +49,10 @@ struct RentivoMacApp: App {
         // tokens against dark chrome.
         .preferredColorScheme(.light)
     }
-    .defaultSize(width: 1200, height: 760)
+    // Bumped from 1200x760 alongside the desktop type scale: the larger text needs the extra
+    // room to keep the same amount of a section on screen, and it stops the toolbar search
+    // field from being squeezed to a truncated prompt on Cobranças.
+    .defaultSize(width: 1280, height: 800)
     .commands {
       // Nothing in the app is "new" from the File menu — every create action lives inside a
       // section — so the placeholder item is removed rather than left dead.

@@ -118,9 +118,9 @@ struct CommunicationComposerView: View {
           ForEach(billing.recipients) { recipient in
             Toggle(isOn: binding(for: recipient.id)) {
               VStack(alignment: .leading) {
-                Text(recipient.name).font(.subheadline.weight(.semibold))
+                Text(recipient.name).font(RentivoTypography.bodyStrong)
                 Text(recipient.email)
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
             }
@@ -151,33 +151,33 @@ struct CommunicationComposerView: View {
           Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
         }
 
-        Section("Pré-visualização") {
+        RentivoSection("Pré-visualização") {
           if let preview {
             HTMLPreviewPanel(html: preview.html)
           } else {
             Text("A pré-visualização aparecerá aqui.")
-              .font(.caption)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
         }
 
         if hasSevereWarnings || hasMildWarnings {
-          Section("Verificação de conteúdo") {
+          RentivoSection("Verificação de conteúdo") {
             if hasSevereWarnings, let preview {
               Text(
                 "Conteúdo não permitido (ofensa grave ou ameaça): \(preview.severeWarnings.joined(separator: ", ")). Edite para enviar."
               )
-              .font(.caption)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.coral)
             }
             if hasMildWarnings, let preview {
               Text("Linguagem possivelmente ofensiva: \(preview.mildWarnings.joined(separator: ", ")).")
-                .font(.caption)
+                .font(RentivoTypography.caption)
                 .foregroundStyle(RentivoColors.coral)
             }
             if hasMildWarnings && !hasSevereWarnings {
               Toggle("Reconheço o aviso e quero enviar mesmo assim.", isOn: $acknowledgedWarnings)
-                .font(.caption)
+                .font(RentivoTypography.caption)
             }
           }
         }

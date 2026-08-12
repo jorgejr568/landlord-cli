@@ -150,7 +150,7 @@ struct BillingFormView: View {
 
   var body: some View {
     Form {
-      Section("Identificação") {
+      RentivoSection("Identificação") {
         TextField("Nome", text: $name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
@@ -199,7 +199,7 @@ struct BillingFormView: View {
         Text("Use valor zero para itens variáveis que serão preenchidos em cada fatura.")
       }
 
-      Section("PIX opcional") {
+      RentivoSection("PIX opcional") {
         TextField("Chave PIX própria", text: $pixKey)
           .autocorrectionDisabled()
           .accessibilityIdentifier("billing.form.pix.key")
@@ -208,7 +208,7 @@ struct BillingFormView: View {
         TextField("Cidade do recebedor", text: $pixMerchantCity)
           .accessibilityIdentifier("billing.form.pix.merchantCity")
         Text("Deixe em branco para herdar o PIX do responsável.")
-          .font(.caption)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
 
@@ -246,7 +246,7 @@ struct BillingFormView: View {
       }
 
       if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil {
-        Section("Revise os campos") {
+        RentivoSection("Revise os campos") {
           ForEach(validationIssues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
               .foregroundStyle(RentivoColors.coral)

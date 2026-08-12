@@ -161,13 +161,13 @@ private struct APIKeyCard: View {
             .foregroundStyle(RentivoColors.ink)
             .multilineTextAlignment(.leading)
           Label(key.hint, systemImage: "key.fill")
-            .font(.system(.caption, design: .monospaced))
+            .font(RentivoTypography.monoSmall)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
         // Scopes are never truncated: this is the only place outside the edit sheet that
         // shows what an integration is allowed to do, so the card grows instead.
         Text(key.scopes.map(\.label).sorted().joined(separator: " · "))
-          .font(.subheadline)
+          .font(RentivoTypography.body)
           .foregroundStyle(RentivoColors.secondaryInk)
         HStack(alignment: .top) {
           dateColumn("Criada em", value: key.createdAt, alignment: .leading)
@@ -178,7 +178,7 @@ private struct APIKeyCard: View {
           ptBRCount(key.grants.count, singular: "acesso", plural: "acessos"),
           systemImage: "person.2.fill"
         )
-        .font(.caption.weight(.semibold))
+        .font(RentivoTypography.metadata)
         .foregroundStyle(RentivoColors.secondaryInk)
         if showsActions {
           // `RentivoButtonStyle` already expands to the available width, so the HStack
@@ -203,7 +203,7 @@ private struct APIKeyCard: View {
   ) -> some View {
     VStack(alignment: alignment, spacing: RentivoSpacing.tiny) {
       Text(title)
-        .font(.caption)
+        .font(RentivoTypography.caption)
         .foregroundStyle(RentivoColors.secondaryInk)
       Text(value.formattedPTBR())
         .font(RentivoTypography.metadata)
@@ -240,8 +240,8 @@ private struct APIKeyFormView: View {
 
   var body: some View {
     Form {
-      Section("Identificação") { TextField("Nome", text: $name) }
-      Section("Escopos seguros") {
+      RentivoSection("Identificação") { TextField("Nome", text: $name) }
+      RentivoSection("Escopos seguros") {
         ForEach(APIKeyScope.integrationCases, id: \.self) { scope in
           Toggle(
             scope.label,
@@ -254,13 +254,13 @@ private struct APIKeyFormView: View {
           )
         }
       }
-      Section("Acesso") {
+      RentivoSection("Acesso") {
         resourceToggle("Conta pessoal", id: .personal)
         ForEach(organizations) { organization in
           resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
         }
       }
-      Section("Validade") {
+      RentivoSection("Validade") {
         DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
       }
     }
@@ -324,7 +324,7 @@ private struct APIKeySecretView: View {
           .foregroundStyle(RentivoColors.amber)
         Text("Este segredo não será exibido novamente.")
         Text(created.secret)
-          .font(.system(.body, design: .monospaced, weight: .bold))
+          .font(RentivoTypography.monoStrong)
           .textSelection(.enabled)
           .padding()
           .frame(maxWidth: .infinity, alignment: .leading)

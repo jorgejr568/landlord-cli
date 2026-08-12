@@ -29,12 +29,47 @@ enum RentivoSpacing {
   static let section: CGFloat = 32
 }
 
+/// Desktop type scale.
+///
+/// The sizes are explicit rather than derived from `Font.TextStyle` on purpose. macOS resolves
+/// the system text styles several points smaller than iOS does — `.body` is 13pt against iOS's
+/// 17, `.caption` 10 against 12, `.largeTitle` 26 against 34 — so the iOS scale this app was
+/// ported from lands unreadably small on a desktop display viewed at arm's length. Scaling the
+/// text styles back up through `.dynamicTypeSize` is not an option either: applying it anywhere
+/// above this app's content stops SwiftUI rendering the window contents at all on the macOS 14
+/// SDK, verified by window capture.
+///
+/// Every screen draws from these tokens, so the hierarchy holds across features:
+/// `display` > `title` > `cardTitle` > `body` > `caption`/`metadata`.
 enum RentivoTypography {
-  static let display = Font.system(.largeTitle, design: .rounded, weight: .black)
-  static let title = Font.system(.title2, design: .rounded, weight: .bold)
-  static let cardTitle = Font.system(.headline, design: .rounded, weight: .bold)
-  static let metadata = Font.system(.caption, design: .rounded, weight: .semibold)
-  static let money = Font.system(.title3, design: .monospaced, weight: .bold)
+  /// Screen-level greeting and the wordmark — one per screen at most.
+  static let display = Font.system(size: 36, weight: .black, design: .rounded)
+  /// Section headings and sheet titles.
+  static let title = Font.system(size: 21, weight: .bold, design: .rounded)
+  /// Card titles and list-row titles.
+  static let cardTitle = Font.system(size: 17, weight: .bold, design: .rounded)
+  /// Default running text. Also the app-wide default, applied once at the root.
+  static let body = Font.system(size: 15, weight: .regular)
+  /// Running text carrying emphasis: field labels, row leads.
+  static let bodyStrong = Font.system(size: 15, weight: .semibold)
+  /// Supporting text under a title.
+  static let caption = Font.system(size: 13, weight: .regular)
+  /// Supporting text carrying emphasis.
+  static let captionStrong = Font.system(size: 13, weight: .semibold)
+  /// Small rounded labels: status badges, pills, stat-card captions.
+  static let metadata = Font.system(size: 13, weight: .semibold, design: .rounded)
+  /// Primary monetary figures.
+  static let money = Font.system(size: 21, weight: .bold, design: .monospaced)
+  /// Monetary figures in the compact summary cards, which sit four to a row.
+  static let moneyCompact = Font.system(size: 17, weight: .bold, design: .monospaced)
+  /// Machine-readable strings: keys, hex colours, recovery codes.
+  static let mono = Font.system(size: 14, weight: .regular, design: .monospaced)
+  static let monoStrong = Font.system(size: 16, weight: .bold, design: .monospaced)
+  static let monoSmall = Font.system(size: 13, weight: .regular, design: .monospaced)
+  /// Labels inside `RentivoButtonStyle`.
+  static let button = Font.system(size: 16, weight: .bold, design: .rounded)
+  /// Glyph size for the symbol that heads a card.
+  static let icon = Font.system(size: 22, weight: .semibold)
 }
 
 extension View {

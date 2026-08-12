@@ -72,8 +72,16 @@ struct MainSplitView: View {
   private var sidebar: some View {
     List(selection: selection) {
       ForEach(AppTab.allCases, id: \.self) { tab in
-        Label(tab.title, systemImage: tab.systemImage)
-          .tag(tab)
+        // Spelled out rather than `Label(_:systemImage:)` with a font on the outside: a
+        // source-list row restyles the label it is handed, so an inherited font never reaches
+        // the title and the four section names stay at the macOS 13pt default while every
+        // other surface scales. A font set on the Text itself survives that restyling.
+        Label {
+          Text(tab.title).font(RentivoTypography.body)
+        } icon: {
+          Image(systemName: tab.systemImage).font(RentivoTypography.body)
+        }
+        .tag(tab)
       }
     }
     .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 320)
@@ -85,7 +93,7 @@ struct MainSplitView: View {
       Divider()
       VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
         Text(app.currentUser.email)
-          .font(.footnote.weight(.semibold))
+          .font(RentivoTypography.captionStrong)
           .foregroundStyle(RentivoColors.ink)
           .lineLimit(1)
           .truncationMode(.middle)

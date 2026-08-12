@@ -55,7 +55,7 @@ private struct OperationRow: View {
   var body: some View {
     HStack {
       Label(title, systemImage: symbol)
-        .font(.subheadline.weight(.semibold))
+        .font(RentivoTypography.bodyStrong)
         .foregroundStyle(RentivoColors.ink)
       Spacer()
       Image(systemName: "chevron.right")
@@ -85,12 +85,12 @@ struct ExpenseListView: View {
             HStack {
               VStack(alignment: .leading, spacing: RentivoSpacing.small) {
                 HStack {
-                  Text(expense.description).font(.headline)
+                  Text(expense.description).font(RentivoTypography.cardTitle)
                   Spacer()
                   MoneyText(money: expense.amount)
                 }
                 Label(expense.category.label, systemImage: "tag.fill")
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
               // Swipe actions are an iOS gesture; on macOS the same destructive action is an
@@ -243,12 +243,12 @@ struct AttachmentListView: View {
             HStack {
               Label {
                 VStack(alignment: .leading) {
-                  Text(attachment.name).font(.headline)
+                  Text(attachment.name).font(RentivoTypography.cardTitle)
                   Text(
                     ByteCountFormatter.string(
                       fromByteCount: Int64(attachment.byteCount), countStyle: .file)
                   )
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                 }
               } icon: {
                 Image(systemName: "doc.fill")
@@ -395,7 +395,7 @@ struct ExportSimulationView: View {
         Text("XLSX").tag("XLSX")
       }
       .pickerStyle(.segmented)
-      Section("Conteúdo") {
+      RentivoSection("Conteúdo") {
         Label("Faturas", systemImage: "doc.text")
         Label("Despesas", systemImage: "wrench.and.screwdriver")
         Label("Resumo financeiro", systemImage: "chart.bar")

@@ -21,7 +21,7 @@ struct ReceiptManagerView: View {
         if !bill.receipts.isEmpty {
           Spacer()
           Text(ptBRCount(bill.receipts.count, singular: "comprovante", plural: "comprovantes"))
-            .font(.caption)
+            .font(RentivoTypography.caption)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
@@ -34,7 +34,7 @@ struct ReceiptManagerView: View {
             ForEach(bill.receipts) { receipt in
               HStack {
                 Label(receipt.name, systemImage: "doc.fill")
-                  .font(.subheadline)
+                  .font(RentivoTypography.body)
                 Spacer()
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }
@@ -71,7 +71,7 @@ struct ReceiptManagerView: View {
         // Drag-and-drop is invisible until it is named: without this line the drop target below
         // is a feature only a user who happens to try it would ever find.
         Text("Ou arraste um arquivo do Finder para esta área.")
-          .font(.caption)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
     }

@@ -20,7 +20,7 @@ struct ThemeEditorView: View {
   var body: some View {
     Form {
       if let record {
-        Section("Herança") {
+        RentivoSection("Herança") {
           LabeledContent("Responsável", value: record.ownerName)
           LabeledContent("Origem efetiva", value: record.effectiveSource.label)
             .accessibilityIdentifier("theme.source")
@@ -29,12 +29,12 @@ struct ThemeEditorView: View {
               "Este nível herda o tema de \(record.effectiveSource.label.lowercased()).",
               systemImage: "arrow.triangle.branch"
             )
-            .font(.footnote)
+            .font(RentivoTypography.caption)
           }
         }
       }
 
-      Section("Tipografia") {
+      RentivoSection("Tipografia") {
         Picker("Fonte de títulos", selection: $values.headerFont) {
           ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
         }
@@ -43,7 +43,7 @@ struct ThemeEditorView: View {
         }
       }
 
-      Section("Cores da API") {
+      RentivoSection("Cores da API") {
         ThemeColorField(title: "Primária", value: $values.primary)
         ThemeColorField(title: "Primária clara", value: $values.primaryLight)
         ThemeColorField(title: "Secundária", value: $values.secondary)
@@ -52,7 +52,7 @@ struct ThemeEditorView: View {
         ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
       }
 
-      Section("Prévia") {
+      RentivoSection("Prévia") {
         ThemePreview(values: values)
       }
 
@@ -135,7 +135,7 @@ private struct ThemeColorField: View {
       .labelsHidden()
       .accessibilityLabel("\(title): seletor de cor")
       TextField(title, text: $value)
-        .font(.system(.body, design: .monospaced))
+        .font(RentivoTypography.mono)
     }
   }
 }
@@ -146,12 +146,12 @@ private struct ThemePreview: View {
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
       Text("Fatura Rentivo")
-        .font(.title2.bold())
+        .font(RentivoTypography.title)
         .foregroundStyle(Color(hex: values.textColor) ?? RentivoColors.ink)
       Text("Uma prévia local das cores do documento.")
         .foregroundStyle(Color(hex: values.textColor) ?? RentivoColors.ink)
       Text("R$ 2.450,00")
-        .font(.system(.title3, design: .monospaced, weight: .bold))
+        .font(RentivoTypography.money)
         .foregroundStyle(Color(hex: values.textContrast) ?? .white)
         .padding()
         .frame(maxWidth: .infinity)

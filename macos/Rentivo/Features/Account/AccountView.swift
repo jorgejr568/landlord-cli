@@ -13,16 +13,16 @@ struct AccountView: View {
         HStack(spacing: RentivoSpacing.medium) {
           BrandMark(compact: true)
           VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-            Text(app.usesLiveAPI ? "Sua conta" : "Conta de demonstração").font(.headline)
+            Text(app.usesLiveAPI ? "Sua conta" : "Conta de demonstração").font(RentivoTypography.cardTitle)
             Text(app.currentUser.email)
-              .font(.subheadline)
+              .font(RentivoTypography.body)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
         }
         .padding(.vertical, RentivoSpacing.small)
       }
 
-      Section("Perfil") {
+      RentivoSection("Perfil") {
         NavigationLink {
           ProfilePixView()
         } label: {
@@ -37,7 +37,7 @@ struct AccountView: View {
         }
       }
 
-      Section("Personalização e integrações") {
+      RentivoSection("Personalização e integrações") {
         NavigationLink {
           APIKeyListView()
         } label: {
@@ -53,7 +53,7 @@ struct AccountView: View {
       }
 
       if !app.usesLiveAPI {
-        Section("Demonstração") {
+        RentivoSection("Demonstração") {
           NavigationLink {
             DemoScenariosView()
           } label: {
@@ -67,7 +67,7 @@ struct AccountView: View {
         }
       }
 
-      Section("Sobre e suporte") {
+      RentivoSection("Sobre e suporte") {
         Link(destination: LiveAPIClient.productionURL.appending(path: "support")) {
           AccountRow(
             title: "Suporte",
@@ -139,9 +139,9 @@ private struct AccountRow: View {
   var body: some View {
     Label {
       VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-        Text(title).font(.headline)
+        Text(title).font(RentivoTypography.cardTitle)
         Text(subtitle)
-          .font(.caption)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
     } icon: {
@@ -163,11 +163,11 @@ struct ProfilePixView: View {
 
   var body: some View {
     Form {
-      Section("Conta") {
+      RentivoSection("Conta") {
         LabeledContent("E-mail", value: app.currentUser.email)
         LabeledContent("Ambiente", value: app.usesLiveAPI ? "Rentivo" : "Demonstração local")
       }
-      Section("PIX pessoal") {
+      RentivoSection("PIX pessoal") {
         TextField("Chave PIX", text: $form.key)
         TextField("Nome do recebedor", text: $form.merchantName)
         TextField("Cidade", text: $form.merchantCity)
@@ -178,7 +178,7 @@ struct ProfilePixView: View {
           "Cobranças pessoais sem PIX próprio herdam esta configuração.",
           systemImage: "arrow.triangle.branch"
         )
-        .font(.footnote)
+        .font(RentivoTypography.caption)
       }
     }
     .formStyle(.grouped)

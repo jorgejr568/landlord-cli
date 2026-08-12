@@ -111,7 +111,7 @@ struct BillDetailView: View {
         HStack {
           VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
             Text(billing?.name ?? "Cobrança")
-              .font(.subheadline.weight(.semibold))
+              .font(RentivoTypography.bodyStrong)
               .foregroundStyle(RentivoColors.secondaryInk)
             Text(bill.referenceMonth.label.capitalized)
               .font(RentivoTypography.title)
@@ -122,11 +122,11 @@ struct BillDetailView: View {
         MoneyText(money: bill.effectiveTotal)
         if let dueDate = bill.dueDate {
           Label("Vencimento: \(dueDate.displayFormatted)", systemImage: "calendar")
-            .font(.subheadline)
+            .font(RentivoTypography.body)
         }
         if let paidAt = bill.paidAt {
           Label("Pago em \(paidAt.displayFormatted)", systemImage: "checkmark.seal.fill")
-            .font(.subheadline.weight(.semibold))
+            .font(RentivoTypography.bodyStrong)
             .foregroundStyle(RentivoColors.emerald)
         }
       }
@@ -160,7 +160,7 @@ struct BillDetailView: View {
       .buttonStyle(.bordered)
       if bill.isRenderingPDF {
         Text("Os documentos ficam disponíveis assim que a geração terminar.")
-          .font(.footnote)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
     }
@@ -172,7 +172,7 @@ struct BillDetailView: View {
       lifecycle(bill)
     } else {
       Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
-        .font(.footnote)
+        .font(RentivoTypography.caption)
         .foregroundStyle(RentivoColors.secondaryInk)
     }
   }
@@ -186,12 +186,12 @@ struct BillDetailView: View {
         ProgressView()
           .controlSize(.small)
       }
-      .font(.footnote)
+      .font(RentivoTypography.caption)
       .foregroundStyle(RentivoColors.secondaryInk)
       .accessibilityIdentifier("bill.pdf.rendering")
     case .failed:
       Label("Falha no PDF", systemImage: "exclamationmark.triangle")
-        .font(.footnote)
+        .font(RentivoTypography.caption)
         .foregroundStyle(RentivoColors.coral)
         .accessibilityIdentifier("bill.pdf.failed")
     case .succeeded, nil:
@@ -207,9 +207,9 @@ struct BillDetailView: View {
           ForEach(bill.lineItems) { line in
             HStack {
               VStack(alignment: .leading) {
-                Text(line.description).font(.subheadline.weight(.semibold))
+                Text(line.description).font(RentivoTypography.bodyStrong)
                 Text(line.kind.sectionTitle)
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
               Spacer()
@@ -219,7 +219,7 @@ struct BillDetailView: View {
           if !bill.notes.isEmpty {
             Divider()
             Text(bill.notes)
-              .font(.footnote)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
         }

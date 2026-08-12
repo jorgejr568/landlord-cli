@@ -103,7 +103,7 @@ struct BillFormView: View {
 
   var body: some View {
     Form {
-      Section("Competência") {
+      RentivoSection("Competência") {
         Picker("Mês", selection: $month) {
           ForEach(1...12, id: \.self) { Text(BillReferenceMonthNames.label(year: year, month: $0)).tag($0) }
         }
@@ -112,20 +112,20 @@ struct BillFormView: View {
           .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
       }
 
-      Section("Vencimento") {
+      RentivoSection("Vencimento") {
         Toggle("Definir vencimento", isOn: $hasDueDate)
           .accessibilityIdentifier("bill.form.hasDueDate")
         if hasDueDate {
           DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
             .accessibilityIdentifier("bill.form.dueDate")
           Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
-            .font(.footnote)
+            .font(RentivoTypography.caption)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
-        Section(kind.sectionTitle) {
+        RentivoSection(kind.sectionTitle) {
           // Fixed lines mirror the billing's own recurring items and aren't deletable here; only
           // user-added variable/extra lines can be removed.
           ForEach(lineIndices(for: kind), id: \.self) { index in
@@ -148,17 +148,17 @@ struct BillFormView: View {
         }
       }
 
-      Section("Observações") {
+      RentivoSection("Observações") {
         TextField("Mensagem opcional", text: $notes, axis: .vertical)
           .lineLimit(3...6)
       }
 
-      Section("Total") {
+      RentivoSection("Total") {
         MoneyText(money: total)
       }
 
       if !issues.isEmpty {
-        Section("Revise a fatura") {
+        RentivoSection("Revise a fatura") {
           ForEach(issues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
               .foregroundStyle(RentivoColors.coral)

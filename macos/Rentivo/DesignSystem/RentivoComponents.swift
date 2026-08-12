@@ -49,7 +49,7 @@ struct RentivoButtonStyle: ButtonStyle {
 
     var body: some View {
       configuration.label
-        .font(.headline.weight(.bold))
+        .font(RentivoTypography.button)
         .foregroundStyle(Color.white)
         .frame(maxWidth: .infinity, minHeight: 48)
         .padding(.horizontal, RentivoSpacing.medium)
@@ -115,12 +115,38 @@ struct BrandMark: View {
         }
       if !compact {
         Text("rentivo")
-          .font(.system(.largeTitle, design: .rounded, weight: .black))
+          .font(RentivoTypography.display)
           .foregroundStyle(RentivoColors.ink)
       }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Rentivo")
+  }
+}
+
+/// A grouped-form or list section whose header follows the app's type scale.
+///
+/// `Section("…")` draws its header with a system font of its own choosing, which ignores the
+/// environment font the root sets — so a plain `Section` leaves its header at the macOS default
+/// while every row around it follows `RentivoTypography`. Naming the header view explicitly is
+/// what keeps the two in step.
+struct RentivoSection<Content: View>: View {
+  private let title: String
+  private let content: Content
+
+  init(_ title: String, @ViewBuilder content: () -> Content) {
+    self.title = title
+    self.content = content()
+  }
+
+  var body: some View {
+    Section {
+      content
+    } header: {
+      Text(title)
+        .font(RentivoTypography.metadata)
+        .foregroundStyle(RentivoColors.secondaryInk)
+    }
   }
 }
 
@@ -260,7 +286,7 @@ struct NoticeBanner: View {
       Image(systemName: symbol)
         .foregroundStyle(color)
       Text(notice.message)
-        .font(.subheadline.weight(.semibold))
+        .font(RentivoTypography.bodyStrong)
         .foregroundStyle(RentivoColors.ink)
         .frame(maxWidth: .infinity, alignment: .leading)
       Button(action: dismiss) {
@@ -311,7 +337,7 @@ extension AnyTransition {
       Text("Cobrança de Julho")
         .font(RentivoTypography.cardTitle)
       Text("Vence em 10/07/2026")
-        .font(.subheadline)
+        .font(RentivoTypography.body)
         .foregroundStyle(RentivoColors.secondaryInk)
     }
   }

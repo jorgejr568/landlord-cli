@@ -16,12 +16,12 @@ struct InvitationListView: View {
       List {
         ForEach(invitations) { invitation in
           VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-            Text(invitation.organizationName).font(.headline)
+            Text(invitation.organizationName).font(RentivoTypography.cardTitle)
             Label(invitation.role.label, systemImage: "person.badge.shield.checkmark")
-              .font(.caption)
+              .font(RentivoTypography.caption)
             if !app.usesLiveAPI && app.demoSettings.viewerMode {
               Label("Ações indisponíveis no modo visualizador.", systemImage: "eye.fill")
-                .font(.caption)
+                .font(RentivoTypography.caption)
                 .foregroundStyle(RentivoColors.secondaryInk)
             } else {
               HStack {
@@ -91,7 +91,7 @@ struct InviteMemberView: View {
       // showing it there would be misleading demo residue.
       if !app.usesLiveAPI {
         Label("O convite ficará pendente apenas na memória do app.", systemImage: "info.circle")
-          .font(.footnote)
+          .font(RentivoTypography.caption)
       }
     }
     .formStyle(.grouped)

@@ -22,14 +22,14 @@ struct SecurityView: View {
   var body: some View {
     PageStateView(state: state) { summary in
       List {
-        Section("Senha") {
+        RentivoSection("Senha") {
           NavigationLink {
             ChangePasswordView()
           } label: {
             Label("Alterar senha", systemImage: "key.fill")
           }
         }
-        Section("Autenticação em duas etapas") {
+        RentivoSection("Autenticação em duas etapas") {
           LabeledContent("Aplicativo autenticador", value: summary.totpEnabled ? "Ativado" : "Desativado")
           if !isDemoViewerLocked {
             if summary.totpEnabled {
@@ -43,28 +43,28 @@ struct SecurityView: View {
           }
           LabeledContent("Códigos disponíveis", value: "\(summary.recoveryCodeCount)")
         }
-        Section("Chaves de acesso") {
+        RentivoSection("Chaves de acesso") {
           if summary.passkeys.isEmpty {
             Text("Nenhuma chave de acesso registrada ainda.")
-              .font(.footnote)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           } else {
             ForEach(summary.passkeys) { passkey in
               VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-                Text(passkey.name).font(.headline)
+                Text(passkey.name).font(RentivoTypography.cardTitle)
                 Text("Último uso: \(passkey.lastUsedAt?.formattedPTBR(time: .shortened) ?? "nunca")")
-                  .font(.caption)
+                  .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
                 if !isDemoViewerLocked {
                   Button("Excluir", role: .destructive) { passkeyPendingDelete = passkey }
-                    .font(.caption.weight(.semibold))
+                    .font(RentivoTypography.metadata)
                     .accessibilityIdentifier("security.passkey.delete")
                 }
               }
             }
           }
           Text("Para registrar uma nova chave de acesso, entre pelo navegador do Rentivo. Ela ficará disponível automaticamente neste aplicativo.")
-            .font(.footnote)
+            .font(RentivoTypography.caption)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
@@ -235,7 +235,7 @@ private struct RecoveryCodeView: View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
           ForEach(codes, id: \.self) { code in
             Text(code)
-              .font(.system(.body, design: .monospaced, weight: .bold))
+              .font(RentivoTypography.monoStrong)
               .textSelection(.enabled)
               .padding()
               .frame(maxWidth: .infinity)
@@ -288,13 +288,13 @@ private struct TOTPEnrollmentView: View {
                 }
                 .accessibilityLabel("QR Code do autenticador")
               Text("Ou escaneie com seu telefone.")
-                .font(.footnote)
+                .font(RentivoTypography.caption)
                 .foregroundStyle(RentivoColors.secondaryInk)
             }
           }
           VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
             Text(enrollment.secret)
-              .font(.system(.body, design: .monospaced, weight: .bold))
+              .font(RentivoTypography.monoStrong)
               .textSelection(.enabled)
               .padding()
               .frame(maxWidth: .infinity, alignment: .leading)

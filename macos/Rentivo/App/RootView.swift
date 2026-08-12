@@ -15,6 +15,12 @@ struct RootView: View {
         MainSplitView()
       }
     }
+    // The app-wide text default. macOS resolves its own default to 13pt, which is the size the
+    // readability complaint was about, and it reaches the text no `.font(...)` names directly:
+    // sidebar labels, grouped-form rows and their `LabeledContent` values, empty-state copy, and
+    // plain button titles. Setting it here rather than per call site keeps those in step with the
+    // tokens, and any explicit `.font(...)` further down still wins.
+    .font(RentivoTypography.body)
     .background(RentivoColors.paper.ignoresSafeArea())
     .task { await app.restoreSessionIfNeeded() }
     .overlay(alignment: .top) {

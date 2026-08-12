@@ -255,7 +255,7 @@ private struct HomeContent: View {
         .foregroundStyle(RentivoColors.secondaryInk)
       HStack {
         Label("Saldo em atraso", systemImage: "clock.badge.exclamationmark")
-          .font(.caption.weight(.semibold))
+          .font(RentivoTypography.metadata)
         Spacer()
         MoneyText(money: data.summary.overdue, color: RentivoColors.coral)
           .contentTransition(.numericText())
@@ -275,7 +275,7 @@ private struct HomeContent: View {
           )
           .font(RentivoTypography.cardTitle)
           Text("Abra Cobranças para registrar o pagamento ou cancelar a fatura.")
-            .font(.subheadline)
+            .font(RentivoTypography.body)
             .foregroundStyle(RentivoColors.secondaryInk)
           Button("Ver cobranças") { app.selectedTab = .billings }
             .buttonStyle(.borderedProminent)
@@ -311,7 +311,7 @@ private struct HomeContent: View {
           Text(
             "Crie sua primeira cobrança recorrente na aba Cobranças para começar a acompanhar recebimentos, despesas e faturas por aqui."
           )
-          .font(.subheadline)
+          .font(RentivoTypography.body)
           .foregroundStyle(RentivoColors.secondaryInk)
           Button("Ver cobranças") { app.selectedTab = .billings }
             .buttonStyle(RentivoButtonStyle())
@@ -332,7 +332,7 @@ private struct HomeContent: View {
                   Text(data.billingNames[bill.billingID] ?? "Cobrança")
                     .font(RentivoTypography.cardTitle)
                   Text(bill.referenceMonth.label.capitalized)
-                    .font(.subheadline)
+                    .font(RentivoTypography.body)
                     .foregroundStyle(RentivoColors.secondaryInk)
                 }
                 Spacer()
@@ -341,7 +341,7 @@ private struct HomeContent: View {
               HStack {
                 if let dueDate = bill.dueDate {
                   Label("Vence em \(dueDate.displayFormatted)", systemImage: "calendar")
-                    .font(.caption)
+                    .font(RentivoTypography.caption)
                 }
                 Spacer()
                 MoneyText(money: bill.effectiveTotal)
@@ -371,9 +371,9 @@ private struct HomeContent: View {
               .frame(width: 24)
             VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
               Text(activity.title)
-                .font(.subheadline.weight(.semibold))
+                .font(RentivoTypography.bodyStrong)
               Text(activity.detail)
-                .font(.caption)
+                .font(RentivoTypography.caption)
                 .foregroundStyle(RentivoColors.secondaryInk)
             }
             Spacer()
@@ -426,15 +426,15 @@ private struct SummaryCard: View {
     RentivoCard {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Image(systemName: symbol)
-          .font(.title2)
+          .font(RentivoTypography.icon)
           .foregroundStyle(color)
         Text(title)
-          .font(.caption.weight(.semibold))
+          .font(RentivoTypography.metadata)
           .foregroundStyle(RentivoColors.secondaryInk)
         MoneyText(
           money: value,
           color: RentivoColors.ink,
-          font: .system(.subheadline, design: .monospaced, weight: .bold),
+          font: RentivoTypography.moneyCompact,
           minimumScaleFactor: 0.7,
           lineLimit: 1,
           accessibilityLabelOverride: "\(title): \(value.formatted())"
@@ -453,13 +453,13 @@ private struct CollectionCard: View {
     RentivoCard {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Image(systemName: "percent")
-          .font(.title2)
+          .font(RentivoTypography.icon)
           .foregroundStyle(RentivoColors.lilac)
         Text("Taxa de recebimento")
-          .font(.caption.weight(.semibold))
+          .font(RentivoTypography.metadata)
           .foregroundStyle(RentivoColors.secondaryInk)
         Text("\(percent)%")
-          .font(.system(.title3, design: .monospaced, weight: .bold))
+          .font(RentivoTypography.money)
           .foregroundStyle(RentivoColors.ink)
           .contentTransition(.numericText())
           .animation(.snappy, value: percent)

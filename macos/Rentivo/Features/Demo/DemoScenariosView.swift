@@ -34,9 +34,9 @@ struct DemoScenariosView: View {
           "Estas opções alteram apenas o repositório em memória e serão removidas da navegação de produção.",
           systemImage: "hammer.fill"
         )
-        .font(.footnote)
+        .font(RentivoTypography.caption)
       }
-      Section("Estados de leitura") {
+      RentivoSection("Estados de leitura") {
         settingButton(
           title: "Atraso de 350 ms",
           enabled: app.demoSettings.delayEnabled,
@@ -59,7 +59,7 @@ struct DemoScenariosView: View {
           app.setViewerMode(!app.demoSettings.viewerMode)
         }
       }
-      Section("Falhas recuperáveis") {
+      RentivoSection("Falhas recuperáveis") {
         Button {
           app.armNextDemoFailure()
         } label: {
@@ -68,7 +68,7 @@ struct DemoScenariosView: View {
         }
         .accessibilityIdentifier("demo.fail-next")
       }
-      Section("Dados canônicos") {
+      RentivoSection("Dados canônicos") {
         Button("Restaurar toda a demonstração", role: .destructive) {
           confirmingReset = true
         }

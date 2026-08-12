@@ -166,7 +166,7 @@ private struct BillingPortfolioCard: View {
               .foregroundStyle(RentivoColors.ink)
               .multilineTextAlignment(.leading)
             Label(item.billing.owner.name, systemImage: ownerSymbol)
-              .font(.caption.weight(.semibold))
+              .font(RentivoTypography.metadata)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
           Spacer()
@@ -174,13 +174,13 @@ private struct BillingPortfolioCard: View {
             .foregroundStyle(RentivoColors.secondaryInk)
         }
         Text(item.billing.description)
-          .font(.subheadline)
+          .font(RentivoTypography.body)
           .foregroundStyle(RentivoColors.secondaryInk)
           .lineLimit(2)
         HStack {
           VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
             Text("Subtotal fixo")
-              .font(.caption)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
             MoneyText(money: item.billing.fixedSubtotal)
           }
@@ -192,7 +192,7 @@ private struct BillingPortfolioCard: View {
             )
             Label(pixLabel, systemImage: pixSymbol)
           }
-          .font(.caption.weight(.semibold))
+          .font(RentivoTypography.metadata)
           .foregroundStyle(RentivoColors.secondaryInk)
         }
         if let status = item.bills.first?.status {

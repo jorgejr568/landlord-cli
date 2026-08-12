@@ -81,7 +81,7 @@ struct OrganizationListView: View {
                     ptBRCount(pendingCount, singular: "convite pendente", plural: "convites pendentes"),
                     systemImage: "envelope.badge.fill"
                   )
-                  .font(.headline)
+                  .font(RentivoTypography.cardTitle)
                   Spacer()
                   Image(systemName: "chevron.right")
                 }
@@ -170,14 +170,14 @@ private struct OrganizationCard: View {
       VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
         HStack(alignment: .top) {
           Image(systemName: "building.2.fill")
-            .font(.title2)
+            .font(RentivoTypography.icon)
             .foregroundStyle(RentivoColors.emerald)
           VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
             Text(item.organization.name)
               .font(RentivoTypography.cardTitle)
               .foregroundStyle(RentivoColors.ink)
             Text(item.organization.currentUserRole.label)
-              .font(.caption.weight(.semibold))
+              .font(RentivoTypography.metadata)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
           Spacer()
@@ -195,13 +195,13 @@ private struct OrganizationCard: View {
             systemImage: "house.fill"
           )
         }
-        .font(.caption.weight(.semibold))
+        .font(RentivoTypography.metadata)
         .foregroundStyle(RentivoColors.secondaryInk)
         Label(
           item.organization.requiresMFA ? "MFA obrigatório" : "MFA opcional",
           systemImage: item.organization.requiresMFA ? "lock.shield.fill" : "lock.open"
         )
-        .font(.caption.weight(.semibold))
+        .font(RentivoTypography.metadata)
         .foregroundStyle(
           item.organization.requiresMFA ? RentivoColors.emerald : RentivoColors.secondaryInk
         )
@@ -232,17 +232,17 @@ struct OrganizationFormView: View {
 
   var body: some View {
     Form {
-      Section("Organização") {
+      RentivoSection("Organização") {
         TextField("Nome", text: $name)
       }
-      Section("PIX") {
+      RentivoSection("PIX") {
         TextField("Chave", text: $pixKey)
         TextField("Nome do recebedor", text: $merchantName)
         TextField("Cidade", text: $city)
       }
 
       if let pixValidationMessage {
-        Section("Revise os campos") {
+        RentivoSection("Revise os campos") {
           Label(pixValidationMessage, systemImage: "exclamationmark.circle.fill")
             .foregroundStyle(RentivoColors.coral)
             .accessibilityIdentifier("organization.form.validation")
@@ -386,7 +386,7 @@ struct OrganizationDetailView: View {
             "Seu papel permite consultar esta organização, sem alterar sua configuração.",
             systemImage: "eye.fill"
           )
-          .font(.footnote.weight(.semibold))
+          .font(RentivoTypography.captionStrong)
           .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
@@ -429,9 +429,9 @@ struct OrganizationDetailView: View {
       RentivoCard {
         HStack {
           VStack(alignment: .leading) {
-            Text("Autenticação em duas etapas").font(.headline)
+            Text("Autenticação em duas etapas").font(RentivoTypography.cardTitle)
             Text(organization.requiresMFA ? "Obrigatória para membros" : "Opcional")
-              .font(.caption)
+              .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
           Spacer()
@@ -470,7 +470,7 @@ struct OrganizationDetailView: View {
         ForEach(owned) { billing in
           RentivoCard {
             HStack {
-              Text(billing.name).font(.subheadline.weight(.semibold))
+              Text(billing.name).font(RentivoTypography.bodyStrong)
               Spacer()
             }
           }
@@ -572,9 +572,9 @@ private struct MemberRow: View {
   var body: some View {
     HStack {
       VStack(alignment: .leading) {
-        Text(member.email).font(.subheadline.weight(.semibold))
+        Text(member.email).font(RentivoTypography.bodyStrong)
         Text(member.role.label)
-          .font(.caption)
+          .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
       Spacer()
