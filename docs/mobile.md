@@ -71,7 +71,11 @@ Turnstile stay implemented once, on the web.
    `ASWebAuthenticationSession`, Android in a Chrome Custom Tab.
 2. The web login page (`frontend/src/features/auth/LoginPage.tsx`) authenticates
    the user normally, then calls `POST /api/v1/auth/mobile/authorize`, which
-   issues a single-use authorization challenge.
+   issues a single-use authorization challenge. Pages the user can reach from
+   there — signup and MFA verification — bounce back to
+   `/login?mobile_state=<state>` after authenticating, so account creation and
+   MFA also end in the authorize call instead of stranding the user on the web
+   dashboard inside the in-app browser.
 3. The page redirects to
    `rentivo://auth/callback?code=<authorization_code>&state=<state>`.
 4. The app validates the scheme, host, path, and returned `state`, then posts
