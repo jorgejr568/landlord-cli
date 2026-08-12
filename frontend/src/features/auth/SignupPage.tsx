@@ -26,7 +26,7 @@ export function SignupPage() {
   const mobileState = searchParams.get("mobile_state");
   const mobileLoginPath = mobileState
     ? `/login?mobile_state=${encodeURIComponent(mobileState)}`
-    : "/login";
+    : null;
   const { withHandoff } = useMobileHandoff();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,9 +49,9 @@ export function SignupPage() {
 
   useEffect(() => {
     if (auth.status === "authenticated" && auth.bootstrap) {
-      navigate(mobileState ? mobileLoginPath : postLoginPath(auth.bootstrap), { replace: true });
+      navigate(mobileLoginPath ?? postLoginPath(auth.bootstrap), { replace: true });
     }
-  }, [auth.bootstrap, auth.status, mobileLoginPath, mobileState, navigate]);
+  }, [auth.bootstrap, auth.status, mobileLoginPath, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,7 +74,7 @@ export function SignupPage() {
         apiClient.POST("/api/v1/auth/signup", { body: payload })
       );
       auth.authenticate(data);
-      navigate(mobileState ? mobileLoginPath : postLoginPath(data.bootstrap));
+      navigate(mobileLoginPath ?? postLoginPath(data.bootstrap));
     } catch (caught: unknown) {
       setError(
         caught instanceof ApiError
