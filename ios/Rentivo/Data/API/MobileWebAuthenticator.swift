@@ -41,11 +41,12 @@ enum MobileWebAuthenticationFlow {
   }
 }
 
-// The package target is also compiled by the macOS test runner. The actual
-// browser authentication session is available only to the iOS app target.
-#if canImport(UIKit)
+// AuthenticationServices drives the browser session on both Apple platforms;
+// only the presentation anchor differs, so the flow lives in one place and the
+// anchor is resolved by a per-platform extension below. Non-Apple platforms
+// (where neither UIKit nor AppKit exists) get the stub at the end of the file.
+#if canImport(UIKit) || canImport(AppKit)
 import AuthenticationServices
-import UIKit
 
 @MainActor
 final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationContextProviding {
@@ -137,12 +138,46 @@ final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationCon
   }
 
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    Self.currentPresentationAnchor()
+  }
+}
+
+#if canImport(UIKit)
+import UIKit
+
+extension MobileWebAuthenticator {
+  /// The key window of the foreground scene, or a placeholder when the app has
+  /// no window yet.
+  static func currentPresentationAnchor() -> ASPresentationAnchor {
     UIApplication.shared.connectedScenes
       .compactMap { $0 as? UIWindowScene }
       .flatMap(\.windows)
       .first(where: \.isKeyWindow) ?? UIWindow()
   }
 }
+#elseif canImport(AppKit)
+import AppKit
+
+extension MobileWebAuthenticator {
+  /// The window the authentication sheet is attached to, or a placeholder when
+  /// the app has no window yet (for example a menu-bar-only launch).
+  static func currentPresentationAnchor() -> ASPresentationAnchor {
+    preferredAnchor(
+      key: NSApplication.shared.keyWindow,
+      main: NSApplication.shared.mainWindow,
+      first: NSApplication.shared.windows.first
+    ) ?? ASPresentationAnchor()
+  }
+
+  /// The anchor preference order, kept free of `NSApplication` so it stays
+  /// testable without a running application.
+  nonisolated static func preferredAnchor<Window: AnyObject>(
+    key: Window?, main: Window?, first: Window?
+  ) -> Window? {
+    key ?? main ?? first
+  }
+}
+#endif
 #else
 @MainActor
 final class MobileWebAuthenticator {

@@ -60,3 +60,36 @@ import Testing
     #expect(!MobileWebAuthenticationFlow.isLogoutCallback(invalidURL, expectedState: state))
   }
 }
+
+#if canImport(UIKit) || canImport(AppKit)
+  import AuthenticationServices
+
+  @MainActor
+  @Test func mobileWebAuthenticatorTreatsOnlyTheDismissalAsAUserCancellation() {
+    func sessionError(_ code: ASWebAuthenticationSessionError.Code) -> Error {
+      ASWebAuthenticationSessionError(
+        _nsError: NSError(
+          domain: ASWebAuthenticationSessionErrorDomain, code: code.rawValue))
+    }
+
+    #expect(MobileWebAuthenticator.isUserCancellation(sessionError(.canceledLogin)))
+    #expect(!MobileWebAuthenticator.isUserCancellation(sessionError(.presentationContextInvalid)))
+    #expect(!MobileWebAuthenticator.isUserCancellation(LiveAPIError.invalidResponse))
+  }
+#endif
+
+#if !canImport(UIKit) && canImport(AppKit)
+  @Test func mobileWebAuthenticatorPrefersTheKeyWindowAsPresentationAnchor() {
+    final class StubWindow {}
+    let key = StubWindow()
+    let main = StubWindow()
+    let first = StubWindow()
+
+    #expect(MobileWebAuthenticator.preferredAnchor(key: key, main: main, first: first) === key)
+    #expect(MobileWebAuthenticator.preferredAnchor(key: nil, main: main, first: first) === main)
+    #expect(MobileWebAuthenticator.preferredAnchor(key: nil, main: nil, first: first) === first)
+    #expect(
+      MobileWebAuthenticator.preferredAnchor(
+        key: StubWindow?.none, main: nil, first: nil) == nil)
+  }
+#endif
