@@ -60,32 +60,19 @@ public final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresenta
     let state = UUID().uuidString
     let url = MobileWebAuthenticationFlow.authorizationURL(
       baseURL: LiveAPIClient.productionURL, state: state)
+    // The session is released here, back on the main actor, rather than from
+    // the completion handler — see `authorizationResult(callbackURL:error:expectedState:)`.
+    defer { session = nil }
     return try await withCheckedThrowingContinuation { continuation in
       let webSession = ASWebAuthenticationSession(
         url: url, callbackURLScheme: "rentivo"
-      ) { callbackURL, error in
-        // The completion handler is invoked by AuthenticationServices off the
-        // main actor, but it needs to mutate `self.session` (main-actor
-        // state). Hop explicitly instead of touching it from this closure.
-        Task { @MainActor [self] in
-          session = nil
-          if let error {
-            continuation.resume(throwing: error)
-            return
-          }
-          guard let callbackURL,
-            let code = MobileWebAuthenticationFlow.authorizationCode(
-              from: callbackURL, expectedState: state)
-          else {
-            continuation.resume(throwing: LiveAPIError.invalidResponse)
-            return
-          }
-          continuation.resume(returning: code)
-        }
+      ) { @Sendable callbackURL, error in
+        continuation.resume(
+          with: Self.authorizationResult(
+            callbackURL: callbackURL, error: error, expectedState: state))
       }
       configure(webSession)
       guard webSession.start() else {
-        session = nil
         continuation.resume(throwing: LiveAPIError.invalidResponse)
         return
       }
@@ -96,41 +83,63 @@ public final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresenta
     let state = UUID().uuidString
     let url = MobileWebAuthenticationFlow.logoutURL(
       baseURL: LiveAPIClient.productionURL, state: state)
+    defer { session = nil }
     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
       let webSession = ASWebAuthenticationSession(
         url: url, callbackURLScheme: "rentivo"
-      ) { callbackURL, error in
-        // Same as `authorize()`: hop to the main actor before touching
-        // `self.session`, since this completion runs off the main actor.
-        Task { @MainActor [self] in
-          session = nil
-          if let error {
-            continuation.resume(throwing: error)
-            return
-          }
-          guard let callbackURL,
-            MobileWebAuthenticationFlow.isLogoutCallback(callbackURL, expectedState: state)
-          else {
-            continuation.resume(throwing: LiveAPIError.invalidResponse)
-            return
-          }
-          continuation.resume()
-        }
+      ) { @Sendable callbackURL, error in
+        continuation.resume(
+          with: Self.logoutResult(
+            callbackURL: callbackURL, error: error, expectedState: state))
       }
       configure(webSession)
       guard webSession.start() else {
-        session = nil
         continuation.resume(throwing: LiveAPIError.invalidResponse)
         return
       }
     }
   }
 
+  /// Turns an `ASWebAuthenticationSession` login completion into the value the
+  /// suspended `authorize()` call resumes with.
+  ///
+  /// Deliberately `nonisolated` and only ever called from a `@Sendable`
+  /// completion handler: on macOS AuthenticationServices replies on an
+  /// arbitrary XPC queue (`com.apple.NSXPCConnection…SafariLaunchAgent`), so a
+  /// main-actor-isolated completion body traps in Swift 6's executor check.
+  /// Nothing on this path may touch main-actor state; resuming a continuation
+  /// is thread-safe, and the session cleanup happens in the caller after the
+  /// `await`.
+  nonisolated static func authorizationResult(
+    callbackURL: URL?, error: Error?, expectedState: String
+  ) -> Result<String, Error> {
+    if let error { return .failure(error) }
+    guard let callbackURL,
+      let code = MobileWebAuthenticationFlow.authorizationCode(
+        from: callbackURL, expectedState: expectedState)
+    else { return .failure(LiveAPIError.invalidResponse) }
+    return .success(code)
+  }
+
+  /// The `logout()` counterpart of `authorizationResult`, and `nonisolated` for
+  /// exactly the same reason.
+  nonisolated static func logoutResult(
+    callbackURL: URL?, error: Error?, expectedState: String
+  ) -> Result<Void, Error> {
+    if let error { return .failure(error) }
+    guard let callbackURL,
+      MobileWebAuthenticationFlow.isLogoutCallback(callbackURL, expectedState: expectedState)
+    else { return .failure(LiveAPIError.invalidResponse) }
+    return .success(())
+  }
+
   /// Whether `error` represents the user dismissing the authentication sheet
   /// themselves, as opposed to a genuine failure. Shared by `AppModel`
   /// (best-effort browser logout) and the login screen (silence expected
   /// cancellations instead of surfacing an English system message).
-  public static func isUserCancellation(_ error: Error) -> Bool {
+  /// `nonisolated` so it can also classify an error produced on the
+  /// AuthenticationServices reply queue.
+  public nonisolated static func isUserCancellation(_ error: Error) -> Bool {
     (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
   }
 
