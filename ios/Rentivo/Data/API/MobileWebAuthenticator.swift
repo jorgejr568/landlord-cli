@@ -49,10 +49,14 @@ enum MobileWebAuthenticationFlow {
 import AuthenticationServices
 
 @MainActor
-final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationContextProviding {
+public final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationContextProviding {
   private var session: ASWebAuthenticationSession?
 
-  func authorize() async throws -> String {
+  public override init() {
+    super.init()
+  }
+
+  public func authorize() async throws -> String {
     let state = UUID().uuidString
     let url = MobileWebAuthenticationFlow.authorizationURL(
       baseURL: LiveAPIClient.productionURL, state: state)
@@ -88,7 +92,7 @@ final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationCon
     }
   }
 
-  func logout() async throws {
+  public func logout() async throws {
     let state = UUID().uuidString
     let url = MobileWebAuthenticationFlow.logoutURL(
       baseURL: LiveAPIClient.productionURL, state: state)
@@ -126,7 +130,7 @@ final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationCon
   /// themselves, as opposed to a genuine failure. Shared by `AppModel`
   /// (best-effort browser logout) and the login screen (silence expected
   /// cancellations instead of surfacing an English system message).
-  static func isUserCancellation(_ error: Error) -> Bool {
+  public static func isUserCancellation(_ error: Error) -> Bool {
     (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
   }
 
@@ -137,7 +141,7 @@ final class MobileWebAuthenticator: NSObject, ASWebAuthenticationPresentationCon
     session = webSession
   }
 
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+  public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
     Self.currentPresentationAnchor()
   }
 }
@@ -180,12 +184,14 @@ extension MobileWebAuthenticator {
 #endif
 #else
 @MainActor
-final class MobileWebAuthenticator {
-  func authorize() async throws -> String {
+public final class MobileWebAuthenticator {
+  public init() {}
+
+  public func authorize() async throws -> String {
     throw LiveAPIError.server(message: "A autenticação pelo navegador requer o app para iOS.")
   }
 
-  func logout() async throws {
+  public func logout() async throws {
     throw LiveAPIError.server(message: "A saída pelo navegador requer o app para iOS.")
   }
 }

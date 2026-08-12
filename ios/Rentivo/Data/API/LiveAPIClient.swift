@@ -5,12 +5,12 @@ struct LiveSession: Sendable {
   let profile: UserProfile
 }
 
-enum LiveAPIError: LocalizedError, Sendable {
+public enum LiveAPIError: LocalizedError, Sendable {
   case server(message: String, statusCode: Int? = nil)
   case invalidResponse
   case sessionExpired
 
-  var errorDescription: String? {
+  public var errorDescription: String? {
     switch self {
     case .server(let message, _): message
     case .invalidResponse: "Não foi possível interpretar a resposta do Rentivo."
@@ -18,7 +18,7 @@ enum LiveAPIError: LocalizedError, Sendable {
     }
   }
 
-  var statusCode: Int? {
+  public var statusCode: Int? {
     guard case let .server(_, statusCode) = self else { return nil }
     return statusCode
   }
@@ -29,7 +29,7 @@ extension Notification.Name {
   /// has no stored token) while serving an authenticated request. `AppModel`
   /// observes this to move the app back to the anonymous state; posting is
   /// harmless if nothing is listening (e.g. before the app has authenticated).
-  static let liveAPIClientSessionExpired = Notification.Name("LiveAPIClient.sessionExpired")
+  public static let liveAPIClientSessionExpired = Notification.Name("LiveAPIClient.sessionExpired")
 }
 
 actor LiveAPIClient {
