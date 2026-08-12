@@ -292,8 +292,9 @@ export async function installApiMocks(
       pending_invite_count: options.pendingInviteCount ?? authenticatedResponse.bootstrap.pending_invite_count
     }
   };
-  // `POST /auth/login` answers with `AuthenticatedResponse`, which carries the
-  // `credential_transport` discriminator that `GET /auth/session` does not.
+  // `POST /auth/login` and `POST /auth/signup` answer with
+  // `AuthenticatedResponse`, which carries the `credential_transport`
+  // discriminator that `GET /auth/session` does not.
   const loginResponse: Schemas["CookieAuthenticatedResponse"] = {
     ...sessionResponse,
     credential_transport: "cookie"
