@@ -63,9 +63,9 @@ struct InvitationListView: View {
       } else {
         try await app.dependencies.invitations.declineInvitation(id: invitation.id)
       }
+      app.showNotice(accept ? "Convite aceito." : "Convite recusado.")
       await load()
       await onMutation()
-      app.showNotice(accept ? "Convite aceito." : "Convite recusado.")
     } catch { app.reportFailure(error) }
   }
 }
@@ -111,9 +111,9 @@ struct InviteMemberView: View {
         email: email,
         role: role
       )
+      app.showNotice("Convite enviado.")
       await onSaved()
       dismiss()
-      app.showNotice("Convite enviado.")
     } catch { app.reportFailure(error) }
   }
 }

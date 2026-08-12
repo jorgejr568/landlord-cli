@@ -296,8 +296,8 @@ struct BillingDetailView: View {
   private func deleteBilling() async {
     do {
       try await app.dependencies.billings.deleteBilling(id: billingID)
-      await onMutation()
       app.showNotice("Cobrança excluída.")
+      await onMutation()
       dismiss()
     } catch {
       app.reportFailure(error)

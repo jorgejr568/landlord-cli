@@ -302,8 +302,8 @@ struct BillDetailView: View {
     do {
       try await app.dependencies.bills.transitionBill(
         billingID: billingID, billID: billID, to: status)
-      await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
+      await refreshAll()
     } catch {
       app.reportFailure(error)
     }
@@ -328,8 +328,8 @@ struct BillDetailView: View {
       // the receipt list; bumping the generation restarts the poll loop.
       state = .loaded(bill.applyingRenderMetadata(from: queued))
       pollGeneration += 1
-      await onMutation()
       app.showNotice("Documento enfileirado para regeneração.")
+      await onMutation()
     } catch { app.reportFailure(error) }
   }
 

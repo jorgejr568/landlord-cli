@@ -331,8 +331,8 @@ struct BillingFormView: View {
       } else {
         _ = try await app.dependencies.billings.createBilling(draft)
       }
-      await onSaved()
       app.showNotice(billing == nil ? "Cobrança criada." : "Cobrança atualizada.")
+      await onSaved()
       dismiss()
     } catch {
       app.reportFailure(error)

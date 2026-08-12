@@ -279,9 +279,9 @@ struct OrganizationFormView: View {
       } else {
         _ = try await app.dependencies.organizations.createOrganization(draft)
       }
+      app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
       await onSaved()
       dismiss()
-      app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
     } catch { app.reportFailure(error) }
   }
 }

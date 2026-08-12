@@ -361,8 +361,8 @@ struct AttachmentListView: View {
         billingID: billingID,
         upload: upload
       )
-      await load()
       app.showNotice("Arquivo enviado.")
+      await load()
     } catch { app.reportFailure(error) }
   }
 

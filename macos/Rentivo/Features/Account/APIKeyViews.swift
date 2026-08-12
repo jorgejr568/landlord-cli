@@ -138,8 +138,10 @@ struct APIKeyListView: View {
   private func revoke(_ key: APIKeyMetadata) async {
     do {
       try await app.dependencies.apiKeys.revokeAPIKey(id: key.id)
-      await load()
+      // Success notices go before the refresh: `notice` is a single slot, so a refresh failure's
+      // warning has to land last to survive.
       app.showNotice("Chave revogada.")
+      await load()
     } catch { app.reportFailure(error) }
   }
 }
@@ -299,8 +301,8 @@ private struct APIKeyFormView: View {
       if let key {
         _ = try await app.dependencies.apiKeys.updateAPIKey(id: key.id, draft: draft)
         dismiss()
-        await onSaved(nil)
         app.showNotice("Metadados da chave atualizados.")
+        await onSaved(nil)
       } else {
         let secret = try await app.dependencies.apiKeys.createAPIKey(draft)
         dismiss()

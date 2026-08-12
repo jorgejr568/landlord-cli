@@ -250,8 +250,8 @@ struct BillFormView: View {
       } else {
         _ = try await app.dependencies.bills.createBill(draft)
       }
-      await onSaved()
       app.showNotice(bill == nil ? "Fatura criada como rascunho." : "Fatura atualizada.")
+      await onSaved()
       dismiss()
     } catch {
       app.reportFailure(error)
