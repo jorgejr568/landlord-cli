@@ -44,7 +44,7 @@ struct BillDetailView: View {
             await refreshAll()
           }
         }
-        .billingSheetFrame()
+        .rentivoSheetFrame()
       }
     }
     .downloadedFileSheet($downloadedFile)
@@ -53,7 +53,7 @@ struct BillDetailView: View {
         NavigationStack {
           CommunicationComposerView(billing: billing, bill: bill)
         }
-        .billingSheetFrame()
+        .rentivoSheetFrame()
       }
     }
     .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
@@ -135,7 +135,7 @@ struct BillDetailView: View {
 
   private func document(_ bill: Bill) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Documento", symbol: "doc.richtext.fill")
+      SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
       renderStatus(bill)
       Button {
         Task { await downloadInvoice() }
@@ -201,7 +201,7 @@ struct BillDetailView: View {
 
   private func lineItems(_ bill: Bill) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Composição", symbol: "list.bullet")
+      SectionTitle(title: "Composição", symbol: "list.bullet")
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
           ForEach(bill.lineItems) { line in
@@ -229,7 +229,7 @@ struct BillDetailView: View {
 
   private func lifecycle(_ bill: Bill) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
+      SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
       // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
       // over the local `BillStatus` state machine, when the API supplies them.
       if bill.effectiveTransitions.isEmpty {
@@ -305,7 +305,7 @@ struct BillDetailView: View {
       await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 
@@ -315,7 +315,7 @@ struct BillDetailView: View {
       await onMutation()
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 
@@ -330,21 +330,21 @@ struct BillDetailView: View {
       pollGeneration += 1
       await onMutation()
       app.showNotice("Documento enfileirado para regeneração.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func downloadInvoice() async {
     do {
       downloadedFile = try await app.dependencies.downloads.downloadInvoice(
         billingID: billingID, billID: billID)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func downloadRecibo() async {
     do {
       downloadedFile = try await app.dependencies.downloads.downloadRecibo(
         billingID: billingID, billID: billID)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 

@@ -140,7 +140,7 @@ struct DownloadShareView: View {
       defaultFilename: DownloadedFileExport.defaultFilename(for: file)
     ) { result in
       if case .failure(let error) = result {
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       }
     }
   }

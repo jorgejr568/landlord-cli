@@ -1,4 +1,3 @@
-import AppKit
 import RentivoCore
 import SwiftUI
 
@@ -79,7 +78,7 @@ struct ThemeEditorView: View {
     }
     .alert(
       "Não foi possível atualizar",
-      isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
+      isPresented: Binding(presence: $error)
     ) {
       Button("OK") { error = nil }
     } message: {
@@ -176,27 +175,5 @@ extension ThemeSource {
     case .user: "Usuário"
     case .default: "Padrão Rentivo"
     }
-  }
-}
-
-extension Color {
-  init?(hex: String) {
-    let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-    guard value.count == 6, let rgb = Int(value, radix: 16) else { return nil }
-    self.init(
-      red: Double((rgb >> 16) & 0xFF) / 255,
-      green: Double((rgb >> 8) & 0xFF) / 255,
-      blue: Double(rgb & 0xFF) / 255
-    )
-  }
-
-  /// The inverse of `init?(hex:)`, used to write a `ColorPicker` selection back into the API's
-  /// hex string. Returns `nil` for colors that have no sRGB representation.
-  var hexString: String? {
-    guard let components = NSColor(self).usingColorSpace(.sRGB) else { return nil }
-    let red = Int((components.redComponent * 255).rounded())
-    let green = Int((components.greenComponent * 255).rounded())
-    let blue = Int((components.blueComponent * 255).rounded())
-    return String(format: "#%02X%02X%02X", red, green, blue)
   }
 }

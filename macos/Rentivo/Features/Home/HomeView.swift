@@ -117,7 +117,7 @@ struct HomeView: View {
       state = .loaded(data)
     } catch {
       if state.value != nil {
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       } else {
         state = .failed(DemoError(error))
       }
@@ -132,8 +132,8 @@ struct HomeView: View {
 /// would be torn down along with its row and pop the user back to Início
 /// mid-flow; a pushed value survives its source disappearing.
 ///
-/// Internal rather than `private` (as on iOS) because the detail screen it points at has not been
-/// ported yet: keeping the type visible lets the destination be swapped in from one place.
+/// Internal rather than `private` (as on iOS) because `BillRouteTests` asserts on the route's
+/// equality and hashing directly — the very properties `navigationDestination` relies on.
 struct BillRoute: Hashable {
   let billingID: BillingID
   let billID: BillID
@@ -478,17 +478,6 @@ private struct CollectionCard: View {
           .animation(.snappy, value: percent)
       }
     }
-  }
-}
-
-struct SectionTitle: View {
-  let title: String
-  let symbol: String
-
-  var body: some View {
-    Label(title, systemImage: symbol)
-      .font(RentivoTypography.title)
-      .foregroundStyle(RentivoColors.ink)
   }
 }
 

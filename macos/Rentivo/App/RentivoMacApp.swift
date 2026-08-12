@@ -62,10 +62,12 @@ struct RentivoMacApp: App {
         .disabled(!app.isAuthenticated)
       }
       CommandMenu("Conta") {
+        // No keyboard shortcut: ⌘⇧Q is the system chord for logging out of the macOS user
+        // account, and shadowing it would make signing out of Rentivo look like the far more
+        // destructive system action. The menu item is the whole affordance.
         Button("Sair da conta") {
           Task { await app.signOut() }
         }
-        .keyboardShortcut("q", modifiers: [.command, .shift])
         .disabled(!app.isAuthenticated || app.isSigningOut)
       }
     }

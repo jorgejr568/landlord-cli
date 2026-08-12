@@ -124,6 +124,19 @@ struct BrandMark: View {
   }
 }
 
+/// Heading for one section of a screen, shared by every feature so a section reads the same
+/// whether it sits on Início, Cobranças, Faturas, or Organizações.
+struct SectionTitle: View {
+  let title: String
+  let symbol: String
+
+  var body: some View {
+    Label(title, systemImage: symbol)
+      .font(RentivoTypography.title)
+      .foregroundStyle(RentivoColors.ink)
+  }
+}
+
 struct StatusBadge: View {
   let status: BillStatus
 
@@ -324,6 +337,15 @@ extension AnyTransition {
   VStack(spacing: RentivoSpacing.large) {
     BrandMark()
     BrandMark(compact: true)
+  }
+  .padding()
+  .rentivoPage()
+}
+
+#Preview("SectionTitle") {
+  VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+    SectionTitle(title: "Atenção necessária", symbol: "exclamationmark.triangle.fill")
+    SectionTitle(title: "Atividade recente", symbol: "clock.arrow.circlepath")
   }
   .padding()
   .rentivoPage()

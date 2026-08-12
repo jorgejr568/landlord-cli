@@ -301,7 +301,7 @@ struct CommunicationComposerView: View {
       guard generation == previewGeneration, !Task.isCancelled, !isCancellation(error) else {
         return
       }
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 
@@ -331,7 +331,7 @@ struct CommunicationComposerView: View {
       )
       dismiss()
       app.showNotice("Comunicação enfileirada para envio.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 

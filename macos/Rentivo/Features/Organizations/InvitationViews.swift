@@ -62,7 +62,7 @@ struct InvitationListView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       default:
         state = .failed(DemoError(error))
       }
@@ -79,7 +79,7 @@ struct InvitationListView: View {
       await load()
       await onMutation()
       app.showNotice(accept ? "Convite aceito." : "Convite recusado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -127,6 +127,6 @@ struct InviteMemberView: View {
       await onSaved()
       dismiss()
       app.showNotice("Convite enviado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }

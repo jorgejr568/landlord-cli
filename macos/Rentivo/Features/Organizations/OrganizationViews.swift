@@ -88,7 +88,7 @@ struct OrganizationListView: View {
               }
             }
             .buttonStyle(.plain)
-            .hoverLift()
+            .rentivoHoverLift()
             .accessibilityIdentifier("organization.invitations.open")
           }
           ForEach(organizations) { item in
@@ -98,7 +98,7 @@ struct OrganizationListView: View {
               OrganizationCard(item: item)
             }
             .buttonStyle(.plain)
-            .hoverLift()
+            .rentivoHoverLift()
           }
         }
         .padding(RentivoSpacing.page)
@@ -132,13 +132,13 @@ struct OrganizationListView: View {
       NavigationStack {
         OrganizationFormView { await load() }
       }
-      .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+      .rentivoSheetFrame()
     }
     .sheet(isPresented: $showingInvitations) {
       NavigationStack {
         InvitationListView { await load() }
       }
-      .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+      .rentivoSheetFrame()
     }
     .task(id: app.dataRevision) { await load() }
   }
@@ -167,7 +167,7 @@ struct OrganizationListView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       default:
         state = .failed(DemoError(error))
       }
@@ -295,7 +295,7 @@ struct OrganizationFormView: View {
       await onSaved()
       dismiss()
       app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -331,7 +331,7 @@ struct OrganizationDetailView: View {
         NavigationStack {
           OrganizationFormView(organization: organization) { await refreshAll() }
         }
-        .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+        .rentivoSheetFrame()
       }
     }
     .sheet(isPresented: $showingInvite) {
@@ -339,7 +339,7 @@ struct OrganizationDetailView: View {
         NavigationStack {
           InviteMemberView(organization: organization) { await refreshAll() }
         }
-        .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+        .rentivoSheetFrame()
       }
     }
     .confirmationDialog(
@@ -526,7 +526,7 @@ struct OrganizationDetailView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       default:
         state = .failed(DemoError(error))
       }
@@ -546,7 +546,7 @@ struct OrganizationDetailView: View {
         role: role
       )
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func remove(_ member: OrganizationMember) async {
@@ -554,7 +554,7 @@ struct OrganizationDetailView: View {
       try await app.dependencies.organizations.removeMember(
         organizationID: organizationID, userID: member.userID)
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func toggleMFA() async {
@@ -565,7 +565,7 @@ struct OrganizationDetailView: View {
         required: !organization.requiresMFA
       )
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func transfer(_ billing: Billing, to organization: Organization) async {
@@ -575,7 +575,7 @@ struct OrganizationDetailView: View {
         toOrganizationID: organization.id
       )
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func deleteOrganization() async {
@@ -583,7 +583,7 @@ struct OrganizationDetailView: View {
       try await app.dependencies.organizations.deleteOrganization(id: organizationID)
       await onMutation()
       dismiss()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -594,7 +594,6 @@ private struct MemberRow: View {
   let canManage: Bool
   let changeRole: (OrganizationRole) async -> Void
   let remove: () async -> Void
-  @State private var isHovering = false
 
   var body: some View {
     HStack {
@@ -624,30 +623,6 @@ private struct MemberRow: View {
     }
     .padding(.horizontal, RentivoSpacing.small)
     .padding(.vertical, RentivoSpacing.small)
-    .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(isHovering ? RentivoColors.emerald.opacity(0.10) : .clear)
-    )
-    .animation(.easeOut(duration: 0.12), value: isHovering)
-    .onHover { isHovering = $0 }
-  }
-}
-
-extension View {
-  /// Pointer feedback for whole-card links: the card lifts slightly under the cursor, which is
-  /// how macOS signals "this whole surface is clickable" in the absence of a press-in highlight.
-  fileprivate func hoverLift() -> some View {
-    modifier(HoverLift())
-  }
-}
-
-private struct HoverLift: ViewModifier {
-  @State private var isHovering = false
-
-  func body(content: Content) -> some View {
-    content
-      .scaleEffect(isHovering ? 1.01 : 1)
-      .animation(.easeOut(duration: 0.14), value: isHovering)
-      .onHover { isHovering = $0 }
+    .rentivoHoverTint()
   }
 }

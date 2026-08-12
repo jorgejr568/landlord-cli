@@ -78,7 +78,7 @@ struct SecurityView: View {
     .sheet(isPresented: $showingRecoveryCodes) {
       RecoveryCodeView(codes: recoveryCodes)
     }
-    .sheet(isPresented: Binding(get: { enrollment != nil }, set: { if !$0 { enrollment = nil } })) {
+    .sheet(isPresented: Binding(presence: $enrollment)) {
       if let enrollment {
         TOTPEnrollmentView(enrollment: enrollment) { code in
           await confirmTOTP(code: code)
@@ -94,10 +94,7 @@ struct SecurityView: View {
     }
     .confirmationDialog(
       "Excluir esta chave de acesso?",
-      isPresented: Binding(
-        get: { passkeyPendingDelete != nil },
-        set: { if !$0 { passkeyPendingDelete = nil } }
-      ),
+      isPresented: Binding(presence: $passkeyPendingDelete),
       presenting: passkeyPendingDelete
     ) { passkey in
       Button("Excluir chave de acesso", role: .destructive) {
@@ -121,7 +118,7 @@ struct SecurityView: View {
   private func beginTOTP() async {
     do {
       enrollment = try await app.dependencies.security.beginTOTPEnrollment()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func confirmTOTP(code: String) async {
@@ -130,7 +127,7 @@ struct SecurityView: View {
       enrollment = nil
       await load()
       showingRecoveryCodes = true
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func disableTOTP() async {
@@ -138,7 +135,7 @@ struct SecurityView: View {
       try await app.dependencies.security.disableTOTP(password: password)
       password = ""
       await load()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func regenerateCodes() async {
@@ -146,14 +143,14 @@ struct SecurityView: View {
       recoveryCodes = try await app.dependencies.security.regenerateRecoveryCodes()
       await load()
       showingRecoveryCodes = true
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func remove(_ passkey: Passkey) async {
     do {
       try await app.dependencies.security.deletePasskey(id: passkey.id)
       await load()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -257,7 +254,7 @@ private struct RecoveryCodeView: View {
         ToolbarItem(placement: .confirmationAction) { Button("Concluir") { dismiss() } }
       }
     }
-    .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+    .rentivoSheetFrame()
   }
 }
 
@@ -319,7 +316,7 @@ private struct TOTPEnrollmentView: View {
         ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
       }
     }
-    .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+    .rentivoSheetFrame()
   }
 }
 
@@ -329,17 +326,5 @@ extension TOTPEnrollment {
   fileprivate var qrCodeImage: NSImage? {
     guard let data = Data(base64Encoded: qrCodeBase64) else { return nil }
     return NSImage(data: data)
-  }
-}
-
-extension Date {
-  /// Formats this date pinned to the pt-BR locale, so PT-BR sentences never leak a
-  /// device-locale date string (e.g. "Jul 23, 2026" showing up on an en-US device
-  /// inside otherwise-Portuguese copy).
-  func formattedPTBR(
-    date dateStyle: Date.FormatStyle.DateStyle = .abbreviated,
-    time timeStyle: Date.FormatStyle.TimeStyle = .omitted
-  ) -> String {
-    formatted(Date.FormatStyle(date: dateStyle, time: timeStyle, locale: Locale(identifier: "pt_BR")))
   }
 }

@@ -17,7 +17,7 @@ struct ReceiptManagerView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
       HStack {
-        BillingSectionTitle(title: "Comprovantes", symbol: "paperclip")
+        SectionTitle(title: "Comprovantes", symbol: "paperclip")
         if !bill.receipts.isEmpty {
           Spacer()
           Text(ptBRCount(bill.receipts.count, singular: "comprovante", plural: "comprovantes"))
@@ -48,7 +48,7 @@ struct ReceiptManagerView: View {
                 .fixedSize()
                 .accessibilityLabel("Mais opções para \(receipt.name)")
               }
-              .billingRowHover()
+              .rentivoHoverLift(elevated: true)
             }
             // Drag-to-reorder would need these rows hosted in a `List`, but this section renders
             // inside a `RentivoCard`/`VStack` (the surrounding screen is a `ScrollView`, not a
@@ -106,10 +106,7 @@ struct ReceiptManagerView: View {
     }
     .confirmationDialog(
       "Excluir este comprovante?",
-      isPresented: Binding(
-        get: { pendingDeletion != nil },
-        set: { isPresented in if !isPresented { pendingDeletion = nil } }
-      ),
+      isPresented: Binding(presence: $pendingDeletion),
       titleVisibility: .visible
     ) {
       Button("Excluir comprovante", role: .destructive) {
@@ -128,7 +125,7 @@ struct ReceiptManagerView: View {
         return
       }
       await send(upload)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func send(_ upload: FileUpload) async {
@@ -144,7 +141,7 @@ struct ReceiptManagerView: View {
         upload: upload
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func remove(_ receipt: Receipt) async {
@@ -155,7 +152,7 @@ struct ReceiptManagerView: View {
         receiptID: receipt.id
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func reverse() async {
@@ -164,7 +161,7 @@ struct ReceiptManagerView: View {
         billingID: billingID, billID: bill.id, receiptIDs: Array(bill.receipts.map(\.id).reversed())
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func download(_ receipt: Receipt) async {
@@ -172,6 +169,6 @@ struct ReceiptManagerView: View {
       downloadedFile = try await app.dependencies.downloads.downloadReceipt(
         billingID: billingID, billID: bill.id, receiptID: receipt.id
       )
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }

@@ -42,7 +42,7 @@ struct BillingDetailView: View {
             await onMutation()
           }
         }
-        .billingSheetFrame()
+        .rentivoSheetFrame()
       }
     }
     .sheet(isPresented: $showingCreateBill) {
@@ -53,7 +53,7 @@ struct BillingDetailView: View {
             await onMutation()
           }
         }
-        .billingSheetFrame()
+        .rentivoSheetFrame()
       }
     }
     .confirmationDialog(
@@ -159,7 +159,7 @@ struct BillingDetailView: View {
 
   private func lineItems(_ items: [BillingItem]) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Itens recorrentes", symbol: "list.bullet.rectangle")
+      SectionTitle(title: "Itens recorrentes", symbol: "list.bullet.rectangle")
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
           ForEach(items) { item in
@@ -184,7 +184,7 @@ struct BillingDetailView: View {
   private func bills(_ data: BillingDetailData) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
       HStack {
-        BillingSectionTitle(title: "Faturas", symbol: "doc.text.fill")
+        SectionTitle(title: "Faturas", symbol: "doc.text.fill")
         Spacer()
         if data.billing.capabilities.canCreateBills {
           Button {
@@ -223,7 +223,7 @@ struct BillingDetailView: View {
             }
           }
           .buttonStyle(.plain)
-          .billingRowHover()
+          .rentivoHoverLift(elevated: true)
           .transition(BillingsMotion.row)
           .accessibilityIdentifier("bill.card.\(bill.id.rawValue)")
         }
@@ -235,7 +235,7 @@ struct BillingDetailView: View {
     let paid = data.bills.filter { $0.status == .paid }.map(\.effectiveTotal).reduce(.zero, +)
     let expenses = data.expenses.map(\.amount).reduce(.zero, +)
     return VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Resumo financeiro", symbol: "chart.bar.fill")
+      SectionTitle(title: "Resumo financeiro", symbol: "chart.bar.fill")
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
           valueRow("Recebido", paid, RentivoColors.emerald)
@@ -258,7 +258,7 @@ struct BillingDetailView: View {
 
   private func recipients(_ billing: Billing) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Destinatários", symbol: "envelope.fill")
+      SectionTitle(title: "Destinatários", symbol: "envelope.fill")
       RentivoCard {
         VStack(alignment: .leading, spacing: RentivoSpacing.small) {
           ForEach(billing.recipients) { recipient in
@@ -300,7 +300,7 @@ struct BillingDetailView: View {
       app.showNotice("Cobrança excluída.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 }

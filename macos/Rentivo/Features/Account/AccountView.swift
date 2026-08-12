@@ -198,7 +198,7 @@ struct ProfilePixView: View {
       do {
         form = ProfilePIXForm(profile: try await app.loadProfile())
       } catch {
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       }
     }
   }
@@ -207,7 +207,7 @@ struct ProfilePixView: View {
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
       app.showNotice("PIX pessoal atualizado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 

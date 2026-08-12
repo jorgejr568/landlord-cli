@@ -254,7 +254,7 @@ struct BillFormView: View {
       app.showNotice(bill == nil ? "Fatura criada como rascunho." : "Fatura atualizada.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 }

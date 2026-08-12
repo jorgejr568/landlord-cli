@@ -9,7 +9,7 @@ struct BillingOperationsLinks: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      BillingSectionTitle(title: "Operações", symbol: "square.grid.2x2.fill")
+      SectionTitle(title: "Operações", symbol: "square.grid.2x2.fill")
       RentivoCard {
         VStack(spacing: RentivoSpacing.small) {
           if capabilities.canReadExpenses {
@@ -51,7 +51,6 @@ struct BillingOperationsLinks: View {
 private struct OperationRow: View {
   let title: String
   let symbol: String
-  @State private var isHovering = false
 
   var body: some View {
     HStack {
@@ -65,12 +64,7 @@ private struct OperationRow: View {
     .contentShape(Rectangle())
     .padding(.vertical, RentivoSpacing.small)
     .padding(.horizontal, RentivoSpacing.small)
-    .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(RentivoColors.emerald.opacity(isHovering ? 0.10 : 0))
-    )
-    .animation(.easeOut(duration: 0.12), value: isHovering)
-    .onHover { isHovering = $0 }
+    .rentivoHoverTint()
   }
 }
 
@@ -146,14 +140,11 @@ struct ExpenseListView: View {
           await onMutation()
         }
       }
-      .billingSheetFrame()
+      .rentivoSheetFrame()
     }
     .confirmationDialog(
       "Excluir esta despesa?",
-      isPresented: Binding(
-        get: { pendingDeletion != nil },
-        set: { isPresented in if !isPresented { pendingDeletion = nil } }
-      ),
+      isPresented: Binding(presence: $pendingDeletion),
       titleVisibility: .visible
     ) {
       Button("Excluir despesa", role: .destructive) {
@@ -181,7 +172,7 @@ struct ExpenseListView: View {
       try await app.dependencies.expenses.deleteExpense(billingID: billingID, expenseID: expense.id)
       await load()
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -228,7 +219,7 @@ private struct ExpenseFormView: View {
       )
       await onSaved()
       dismiss()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private var selectedDate: DateOnly { DateOnly(from: incurredOn) }
@@ -336,10 +327,7 @@ struct AttachmentListView: View {
     }
     .confirmationDialog(
       "Excluir este arquivo?",
-      isPresented: Binding(
-        get: { pendingDeletion != nil },
-        set: { isPresented in if !isPresented { pendingDeletion = nil } }
-      ),
+      isPresented: Binding(presence: $pendingDeletion),
       titleVisibility: .visible
     ) {
       Button("Excluir arquivo", role: .destructive) {
@@ -375,7 +363,7 @@ struct AttachmentListView: View {
       )
       await load()
       app.showNotice("Arquivo enviado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func remove(_ attachment: Attachment) async {
@@ -383,7 +371,7 @@ struct AttachmentListView: View {
       try await app.dependencies.attachments.deleteAttachment(
         billingID: billingID, attachmentID: attachment.id)
       await load()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 
   private func download(_ attachment: Attachment) async {
@@ -391,7 +379,7 @@ struct AttachmentListView: View {
       downloadedFile = try await app.dependencies.downloads.downloadAttachment(
         billingID: billingID, attachmentID: attachment.id
       )
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -425,6 +413,6 @@ struct ExportSimulationView: View {
     do {
       try await app.dependencies.exports.requestExport(billingID: billingID, format: format.lowercased())
       app.showNotice("Exportação \(format) enfileirada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }

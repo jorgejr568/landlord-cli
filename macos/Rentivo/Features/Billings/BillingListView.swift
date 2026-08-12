@@ -85,7 +85,7 @@ struct BillingListView: View {
       NavigationStack {
         BillingFormView { await load() }
       }
-      .billingSheetFrame()
+      .rentivoSheetFrame()
     }
     .navigationDestination(for: BillingID.self) { id in
       BillingDetailView(billingID: id) { await load() }
@@ -115,7 +115,7 @@ struct BillingListView: View {
               BillingPortfolioCard(item: item)
             }
             .buttonStyle(.plain)
-            .billingRowHover()
+            .rentivoHoverLift(elevated: true)
             .transition(BillingsMotion.row)
             .accessibilityIdentifier("billing.card.\(item.id.rawValue)")
           }
@@ -155,7 +155,7 @@ struct BillingListView: View {
       // down the scroll view; only surface the full-page error state when there was
       // nothing previously loaded to fall back to.
       if hadContent {
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.reportFailure(error)
       } else {
         state = .failed(DemoError(error))
       }

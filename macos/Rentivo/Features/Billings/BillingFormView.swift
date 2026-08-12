@@ -335,7 +335,7 @@ struct BillingFormView: View {
       app.showNotice(billing == nil ? "Cobrança criada." : "Cobrança atualizada.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.reportFailure(error)
     }
   }
 }

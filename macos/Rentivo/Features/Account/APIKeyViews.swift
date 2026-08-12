@@ -99,13 +99,13 @@ struct APIKeyListView: View {
           await load()
         }
       }
-      .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+      .rentivoSheetFrame()
     }
     .sheet(item: $editingKey) { key in
       NavigationStack {
         APIKeyFormView(key: key) { _ in await load() }
       }
-      .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+      .rentivoSheetFrame()
     }
     .sheet(item: $createdSecret) { secret in
       APIKeySecretView(created: secret)
@@ -113,10 +113,7 @@ struct APIKeyListView: View {
     .task(id: app.dataRevision) { await load() }
     .confirmationDialog(
       "Revogar esta chave de integração?",
-      isPresented: Binding(
-        get: { keyPendingRevoke != nil },
-        set: { if !$0 { keyPendingRevoke = nil } }
-      ),
+      isPresented: Binding(presence: $keyPendingRevoke),
       presenting: keyPendingRevoke
     ) { key in
       Button("Revogar chave", role: .destructive) {
@@ -143,7 +140,7 @@ struct APIKeyListView: View {
       try await app.dependencies.apiKeys.revokeAPIKey(id: key.id)
       await load()
       app.showNotice("Chave revogada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -309,7 +306,7 @@ private struct APIKeyFormView: View {
         dismiss()
         await onSaved(secret)
       }
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { app.reportFailure(error) }
   }
 }
 
@@ -341,7 +338,7 @@ private struct APIKeySecretView: View {
       .rentivoPage()
       .navigationTitle("Segredo da chave")
     }
-    .frame(minWidth: 640, idealWidth: 720, minHeight: 520)
+    .rentivoSheetFrame()
   }
 }
 
