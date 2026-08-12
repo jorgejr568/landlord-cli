@@ -139,23 +139,6 @@ struct BillRoute: Hashable {
   let billID: BillID
 }
 
-/// Stand-in destination for `BillRoute` until the bill detail screen exists on macOS. Swapping it
-/// out is the whole integration: the links, the route, and the `navigationDestination`
-/// registration are already in place.
-// TODO(wave-3 integration): replaced by BillDetailView
-struct HomeBillRoutePlaceholder: View {
-  let route: BillRoute
-
-  var body: some View {
-    Text("Fatura")
-      .font(RentivoTypography.title)
-      .foregroundStyle(RentivoColors.ink)
-      .rentivoPage()
-      .navigationTitle("Fatura")
-      .accessibilityIdentifier("home.bill.placeholder")
-  }
-}
-
 private struct HomeContent: View {
   @Environment(AppModel.self) private var app
   let data: HomeData
@@ -193,7 +176,7 @@ private struct HomeContent: View {
       }
     }
     .navigationDestination(for: BillRoute.self) { route in
-      HomeBillRoutePlaceholder(route: route)
+      BillDetailView(billingID: route.billingID, billID: route.billID, onMutation: reload)
     }
   }
 

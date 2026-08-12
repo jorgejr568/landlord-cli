@@ -1,3 +1,4 @@
+import RentivoCore
 import SwiftUI
 
 extension AppTab {
@@ -112,7 +113,12 @@ struct MainSplitView: View {
       case .home:
         NavigationStack(path: $homePath) { HomeView() }
       case .billings:
-        NavigationStack(path: $billingsPath) { BillingListView() }
+        NavigationStack(path: $billingsPath) {
+          BillingListView()
+            // The Conta section owns `ThemeEditorView`; the billing detail screen pushes a
+            // `ThemeTarget` value, so the destination must be registered on this stack too.
+            .navigationDestination(for: ThemeTarget.self) { ThemeEditorView(target: $0) }
+        }
       case .organizations:
         NavigationStack(path: $organizationsPath) { OrganizationListView() }
       case .account:
