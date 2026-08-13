@@ -6,6 +6,8 @@ from datetime import timedelta
 from functools import cached_property
 from typing import TYPE_CHECKING
 
+from rentivo.communications.moderation_base import ModerationBackend
+from rentivo.communications.moderation_factory import get_moderation_backend
 from rentivo.encryption.factory import get_encryption  # noqa: F401
 from rentivo.repositories.sqlalchemy import (
     SQLAlchemyAPIKeyRepository,
@@ -271,6 +273,10 @@ class RequestServices:
             template_repo=SQLAlchemyCommunicationTemplateRepository(self._conn, self._encryption),
             job_service=self.job,
         )
+
+    @cached_property
+    def moderation(self) -> ModerationBackend:
+        return get_moderation_backend()
 
     @cached_property
     def storage_cleanup(self) -> StorageCleanupService:

@@ -16,6 +16,9 @@ from rentivo.api.csrf import CSRF_HEADER_NAME, issue_csrf_token
 from rentivo.api.dependencies import get_services
 from rentivo.api.principal import Principal
 from rentivo.api.routes.billings import router as billings_router
+from rentivo.communications.moderation import ModerationResult
+from rentivo.communications.moderation_base import ModerationBackend
+from rentivo.communications.moderation_factory import get_moderation_backend
 from rentivo.constants.api_scopes import ALL_FIRST_PARTY_SCOPES, APIScope
 from rentivo.models.api_key import APIKey, APIKeyGrant
 from rentivo.models.audit_log import AuditEventType
@@ -522,6 +525,22 @@ class FakeCommunicationService:
         self.save_calls.append((owner_type, owner_id, comm_type, subject, body))
 
 
+class StubModerationBackend(ModerationBackend):
+    """Stands in for the configured backend so routes can be proven to consult it.
+
+    Its verdict is independent of the text, so a flagged result on otherwise
+    clean copy can only have come from here — not from the local lexicon.
+    """
+
+    def __init__(self, *, severe: tuple[str, ...] = (), mild: tuple[str, ...] = ()) -> None:
+        self.result = ModerationResult(severe=severe, mild=mild)
+        self.scanned: list[str] = []
+
+    async def scan(self, text: str) -> ModerationResult:
+        self.scanned.append(text)
+        return self.result
+
+
 class CallRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
@@ -612,6 +631,7 @@ def billing_harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BillingH
         billing_attachment=FakeAttachmentService(local_path),
         bill=FakeBillService(),
         communication=FakeCommunicationService(),
+        moderation=get_moderation_backend(),
         audit=CallRecorder(),
         job=FakeJobService(),
         storage_cleanup=FakeStorageCleanupService(),
@@ -1770,6 +1790,67 @@ def test_communication_mild_acknowledgement_sends_and_audits_override(
     )
 
     assert response.status_code == 202
+    assert _audit_events(billing_harness) == [
+        AuditEventType.COMMUNICATION_SENT,
+        AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
+    ]
+
+
+def test_communication_preview_reports_the_configured_backend_verdict(billing_harness: BillingHarness) -> None:
+    backend = StubModerationBackend(severe=("ameaça velada",), mild=("tom hostil",))
+    billing_harness.services.moderation = backend
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json={"subject": "Aviso", "body": "Bom dia, o boleto vence amanha."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["severe"] == ["ameaça velada"]
+    assert response.json()["mild"] == ["tom hostil"]
+    assert backend.scanned == ["Aviso\nBom dia, o boleto vence amanha."]
+
+
+def test_communication_send_blocks_on_the_configured_backend_severe_verdict(
+    billing_harness: BillingHarness,
+) -> None:
+    backend = StubModerationBackend(severe=("ameaça velada",))
+    billing_harness.services.moderation = backend
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha."),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
+    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
+    assert backend.scanned == ["Cobranca {{unidade}}\nBom dia, o boleto vence amanha."]
+
+
+def test_communication_send_warns_on_the_configured_backend_mild_verdict(
+    billing_harness: BillingHarness,
+) -> None:
+    billing_harness.services.moderation = StubModerationBackend(mild=("tom hostil",))
+
+    unacknowledged = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha."),
+    )
+    acknowledged = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha.", acknowledge_warning=True),
+    )
+
+    assert unacknowledged.status_code == 422
+    assert unacknowledged.json()["code"] == "communication_warning_unacknowledged"
+    assert acknowledged.status_code == 202
+    assert len(billing_harness.services.communication.send_calls) == 1
     assert _audit_events(billing_harness) == [
         AuditEventType.COMMUNICATION_SENT,
         AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,

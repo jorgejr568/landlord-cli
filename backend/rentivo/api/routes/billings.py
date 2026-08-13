@@ -48,7 +48,6 @@ from rentivo.api.schemas.billings import (
     ExportCreateRequest,
     ExportCreateResponse,
 )
-from rentivo.communications.moderation import scan
 from rentivo.communications.render import render_markdown
 from rentivo.constants.api_scopes import APIScope
 from rentivo.models.audit_log import AuditEventType
@@ -878,7 +877,7 @@ async def preview_communication(
 ) -> CommunicationPreviewResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _MANAGE_ROLES)
-    moderation = scan(f"{payload.subject}\n{payload.body}")
+    moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
     return CommunicationPreviewResponse(
         html=render_markdown(payload.body),
         severe=moderation.severe,
@@ -959,7 +958,7 @@ async def send_communication(
                 "Gere o PDF da fatura antes de enviar a comunicação.",
             )
     recipients = _selected_recipients(access, services, payload.recipient_uuids)
-    moderation = scan(f"{payload.subject}\n{payload.body}")
+    moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
     if moderation.blocked:
         services.audit.safe_log_for(
             principal.actor,
