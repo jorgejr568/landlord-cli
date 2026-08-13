@@ -112,8 +112,12 @@ async def test_benign_text_sends_the_expected_responses_request():
     body = kwargs["json"]
     assert body["model"] == MODEL
     assert body["input"] == BENIGN
-    assert body["max_output_tokens"] > 0
+    # The default model reasons before answering, and the budget covers both:
+    # low effort plus enough headroom for reasoning and the verdict.
+    assert body["reasoning"] == {"effort": "low"}
+    assert body["max_output_tokens"] == 1024
     assert "content-safety reviewer" in body["instructions"]
+    assert "Do not quote or restate the message content in the reason." in body["instructions"]
     fmt = body["text"]["format"]
     assert fmt["type"] == "json_schema"
     assert fmt["name"] == "moderation_verdict"
@@ -212,12 +216,27 @@ async def test_expired_cache_entry_is_treated_as_a_miss():
     client.post.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # No `expires_at` at all: the freshness check raises before the verdict
+        # is ever coerced.
+        pytest.param({"severe": "not-a-list"}, id="missing-expires-at"),
+        # Structurally valid, still-fresh envelope carrying a malformed verdict:
+        # only these cases reach `_coerce_verdict`.
+        pytest.param({"severe": "not-a-list", "mild": [], "fresh": True}, id="severe-not-a-list"),
+        pytest.param({"severe": [], "mild": [7], "fresh": True}, id="mild-entry-not-a-string"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_corrupt_cache_entry_is_treated_as_a_miss():
+async def test_corrupt_cache_entry_is_treated_as_a_miss(entry: dict[str, Any]):
     cache = FakeCache()
     client = _client(_verdict_payload([], []))
     backend = _backend(client, cache)
-    cache.values[backend._cache_key(BENIGN)] = {"severe": "not-a-list"}
+    stored = {k: v for k, v in entry.items() if k != "fresh"}
+    if entry.get("fresh"):
+        stored["expires_at"] = time.time() + 600
+    cache.values[backend._cache_key(BENIGN)] = stored
 
     await backend.scan(BENIGN)
 
@@ -358,6 +377,72 @@ async def test_malformed_model_output_falls_back_to_the_lexicon_result(payload: 
     assert cache.values == {}
 
 
+@pytest.mark.parametrize(
+    "payload, expected_reason",
+    [
+        pytest.param(
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []},
+            "max_output_tokens",
+            id="with-incomplete-details",
+        ),
+        pytest.param({"status": "failed", "output": []}, None, id="without-incomplete-details"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_incomplete_response_falls_back_to_the_lexicon_result(payload: Any, expected_reason: str | None):
+    cache = FakeCache()
+    client = _client(payload)
+
+    with patch.object(mod, "logger") as logger:
+        result = await _backend(client, cache).scan(MILD_TEXT)
+
+    assert result.severe == ()
+    assert result.mild == ("babaca",)
+    assert cache.values == {}
+    # Distinguishable from the transport and parse failure events.
+    logger.warning.assert_called_once_with(
+        "moderation_openrouter_incomplete",
+        status=payload["status"],
+        reason=expected_reason,
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_and_status_less_responses_are_parsed_normally():
+    completed = {"status": "completed", **_verdict_payload([], ["Tom agressivo"])}
+
+    result = await _backend(_client(completed)).scan(BENIGN)
+
+    assert result.mild == ("Tom agressivo",)
+
+
+class TestCacheTtlCapWarning:
+    """The shared cache evicts on its own TTL, so a larger moderation TTL is capped."""
+
+    def test_warns_once_when_the_moderation_ttl_exceeds_the_shared_cache_ttl(self, monkeypatch):
+        monkeypatch.setattr(mod, "_ttl_cap_warned", False)
+        monkeypatch.setattr(mod.settings, "cache_ttl_seconds", 60)
+
+        with patch.object(mod, "logger") as logger:
+            _backend(cache_ttl_seconds=600)
+            _backend(cache_ttl_seconds=600)
+
+        logger.warning.assert_called_once_with(
+            "moderation_cache_ttl_capped",
+            moderation_cache_ttl_seconds=600,
+            cache_ttl_seconds=60,
+        )
+
+    def test_does_not_warn_when_the_shared_cache_ttl_is_large_enough(self, monkeypatch):
+        monkeypatch.setattr(mod, "_ttl_cap_warned", False)
+        monkeypatch.setattr(mod.settings, "cache_ttl_seconds", 600)
+
+        with patch.object(mod, "logger") as logger:
+            _backend(cache_ttl_seconds=600)
+
+        logger.warning.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_cache_key_is_content_addressed_per_model():
     backend = _backend()
@@ -399,3 +484,31 @@ async def test_scan_emits_a_span(span_exporter):
     await _backend(_client(_verdict_payload([], []))).scan(BENIGN)
 
     assert "moderation.openrouter" in [s.name for s in span_exporter.get_finished_spans()]
+
+
+@pytest.mark.asyncio
+async def test_span_records_a_fresh_remote_verdict(span_exporter):
+    await _backend(_client(_verdict_payload([], []))).scan(BENIGN)
+
+    assert span_exporter.get_finished_spans()[0].attributes["outcome"] == "remote"
+
+
+@pytest.mark.asyncio
+async def test_span_records_a_cache_hit(span_exporter):
+    cache = FakeCache()
+    backend = _backend(_client(_verdict_payload([], [])), cache)
+    cache.values[backend._cache_key(BENIGN)] = {"severe": [], "mild": [], "expires_at": time.time() + 600}
+
+    await backend.scan(BENIGN)
+
+    assert span_exporter.get_finished_spans()[0].attributes["outcome"] == "cache"
+
+
+@pytest.mark.asyncio
+async def test_span_records_a_fail_open(span_exporter):
+    client = AsyncMock()
+    client.post = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+    await _backend(client).scan(MILD_TEXT)
+
+    assert span_exporter.get_finished_spans()[0].attributes["outcome"] == "failed_open"
