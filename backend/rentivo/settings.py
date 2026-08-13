@@ -243,6 +243,20 @@ class Settings(BaseSettings):
             raise ValueError("RENTIVO_MODERATION_BACKEND must be one of: lexicon, openrouter")
         return v
 
+    @field_validator("moderation_timeout_seconds")
+    @classmethod
+    def _validate_moderation_timeout(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("RENTIVO_MODERATION_TIMEOUT_SECONDS must be > 0")
+        return v
+
+    @field_validator("moderation_cache_ttl_seconds")
+    @classmethod
+    def _validate_moderation_cache_ttl(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("RENTIVO_MODERATION_CACHE_TTL_SECONDS must be >= 1")
+        return v
+
     @field_validator("cache_ttl_seconds")
     @classmethod
     def _validate_cache_ttl(cls, v: int) -> int:

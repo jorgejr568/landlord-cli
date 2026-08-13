@@ -607,6 +607,18 @@ def test_moderation_openrouter_accepts_api_key():
     assert s.openrouter_api_key == "sk-or-test"
 
 
+def test_moderation_timeout_rejects_zero_and_negative():
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_TIMEOUT_SECONDS must be > 0"):
+        Settings(_env_file=None, moderation_timeout_seconds=0)
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_TIMEOUT_SECONDS must be > 0"):
+        Settings(_env_file=None, moderation_timeout_seconds=-1.5)
+
+
+def test_moderation_cache_ttl_rejects_zero():
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_CACHE_TTL_SECONDS must be >= 1"):
+        Settings(_env_file=None, moderation_cache_ttl_seconds=0)
+
+
 def test_moderation_lexicon_does_not_require_api_key():
     """Default 'lexicon' backend is local and ignores the empty OpenRouter key."""
     s = Settings(_env_file=None, moderation_backend="lexicon")
