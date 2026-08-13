@@ -1,10 +1,12 @@
-"""Tiered, in-process content moderation for landlord-authored communications.
+"""Blocking in-process content moderation for landlord-authored communications.
 
-Pure and deterministic (no DB, no network, no external API/LLM) so tenant
-content never leaves the system and the scan is fully testable. Crude by
+This module is pure and deterministic (no DB, no network, no external API/LLM):
+content scanned here never leaves the system, and the scan is fully testable.
+It is the default moderation backend and the deterministic floor under the
+opt-in remote one (see ``moderation_openrouter``). Crude by
 design: a curated PT-BR lexicon matched against normalized, word-boundaried
-text. Two tiers: SEVERE (slurs / hate / explicit threats) blocks sending;
-MILD (common profanity) warns with override.
+text. Every match blocks sending; the two lexicon sets remain separate only to
+keep the policy vocabulary readable.
 
 The lexicons are a curated starter set; expanding them is ongoing policy work,
 not a code change. Matching normalizes for common evasion (accents, simple
@@ -18,8 +20,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-# Single-word profanity / insults → warn (mild).
-_MILD: frozenset[str] = frozenset(
+# Single-word profanity / insults → block.
+_PROFANITY: frozenset[str] = frozenset(
     {
         "merda",
         "porra",
@@ -62,11 +64,11 @@ _WS = re.compile(r"\s+")
 @dataclass(frozen=True)
 class ModerationResult:
     severe: tuple[str, ...]  # matched severe terms/phrases → block
-    mild: tuple[str, ...]  # matched mild terms → warn
+    mild: tuple[str, ...]  # deprecated compatibility tier; new backends leave it empty
 
     @property
     def blocked(self) -> bool:
-        return bool(self.severe)
+        return self.flagged
 
     @property
     def flagged(self) -> bool:
@@ -86,8 +88,8 @@ def scan(text: str) -> ModerationResult:
     """Scan ``text`` (caller passes subject + body joined) for flagged content."""
     norm = _normalize(text)
     tokens = set(_WORD.findall(norm))
-    mild = tuple(sorted(w for w in _MILD if w in tokens))
+    profanity = {w for w in _PROFANITY if w in tokens}
     severe_words = {w for w in _SEVERE_WORDS if w in tokens}
     severe_phrases = {p for p in _SEVERE_PHRASES if p in norm}
-    severe = tuple(sorted(severe_words | severe_phrases))
-    return ModerationResult(severe=severe, mild=mild)
+    severe = tuple(sorted(profanity | severe_words | severe_phrases))
+    return ModerationResult(severe=severe, mild=())

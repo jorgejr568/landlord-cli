@@ -20,6 +20,9 @@ it("renders the privacy policy sections, contact address, and page title", () =>
   expect(
     screen.getByRole("heading", { name: "Seus direitos (LGPD)" })
   ).toBeVisible();
+  expect(screen.getByText(/OpenRouter/)).toHaveTextContent(
+    /análise opcional de segurança/
+  );
   expect(
     screen.getByRole("link", { name: "suporte@rentivo.com.br" })
   ).toHaveAttribute("href", "mailto:suporte@rentivo.com.br");

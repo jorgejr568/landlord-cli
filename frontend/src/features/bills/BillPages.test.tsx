@@ -387,18 +387,13 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
 });
 
-it("previews moderation, requires acknowledgement, sends selected recipients, and applies templates", async () => {
+it("sends selected recipients and applies templates without requesting a preview", async () => {
   const user = userEvent.setup();
-  let previewCount = 0;
   let sendBody: unknown;
+  const previewRequest = vi.fn();
   installFetch({
     ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => {
-      previewCount += 1;
-      return jsonResponse(previewCount === 1
-        ? { html: "<p>Prévia inicial</p>", mild: [], severe: [] }
-        : { html: "<p>Prévia revista</p>", mild: ["droga"], severe: [] });
-    },
+    "POST /api/v1/billings/billing-public-uuid/communications/preview": previewRequest,
     "POST /api/v1/billings/billing-public-uuid/communications/send": (init) => {
       sendBody = JSON.parse(String(init?.body));
       return jsonResponse({ queued_count: 2 }, 202, { "X-Rentivo-Analytics-Event": "rentivo_communication_queued" });
@@ -407,19 +402,18 @@ it("previews moderation, requires acknowledgement, sends selected recipients, an
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
 
   expect(await screen.findByRole("heading", { name: "Enviar fatura" })).toHaveClass("pagehead__title");
-  expect(await screen.findByText("Prévia inicial")).toBeVisible();
+  expect(previewRequest).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Atualizar pré-visualização" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("Ana <ana@example.com>")).toBeChecked();
   expect(screen.getByLabelText("Destinatário protegido")).toBeChecked();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Fatura de julho");
-  await user.click(screen.getByRole("button", { name: "Atualizar pré-visualização" }));
-  expect(await screen.findByText("Linguagem possivelmente ofensiva: droga.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeDisabled();
-  await user.click(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim."));
+  expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeEnabled();
   await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
   await waitFor(() => expect(sendBody).toEqual({
-    acknowledge_warning: true, bill_uuid: "bill-public-uuid", body: "Olá {{nome_inquilino}}",
+    acknowledge_warning: false, bill_uuid: "bill-public-uuid", body: "Olá {{nome_inquilino}}",
     comm_type: "bill_ready", recipient_uuids: ["recipient-ana", "recipient-redacted"],
     save_scope: "billing", subject: "Fatura de julho"
   }));
@@ -938,65 +932,40 @@ it.each([
   expect(document.title).toBe("Enviar comunicação - Rentivo");
 });
 
-it("blocks severe communication content and reports preview failures", async () => {
+it("shows a blocking send error without navigating", async () => {
   const user = userEvent.setup();
-  let previews = 0;
+  let sendBody: unknown;
   installFetch({
     ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => {
-      previews += 1;
-      return previews === 1
-        ? jsonResponse({ html: "<p>Bloqueada</p>", mild: [], severe: ["ameaça"] })
-        : problemResponse({ code: "preview_failed", detail: "Prévia indisponível.", fields: {}, request_id: "req", status: 503, title: "Erro", type: "problem" });
-    }
-  });
-  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  expect(await screen.findByText(/Conteúdo não permitido.*ameaça/)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeDisabled();
-  expect(screen.queryByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Atualizar pré-visualização" }));
-  expect(await screen.findByText("Prévia indisponível.")).toBeVisible();
-});
-
-it("keeps only the latest preview and invalidates preview acknowledgement after editing", async () => {
-  const user = userEvent.setup();
-  let rejectFirst!: (error: Error) => void;
-  let resolveSecond!: (response: Response) => void;
-  let previews = 0;
-  installFetch({
-    ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => {
-      previews += 1;
-      if (previews === 1) return jsonResponse({ html: "<p>Prévia inicial</p>", mild: [], severe: [] });
-      return new Promise<Response>((resolve, reject) => {
-        if (previews === 2) rejectFirst = reject;
-        else resolveSecond = resolve;
+    "POST /api/v1/billings/billing-public-uuid/communications/send": (init) => {
+      sendBody = JSON.parse(String(init?.body));
+      return problemResponse({
+        code: "communication_blocked",
+        detail: "A mensagem contém conteúdo não permitido e não pode ser enviada.",
+        fields: { "body.body": "A mensagem contém conteúdo não permitido e não pode ser enviada." },
+        request_id: "req",
+        status: 422,
+        title: "Dados inválidos",
+        type: "problem"
       });
     }
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByText("Prévia inicial");
-  await user.click(screen.getByRole("button", { name: "Atualizar pré-visualização" }));
-  await user.type(screen.getByLabelText("Assunto"), " revisado");
-  expect(screen.getByText("A pré-visualização aparecerá aqui.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Atualizar pré-visualização" })).toBeEnabled();
-  await user.click(screen.getByRole("button", { name: "Atualizar pré-visualização" }));
-  resolveSecond(jsonResponse({ html: "<p>Prévia mais nova</p>", mild: ["droga"], severe: [] }));
-  expect(await screen.findByText("Prévia mais nova")).toBeVisible();
-  await user.click(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim."));
+  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
-  await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), " revisado");
-  expect(screen.getByText("A pré-visualização aparecerá aqui.")).toBeVisible();
-  expect(screen.queryByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeDisabled();
-
-  rejectFirst(new Error("prévia antiga falhou"));
-  await waitFor(() => expect(screen.queryByText("Não foi possível atualizar a pré-visualização.")).not.toBeInTheDocument());
+  expect(
+    await screen.findAllByText("A mensagem contém conteúdo não permitido e não pode ser enviada.")
+  ).toHaveLength(2);
+  expect(sendBody).toMatchObject({ acknowledge_warning: false, save_scope: "billing" });
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose"
+  );
 });
 
-it("resets compose resources and previews when route parameters change", async () => {
+it("resets compose resources when route parameters change", async () => {
   const user = userEvent.setup();
-  let resolveOldPreview!: (response: Response) => void;
   installFetch({
     ...detailHandlers(),
     "GET /api/v1/billings/billing-second": () => jsonResponse({
@@ -1006,9 +975,7 @@ it("resets compose resources and previews when route parameters change", async (
       recipients: [{ email: "bia@example.com", name: "Bia", uuid: "recipient-bia" }],
       uuid: "billing-second"
     }),
-    "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" }),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => new Promise<Response>((resolve) => { resolveOldPreview = resolve; }),
-    "POST /api/v1/billings/billing-second/communications/preview": () => jsonResponse({ html: "<p>Prévia da segunda</p>", mild: [], severe: [] })
+    "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" })
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await screen.findByRole("heading", { name: "Enviar fatura" });
@@ -1018,9 +985,7 @@ it("resets compose resources and previews when route parameters change", async (
   expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Segunda cobrança");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Corpo da segunda");
-  expect(await screen.findByText("Prévia da segunda")).toBeVisible();
-  resolveOldPreview(jsonResponse({ html: "<p>Prévia vazada</p>", mild: [], severe: [] }));
-  await waitFor(() => expect(screen.queryByText("Prévia vazada")).not.toBeInTheDocument());
+  expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
 });
 
 it("blocks direct compose access from typed capabilities before previewing", async () => {
@@ -1067,16 +1032,14 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
       uuid: "billing-second"
     }),
     "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" }),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Pronta</p>", mild: [], severe: [] }),
-    "POST /api/v1/billings/billing-second/communications/preview": () => jsonResponse({ html: "<p>Segunda pronta</p>", mild: [], severe: [] }),
     "POST /api/v1/billings/billing-public-uuid/communications/send": () => pendingSend
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByText("Pronta");
+  await screen.findByRole("heading", { name: "Enviar fatura" });
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
-  expect(await screen.findByText("Segunda pronta")).toBeVisible();
+  expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
 
   settleSend();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1089,7 +1052,6 @@ it("requires recipients and focuses subject and body API errors", async () => {
   let sends = 0;
   installFetch({
     ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Ok</p>", mild: [], severe: [] }),
     "POST /api/v1/billings/billing-public-uuid/communications/send": () => {
       sends += 1;
       return problemResponse({
@@ -1111,8 +1073,6 @@ it("requires recipients and focuses subject and body API errors", async () => {
   await user.type(screen.getByLabelText("Assunto"), "Novo assunto");
   await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
   await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), "Novo corpo");
-  await user.click(screen.getByRole("button", { name: "Atualizar pré-visualização" }));
-  await screen.findByText("Ok");
   await user.click(screen.getByLabelText("Ana <ana@example.com>"));
   await user.click(screen.getByLabelText("Destinatário protegido"));
   fireEvent.submit(document.getElementById("comm-form")!);
@@ -1136,27 +1096,9 @@ it("requires recipients and focuses subject and body API errors", async () => {
   await waitFor(() => expect(screen.getByLabelText("Salvar modelo")).toHaveFocus());
 });
 
-it("targets moderation acknowledgement field errors", async () => {
-  installFetch({
-    ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Revisar</p>", mild: ["droga"], severe: [] }),
-    "POST /api/v1/billings/billing-public-uuid/communications/send": () => problemResponse({
-      code: "communication_warning_unacknowledged", detail: "Reconheça o aviso.",
-      fields: { "body.acknowledge_warning": "Confirme antes de enviar." }, request_id: "req",
-      status: 422, title: "Dados inválidos", type: "problem"
-    })
-  });
-  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByText("Linguagem possivelmente ofensiva: droga.");
-  fireEvent.submit(document.getElementById("comm-form")!);
-  expect(await screen.findByText("Confirme antes de enviar.")).toBeVisible();
-  await waitFor(() => expect(screen.getByLabelText("Reconheço o aviso e quero enviar mesmo assim.")).toHaveFocus());
-});
-
 it("keeps focus untouched for unrecognized send field errors", async () => {
   installFetch({
     ...detailHandlers(),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "<p>Ok</p>", mild: [], severe: [] }),
     "POST /api/v1/billings/billing-public-uuid/communications/send": () => problemResponse({
       code: "validation_error", detail: "Confira os campos.",
       fields: { "body.comm_type": "Tipo de comunicação inválido." }, request_id: "req",
@@ -1164,7 +1106,7 @@ it("keeps focus untouched for unrecognized send field errors", async () => {
     })
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByText("Ok");
+  await screen.findByRole("heading", { name: "Enviar fatura" });
   fireEvent.submit(document.getElementById("comm-form")!);
 
   expect(await screen.findByText("Confira os campos.")).toBeVisible();
@@ -1192,7 +1134,7 @@ it("renders the payment-receipt variant with an empty template and capability-dr
   expect(document.title).toBe("Enviar recibo de pagamento - Rentivo");
 });
 
-it("blocks unavailable recibos and shows a pending preview with user-owner template scope", async () => {
+it("blocks unavailable recibos and shows the user-owner template scope", async () => {
   installFetch({
     ...detailHandlers(),
     "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({ ...bill, capabilities: { ...capabilities, can_download_recibo: true, can_send_recibo: false } })
@@ -1202,18 +1144,13 @@ it("blocks unavailable recibos and shows a pending preview with user-owner templ
   expect(screen.queryByRole("button", { name: "Enviar recibo de pagamento" })).not.toBeInTheDocument();
   blocked.unmount();
 
-  let resolvePreview!: (response: Response) => void;
-  const pendingPreview = new Promise<Response>((resolve) => { resolvePreview = resolve; });
   installFetch({
     "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({ ...billing, owner: { type: "user", uuid: null } }),
-    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill),
-    "POST /api/v1/billings/billing-public-uuid/communications/preview": () => pendingPreview
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill)
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  expect(await screen.findByText("A pré-visualização aparecerá aqui.")).toBeVisible();
-  expect(screen.getByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
-  resolvePreview(jsonResponse({ html: "<p>Pronta</p>", mild: [], severe: [] }));
-  expect(await screen.findByText("Pronta")).toBeVisible();
+  expect(await screen.findByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
 });
 
 it("refreshes invoice detail after a stale status conflict", async () => {

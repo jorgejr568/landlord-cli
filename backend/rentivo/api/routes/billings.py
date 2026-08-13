@@ -14,7 +14,7 @@ from rentivo.api.bill_documents import invoice_state, recibo_state
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_resource_grant, require_scope
 from rentivo.api.domain_access import BillingAccess, require_role, resolve_billing_access
-from rentivo.api.errors import ProblemException
+from rentivo.api.errors import ProblemException, problem
 from rentivo.api.principal import Principal
 from rentivo.api.routes._pdf_streaming import stored_file_response
 from rentivo.api.schemas.billings import (
@@ -48,7 +48,6 @@ from rentivo.api.schemas.billings import (
     ExportCreateRequest,
     ExportCreateResponse,
 )
-from rentivo.communications.moderation import scan
 from rentivo.communications.render import render_markdown
 from rentivo.constants.api_scopes import APIScope
 from rentivo.models.audit_log import AuditEventType
@@ -85,6 +84,8 @@ _exports_create = require_scope(APIScope.EXPORTS_CREATE)
 _OWNER_ROLES = frozenset({"owner"})
 _EDIT_ROLES = frozenset({"owner", "admin"})
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
+_COMMUNICATION_PREVIEW_LIMIT = 30
+_COMMUNICATION_PREVIEW_WINDOW_SECONDS = 60
 
 _ATTACHMENT_UPLOAD_OPENAPI = {
     "requestBody": {
@@ -868,21 +869,39 @@ async def create_export(
     return ExportCreateResponse(format=payload.format)
 
 
-@router.post("/{billing_uuid}/communications/preview", response_model=CommunicationPreviewResponse)
+@router.post(
+    "/{billing_uuid}/communications/preview",
+    response_model=CommunicationPreviewResponse,
+    deprecated=True,
+)
 async def preview_communication(
     billing_uuid: str,
     payload: CommunicationPreviewRequest,
-    principal: Principal = Depends(_communications_read),
+    principal: Principal = Depends(_communications_send),
     _csrf: None = Depends(require_csrf),
     services: RequestServices = Depends(get_services),
 ) -> CommunicationPreviewResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _MANAGE_ROLES)
-    moderation = scan(f"{payload.subject}\n{payload.body}")
+    if not services.auth_rate_limit.reserve(
+        action="communication_preview",
+        identity=f"api_key:{principal.api_key.uuid}",
+        limit=_COMMUNICATION_PREVIEW_LIMIT,
+        window_seconds=_COMMUNICATION_PREVIEW_WINDOW_SECONDS,
+    ):
+        raise ProblemException(
+            problem(
+                status=429,
+                code="communication_preview_rate_limited",
+                title="Muitas solicitações",
+                detail="Muitas prévias foram analisadas. Tente novamente mais tarde.",
+            )
+        )
+    moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
     return CommunicationPreviewResponse(
         html=render_markdown(payload.body),
-        severe=moderation.severe,
-        mild=moderation.mild,
+        severe=tuple(dict.fromkeys((*moderation.severe, *moderation.mild))),
+        mild=(),
     )
 
 
@@ -959,8 +978,8 @@ async def send_communication(
                 "Gere o PDF da fatura antes de enviar a comunicação.",
             )
     recipients = _selected_recipients(access, services, payload.recipient_uuids)
-    moderation = scan(f"{payload.subject}\n{payload.body}")
-    if moderation.blocked:
+    moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
+    if moderation.flagged:
         services.audit.safe_log_for(
             principal.actor,
             AuditEventType.COMMUNICATION_BLOCKED,
@@ -973,12 +992,6 @@ async def send_communication(
             "communication_blocked",
             "A mensagem contém conteúdo não permitido e não pode ser enviada.",
             "body",
-        )
-    if moderation.flagged and not payload.acknowledge_warning:
-        raise ProblemException.invalid_field(
-            "communication_warning_unacknowledged",
-            "Reconheça o aviso de conteúdo antes de enviar.",
-            "acknowledge_warning",
         )
     communications = services.communication.send(
         bill=bill,
@@ -1015,15 +1028,6 @@ async def send_communication(
             new_state={"scope": payload.save_scope, "comm_type": payload.comm_type},
         )
     _audit_communications(communications, principal, services)
-    if moderation.flagged:
-        services.audit.safe_log_for(
-            principal.actor,
-            AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
-            entity_type="bill",
-            entity_id=bill.id,
-            entity_uuid=bill.uuid,
-            new_state={"mild_count": len(moderation.mild)},
-        )
     set_analytics(
         response,
         "rentivo_communication_sent",

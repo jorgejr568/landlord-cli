@@ -16,6 +16,10 @@ from rentivo.api.csrf import CSRF_HEADER_NAME, issue_csrf_token
 from rentivo.api.dependencies import get_services
 from rentivo.api.principal import Principal
 from rentivo.api.routes.billings import router as billings_router
+from rentivo.api.schemas.billings import MAX_COMMUNICATION_BODY_LENGTH
+from rentivo.communications.moderation import ModerationResult
+from rentivo.communications.moderation_base import ModerationBackend
+from rentivo.communications.moderation_factory import get_moderation_backend
 from rentivo.constants.api_scopes import ALL_FIRST_PARTY_SCOPES, APIScope
 from rentivo.models.api_key import APIKey, APIKeyGrant
 from rentivo.models.audit_log import AuditEventType
@@ -522,12 +526,38 @@ class FakeCommunicationService:
         self.save_calls.append((owner_type, owner_id, comm_type, subject, body))
 
 
+class StubModerationBackend(ModerationBackend):
+    """Stands in for the configured backend so routes can be proven to consult it.
+
+    Its verdict is independent of the text, so a flagged result on otherwise
+    clean copy can only have come from here — not from the local lexicon.
+    """
+
+    def __init__(self, *, severe: tuple[str, ...] = (), mild: tuple[str, ...] = ()) -> None:
+        self.result = ModerationResult(severe=severe, mild=mild)
+        self.scanned: list[str] = []
+
+    async def scan(self, text: str) -> ModerationResult:
+        self.scanned.append(text)
+        return self.result
+
+
 class CallRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     def safe_log_for(self, *args: Any, **kwargs: Any) -> None:
         self.calls.append((args, kwargs))
+
+
+class FakeRateLimitService:
+    def __init__(self) -> None:
+        self.allowed = True
+        self.calls: list[dict[str, Any]] = []
+
+    def reserve(self, **kwargs: Any) -> bool:
+        self.calls.append(kwargs)
+        return self.allowed
 
 
 class FakeJobService:
@@ -612,6 +642,8 @@ def billing_harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BillingH
         billing_attachment=FakeAttachmentService(local_path),
         bill=FakeBillService(),
         communication=FakeCommunicationService(),
+        moderation=get_moderation_backend(),
+        auth_rate_limit=FakeRateLimitService(),
         audit=CallRecorder(),
         job=FakeJobService(),
         storage_cleanup=FakeStorageCleanupService(),
@@ -1633,10 +1665,70 @@ def test_communication_preview_renders_safe_html_and_moderation(billing_harness:
     )
 
     assert response.status_code == 200
-    assert response.json()["mild"] == ["merda"]
-    assert response.json()["severe"] == []
+    assert response.json()["mild"] == []
+    assert response.json()["severe"] == ["merda"]
     assert "<strong>pague</strong>" in response.json()["html"]
     assert "<script>" not in response.json()["html"]
+
+
+def test_communication_preview_requires_send_scope_for_remote_moderation(billing_harness: BillingHarness) -> None:
+    key = INTEGRATION_KEY.model_copy(update={"scopes": ALL_FIRST_PARTY_SCOPES - {APIScope.COMMUNICATIONS_SEND.value}})
+    billing_harness.services.api_key.credentials[INTEGRATION_SECRET] = key
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        credential=INTEGRATION_SECRET,
+        json={"subject": "Aviso", "body": "O boleto vence amanhã."},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "missing_scope"
+
+
+def test_communication_preview_is_rate_limited_before_remote_moderation(billing_harness: BillingHarness) -> None:
+    backend = StubModerationBackend()
+    billing_harness.services.moderation = backend
+    billing_harness.services.auth_rate_limit.allowed = False
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json={"subject": "Aviso", "body": "O boleto vence amanhã."},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["code"] == "communication_preview_rate_limited"
+    assert backend.scanned == []
+    assert billing_harness.services.auth_rate_limit.calls == [
+        {
+            "action": "communication_preview",
+            "identity": f"api_key:{LOGIN_KEY.uuid}",
+            "limit": 30,
+            "window_seconds": 60,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"subject": "S" * 999, "body": "B"},
+        {"subject": "S", "body": "B" * (MAX_COMMUNICATION_BODY_LENGTH + 1)},
+        {"subject": "S", "body": "😀" * 1_025},
+    ],
+)
+def test_communication_preview_rejects_oversized_content(
+    payload: dict[str, str], billing_harness: BillingHarness
+) -> None:
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert billing_harness.services.auth_rate_limit.calls == []
 
 
 def _communication_payload(**overrides: Any) -> dict[str, Any]:
@@ -1698,6 +1790,17 @@ def test_communication_send_checks_bill_parent_and_selected_recipients(billing_h
     assert billing_harness.services.communication.send_calls == []
 
 
+def test_communication_send_rejects_a_body_over_the_encryption_limit(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="😀" * 1_025),
+    )
+
+    assert response.status_code == 422
+    assert billing_harness.services.communication.send_calls == []
+
+
 def test_communication_owner_template_is_forbidden_to_manager_before_send(
     billing_harness: BillingHarness,
 ) -> None:
@@ -1738,7 +1841,7 @@ def test_communication_send_rejects_duplicate_recipient_selection(billing_harnes
     assert billing_harness.services.communication.send_calls == []
 
 
-def test_communication_severe_is_blocked_and_mild_requires_acknowledgement(
+def test_communication_severe_and_profanity_are_blocked(
     billing_harness: BillingHarness,
 ) -> None:
     severe = billing_harness.request(
@@ -1755,24 +1858,89 @@ def test_communication_severe_is_blocked_and_mild_requires_acknowledgement(
     assert severe.status_code == 422
     assert severe.json()["code"] == "communication_blocked"
     assert mild.status_code == 422
-    assert mild.json()["code"] == "communication_warning_unacknowledged"
+    assert mild.json()["code"] == "communication_blocked"
     assert billing_harness.services.communication.send_calls == []
-    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
+    assert _audit_events(billing_harness) == [
+        AuditEventType.COMMUNICATION_BLOCKED,
+        AuditEventType.COMMUNICATION_BLOCKED,
+    ]
 
 
-def test_communication_mild_acknowledgement_sends_and_audits_override(
+def test_legacy_acknowledgement_cannot_bypass_blocking_or_save_a_template(
     billing_harness: BillingHarness,
 ) -> None:
     response = billing_harness.request(
         "POST",
         f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
-        json=_communication_payload(body="Que merda, pague.", acknowledge_warning=True),
+        json=_communication_payload(body="Que merda, pague.", acknowledge_warning=True, save_scope="billing"),
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 422
+    assert response.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
+    assert billing_harness.services.communication.save_calls == []
+    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
+
+
+def test_communication_preview_reports_the_configured_backend_verdict(billing_harness: BillingHarness) -> None:
+    backend = StubModerationBackend(severe=("ameaça velada",), mild=("tom hostil",))
+    billing_harness.services.moderation = backend
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json={"subject": "Aviso", "body": "Bom dia, o boleto vence amanha."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["severe"] == ["ameaça velada", "tom hostil"]
+    assert response.json()["mild"] == []
+    assert backend.scanned == ["Aviso\nBom dia, o boleto vence amanha."]
+
+
+def test_communication_send_blocks_on_the_configured_backend_severe_verdict(
+    billing_harness: BillingHarness,
+) -> None:
+    backend = StubModerationBackend(severe=("ameaça velada",))
+    billing_harness.services.moderation = backend
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha."),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
+    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
+    assert backend.scanned == ["Cobranca {{unidade}}\nBom dia, o boleto vence amanha."]
+
+
+def test_communication_send_blocks_the_configured_backend_mild_verdict(
+    billing_harness: BillingHarness,
+) -> None:
+    billing_harness.services.moderation = StubModerationBackend(mild=("tom hostil",))
+
+    unacknowledged = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha."),
+    )
+    acknowledged = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="Bom dia, o boleto vence amanha.", acknowledge_warning=True),
+    )
+
+    assert unacknowledged.status_code == 422
+    assert unacknowledged.json()["code"] == "communication_blocked"
+    assert acknowledged.status_code == 422
+    assert acknowledged.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
     assert _audit_events(billing_harness) == [
-        AuditEventType.COMMUNICATION_SENT,
-        AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
+        AuditEventType.COMMUNICATION_BLOCKED,
+        AuditEventType.COMMUNICATION_BLOCKED,
     ]
 
 
@@ -1880,7 +2048,7 @@ def test_communication_send_is_a_conflict_while_the_bill_pdf_is_being_rendered(
             {"json": {"format": "csv"}},
         ),
         (
-            APIScope.COMMUNICATIONS_READ,
+            APIScope.COMMUNICATIONS_SEND,
             "POST",
             f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
             {"json": {"subject": "S", "body": "B"}},
@@ -1937,6 +2105,11 @@ def test_billings_openapi_contract_is_complete_typed_and_strict(billing_harness:
         "CommunicationSendRequest",
     ):
         assert schema["components"]["schemas"][model_name]["additionalProperties"] is False
+
+    preview_operation = schema["paths"]["/api/v1/billings/{billing_uuid}/communications/preview"]["post"]
+    assert preview_operation["deprecated"] is True
+    acknowledgement = schema["components"]["schemas"]["CommunicationSendRequest"]["properties"]["acknowledge_warning"]
+    assert acknowledgement["deprecated"] is True
 
     attachment_path = "/api/v1/billings/{billing_uuid}/attachments"
     upload = schema["paths"][attachment_path]["post"]

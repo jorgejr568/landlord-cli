@@ -10,7 +10,7 @@ export function PrivacyPolicyPage() {
     <article className="panel">
       <div className="panel-head">
         <h2 className="page-title">Política de Privacidade</h2>
-        <p className="page-subtitle">Última atualização: 23 de julho de 2026</p>
+        <p className="page-subtitle">Última atualização: 13 de agosto de 2026</p>
       </div>
       <div className="panel-body">
         <p>
@@ -38,9 +38,9 @@ export function PrivacyPolicyPage() {
         </p>
         <p>
           <strong>Conteúdo de cobranças:</strong> os dados que você cadastra
-          sobre imóveis, cobranças, despesas, recibos e destinatários (como
-          nome e e-mail de inquilinos). Você é responsável por ter base legal
-          para cadastrar dados de terceiros.
+          sobre imóveis, cobranças, despesas, recibos, comunicações e
+          destinatários (como nome e e-mail de inquilinos). Você é responsável
+          por ter base legal para cadastrar dados de terceiros.
         </p>
         <p>
           <strong>Registros técnicos:</strong> endereço IP, identificação do
@@ -53,8 +53,9 @@ export function PrivacyPolicyPage() {
         <p>
           Usamos seus dados para operar o serviço (gerar cobranças PIX, enviar
           e-mails de cobrança e recibos), proteger sua conta, enviar
-          comunicações transacionais (como avisos de segurança) e entender o
-          uso do produto para melhorá-lo. Não vendemos dados pessoais.
+          comunicações transacionais (como avisos de segurança), analisar a
+          segurança do conteúdo das comunicações e entender o uso do produto
+          para melhorá-lo. Não vendemos dados pessoais.
         </p>
 
         <h3>Bases legais</h3>
@@ -69,8 +70,10 @@ export function PrivacyPolicyPage() {
         <p>
           Usamos operadores para funcionar: Amazon Web Services (hospedagem,
           armazenamento de arquivos e envio de e-mails), Cloudflare (proteção
-          contra abuso no cadastro) e Google (login opcional e métricas de
-          uso). Esses operadores tratam dados conforme nossos contratos e suas
+          contra abuso no cadastro), Google (login opcional e métricas de uso)
+          e OpenRouter (análise opcional de segurança do conteúdo de
+          comunicações, quando o processamento externo estiver habilitado).
+          Esses operadores tratam dados conforme nossos contratos e suas
           próprias políticas. Não compartilhamos dados com terceiros para fins
           de publicidade.
         </p>

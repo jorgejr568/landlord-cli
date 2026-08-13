@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, Send } from "lucide-react";
+import { ArrowLeft, Send } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -13,8 +13,6 @@ import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
 
 type CommType = components["schemas"]["CommunicationSendRequest"]["comm_type"];
-type Preview = components["schemas"]["CommunicationPreviewResponse"];
-
 function isFullContact(contact: Billing["recipients"][number]): contact is Extract<Billing["recipients"][number], { email: string }> {
   return "email" in contact;
 }
@@ -35,68 +33,25 @@ export function CommunicationComposePage() {
   const [body, setBody] = useState("");
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [saveScope, setSaveScope] = useState<"" | "billing" | "owner">("");
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [acknowledged, setAcknowledged] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const loadController = useRef<AbortController | null>(null);
-  const previewController = useRef<AbortController | null>(null);
   const sendController = useRef<AbortController | null>(null);
-  const previewRequest = useRef(0);
   const recipientRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const acknowledgementRef = useRef<HTMLInputElement>(null);
   const saveScopeRef = useRef<HTMLSelectElement>(null);
 
   useDocumentTitle(`Enviar ${commLabel} - Rentivo`);
-
-  const invalidatePreview = useCallback(() => {
-    previewController.current?.abort();
-    previewRequest.current += 1;
-    setPreview(null);
-    setAcknowledged(false);
-    setPreviewing(false);
-  }, []);
-
-  const requestPreview = useCallback(async (nextSubject: string, nextBody: string) => {
-    previewController.current?.abort();
-    const controller = new AbortController();
-    previewController.current = controller;
-    const request = ++previewRequest.current;
-    setPreviewing(true);
-    setActionError("");
-    try {
-      const { data } = await apiRequest(apiClient.POST(
-        "/api/v1/billings/{billing_uuid}/communications/preview",
-        {
-          body: { body: nextBody, subject: nextSubject },
-          params: { path: { billing_uuid: billingUuid } },
-          signal: controller.signal
-        }
-      ));
-      if (controller.signal.aborted || request !== previewRequest.current) return;
-      setPreview(data);
-      setAcknowledged(false);
-    } catch (caught) {
-      if (controller.signal.aborted || request !== previewRequest.current) return;
-      setActionError(errorMessage(caught, "Não foi possível atualizar a pré-visualização."));
-    } finally {
-      if (!controller.signal.aborted && request === previewRequest.current) setPreviewing(false);
-    }
-  }, [billingUuid]);
 
   const load = useCallback(async () => {
     /* v8 ignore next -- invalid communication types never invoke resource loading */
     if (!commType) return;
     loadController.current?.abort();
-    previewController.current?.abort();
     sendController.current?.abort();
-    previewRequest.current += 1;
     const controller = new AbortController();
     loadController.current = controller;
     setBilling(null);
@@ -105,10 +60,7 @@ export function CommunicationComposePage() {
     setBody("");
     setSelectedRecipients([]);
     setSaveScope("");
-    setPreview(null);
-    setAcknowledged(false);
     setLoading(true);
-    setPreviewing(false);
     setSending(false);
     setLoadError("");
     setActionError("");
@@ -121,36 +73,25 @@ export function CommunicationComposePage() {
       /* v8 ignore next -- an aborted request is intentionally discarded */
       if (controller.signal.aborted) return;
       const template = billingResult.data.communication_templates.find((item) => item.comm_type === commType);
-      const nextSubject = template?.subject ?? "";
-      const nextBody = template?.body ?? "";
       setBilling(billingResult.data);
       setBill(billResult.data);
-      setSubject(nextSubject);
-      setBody(nextBody);
+      setSubject(template?.subject ?? "");
+      setBody(template?.body ?? "");
       setSelectedRecipients(billingResult.data.recipients.map((recipient) => recipient.uuid));
       setLoading(false);
-      const capabilities = billResult.data.capabilities;
-      const canSendDocument = capabilities.can_compose && (
-        commType === "payment_receipt" ? capabilities.can_send_recibo : capabilities.can_send_invoice
-      );
-      if (billingResult.data.recipients.length > 0 && canSendDocument) {
-        void requestPreview(nextSubject, nextBody);
-      }
     } catch (caught) {
       /* v8 ignore next -- an aborted request is intentionally discarded */
       if (controller.signal.aborted) return;
       setLoadError(errorMessage(caught, "Não foi possível carregar a comunicação."));
       setLoading(false);
     }
-  }, [billUuid, billingUuid, commType, requestPreview]);
+  }, [billUuid, billingUuid, commType]);
 
   useEffect(() => {
     if (commType) void load();
     return () => {
       loadController.current?.abort();
-      previewController.current?.abort();
       sendController.current?.abort();
-      previewRequest.current += 1;
     };
   }, [commType, load]);
 
@@ -158,7 +99,6 @@ export function CommunicationComposePage() {
     if (key?.startsWith("recipient_uuids")) recipientRef.current?.focus();
     else if (key === "subject") subjectRef.current?.focus();
     else if (key === "body") bodyRef.current?.focus();
-    else if (key === "acknowledge_warning") acknowledgementRef.current?.focus();
     else if (key === "save_scope") saveScopeRef.current?.focus();
   };
 
@@ -178,7 +118,7 @@ export function CommunicationComposePage() {
     setSending(true);
     try {
       const requestBody: components["schemas"]["CommunicationSendRequest"] = {
-        acknowledge_warning: acknowledged,
+        acknowledge_warning: false,
         bill_uuid: billUuid,
         body,
         comm_type: commType,
@@ -198,7 +138,7 @@ export function CommunicationComposePage() {
       const errors = normalizedFieldErrors(caught);
       setFieldErrors(errors);
       setActionError(errorMessage(caught, "Não foi possível enviar a comunicação."));
-      requestAnimationFrame(() => focusError(firstFieldError(errors, ["recipient_uuids", "subject", "body", "acknowledge_warning", "save_scope"])));
+      requestAnimationFrame(() => focusError(firstFieldError(errors, ["recipient_uuids", "subject", "body", "save_scope"])));
     } finally {
       if (!controller.signal.aborted) setSending(false);
     }
@@ -218,9 +158,7 @@ export function CommunicationComposePage() {
     return <div className="panel"><div className="panel__body"><p className="text-muted">{isRecibo ? "O recibo ainda está sendo gerado." : "A fatura ainda está sendo gerada."}</p></div></div>;
   }
 
-  const severe = (preview?.severe.length ?? 0) > 0;
-  const mild = (preview?.mild.length ?? 0) > 0;
-  const sendDisabled = sending || previewing || !preview || severe || (mild && !acknowledged) || selectedRecipients.length === 0;
+  const sendDisabled = sending || selectedRecipients.length === 0;
 
   return (
     <>
@@ -234,13 +172,9 @@ export function CommunicationComposePage() {
           })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div></div>
 
           <div className="panel"><div className="panel__head"><h3>Mensagem</h3><span className="panel__title-eyebrow">Markdown</span></div><div className="panel__body">
-            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => { setSubject(event.target.value); invalidatePreview(); }} ref={subjectRef} value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
-            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" onChange={(event) => { setBody(event.target.value); invalidatePreview(); }} ref={bodyRef} rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
-            <button className="btn btn--sm" disabled={previewing} onClick={() => void requestPreview(subject, body)} type="button"><Eye aria-hidden="true" size={14} /> {previewing ? "Atualizando..." : "Atualizar pré-visualização"}</button>
+            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(event.target.value)} ref={subjectRef} value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
+            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
           </div></div>
-
-          <div className="panel"><div className="panel__head"><h3>Pré-visualização</h3></div><div className="panel__body"><div id="preview" dangerouslySetInnerHTML={{ __html: preview?.html ?? "" }} />{!preview && <p className="text-muted">A pré-visualização aparecerá aqui.</p>}</div></div>
-          {(severe || mild) && <div className="panel" id="moderation-panel"><div className="panel__head"><h3>Verificação de conteúdo</h3></div><div className="panel__body">{severe && <div style={{ color: "#c0392b" }}>Conteúdo não permitido (ofensa grave ou ameaça): {preview?.severe.join(", ")}. Edite para enviar.</div>}{mild && <div style={{ color: "#b9770e" }}>Linguagem possivelmente ofensiva: {preview?.mild.join(", ")}.</div>}{mild && !severe && <label style={{ alignItems: "center", display: "flex", gap: ".5rem" }}><input aria-describedby={fieldErrors.acknowledge_warning ? "acknowledge_warning-error" : undefined} checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} ref={acknowledgementRef} type="checkbox" /><span>Reconheço o aviso e quero enviar mesmo assim.</span></label>}<FieldError id="acknowledge_warning-error" message={fieldErrors.acknowledge_warning} /></div></div>}
 
           <div className="panel"><div className="panel__head"><h3>Salvar modelo (opcional)</h3></div><div className="panel__body"><div className="field"><label className="sr-only" htmlFor="save_scope">Salvar modelo</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div></div></div>
           {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}

@@ -117,7 +117,31 @@ def test_mfa_and_pix_services_resolve_with_their_own_repositories(db_connection,
     assert services.pix is services.pix
 
 
+def test_moderation_resolves_the_backend_configured_in_settings(db_connection, fake_encryption, monkeypatch):
+    from unittest.mock import patch
+
+    from rentivo.communications import moderation_openrouter
+    from rentivo.communications.moderation_lexicon import LexiconModerationBackend
+    from rentivo.communications.moderation_openrouter import OpenRouterModerationBackend
+    from rentivo.services.container import RequestServices
+    from rentivo.settings import settings
+
+    monkeypatch.setattr(settings, "moderation_backend", "lexicon")
+    lexicon_services = RequestServices(conn=db_connection, encryption=fake_encryption)
+
+    assert isinstance(lexicon_services.moderation, LexiconModerationBackend)
+    assert lexicon_services.moderation is lexicon_services.moderation
+
+    monkeypatch.setattr(settings, "moderation_backend", "openrouter")
+    monkeypatch.setattr(settings, "openrouter_api_key", "or-secret")
+    with patch.object(moderation_openrouter, "get_cache"):
+        backend = RequestServices(conn=db_connection, encryption=fake_encryption).moderation
+
+    assert isinstance(backend, OpenRouterModerationBackend)
+
+
 def test_all_retained_request_services_resolve_and_are_cached(db_connection, fake_encryption):
+    from rentivo.communications.moderation_base import ModerationBackend
     from rentivo.services.account_deletion_service import AccountDeletionService
     from rentivo.services.api_key_service import APIKeyService
     from rentivo.services.audit_service import AuditService
@@ -175,6 +199,7 @@ def test_all_retained_request_services_resolve_and_are_cached(db_connection, fak
         "recipient": RecipientService,
         "reply_to": RecipientService,
         "communication": CommunicationService,
+        "moderation": ModerationBackend,
         "storage_cleanup": StorageCleanupService,
         "billing_notification": BillingNotificationService,
     }

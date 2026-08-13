@@ -1,9 +1,11 @@
 # App Store Connect — App Privacy questionnaire answers
 
 Answers for the iOS app (bundle `br.com.rentivo.ios`). The app collects data
-only through Rentivo's own API for app functionality. No third-party
-analytics, ads, or crash SDKs are embedded in the iOS binary; web analytics
-(Google Tag Manager) runs only on the website.
+only through Rentivo's own API for app functionality. The API can optionally
+send landlord-authored communication text to OpenRouter for server-side
+content-safety analysis. No third-party analytics, ads, moderation, or crash
+SDKs are embedded in the iOS binary; web analytics (Google Tag Manager) runs
+only on the website.
 
 ## Does the app collect data? → Yes
 
@@ -18,7 +20,7 @@ All items below: **Collected**, **Linked to the user's identity**,
 | Financial Info | Other Financial Info | Rent charges, bills, expenses, receipt amounts |
 | Identifiers | User ID | Internal account id tying data to the account |
 | User Content | Photos or Videos | Payment proofs and billing attachments uploaded by the user (PDF or image) |
-| User Content | Other User Content | Tenant/recipient names and e-mails entered by the user |
+| User Content | Other User Content | Tenant/recipient names and e-mails, plus landlord-authored communication text |
 
 Photos or Videos is declared because the app has two upload paths, both
 accepting `[UTType.pdf, UTType.image]` through `.fileImporter`, and a
@@ -43,6 +45,10 @@ Location, Health & Fitness, Messages, Audio, Browsing History, Search History,
 Purchases, Usage Data, Diagnostics, Sensitive Info, Contacts, Other Data.
 
 Notes:
+- **OpenRouter:** when the optional remote moderation backend is enabled,
+  communication text is processed by OpenRouter solely for App Functionality.
+  It remains linked user content, is not used for tracking, and does not add an
+  SDK to the mobile binary.
 - **Tracking (ATT):** answer **No** — no data is used to track users across
   other companies' apps or websites; no AdSupport/ATT prompt needed.
 - The login step opens `rentivo.com.br` in an in-app browser session

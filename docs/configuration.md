@@ -68,6 +68,21 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 | `RENTIVO_WEBAUTHN_RP_NAME` | `Rentivo` | Display name shown in browser passkey prompts. |
 | `RENTIVO_WEBAUTHN_ORIGIN` | `http://localhost:8000` | Expected origin for WebAuthn ceremonies. |
 
+## AI content moderation (communication text)
+
+Content-safety analysis of landlord-authored communication text. The default `lexicon` backend runs locally and deterministically. The `openrouter` backend delegates the analysis to a model hosted by OpenRouter, reached through its OpenAI-compatible Responses endpoint.
+
+**Privacy:** with `openrouter`, the communication content is transmitted to OpenRouter, an external provider, and is subject to that provider's data handling. Requests deny provider data collection and require support for the structured-response parameters. Only fixed policy codes are cached; message text and model-authored prose are not stored in the moderation cache. With the default `lexicon` backend the content never leaves the system — no network call is made.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RENTIVO_MODERATION_BACKEND` | `lexicon` | `lexicon` (local, deterministic, no content leaves the system) or `openrouter` (sends the text to OpenRouter for AI analysis). Selecting `openrouter` without an API key fails at boot. |
+| `RENTIVO_OPENROUTER_API_KEY` | *(empty)* | OpenRouter API key. Required when the backend is `openrouter`. |
+| `RENTIVO_OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL; override for a gateway or proxy. |
+| `RENTIVO_OPENROUTER_MODEL` | `openai/gpt-5-mini` | Model slug requested from OpenRouter. |
+| `RENTIVO_MODERATION_TIMEOUT_SECONDS` | `8.0` | Per-analysis request timeout in seconds. |
+| `RENTIVO_MODERATION_CACHE_TTL_SECONDS` | `600` | How long an analysis verdict is reused for identical text. Verdicts live in the shared cache, so the effective reuse window is `min(this value, RENTIVO_CACHE_TTL_SECONDS)` — a larger value here is silently capped, and `RENTIVO_CACHE_BACKEND=none` disables reuse entirely. |
+
 ## Google sign-in (OAuth)
 
 Optional "Sign in with Google" flow served at `/api/v1/auth/google/start` and `/api/v1/auth/google/callback`. Disabled by default; when disabled the routes reject requests and the frontend hides the button.

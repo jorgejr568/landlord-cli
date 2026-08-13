@@ -581,6 +581,68 @@ def test_google_credentials_allowed_while_disabled():
     assert s.google_auth_enabled is False
 
 
+def test_moderation_defaults():
+    s = Settings(_env_file=None)
+    assert s.moderation_backend == "lexicon"
+    assert s.openrouter_api_key == ""
+    assert s.openrouter_base_url == "https://openrouter.ai/api/v1"
+    assert s.openrouter_model == "openai/gpt-5-mini"
+    assert s.moderation_timeout_seconds == 8.0
+    assert s.moderation_cache_ttl_seconds == 600
+
+
+def test_moderation_backend_rejects_unknown():
+    with pytest.raises(ValidationError, match="must be one of: lexicon, openrouter"):
+        Settings(_env_file=None, moderation_backend="anthropic")
+
+
+def test_moderation_openrouter_requires_api_key():
+    with pytest.raises(ValidationError, match="RENTIVO_OPENROUTER_API_KEY"):
+        Settings(_env_file=None, moderation_backend="openrouter")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("openrouter_api_key", "   ", "RENTIVO_OPENROUTER_API_KEY"),
+        ("openrouter_base_url", "", "RENTIVO_OPENROUTER_BASE_URL"),
+        ("openrouter_base_url", " \t ", "RENTIVO_OPENROUTER_BASE_URL"),
+        ("openrouter_model", "", "RENTIVO_OPENROUTER_MODEL"),
+        ("openrouter_model", " \n ", "RENTIVO_OPENROUTER_MODEL"),
+    ],
+)
+def test_moderation_openrouter_rejects_blank_configuration(field: str, value: str, message: str):
+    values = {"moderation_backend": "openrouter", "openrouter_api_key": "sk-or-test", field: value}
+
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None, **values)
+
+
+def test_moderation_openrouter_accepts_api_key():
+    s = Settings(_env_file=None, moderation_backend="openrouter", openrouter_api_key="sk-or-test")
+    assert s.moderation_backend == "openrouter"
+    assert s.openrouter_api_key == "sk-or-test"
+
+
+def test_moderation_timeout_rejects_zero_and_negative():
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_TIMEOUT_SECONDS must be > 0"):
+        Settings(_env_file=None, moderation_timeout_seconds=0)
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_TIMEOUT_SECONDS must be > 0"):
+        Settings(_env_file=None, moderation_timeout_seconds=-1.5)
+
+
+def test_moderation_cache_ttl_rejects_zero():
+    with pytest.raises(ValidationError, match="RENTIVO_MODERATION_CACHE_TTL_SECONDS must be >= 1"):
+        Settings(_env_file=None, moderation_cache_ttl_seconds=0)
+
+
+def test_moderation_lexicon_does_not_require_api_key():
+    """Default 'lexicon' backend is local and ignores the empty OpenRouter key."""
+    s = Settings(_env_file=None, moderation_backend="lexicon")
+    assert s.moderation_backend == "lexicon"
+    assert s.openrouter_api_key == ""
+
+
 def test_job_backend_defaults_to_database():
     s = Settings(_env_file=None)
     assert s.job_backend == "database"
