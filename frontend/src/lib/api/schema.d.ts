@@ -599,7 +599,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview Communication */
+        /**
+         * Preview Communication
+         * @deprecated
+         */
         post: operations["preview_communication_api_v1_billings__billing_uuid__communications_preview_post"];
         delete?: never;
         options?: never;
@@ -2140,6 +2143,7 @@ export interface components {
         CommunicationSendRequest: {
             /**
              * Acknowledge Warning
+             * @deprecated
              * @default false
              */
             acknowledge_warning: boolean;

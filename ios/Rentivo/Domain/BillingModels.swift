@@ -442,6 +442,12 @@ public enum BillPDFPolling {
   }
 }
 
+public func communicationSendIsDisabled(
+  isSending: Bool, hasSelectedRecipients: Bool, isRenderingPDF: Bool
+) -> Bool {
+  isSending || !hasSelectedRecipients || isRenderingPDF
+}
+
 public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID

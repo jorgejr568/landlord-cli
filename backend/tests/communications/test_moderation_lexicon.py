@@ -29,4 +29,5 @@ async def test_flagged_text_matches_the_sync_lexicon():
 
     assert result == scan(text)
     assert result.blocked is True
-    assert result.mild == ("babaca",)
+    assert result.severe == ("babaca", "vou te matar")
+    assert result.mild == ()

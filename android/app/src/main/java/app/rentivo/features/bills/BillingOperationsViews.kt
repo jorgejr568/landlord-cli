@@ -1,14 +1,8 @@
 package app.rentivo.features.bills
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.text.format.Formatter
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
@@ -46,7 +40,6 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Description
@@ -90,7 +83,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import app.rentivo.app.AppModel
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
@@ -116,7 +108,6 @@ import app.rentivo.domain.Bill
 import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
-import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
@@ -661,8 +652,7 @@ private fun ContentRow(title: String, icon: ImageVector) {
 }
 
 /**
- * The e-mail composer for one bill: recipients, subject and Markdown body, a server-rendered
- * preview, the moderation gate, and the optional template save scope.
+ * The e-mail composer for one bill: recipients, subject, Markdown body, and template save scope.
  */
 @Composable
 fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Unit) {
@@ -670,12 +660,8 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
   val scope = rememberCoroutineScope()
   val state = remember(billing, bill) { CommunicationComposerState(app, billing, bill) }
 
-  // One structured effect owns every preview request: the automatic one on open, the one after a
-  // comm-type switch, and the manual refresh. Applying the template here — rather than from an
-  // observer of `commType` — keeps a programmatic prefill from being taken for a user edit.
-  LaunchedEffect(state.commType, state.manualPreviewRequests) {
+  LaunchedEffect(state.commType) {
     state.applyTemplateIfNeeded()
-    state.loadPreviewIfPossible()
   }
 
   FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !state.isSending) {
@@ -787,50 +773,6 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
       style = RentivoTypography.caption,
       color = RentivoColors.secondaryInk,
     )
-    Spacer(modifier = Modifier.height(RentivoSpacing.medium))
-    RefreshPreviewButton(
-      isLoading = state.isLoadingPreview,
-      enabled = !state.isLoadingPreview && state.subject.isNotEmpty() && state.message.isNotEmpty(),
-      onClick = state::requestPreviewRefresh,
-    )
-  }
-
-  FormSection(header = "Pré-visualização") {
-    val preview = state.preview
-    if (preview != null) {
-      HTMLPreviewPanel(html = preview.html)
-    } else {
-      Text(
-        text = "A pré-visualização aparecerá aqui.",
-        style = RentivoTypography.caption,
-        color = RentivoColors.secondaryInk,
-      )
-    }
-  }
-
-  if (state.hasSevereWarnings || state.hasMildWarnings) {
-    FormSection(header = "Verificação de conteúdo") {
-      state.severeWarningMessage?.let { message ->
-        Text(text = message, style = RentivoTypography.caption, color = RentivoColors.coral)
-      }
-      state.mildWarningMessage?.let { message ->
-        Text(text = message, style = RentivoTypography.caption, color = RentivoColors.coral)
-      }
-      if (state.hasMildWarnings && !state.hasSevereWarnings) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            text = "Reconheço o aviso e quero enviar mesmo assim.",
-            style = RentivoTypography.caption,
-            color = RentivoColors.ink,
-            modifier = Modifier.weight(1f),
-          )
-          Switch(
-            checked = state.acknowledgedWarnings,
-            onCheckedChange = { state.acknowledgedWarnings = it },
-          )
-        }
-      }
-    }
   }
 
   FormSection(footer = "O modelo salvo preenche automaticamente as próximas comunicações.") {
@@ -871,29 +813,6 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
 /** The multi-line body editor's floor, i.e. the `lineLimit(5...12)` minimum the iOS composer sets. */
 private val MessageFieldMinHeight = 110.dp
 
-@Composable
-private fun RefreshPreviewButton(isLoading: Boolean, enabled: Boolean, onClick: () -> Unit) {
-  TextButton(onClick = onClick, enabled = enabled) {
-    if (isLoading) {
-      Text(text = "Atualizando...", color = RentivoColors.emerald)
-    } else {
-      Icon(
-        imageVector = Icons.Filled.Visibility,
-        contentDescription = null,
-        tint = RentivoColors.emerald,
-      )
-      Spacer(modifier = Modifier.width(RentivoSpacing.small))
-      Text(text = "Atualizar pré-visualização", color = RentivoColors.emerald)
-    }
-  }
-}
-
-/**
- * Composer state, held outside composition so a superseded preview response cannot overwrite fresh
- * state. Mirrors the `previewGeneration` sequencing of the iOS composer (and the web's
- * `previewRequest`): an in-flight request cannot be aborted, so every response is checked against
- * the generation it was requested under and a superseded one is dropped.
- */
 @Stable
 private class CommunicationComposerState(
   private val app: AppModel,
@@ -906,18 +825,10 @@ private class CommunicationComposerState(
   var message by mutableStateOf(billing.template(CommunicationType.BILL_READY)?.body.orEmpty())
     private set
   var saveScope by mutableStateOf<CommunicationSaveScope?>(null)
-  var acknowledgedWarnings by mutableStateOf(false)
-  var isLoadingPreview by mutableStateOf(false)
-    private set
   var isSending by mutableStateOf(false)
-    private set
-  var manualPreviewRequests by mutableIntStateOf(0)
-    private set
-  var preview by mutableStateOf<CommunicationPreview?>(null)
     private set
 
   private var selectedRecipients by mutableStateOf(billing.recipients.map { it.id }.toSet())
-  private var previewGeneration = 0
   private var appliedTemplateType = CommunicationType.BILL_READY
 
   val availableTypes: List<CommunicationType>
@@ -930,30 +841,16 @@ private class CommunicationComposerState(
   val attachmentDescription: String
     get() = if (commType == CommunicationType.PAYMENT_RECEIPT) "recibo" else "PDF da fatura"
 
-  val hasSevereWarnings: Boolean get() = preview?.severeWarnings?.isNotEmpty() == true
-
-  val hasMildWarnings: Boolean get() = preview?.mildWarnings?.isNotEmpty() == true
-
-  val severeWarningMessage: String?
-    get() = preview?.takeIf { hasSevereWarnings }?.let { loaded ->
-      "Conteúdo não permitido (ofensa grave ou ameaça): " +
-        "${loaded.severeWarnings.joinToString(separator = ", ")}. Edite para enviar."
-    }
-
-  val mildWarningMessage: String?
-    get() = preview?.takeIf { hasMildWarnings }?.let { loaded ->
-      "Linguagem possivelmente ofensiva: " +
-        "${loaded.mildWarnings.joinToString(separator = ", ")}."
-    }
-
   /**
    * Defense in depth: the detail screen already disables the entry point while the PDF renders, but
    * a composer opened just before the render started must not attach a stale document.
    */
   val sendDisabled: Boolean
-    get() = isSending || isLoadingPreview || preview == null || hasSevereWarnings ||
-      (hasMildWarnings && !acknowledgedWarnings) || selectedRecipients.isEmpty() ||
-      bill.isRenderingPDF
+    get() = communicationSendIsDisabled(
+      isSending = isSending,
+      hasSelectedRecipients = selectedRecipients.isNotEmpty(),
+      isRenderingPDF = bill.isRenderingPDF,
+    )
 
   val saveScopeOptions: List<CommunicationSaveScope?>
     get() = buildList {
@@ -978,29 +875,18 @@ private class CommunicationComposerState(
     selectedRecipients = if (isOn) selectedRecipients + id else selectedRecipients - id
   }
 
-  // Invalidation hangs off the edit callbacks rather than off observation of the value, which is
-  // what keeps a programmatic template prefill from being mistaken for a user edit: an observer
-  // cannot tell the two apart and would disown the very request a type switch just made.
   fun updateSubject(value: String) {
     if (value == subject) return
     subject = value
-    invalidatePreview()
   }
 
   fun updateMessage(value: String) {
     if (value == message) return
     message = value
-    invalidatePreview()
-  }
-
-  fun requestPreviewRefresh() {
-    manualPreviewRequests += 1
   }
 
   /**
-   * Re-prefills subject and body from the newly selected type's template, writing the state
-   * directly so the change is not mistaken for a user edit. A no-op when the type has not changed
-   * since the last application, which is what lets a manual refresh keep the user's own text.
+   * Re-prefills subject and body from the newly selected type's template.
    */
   fun applyTemplateIfNeeded() {
     if (appliedTemplateType == commType) return
@@ -1008,12 +894,6 @@ private class CommunicationComposerState(
     val template = billing.template(commType)
     subject = template?.subject.orEmpty()
     message = template?.body.orEmpty()
-    invalidatePreview()
-  }
-
-  suspend fun loadPreviewIfPossible() {
-    if (billing.recipients.isEmpty() || subject.isEmpty() || message.isEmpty()) return
-    loadPreview()
   }
 
   suspend fun send(onDismiss: () -> Unit) {
@@ -1032,7 +912,7 @@ private class CommunicationComposerState(
         recipientIDs = orderedIDs,
         subject = subject,
         message = message,
-        acknowledgeWarning = acknowledgedWarnings,
+        acknowledgeWarning = false,
         saveScope = saveScope,
       )
       onDismiss()
@@ -1045,172 +925,13 @@ private class CommunicationComposerState(
       isSending = false
     }
   }
-
-  /**
-   * Bumping the generation disowns any request already in flight: its response can no longer
-   * restore a preview of the pre-edit content, which would otherwise re-open the send gate (and
-   * hide the moderation panel) for text the server never checked. Clearing [isLoadingPreview] here
-   * keeps the refresh button usable when the disowned response lands and is dropped.
-   */
-  private fun invalidatePreview() {
-    previewGeneration += 1
-    preview = null
-    acknowledgedWarnings = false
-    isLoadingPreview = false
-  }
-
-  private suspend fun loadPreview() {
-    previewGeneration += 1
-    val generation = previewGeneration
-    isLoadingPreview = true
-    // Every write below is conditional on still being the current request, so an earlier or
-    // superseded response can neither publish its preview nor clear the busy state of a newer one.
-    try {
-      val loaded = app.dependencies.communications.previewCommunication(
-        billingID = billing.id,
-        subject = subject,
-        message = message,
-      )
-      if (generation != previewGeneration) return
-      preview = loaded
-      acknowledgedWarnings = false
-    } catch (cancellation: CancellationException) {
-      // The composer went away (or the request was superseded); reporting it would put a warning
-      // banner on the screen the user just returned to.
-      throw cancellation
-    } catch (failure: Throwable) {
-      if (generation != previewGeneration) return
-      app.warn(failure)
-    } finally {
-      if (generation == previewGeneration) isLoadingPreview = false
-    }
-  }
 }
 
-/**
- * Inline preview of the rendered communication, sized to the document it loaded.
- *
- * The send gate assumes the user actually read the rendered message, so the panel follows the
- * document height (as the web composer's flowing `<div>` does) instead of clipping it inside a
- * fixed viewport. Past [MaxPreviewHeight] the web view keeps its own scrolling so nothing is
- * unreachable on a very long template.
- */
-// Suppression, not a fix: `PreviewHeightBridge.report` IS annotated with @JavascriptInterface,
-// but lint resolves values produced by `remember`'s type parameter as `T` and cannot see the
-// annotation (false positive; the reflective dispatch works at runtime).
-@SuppressLint("JavascriptInterface")
-@Composable
-private fun HTMLPreviewPanel(html: String) {
-  var documentHeight by remember { mutableStateOf(MinPreviewHeight) }
-  val loaded = remember { LoadedDocument() }
-  val bridge: PreviewHeightBridge = remember {
-    // The bridge is called on the WebView's private JavaScript thread, so the state write is
-    // posted back to the main thread.
-    val handler = Handler(Looper.getMainLooper())
-    PreviewHeightBridge { height -> handler.post { documentHeight = height.dp } }
-  }
-
-  AndroidView(
-    modifier = Modifier
-      .fillMaxWidth()
-      .height(documentHeight.coerceIn(MinPreviewHeight, MaxPreviewHeight)),
-    factory = { context ->
-      WebView(context).apply {
-        settings.javaScriptEnabled = true
-        // The document is server-supplied HTML rendered from user-authored Markdown, so the view
-        // gets no reach into the device: no `file://` and no `content://` loads, and DOM storage
-        // left at its default `false`. Network loads stay enabled on purpose — the iOS preview
-        // uses a plain `WKWebView`, which fetches remote images, and blocking them here would make
-        // the two previews disagree about what the recipient will see.
-        settings.allowFileAccess = false
-        settings.allowContentAccess = false
-        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        addJavascriptInterface(bridge, PreviewHeightBridge.NAME)
-        // Reports the body height at load and on every relayout (late sizing, rotation, images
-        // finishing). `body.scrollHeight` is content-driven — unlike the document element's, which
-        // is at least the viewport height — so growing the frame to the reported height cannot
-        // feed back into an ever-taller measurement.
-        webViewClient = object : WebViewClient() {
-          override fun onPageFinished(view: WebView, url: String?) {
-            view.evaluateJavascript(MeasureScript, null)
-          }
-        }
-      }
-    },
-    update = { webView ->
-      // Reloading on every update would restart the measurement, and the height it publishes
-      // re-enters this block — so the document is loaded only when its content actually changes.
-      if (loaded.html == html) return@AndroidView
-      loaded.html = html
-      webView.loadDataWithBaseURL(null, previewDocument(html), "text/html", "utf-8", null)
-    },
-    // A WebView outlives its composition unless it is told not to: it keeps a rendering process,
-    // its JavaScript context and the `ResizeObserver` above alive, which would go on calling the
-    // height bridge for a panel that no longer exists.
-    onRelease = { it.destroy() },
-  )
-}
-
-private val MinPreviewHeight = 80.dp
-private val MaxPreviewHeight = 600.dp
-
-private class LoadedDocument(var html: String? = null)
-
-/**
- * The measurement channel the injected script reports through.
- *
- * `internal` rather than private on purpose: the WebView dispatches to the bridge reflectively, and
- * a Kotlin `private` top-level class is package-private in the bytecode, which that reflective call
- * cannot access.
- */
-internal class PreviewHeightBridge(private val onHeight: (Float) -> Unit) {
-  @JavascriptInterface
-  fun report(height: Float) {
-    onHeight(height)
-  }
-
-  companion object {
-    const val NAME = "RentivoPreviewHeight"
-  }
-}
-
-private val MeasureScript = """
-  (function () {
-    function report() {
-      ${PreviewHeightBridge.NAME}.report(document.body.scrollHeight);
-    }
-    new ResizeObserver(report).observe(document.body);
-    report();
-  })();
-""".trimIndent()
-
-/**
- * Wraps the server's Markdown-rendered fragment in a minimal document. The viewport tag makes the
- * layout width the view's own width, which keeps the text legible and makes the measured CSS pixels
- * equal to density-independent pixels. A full document — should the contract ever return one — is
- * loaded as is.
- */
-private fun previewDocument(html: String): String {
-  val trimmed = html.trim().lowercase()
-  if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) return html
-  return """
-    <!doctype html>
-    <html lang="pt-BR"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-    body {
-      margin: 0;
-      background: transparent;
-      font-family: system-ui, sans-serif;
-      line-height: 1.45;
-      overflow-wrap: break-word;
-    }
-    img, table { max-width: 100%; }
-    </style>
-    </head><body>$html</body></html>
-  """.trimIndent()
-}
+internal fun communicationSendIsDisabled(
+  isSending: Boolean,
+  hasSelectedRecipients: Boolean,
+  isRenderingPDF: Boolean,
+): Boolean = isSending || !hasSelectedRecipients || isRenderingPDF
 
 // --- Shared building blocks -------------------------------------------------------------------
 

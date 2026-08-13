@@ -179,13 +179,15 @@ def _extract_output_text(payload: Any) -> str:
 
 
 def _merge(local: ModerationResult, verdict: Verdict) -> ModerationResult:
-    """Union the lexicon result with the AI verdict, order-preserving and deduped."""
+    """Union every local and AI finding into the blocking tier."""
     severe_codes, mild_codes = verdict
-    severe = tuple(SEVERE_REASONS[code] for code in severe_codes)
-    mild = tuple(MILD_REASONS[code] for code in mild_codes)
+    remote = (
+        *(SEVERE_REASONS[code] for code in severe_codes),
+        *(MILD_REASONS[code] for code in mild_codes),
+    )
     return ModerationResult(
-        severe=tuple(dict.fromkeys((*local.severe, *severe))),
-        mild=tuple(dict.fromkeys((*local.mild, *mild))),
+        severe=tuple(dict.fromkeys((*local.severe, *local.mild, *remote))),
+        mild=(),
     )
 
 

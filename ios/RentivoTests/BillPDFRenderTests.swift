@@ -59,6 +59,21 @@ private func renderBill(
   #expect(!BillPDFPolling.shouldPoll(renderBill(status: nil)))
 }
 
+@Test func communicationSendReadinessDoesNotDependOnPreviewState() {
+  #expect(!communicationSendIsDisabled(
+    isSending: false, hasSelectedRecipients: true, isRenderingPDF: false
+  ))
+  #expect(communicationSendIsDisabled(
+    isSending: true, hasSelectedRecipients: true, isRenderingPDF: false
+  ))
+  #expect(communicationSendIsDisabled(
+    isSending: false, hasSelectedRecipients: false, isRenderingPDF: false
+  ))
+  #expect(communicationSendIsDisabled(
+    isSending: false, hasSelectedRecipients: true, isRenderingPDF: true
+  ))
+}
+
 @Test func billPDFPollingUsesTheFiveSecondInterval() {
   #expect(BillPDFPolling.interval == .seconds(3))
 }

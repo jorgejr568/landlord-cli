@@ -1665,8 +1665,8 @@ def test_communication_preview_renders_safe_html_and_moderation(billing_harness:
     )
 
     assert response.status_code == 200
-    assert response.json()["mild"] == ["merda"]
-    assert response.json()["severe"] == []
+    assert response.json()["mild"] == []
+    assert response.json()["severe"] == ["merda"]
     assert "<strong>pague</strong>" in response.json()["html"]
     assert "<script>" not in response.json()["html"]
 
@@ -1841,7 +1841,7 @@ def test_communication_send_rejects_duplicate_recipient_selection(billing_harnes
     assert billing_harness.services.communication.send_calls == []
 
 
-def test_communication_severe_is_blocked_and_mild_requires_acknowledgement(
+def test_communication_severe_and_profanity_are_blocked(
     billing_harness: BillingHarness,
 ) -> None:
     severe = billing_harness.request(
@@ -1858,25 +1858,28 @@ def test_communication_severe_is_blocked_and_mild_requires_acknowledgement(
     assert severe.status_code == 422
     assert severe.json()["code"] == "communication_blocked"
     assert mild.status_code == 422
-    assert mild.json()["code"] == "communication_warning_unacknowledged"
+    assert mild.json()["code"] == "communication_blocked"
     assert billing_harness.services.communication.send_calls == []
-    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
+    assert _audit_events(billing_harness) == [
+        AuditEventType.COMMUNICATION_BLOCKED,
+        AuditEventType.COMMUNICATION_BLOCKED,
+    ]
 
 
-def test_communication_mild_acknowledgement_sends_and_audits_override(
+def test_legacy_acknowledgement_cannot_bypass_blocking_or_save_a_template(
     billing_harness: BillingHarness,
 ) -> None:
     response = billing_harness.request(
         "POST",
         f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
-        json=_communication_payload(body="Que merda, pague.", acknowledge_warning=True),
+        json=_communication_payload(body="Que merda, pague.", acknowledge_warning=True, save_scope="billing"),
     )
 
-    assert response.status_code == 202
-    assert _audit_events(billing_harness) == [
-        AuditEventType.COMMUNICATION_SENT,
-        AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
-    ]
+    assert response.status_code == 422
+    assert response.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
+    assert billing_harness.services.communication.save_calls == []
+    assert _audit_events(billing_harness) == [AuditEventType.COMMUNICATION_BLOCKED]
 
 
 def test_communication_preview_reports_the_configured_backend_verdict(billing_harness: BillingHarness) -> None:
@@ -1890,8 +1893,8 @@ def test_communication_preview_reports_the_configured_backend_verdict(billing_ha
     )
 
     assert response.status_code == 200
-    assert response.json()["severe"] == ["ameaça velada"]
-    assert response.json()["mild"] == ["tom hostil"]
+    assert response.json()["severe"] == ["ameaça velada", "tom hostil"]
+    assert response.json()["mild"] == []
     assert backend.scanned == ["Aviso\nBom dia, o boleto vence amanha."]
 
 
@@ -1914,7 +1917,7 @@ def test_communication_send_blocks_on_the_configured_backend_severe_verdict(
     assert backend.scanned == ["Cobranca {{unidade}}\nBom dia, o boleto vence amanha."]
 
 
-def test_communication_send_warns_on_the_configured_backend_mild_verdict(
+def test_communication_send_blocks_the_configured_backend_mild_verdict(
     billing_harness: BillingHarness,
 ) -> None:
     billing_harness.services.moderation = StubModerationBackend(mild=("tom hostil",))
@@ -1931,12 +1934,13 @@ def test_communication_send_warns_on_the_configured_backend_mild_verdict(
     )
 
     assert unacknowledged.status_code == 422
-    assert unacknowledged.json()["code"] == "communication_warning_unacknowledged"
-    assert acknowledged.status_code == 202
-    assert len(billing_harness.services.communication.send_calls) == 1
+    assert unacknowledged.json()["code"] == "communication_blocked"
+    assert acknowledged.status_code == 422
+    assert acknowledged.json()["code"] == "communication_blocked"
+    assert billing_harness.services.communication.send_calls == []
     assert _audit_events(billing_harness) == [
-        AuditEventType.COMMUNICATION_SENT,
-        AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
+        AuditEventType.COMMUNICATION_BLOCKED,
+        AuditEventType.COMMUNICATION_BLOCKED,
     ]
 
 
@@ -2101,6 +2105,11 @@ def test_billings_openapi_contract_is_complete_typed_and_strict(billing_harness:
         "CommunicationSendRequest",
     ):
         assert schema["components"]["schemas"][model_name]["additionalProperties"] is False
+
+    preview_operation = schema["paths"]["/api/v1/billings/{billing_uuid}/communications/preview"]["post"]
+    assert preview_operation["deprecated"] is True
+    acknowledgement = schema["components"]["schemas"]["CommunicationSendRequest"]["properties"]["acknowledge_warning"]
+    assert acknowledgement["deprecated"] is True
 
     attachment_path = "/api/v1/billings/{billing_uuid}/attachments"
     upload = schema["paths"][attachment_path]["post"]

@@ -285,7 +285,7 @@ class CommunicationSendRequest(_StrictModel):
     subject: str = Field(min_length=1, max_length=998)
     body: str = Field(min_length=1, max_length=MAX_COMMUNICATION_BODY_LENGTH)
     recipient_uuids: tuple[str, ...] = Field(min_length=1)
-    acknowledge_warning: bool = False
+    acknowledge_warning: bool = Field(default=False, deprecated=True)
     save_scope: Literal["billing", "owner"] | None = None
 
     @field_validator("body")

@@ -133,8 +133,8 @@ async def test_policy_codes_are_mapped_to_fixed_local_reasons():
 
     result = await _backend(client).scan(BENIGN)
 
-    assert result.severe == ("Ameaça",)
-    assert result.mild == ("Tom agressivo ou hostil",)
+    assert result.severe == ("Ameaça", "Tom agressivo ou hostil")
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -154,8 +154,8 @@ async def test_ai_verdict_is_unioned_with_the_lexicon_result():
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.severe == ("Ameaça",)
-    assert result.mild == ("babaca", "Tom agressivo ou hostil")
+    assert result.severe == ("babaca", "Ameaça", "Tom agressivo ou hostil")
+    assert result.mild == ()
     assert result.blocked is True
 
 
@@ -165,8 +165,8 @@ async def test_duplicate_reasons_are_deduped_order_preserving():
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.severe == ("Ameaça",)
-    assert result.mild == ("babaca", "Tom agressivo ou hostil")
+    assert result.severe == ("babaca", "Ameaça", "Tom agressivo ou hostil")
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -187,7 +187,8 @@ async def test_output_text_convenience_field_is_accepted():
 
     result = await _backend(client).scan(BENIGN)
 
-    assert result.mild == ("Pressão indevida",)
+    assert result.severe == ("Pressão indevida",)
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -224,8 +225,8 @@ async def test_cache_hit_skips_the_http_call_and_still_merges_the_lexicon():
     result = await backend.scan(MILD_TEXT)
 
     client.post.assert_not_called()
-    assert result.severe == ("Ameaça",)
-    assert result.mild == ("babaca", "Tom agressivo ou hostil")
+    assert result.severe == ("babaca", "Ameaça", "Tom agressivo ou hostil")
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -286,7 +287,8 @@ async def test_cache_read_failure_falls_back_to_the_remote_call():
     result = await _backend(client, FakeCache(fail_get=True)).scan(BENIGN)
 
     client.post.assert_awaited_once()
-    assert result.mild == ("Tom agressivo ou hostil",)
+    assert result.severe == ("Tom agressivo ou hostil",)
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -295,7 +297,8 @@ async def test_cache_write_failure_does_not_break_the_scan():
 
     result = await _backend(client, FakeCache(fail_set=True)).scan(BENIGN)
 
-    assert result.mild == ("Tom agressivo ou hostil",)
+    assert result.severe == ("Tom agressivo ou hostil",)
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -305,8 +308,8 @@ async def test_transport_error_falls_back_to_the_lexicon_result():
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.severe == ()
-    assert result.mild == ("babaca",)
+    assert result.severe == ("babaca",)
+    assert result.mild == ()
     client.aclose.assert_awaited_once()
 
 
@@ -325,7 +328,8 @@ async def test_http_status_error_falls_back_to_the_lexicon_result():
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.mild == ("babaca",)
+    assert result.severe == ("babaca",)
+    assert result.mild == ()
 
 
 @pytest.mark.asyncio
@@ -395,8 +399,8 @@ async def test_malformed_model_output_falls_back_to_the_lexicon_result(payload: 
 
     result = await _backend(client, cache).scan(MILD_TEXT)
 
-    assert result.severe == ()
-    assert result.mild == ("babaca",)
+    assert result.severe == ("babaca",)
+    assert result.mild == ()
     # A rejected verdict is never cached.
     assert cache.values == {}
 
@@ -420,8 +424,8 @@ async def test_incomplete_response_falls_back_to_the_lexicon_result(payload: Any
     with patch.object(mod, "logger") as logger:
         result = await _backend(client, cache).scan(MILD_TEXT)
 
-    assert result.severe == ()
-    assert result.mild == ("babaca",)
+    assert result.severe == ("babaca",)
+    assert result.mild == ()
     assert cache.values == {}
     # Distinguishable from the transport and parse failure events.
     logger.warning.assert_called_once_with(
@@ -437,7 +441,8 @@ async def test_completed_and_status_less_responses_are_parsed_normally():
 
     result = await _backend(_client(completed)).scan(BENIGN)
 
-    assert result.mild == ("Tom agressivo ou hostil",)
+    assert result.severe == ("Tom agressivo ou hostil",)
+    assert result.mild == ()
 
 
 class TestCacheTtlCapWarning:

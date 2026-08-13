@@ -869,7 +869,11 @@ async def create_export(
     return ExportCreateResponse(format=payload.format)
 
 
-@router.post("/{billing_uuid}/communications/preview", response_model=CommunicationPreviewResponse)
+@router.post(
+    "/{billing_uuid}/communications/preview",
+    response_model=CommunicationPreviewResponse,
+    deprecated=True,
+)
 async def preview_communication(
     billing_uuid: str,
     payload: CommunicationPreviewRequest,
@@ -896,8 +900,8 @@ async def preview_communication(
     moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
     return CommunicationPreviewResponse(
         html=render_markdown(payload.body),
-        severe=moderation.severe,
-        mild=moderation.mild,
+        severe=tuple(dict.fromkeys((*moderation.severe, *moderation.mild))),
+        mild=(),
     )
 
 
@@ -975,7 +979,7 @@ async def send_communication(
             )
     recipients = _selected_recipients(access, services, payload.recipient_uuids)
     moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
-    if moderation.blocked:
+    if moderation.flagged:
         services.audit.safe_log_for(
             principal.actor,
             AuditEventType.COMMUNICATION_BLOCKED,
@@ -988,12 +992,6 @@ async def send_communication(
             "communication_blocked",
             "A mensagem contém conteúdo não permitido e não pode ser enviada.",
             "body",
-        )
-    if moderation.flagged and not payload.acknowledge_warning:
-        raise ProblemException.invalid_field(
-            "communication_warning_unacknowledged",
-            "Reconheça o aviso de conteúdo antes de enviar.",
-            "acknowledge_warning",
         )
     communications = services.communication.send(
         bill=bill,
@@ -1030,15 +1028,6 @@ async def send_communication(
             new_state={"scope": payload.save_scope, "comm_type": payload.comm_type},
         )
     _audit_communications(communications, principal, services)
-    if moderation.flagged:
-        services.audit.safe_log_for(
-            principal.actor,
-            AuditEventType.COMMUNICATION_FLAGGED_OVERRIDE,
-            entity_type="bill",
-            entity_id=bill.id,
-            entity_uuid=bill.uuid,
-            new_state={"mild_count": len(moderation.mild)},
-        )
     set_analytics(
         response,
         "rentivo_communication_sent",
