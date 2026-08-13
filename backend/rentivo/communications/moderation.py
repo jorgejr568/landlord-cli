@@ -1,7 +1,9 @@
 """Tiered, in-process content moderation for landlord-authored communications.
 
-Pure and deterministic (no DB, no network, no external API/LLM) so tenant
-content never leaves the system and the scan is fully testable. Crude by
+This module is pure and deterministic (no DB, no network, no external API/LLM):
+content scanned here never leaves the system, and the scan is fully testable.
+It is the default moderation backend and the deterministic floor under the
+opt-in remote one (see ``moderation_openrouter``). Crude by
 design: a curated PT-BR lexicon matched against normalized, word-boundaried
 text. Two tiers: SEVERE (slurs / hate / explicit threats) blocks sending;
 MILD (common profanity) warns with override.
