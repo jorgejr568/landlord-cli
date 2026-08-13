@@ -129,6 +129,17 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # AI content moderation of landlord-authored communication text. `lexicon`
+    # (default) is a local deterministic check — nothing leaves the system.
+    # `openrouter` sends the text to OpenRouter's OpenAI-compatible Responses
+    # endpoint (an external third party) and requires an API key.
+    moderation_backend: str = "lexicon"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "openai/gpt-5-mini"
+    moderation_timeout_seconds: float = 8.0
+    moderation_cache_ttl_seconds: int = 600
+
     job_worker_batch_size: int = 10
     job_worker_idle_sleep_seconds: float = 5.0
     job_worker_stuck_after_seconds: int = 600
@@ -225,6 +236,13 @@ class Settings(BaseSettings):
             raise ValueError("RENTIVO_JOB_BACKEND must be one of: database, temporal")
         return v
 
+    @field_validator("moderation_backend")
+    @classmethod
+    def _validate_moderation_backend(cls, v: str) -> str:
+        if v not in ("lexicon", "openrouter"):
+            raise ValueError("RENTIVO_MODERATION_BACKEND must be one of: lexicon, openrouter")
+        return v
+
     @field_validator("cache_ttl_seconds")
     @classmethod
     def _validate_cache_ttl(cls, v: int) -> int:
@@ -283,6 +301,12 @@ class Settings(BaseSettings):
                 "RENTIVO_GOOGLE_CLIENT_ID and RENTIVO_GOOGLE_CLIENT_SECRET are required "
                 "when RENTIVO_GOOGLE_AUTH_ENABLED=true"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_moderation(self) -> "Settings":
+        if self.moderation_backend == "openrouter" and not self.openrouter_api_key:
+            raise ValueError("RENTIVO_OPENROUTER_API_KEY is required when RENTIVO_MODERATION_BACKEND=openrouter")
         return self
 
     @model_validator(mode="after")
