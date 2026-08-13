@@ -81,7 +81,7 @@ Content-safety analysis of landlord-authored communication text. The default `le
 | `RENTIVO_OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL; override for a gateway or proxy. |
 | `RENTIVO_OPENROUTER_MODEL` | `openai/gpt-5-mini` | Model slug requested from OpenRouter. |
 | `RENTIVO_MODERATION_TIMEOUT_SECONDS` | `8.0` | Per-analysis request timeout in seconds. |
-| `RENTIVO_MODERATION_CACHE_TTL_SECONDS` | `600` | How long an analysis verdict is reused for identical text. |
+| `RENTIVO_MODERATION_CACHE_TTL_SECONDS` | `600` | How long an analysis verdict is reused for identical text. Verdicts live in the shared cache, so the effective reuse window is `min(this value, RENTIVO_CACHE_TTL_SECONDS)` — a larger value here is silently capped, and `RENTIVO_CACHE_BACKEND=none` disables reuse entirely. |
 
 ## Google sign-in (OAuth)
 
