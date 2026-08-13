@@ -14,7 +14,7 @@ from rentivo.api.bill_documents import invoice_state, recibo_state
 from rentivo.api.csrf import require_csrf
 from rentivo.api.dependencies import get_services, require_resource_grant, require_scope
 from rentivo.api.domain_access import BillingAccess, require_role, resolve_billing_access
-from rentivo.api.errors import ProblemException
+from rentivo.api.errors import ProblemException, problem
 from rentivo.api.principal import Principal
 from rentivo.api.routes._pdf_streaming import stored_file_response
 from rentivo.api.schemas.billings import (
@@ -84,6 +84,8 @@ _exports_create = require_scope(APIScope.EXPORTS_CREATE)
 _OWNER_ROLES = frozenset({"owner"})
 _EDIT_ROLES = frozenset({"owner", "admin"})
 _MANAGE_ROLES = frozenset({"owner", "admin", "manager"})
+_COMMUNICATION_PREVIEW_LIMIT = 30
+_COMMUNICATION_PREVIEW_WINDOW_SECONDS = 60
 
 _ATTACHMENT_UPLOAD_OPENAPI = {
     "requestBody": {
@@ -871,12 +873,26 @@ async def create_export(
 async def preview_communication(
     billing_uuid: str,
     payload: CommunicationPreviewRequest,
-    principal: Principal = Depends(_communications_read),
+    principal: Principal = Depends(_communications_send),
     _csrf: None = Depends(require_csrf),
     services: RequestServices = Depends(get_services),
 ) -> CommunicationPreviewResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _MANAGE_ROLES)
+    if not services.auth_rate_limit.reserve(
+        action="communication_preview",
+        identity=f"api_key:{principal.api_key.uuid}",
+        limit=_COMMUNICATION_PREVIEW_LIMIT,
+        window_seconds=_COMMUNICATION_PREVIEW_WINDOW_SECONDS,
+    ):
+        raise ProblemException(
+            problem(
+                status=429,
+                code="communication_preview_rate_limited",
+                title="Muitas solicitações",
+                detail="Muitas prévias foram analisadas. Tente novamente mais tarde.",
+            )
+        )
     moderation = await services.moderation.scan(f"{payload.subject}\n{payload.body}")
     return CommunicationPreviewResponse(
         html=render_markdown(payload.body),

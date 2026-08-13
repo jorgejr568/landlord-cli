@@ -72,7 +72,7 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 
 Content-safety analysis of landlord-authored communication text. The default `lexicon` backend runs locally and deterministically. The `openrouter` backend delegates the analysis to a model hosted by OpenRouter, reached through its OpenAI-compatible Responses endpoint.
 
-**Privacy:** with `openrouter`, the communication content is transmitted to OpenRouter, an external provider, and is subject to that provider's data handling. With the default `lexicon` backend the content never leaves the system — no network call is made.
+**Privacy:** with `openrouter`, the communication content is transmitted to OpenRouter, an external provider, and is subject to that provider's data handling. Requests deny provider data collection and require support for the structured-response parameters. Only fixed policy codes are cached; message text and model-authored prose are not stored in the moderation cache. With the default `lexicon` backend the content never leaves the system — no network call is made.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

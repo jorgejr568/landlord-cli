@@ -319,8 +319,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_moderation(self) -> "Settings":
-        if self.moderation_backend == "openrouter" and not self.openrouter_api_key:
-            raise ValueError("RENTIVO_OPENROUTER_API_KEY is required when RENTIVO_MODERATION_BACKEND=openrouter")
+        if self.moderation_backend != "openrouter":
+            return self
+        for field, value in (
+            ("RENTIVO_OPENROUTER_API_KEY", self.openrouter_api_key),
+            ("RENTIVO_OPENROUTER_BASE_URL", self.openrouter_base_url),
+            ("RENTIVO_OPENROUTER_MODEL", self.openrouter_model),
+        ):
+            if not value.strip():
+                raise ValueError(f"{field} is required when RENTIVO_MODERATION_BACKEND=openrouter")
         return self
 
     @model_validator(mode="after")

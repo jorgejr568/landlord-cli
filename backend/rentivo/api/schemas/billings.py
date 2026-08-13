@@ -12,6 +12,13 @@ if TYPE_CHECKING:
 _EMAIL_LOCAL = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+")
 _EMAIL_DOMAIN_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 BillingItemUUID = Annotated[str, Field(pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$")]
+MAX_COMMUNICATION_BODY_LENGTH = 4_096
+
+
+def _validate_communication_body_bytes(value: str) -> str:
+    if len(value.encode("utf-8")) > MAX_COMMUNICATION_BODY_LENGTH:
+        raise ValueError("A mensagem deve ter no máximo 4096 bytes.")
+    return value
 
 
 class _StrictModel(BaseModel):
@@ -257,8 +264,13 @@ class ExportCreateResponse(_StrictModel):
 
 
 class CommunicationPreviewRequest(_StrictModel):
-    subject: str = ""
-    body: str = ""
+    subject: str = Field(default="", max_length=998)
+    body: str = Field(default="", max_length=MAX_COMMUNICATION_BODY_LENGTH)
+
+    @field_validator("body")
+    @classmethod
+    def body_fits_encryption_limit(cls, value: str) -> str:
+        return _validate_communication_body_bytes(value)
 
 
 class CommunicationPreviewResponse(_StrictModel):
@@ -271,10 +283,15 @@ class CommunicationSendRequest(_StrictModel):
     bill_uuid: str = Field(min_length=1)
     comm_type: Literal["bill_ready", "payment_receipt"]
     subject: str = Field(min_length=1, max_length=998)
-    body: str = Field(min_length=1)
+    body: str = Field(min_length=1, max_length=MAX_COMMUNICATION_BODY_LENGTH)
     recipient_uuids: tuple[str, ...] = Field(min_length=1)
     acknowledge_warning: bool = False
     save_scope: Literal["billing", "owner"] | None = None
+
+    @field_validator("body")
+    @classmethod
+    def body_fits_encryption_limit(cls, value: str) -> str:
+        return _validate_communication_body_bytes(value)
 
     @field_validator("recipient_uuids")
     @classmethod

@@ -16,6 +16,7 @@ from rentivo.api.csrf import CSRF_HEADER_NAME, issue_csrf_token
 from rentivo.api.dependencies import get_services
 from rentivo.api.principal import Principal
 from rentivo.api.routes.billings import router as billings_router
+from rentivo.api.schemas.billings import MAX_COMMUNICATION_BODY_LENGTH
 from rentivo.communications.moderation import ModerationResult
 from rentivo.communications.moderation_base import ModerationBackend
 from rentivo.communications.moderation_factory import get_moderation_backend
@@ -549,6 +550,16 @@ class CallRecorder:
         self.calls.append((args, kwargs))
 
 
+class FakeRateLimitService:
+    def __init__(self) -> None:
+        self.allowed = True
+        self.calls: list[dict[str, Any]] = []
+
+    def reserve(self, **kwargs: Any) -> bool:
+        self.calls.append(kwargs)
+        return self.allowed
+
+
 class FakeJobService:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, str, dict[str, Any]]] = []
@@ -632,6 +643,7 @@ def billing_harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BillingH
         bill=FakeBillService(),
         communication=FakeCommunicationService(),
         moderation=get_moderation_backend(),
+        auth_rate_limit=FakeRateLimitService(),
         audit=CallRecorder(),
         job=FakeJobService(),
         storage_cleanup=FakeStorageCleanupService(),
@@ -1659,6 +1671,66 @@ def test_communication_preview_renders_safe_html_and_moderation(billing_harness:
     assert "<script>" not in response.json()["html"]
 
 
+def test_communication_preview_requires_send_scope_for_remote_moderation(billing_harness: BillingHarness) -> None:
+    key = INTEGRATION_KEY.model_copy(update={"scopes": ALL_FIRST_PARTY_SCOPES - {APIScope.COMMUNICATIONS_SEND.value}})
+    billing_harness.services.api_key.credentials[INTEGRATION_SECRET] = key
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        credential=INTEGRATION_SECRET,
+        json={"subject": "Aviso", "body": "O boleto vence amanhã."},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "missing_scope"
+
+
+def test_communication_preview_is_rate_limited_before_remote_moderation(billing_harness: BillingHarness) -> None:
+    backend = StubModerationBackend()
+    billing_harness.services.moderation = backend
+    billing_harness.services.auth_rate_limit.allowed = False
+
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json={"subject": "Aviso", "body": "O boleto vence amanhã."},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["code"] == "communication_preview_rate_limited"
+    assert backend.scanned == []
+    assert billing_harness.services.auth_rate_limit.calls == [
+        {
+            "action": "communication_preview",
+            "identity": f"api_key:{LOGIN_KEY.uuid}",
+            "limit": 30,
+            "window_seconds": 60,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"subject": "S" * 999, "body": "B"},
+        {"subject": "S", "body": "B" * (MAX_COMMUNICATION_BODY_LENGTH + 1)},
+        {"subject": "S", "body": "😀" * 1_025},
+    ],
+)
+def test_communication_preview_rejects_oversized_content(
+    payload: dict[str, str], billing_harness: BillingHarness
+) -> None:
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert billing_harness.services.auth_rate_limit.calls == []
+
+
 def _communication_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "bill_uuid": PERSONAL_BILL.uuid,
@@ -1715,6 +1787,17 @@ def test_communication_send_checks_bill_parent_and_selected_recipients(billing_h
     assert foreign_bill.status_code == 404
     assert foreign_recipient.status_code == 422
     assert foreign_recipient.json()["code"] == "invalid_recipients"
+    assert billing_harness.services.communication.send_calls == []
+
+
+def test_communication_send_rejects_a_body_over_the_encryption_limit(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+        json=_communication_payload(body="😀" * 1_025),
+    )
+
+    assert response.status_code == 422
     assert billing_harness.services.communication.send_calls == []
 
 
@@ -1961,7 +2044,7 @@ def test_communication_send_is_a_conflict_while_the_bill_pdf_is_being_rendered(
             {"json": {"format": "csv"}},
         ),
         (
-            APIScope.COMMUNICATIONS_READ,
+            APIScope.COMMUNICATIONS_SEND,
             "POST",
             f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/preview",
             {"json": {"subject": "S", "body": "B"}},

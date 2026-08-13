@@ -116,6 +116,7 @@ async def test_benign_text_sends_the_expected_responses_request():
     # low effort plus enough headroom for reasoning and the verdict.
     assert body["reasoning"] == {"effort": "low"}
     assert body["max_output_tokens"] == 1024
+    assert body["provider"] == {"data_collection": "deny", "require_parameters": True}
     assert "content-safety reviewer" in body["instructions"]
     assert "Do not quote or restate the message content in the reason." in body["instructions"]
     fmt = body["text"]["format"]
@@ -127,55 +128,78 @@ async def test_benign_text_sends_the_expected_responses_request():
 
 
 @pytest.mark.asyncio
+async def test_policy_codes_are_mapped_to_fixed_local_reasons():
+    client = _client(_verdict_payload(["threat"], ["aggressive_tone"]))
+
+    result = await _backend(client).scan(BENIGN)
+
+    assert result.severe == ("Ameaça",)
+    assert result.mild == ("Tom agressivo ou hostil",)
+
+
+@pytest.mark.asyncio
+async def test_unknown_policy_code_falls_back_without_caching_model_text():
+    cache = FakeCache()
+    client = _client(_verdict_payload(["Mensagem sobre João da Silva"], []))
+
+    result = await _backend(client, cache).scan(BENIGN)
+
+    assert result.flagged is False
+    assert cache.values == {}
+
+
+@pytest.mark.asyncio
 async def test_ai_verdict_is_unioned_with_the_lexicon_result():
-    client = _client(_verdict_payload(["Ameaca velada de despejo"], ["Tom agressivo"]))
+    client = _client(_verdict_payload(["threat"], ["aggressive_tone"]))
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.severe == ("Ameaca velada de despejo",)
-    assert result.mild == ("babaca", "Tom agressivo")
+    assert result.severe == ("Ameaça",)
+    assert result.mild == ("babaca", "Tom agressivo ou hostil")
     assert result.blocked is True
 
 
 @pytest.mark.asyncio
 async def test_duplicate_reasons_are_deduped_order_preserving():
-    client = _client(_verdict_payload(["Ameaca", "Ameaca"], ["babaca", "Tom agressivo"]))
+    client = _client(_verdict_payload(["threat", "threat"], ["aggressive_tone", "aggressive_tone"]))
 
     result = await _backend(client).scan(MILD_TEXT)
 
-    assert result.severe == ("Ameaca",)
-    assert result.mild == ("babaca", "Tom agressivo")
+    assert result.severe == ("Ameaça",)
+    assert result.mild == ("babaca", "Tom agressivo ou hostil")
 
 
 @pytest.mark.asyncio
-async def test_blank_entries_are_dropped():
-    client = _client(_verdict_payload([], ["   ", "Tom agressivo"]))
+async def test_blank_entries_are_rejected():
+    cache = FakeCache()
+    client = _client(_verdict_payload([], ["   ", "aggressive_tone"]))
 
-    result = await _backend(client).scan(BENIGN)
+    result = await _backend(client, cache).scan(BENIGN)
 
-    assert result.mild == ("Tom agressivo",)
+    assert result.flagged is False
+    assert cache.values == {}
 
 
 @pytest.mark.asyncio
 async def test_output_text_convenience_field_is_accepted():
-    payload = {"output_text": json.dumps({"severe": [], "mild": ["Cobranca com pressao"]}), "output": []}
+    payload = {"output_text": json.dumps({"severe": [], "mild": ["pressure_tactics"]}), "output": []}
     client = _client(payload)
 
     result = await _backend(client).scan(BENIGN)
 
-    assert result.mild == ("Cobranca com pressao",)
+    assert result.mild == ("Pressão indevida",)
 
 
 @pytest.mark.asyncio
 async def test_successful_verdict_is_cached_and_reused():
     cache = FakeCache()
-    client = _client(_verdict_payload([], ["Tom agressivo"]))
+    client = _client(_verdict_payload([], ["aggressive_tone"]))
     backend = _backend(client, cache)
 
     first = await backend.scan(BENIGN)
     stored_key, stored = next(iter(cache.values.items()))
     assert stored_key.startswith(f"{CACHE_KEY_PREFIX}:{MODEL}:")
-    assert stored["mild"] == ["Tom agressivo"]
+    assert stored["mild"] == ["aggressive_tone"]
     assert stored["expires_at"] > time.time()
 
     second = await backend.scan(BENIGN)
@@ -190,8 +214,8 @@ async def test_cache_hit_skips_the_http_call_and_still_merges_the_lexicon():
     cache = FakeCache()
     backend = _backend(cache=cache)
     cache.values[backend._cache_key(MILD_TEXT)] = {
-        "severe": ["Ameaca"],
-        "mild": ["Tom agressivo"],
+        "severe": ["threat"],
+        "mild": ["aggressive_tone"],
         "expires_at": time.time() + 60,
     }
     client = _client(_verdict_payload([], []))
@@ -200,8 +224,8 @@ async def test_cache_hit_skips_the_http_call_and_still_merges_the_lexicon():
     result = await backend.scan(MILD_TEXT)
 
     client.post.assert_not_called()
-    assert result.severe == ("Ameaca",)
-    assert result.mild == ("babaca", "Tom agressivo")
+    assert result.severe == ("Ameaça",)
+    assert result.mild == ("babaca", "Tom agressivo ou hostil")
 
 
 @pytest.mark.asyncio
@@ -257,21 +281,21 @@ async def test_non_dict_cache_entry_is_treated_as_a_miss():
 
 @pytest.mark.asyncio
 async def test_cache_read_failure_falls_back_to_the_remote_call():
-    client = _client(_verdict_payload([], ["Tom agressivo"]))
+    client = _client(_verdict_payload([], ["aggressive_tone"]))
 
     result = await _backend(client, FakeCache(fail_get=True)).scan(BENIGN)
 
     client.post.assert_awaited_once()
-    assert result.mild == ("Tom agressivo",)
+    assert result.mild == ("Tom agressivo ou hostil",)
 
 
 @pytest.mark.asyncio
 async def test_cache_write_failure_does_not_break_the_scan():
-    client = _client(_verdict_payload([], ["Tom agressivo"]))
+    client = _client(_verdict_payload([], ["aggressive_tone"]))
 
     result = await _backend(client, FakeCache(fail_set=True)).scan(BENIGN)
 
-    assert result.mild == ("Tom agressivo",)
+    assert result.mild == ("Tom agressivo ou hostil",)
 
 
 @pytest.mark.asyncio
@@ -409,11 +433,11 @@ async def test_incomplete_response_falls_back_to_the_lexicon_result(payload: Any
 
 @pytest.mark.asyncio
 async def test_completed_and_status_less_responses_are_parsed_normally():
-    completed = {"status": "completed", **_verdict_payload([], ["Tom agressivo"])}
+    completed = {"status": "completed", **_verdict_payload([], ["aggressive_tone"])}
 
     result = await _backend(_client(completed)).scan(BENIGN)
 
-    assert result.mild == ("Tom agressivo",)
+    assert result.mild == ("Tom agressivo ou hostil",)
 
 
 class TestCacheTtlCapWarning:

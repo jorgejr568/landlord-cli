@@ -601,6 +601,23 @@ def test_moderation_openrouter_requires_api_key():
         Settings(_env_file=None, moderation_backend="openrouter")
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("openrouter_api_key", "   ", "RENTIVO_OPENROUTER_API_KEY"),
+        ("openrouter_base_url", "", "RENTIVO_OPENROUTER_BASE_URL"),
+        ("openrouter_base_url", " \t ", "RENTIVO_OPENROUTER_BASE_URL"),
+        ("openrouter_model", "", "RENTIVO_OPENROUTER_MODEL"),
+        ("openrouter_model", " \n ", "RENTIVO_OPENROUTER_MODEL"),
+    ],
+)
+def test_moderation_openrouter_rejects_blank_configuration(field: str, value: str, message: str):
+    values = {"moderation_backend": "openrouter", "openrouter_api_key": "sk-or-test", field: value}
+
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None, **values)
+
+
 def test_moderation_openrouter_accepts_api_key():
     s = Settings(_env_file=None, moderation_backend="openrouter", openrouter_api_key="sk-or-test")
     assert s.moderation_backend == "openrouter"
