@@ -3,16 +3,17 @@ import XCTest
 // These UI tests drive the app in `--ui-testing` (mock store) mode against
 // `MockFixtures.canonical`. Two constraints shape what's testable here:
 //
-// - `AppModel.signInWithWebAuthorization()` short-circuits to the synchronous,
-//   unconditional `signIn()` whenever `dependencies.auth` isn't `APIRentivoStore`
-//   (always true in `--ui-testing` mode, see `RentivoApp.swift`). There is no
-//   launch argument, demo setting, or injectable seam that makes mock sign-in
-//   fail, and `LoginView` no longer has any credential fields to submit invalid
-//   values into — it is just a single "Entrar" button. A prior
-//   `testAuthenticationValidationIsRecoverable` test (typing a wrong
-//   password to trigger `login.error`) is therefore not reproducible without
-//   adding a test-only failure hook to `AppModel`/`MockRentivoStore`/
-//   `RentivoApp.swift`, which is out of scope for a test-only fix. Dropped.
+// - Mock sign-in cannot fail. The login screen's credential form goes through
+//   `MockRentivoStore.mobileLogin`, which authenticates any e-mail/password pair
+//   and never returns an MFA challenge, and the "Entrar pelo navegador" path
+//   short-circuits to the unconditional `AppModel.signIn()` whenever
+//   `dependencies.auth` isn't `APIRentivoStore` (always true in `--ui-testing`
+//   mode, see `RentivoApp.swift`). There is no launch argument, demo setting, or
+//   injectable seam that makes it fail, so a prior
+//   `testAuthenticationValidationIsRecoverable` test (typing a wrong password to
+//   trigger `login.error`) is not reproducible without adding a test-only failure
+//   hook to `AppModel`/`MockRentivoStore`/`RentivoApp.swift`, which is out of
+//   scope for a test-only fix. Dropped.
 // - Every `FileDownloadRepository` method on `MockRentivoStore` (invoice,
 //   recibo, receipt, attachment downloads) unconditionally throws
 //   `DemoError.operationFailed` — the mock store never produces a real file.
@@ -222,14 +223,30 @@ final class RentivoUITests: XCTestCase {
     return app
   }
 
-  /// Current `LoginView` (see `AuthViews.swift`) has no credential fields —
-  /// it is a single "Entrar" button that, in `--ui-testing` mode, resolves
-  /// synchronously via `AppModel.signIn()` without any browser hand-off.
+  /// The native credential form (see `AuthViews.swift`) submits through
+  /// `AppModel.signIn(email:password:)`, which in `--ui-testing` mode reaches
+  /// `MockRentivoStore.mobileLogin` — it accepts any credentials and never
+  /// raises an MFA challenge, so any non-empty pair signs in. "Entrar" stays
+  /// disabled until both fields are filled, hence the typing.
   private func signIn(_ app: XCUIApplication) {
-    let submit = app.buttons["login.submit"]
-    XCTAssertTrue(submit.waitForExistence(timeout: 3))
-    submit.tap()
-    XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 3))
+    let email = app.textFields["login.email"]
+    XCTAssertTrue(email.waitForExistence(timeout: 10))
+    email.tap()
+    email.typeText("ana@rentivo.com.br")
+    let password = app.secureTextFields["login.password"]
+    password.tap()
+    password.typeText("segredo")
+    app.buttons["login.submit"].tap()
+    // Submitting a password field makes iOS offer to save it ("Salvar Senha?"), and that sheet
+    // covers the whole app — including the tab bar — until it is answered. Decline it via its
+    // first button ("Agora Não"), matched by position because the wording follows the
+    // simulator's locale.
+    let savePasswordSheet = app.sheets.firstMatch
+    if savePasswordSheet.waitForExistence(timeout: 5) {
+      savePasswordSheet.buttons.element(boundBy: 0).tap()
+      XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
+    }
+    XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
   }
 
   private func openCanonicalBilling(in app: XCUIApplication) {
