@@ -279,8 +279,7 @@ class AuthHarness:
     auth_challenge: FakeAuthChallengeService
 
 
-@pytest.fixture()
-def auth_harness(monkeypatch: pytest.MonkeyPatch) -> AuthHarness:
+def build_auth_harness(monkeypatch: pytest.MonkeyPatch) -> AuthHarness:
     import rentivo.api.csrf as csrf
 
     monkeypatch.setattr(settings, "secret_key", "auth-route-contract-signing-key")
@@ -328,6 +327,11 @@ def auth_harness(monkeypatch: pytest.MonkeyPatch) -> AuthHarness:
         rate_limit=rate_limit,
         auth_challenge=auth_challenge,
     )
+
+
+@pytest.fixture()
+def auth_harness(monkeypatch: pytest.MonkeyPatch) -> AuthHarness:
+    return build_auth_harness(monkeypatch)
 
 
 def _cookie_header(

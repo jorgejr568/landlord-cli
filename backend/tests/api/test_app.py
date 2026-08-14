@@ -1,3 +1,4 @@
+import asyncio
 from threading import get_ident
 from unittest.mock import MagicMock
 
@@ -11,6 +12,12 @@ from rentivo.api.app import create_app
 from rentivo.api.dependencies import get_services
 from rentivo.api.errors import ProblemException, get_request_id
 from rentivo.services.container import RequestServices
+
+
+def test_tarpit_sleep_clamps_an_elapsed_deadline_without_patching_asyncio() -> None:
+    import rentivo.api.app as api_app
+
+    asyncio.run(api_app._tarpit_sleep(-1))
 
 
 def test_health_is_versioned_and_json():

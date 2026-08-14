@@ -35,6 +35,42 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return user
   }
 
+  public func mobileLogin(email: String, password: String) async throws -> MobileLoginOutcome {
+    switch try await client.mobileLogin(email: email, password: password) {
+    case .authenticated(let session): .authenticated(adopt(session))
+    case .mfaRequired(let challenge): .mfaRequired(challenge)
+    }
+  }
+
+  public func mobileSignup(email: String, password: String) async throws -> UserProfile {
+    adopt(try await client.mobileSignup(email: email, password: password))
+  }
+
+  public func verifyTotp(challenge: MFAChallenge, code: String) async throws -> UserProfile {
+    adopt(try await client.verifyTotp(challenge: challenge, code: code))
+  }
+
+  public func verifyRecoveryCode(challenge: MFAChallenge, code: String) async throws -> UserProfile {
+    adopt(try await client.verifyRecoveryCode(challenge: challenge, code: code))
+  }
+
+  public func beginPasskeyAssertion(challenge: MFAChallenge) async throws -> PasskeyRequestOptions {
+    try await client.beginPasskeyAssertion(challenge: challenge)
+  }
+
+  public func completePasskeyAssertion(
+    challenge: MFAChallenge, credential: PasskeyAssertionPayload
+  ) async throws -> UserProfile {
+    adopt(try await client.completePasskeyAssertion(challenge: challenge, credential: credential))
+  }
+
+  /// Records the profile behind a newly established session, exactly as the browser-handoff and
+  /// restore paths do, and hands back the public half. The access token never leaves `client`.
+  private func adopt(_ session: LiveSession) -> UserProfile {
+    user = session.profile
+    return user
+  }
+
   public func logout() async {
     try? await execute(path: "/api/v1/auth/logout", method: "POST")
     await client.logout()

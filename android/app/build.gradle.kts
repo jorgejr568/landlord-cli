@@ -69,7 +69,8 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.androidx.security.crypto)
-    implementation(libs.androidx.browser)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.coil.compose)
 
     implementation(libs.kotlinx.coroutines.core)

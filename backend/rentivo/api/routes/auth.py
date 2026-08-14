@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 from datetime import datetime
 
@@ -29,6 +31,8 @@ from rentivo.api.schemas.auth import (
     MobileAuthorizationExchangeRequest,
     MobileAuthorizationRequest,
     MobileAuthorizationResponse,
+    MobileLoginRequest,
+    MobileSignupRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
     SessionResponse,
@@ -171,6 +175,173 @@ async def login(
     return login_response(result, credential_transport=payload.credential_transport)
 
 
+# Native clients cannot solve the Turnstile widget, so `/auth/mobile/*` trades
+# it for two rate-limit budgets plus a fixed-deadline tarpit in front of every
+# credential rejection.
+#
+# * The PRIMARY budget is keyed on the (e-mail, IP) PAIR — the same identity the
+#   web `/login` route rate-limits (`_login_rate_identity`). It is charged on
+#   every attempt and released on success, and it bounds one account from one
+#   client to ~4 tries per minute. Because the key includes both the e-mail and
+#   the IP, a flood against a different account, or against the same account
+#   from a different IP, lands on a *different* key and can never lock out a
+#   legitimate user (invariant A).
+# * The BRUTE-FORCE budget is keyed on the client IP and is atomically charged
+#   on FAILURE ONLY. The reservation result decides whether that failure is
+#   returned as an ordinary credential rejection or a 429. Successful logins
+#   neither read nor consume it, so many users sharing one carrier-grade NAT
+#   address are never throttled (invariant B); an IP that keeps failing across
+#   many accounts is refused once it crosses the looser failure limit.
+#
+# The delay itself runs in `_MobileAuthTarpitMiddleware` (see app.py), which
+# sits OUTSIDE the DB-connection middleware. Handlers only stamp a deadline —
+# captured at entry so every rejection returns at the same wall-clock offset
+# regardless of how long the credential check took — and return immediately, so
+# no pooled connection is ever pinned while the tarpit elapses.
+TARPIT_DEADLINE_HEADER = "x-rentivo-tarpit-deadline"
+_MOBILE_PAIR_RATE_LIMIT = 4
+_MOBILE_IP_FAILURE_LIMIT = 10
+_MOBILE_RATE_WINDOW_SECONDS = 60
+_MOBILE_FAILURE_DELAY_SECONDS = 4.0
+_MOBILE_PAIR_RATE_ACTION = "mobile_auth"
+_MOBILE_IP_FAILURE_ACTION = "mobile_auth_ip"
+
+
+def _mobile_failure_deadline() -> float:
+    return asyncio.get_running_loop().time() + _MOBILE_FAILURE_DELAY_SECONDS
+
+
+def _tarpit(exc: ProblemException, *, deadline: float) -> ProblemException:
+    # Mark the failure so the outer tarpit middleware delays it until `deadline`
+    # without this handler (and its pooled DB connection) staying on the stack.
+    exc.headers[TARPIT_DEADLINE_HEADER] = repr(deadline)
+    return exc
+
+
+def _mobile_ip_identity(ip: str) -> str:
+    # Key the per-IP failure budget on the /64 for IPv6 — the smallest block a
+    # single client is typically handed and can rotate within for free — and on
+    # the exact address for IPv4.
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False).network_address)
+    return str(address)
+
+
+def _reserve_mobile_attempt(services: RequestServices, *, email: str, ip: str) -> bool:
+    # Charge only the (e-mail, IP) pair before authenticating. In particular,
+    # do not consult the IP-failure budget here: a correct password must still
+    # work behind a noisy carrier-grade NAT address.
+    return services.auth_rate_limit.reserve(
+        action=_MOBILE_PAIR_RATE_ACTION,
+        identity=_login_rate_identity(email=email, ip=ip),
+        limit=_MOBILE_PAIR_RATE_LIMIT,
+        window_seconds=_MOBILE_RATE_WINDOW_SECONDS,
+    )
+
+
+def _charge_mobile_ip_failure(services: RequestServices, *, ip: str) -> bool:
+    # `reserve` is an atomic increment-and-check in the repository. Doing this
+    # after failure makes concurrent enforcement race-safe without ever
+    # charging or pre-emptively blocking a successful credential check.
+    return services.auth_rate_limit.reserve(
+        action=_MOBILE_IP_FAILURE_ACTION,
+        identity=_mobile_ip_identity(ip),
+        limit=_MOBILE_IP_FAILURE_LIMIT,
+        window_seconds=_MOBILE_RATE_WINDOW_SECONDS,
+    )
+
+
+def _clear_mobile_pair(services: RequestServices, *, email: str, ip: str) -> None:
+    # A success releases only the (e-mail, IP) pair budget. The per-IP failure
+    # budget is never touched here, so a legitimate login can neither be blocked
+    # by, nor reset, another party's failures from the same address.
+    services.auth_rate_limit.clear(
+        action=_MOBILE_PAIR_RATE_ACTION,
+        identity=_login_rate_identity(email=email, ip=ip),
+    )
+
+
+@router.post("/mobile/signup", response_model=AuthenticatedResponse)
+async def mobile_signup(
+    payload: MobileSignupRequest,
+    request: Request,
+    services: RequestServices = Depends(get_services),
+) -> JSONResponse:
+    deadline = _mobile_failure_deadline()
+    ip = client_ip(request)
+    if not _reserve_mobile_attempt(services, email=payload.email, ip=ip):
+        _charge_mobile_ip_failure(services, ip=ip)
+        raise _tarpit(_login_failure_problem(rate_limited=True), deadline=deadline)
+    try:
+        result = services.login.signup(
+            email=payload.email,
+            password=payload.password,
+            client_ip=ip,
+            user_agent=request.headers.get("user-agent", ""),
+            source="mobile",
+        )
+    except UserAlreadyRegisteredError:
+        ip_allowed = _charge_mobile_ip_failure(services, ip=ip)
+        if not ip_allowed:
+            raise _tarpit(_login_failure_problem(rate_limited=True), deadline=deadline) from None
+        raise _tarpit(
+            ProblemException.bad_request("email_already_registered", "E-mail já cadastrado."),
+            deadline=deadline,
+        ) from None
+    _clear_mobile_pair(services, email=payload.email, ip=ip)
+    # Native signup carries no App Attest / Play Integrity attestation — a
+    # deliberate product decision — so nothing here proves a real device.
+    # Tarpitting the SUCCESS path too is the cheap mitigation against bulk bot
+    # account creation and welcome-mail bombing; device attestation is the real
+    # fix and is deferred, not forgotten.
+    response = login_response(result, credential_transport="body")
+    response.headers[TARPIT_DEADLINE_HEADER] = repr(deadline)
+    return response
+
+
+@router.post(
+    "/mobile/login",
+    response_model=AuthenticatedResponse,
+    responses={202: {"model": MFARequiredResponse}},
+)
+async def mobile_login(
+    payload: MobileLoginRequest,
+    request: Request,
+    services: RequestServices = Depends(get_services),
+) -> JSONResponse:
+    deadline = _mobile_failure_deadline()
+    ip = client_ip(request)
+    if not _reserve_mobile_attempt(services, email=payload.email, ip=ip):
+        _charge_mobile_ip_failure(services, ip=ip)
+        raise _tarpit(_login_failure_problem(rate_limited=True), deadline=deadline)
+    try:
+        result = services.login.login(
+            email=payload.email,
+            password=payload.password,
+            client_ip=ip,
+            user_agent=request.headers.get("user-agent", ""),
+            source="mobile",
+        )
+    except ProblemException as exc:
+        if exc.problem.code == "invalid_credentials":
+            _audit_login_failure(services, email=payload.email, ip=ip, source="mobile")
+            ip_allowed = _charge_mobile_ip_failure(services, ip=ip)
+            raise _tarpit(_login_failure_problem(rate_limited=not ip_allowed), deadline=deadline) from None
+        raise
+    if result is None:
+        _audit_login_failure(services, email=payload.email, ip=ip, source="mobile")
+        ip_allowed = _charge_mobile_ip_failure(services, ip=ip)
+        raise _tarpit(_login_failure_problem(rate_limited=not ip_allowed), deadline=deadline)
+    _clear_mobile_pair(services, email=payload.email, ip=ip)
+    if result.status == "mfa_required":
+        return mfa_response(result, credential_transport="body")
+    return login_response(result, credential_transport="body")
+
+
 _login_principal = require_login_scope(APIScope.PROFILE_READ)
 
 
@@ -181,7 +352,17 @@ def _invalid_mobile_authorization() -> ProblemException:
     )
 
 
-@router.post("/mobile/authorize", response_model=MobileAuthorizationResponse, status_code=201)
+# Legacy browser-handoff path (task U12): `/mobile/authorize` + `/mobile/exchange`
+# were how the now-removed native in-app browser login round-tripped a session to
+# the app. They are superseded by the direct `/auth/mobile/login` + `/signup`
+# credential endpoints and kept only for backward compatibility; behavior is
+# unchanged, they are just flagged `deprecated` in the OpenAPI contract.
+@router.post(
+    "/mobile/authorize",
+    response_model=MobileAuthorizationResponse,
+    status_code=201,
+    deprecated=True,
+)
 async def authorize_mobile(
     payload: MobileAuthorizationRequest,
     principal: Principal = Depends(_login_principal),
@@ -198,7 +379,10 @@ async def authorize_mobile(
     )
 
 
-@router.post("/mobile/exchange", response_model=AuthenticatedResponse)
+# Legacy browser-handoff path (task U12): see the note on `authorize_mobile`.
+# Superseded by `/auth/mobile/login` + `/signup`; kept for backward
+# compatibility, deprecated in the contract, behavior unchanged.
+@router.post("/mobile/exchange", response_model=AuthenticatedResponse, deprecated=True)
 async def exchange_mobile_authorization(
     payload: MobileAuthorizationExchangeRequest,
     request: Request,

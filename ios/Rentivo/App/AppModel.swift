@@ -38,7 +38,6 @@ final class AppModel {
   var demoSettings: DemoSettings
   var dataRevision = 0
   let dependencies: AppDependencies
-  private let mobileWebAuthenticator = MobileWebAuthenticator()
 
   init(store: MockRentivoStore = MockRentivoStore(fixtures: .canonical)) {
     dependencies = .mock(store: store)
@@ -100,20 +99,57 @@ final class AppModel {
     notice = AppNotice(kind: .success, message: "Bem-vinda à demonstração do Rentivo.")
   }
 
-  func signInWithWebAuthorization() async throws {
-    // Demo mode has no server to authorize against, so it takes the local sign-in shortcut
-    // instead of opening a browser sheet.
-    guard dependencies.auth.usesLiveAPI else { signIn(); return }
-    let code = try await mobileWebAuthenticator.authorize()
-    session = .authenticated(try await dependencies.auth.exchangeMobileAuthorization(code: code))
+  // MARK: - Native sign-in
+  //
+  // These are the app-state half of the native (`/api/v1/auth/mobile/*`) flow the login screen
+  // drives.
+  //
+  // `dependencies.auth` already owns the credential half — every one of these calls persists the
+  // bearer token and records the profile as the store's current user before returning (see
+  // `MobileAuthRepositoryTests`) — so nothing here re-adopts it; they only move the session,
+  // the selected tab, and the notice. Errors propagate to the caller, which owns the screen the
+  // user is still looking at; the session is left untouched so a failed attempt keeps them on
+  // the form.
+  //
+  // `mobileLogin` is the only one that can return without a session: its `.mfaRequired` outcome
+  // is handed back verbatim so the login screen can present the second factor and finish with
+  // one of the completion calls below.
+
+  func signIn(email: String, password: String) async throws -> MobileLoginOutcome {
+    let outcome = try await dependencies.auth.mobileLogin(email: email, password: password)
+    if case .authenticated(let profile) = outcome { adoptSignedInProfile(profile) }
+    return outcome
+  }
+
+  func signUp(email: String, password: String) async throws {
+    adoptSignedInProfile(try await dependencies.auth.mobileSignup(email: email, password: password))
+  }
+
+  func completeTOTP(challenge: MFAChallenge, code: String) async throws {
+    adoptSignedInProfile(try await dependencies.auth.verifyTotp(challenge: challenge, code: code))
+  }
+
+  func completeRecoveryCode(challenge: MFAChallenge, code: String) async throws {
+    adoptSignedInProfile(
+      try await dependencies.auth.verifyRecoveryCode(challenge: challenge, code: code))
+  }
+
+  func completePasskey(challenge: MFAChallenge, credential: PasskeyAssertionPayload) async throws {
+    adoptSignedInProfile(
+      try await dependencies.auth.completePasskeyAssertion(
+        challenge: challenge, credential: credential))
+  }
+
+  /// The state every server-backed sign-in lands on, whichever path produced the profile.
+  private func adoptSignedInProfile(_ profile: UserProfile) {
+    session = .authenticated(profile)
     selectedTab = .home
     notice = AppNotice(kind: .success, message: "Sessão conectada ao Rentivo.")
   }
 
   func signOut() async {
     guard !isSigningOut else { return }
-    // Demo mode has neither a token to revoke nor a browser session to close, so it drops
-    // straight to local state.
+    // Demo mode has no token to revoke, so it drops straight to local state.
     guard dependencies.auth.usesLiveAPI else {
       completeSignOut()
       return
@@ -126,18 +162,6 @@ final class AppModel {
     // token, nor stuck signed in locally because a later step failed.
     await dependencies.auth.logout()
     completeSignOut()
-    // The browser-cookie logout is best-effort and must never block sign-out
-    // (which already happened above). Cancelling that sheet is an expected,
-    // silent outcome, not a failure worth reporting.
-    do {
-      try await mobileWebAuthenticator.logout()
-    } catch {
-      guard !MobileWebAuthenticator.isUserCancellation(error) else { return }
-      notice = AppNotice(
-        kind: .warning,
-        message: "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador."
-      )
-    }
   }
 
   func deleteAccount(password: String) async {
@@ -153,6 +177,7 @@ final class AppModel {
     do {
       try await dependencies.auth.deleteAccount(password: password)
       completeSignOut()
+      // After `completeSignOut()`, which clears the notice the deletion needs to report.
       notice = AppNotice(kind: .success, message: "Sua conta foi excluída.")
     } catch {
       notice = AppNotice(kind: .warning, message: error.localizedDescription)

@@ -1,11 +1,19 @@
 import Foundation
 
-struct LiveSession: Sendable {
+struct LiveSession: Sendable, Equatable {
   let accessToken: String
   let profile: UserProfile
 }
 
-public enum LiveAPIError: LocalizedError, Sendable {
+/// `LiveSession`-flavoured `MobileLoginOutcome`. The public Domain enum carries a `UserProfile`
+/// because `LiveSession` is internal on purpose — the access token stays inside this module — so
+/// the two shapes exist side by side and `APIRentivoStore` maps one onto the other.
+enum LiveLoginOutcome: Sendable, Equatable {
+  case authenticated(LiveSession)
+  case mfaRequired(MFAChallenge)
+}
+
+public enum LiveAPIError: LocalizedError, Sendable, Equatable {
   case server(message: String, statusCode: Int? = nil)
   case invalidResponse
   case sessionExpired
@@ -101,11 +109,114 @@ public actor LiveAPIClient {
       path: "/api/v1/auth/mobile/exchange", method: "POST",
       body: MobileAuthorizationExchangeRequest(authorizationCode: code), token: nil
     )
+    return try await adopt(response)
+  }
+
+  // MARK: - Native (Turnstile-free) authentication
+  //
+  // `/api/v1/auth/mobile/{login,signup}` and the MFA follow-ups all speak `credential_transport
+  // = "body"`: no cookies, no CSRF token, the credential comes back as a bearer token. The server
+  // deliberately stalls ~4 s before *every* failure (the tarpit that replaces Turnstile), so these
+  // calls have to sit well inside `makeSession()`'s 30 s request timeout — and must never be
+  // retried automatically, since a retry both burns one of the 4-per-minute attempts and doubles
+  // the wait the user sees.
+
+  func mobileLogin(email: String, password: String) async throws -> LiveLoginOutcome {
+    let (data, statusCode) = try await sendRaw(
+      path: "/api/v1/auth/mobile/login", method: "POST",
+      body: MobileCredentialsRequest(email: email, password: password), token: nil
+    )
+    guard statusCode != 202 else {
+      return .mfaRequired(try challenge(from: decode(MFARequiredResponse.self, from: data)))
+    }
+    return .authenticated(try await adopt(decode(LoginResponse.self, from: data)))
+  }
+
+  func mobileSignup(email: String, password: String) async throws -> LiveSession {
+    let response: LoginResponse = try await send(
+      path: "/api/v1/auth/mobile/signup", method: "POST",
+      body: MobileCredentialsRequest(email: email, password: password), token: nil
+    )
+    return try await adopt(response)
+  }
+
+  func verifyTotp(challenge: MFAChallenge, code: String) async throws -> LiveSession {
+    try await verifyCode(path: "/api/v1/auth/mfa/totp/verify", challenge: challenge, code: code)
+  }
+
+  func verifyRecoveryCode(challenge: MFAChallenge, code: String) async throws -> LiveSession {
+    try await verifyCode(path: "/api/v1/auth/mfa/recovery/verify", challenge: challenge, code: code)
+  }
+
+  func beginPasskeyAssertion(challenge: MFAChallenge) async throws -> PasskeyRequestOptions {
+    let response: WebAuthnOptionsResponse = try await send(
+      path: "/api/v1/auth/mfa/passkeys/begin", method: "POST",
+      body: MFAChallengeRequest(challenge: challenge), token: nil
+    )
+    guard let decodedChallenge = Base64URL.decode(response.challenge) else {
+      throw LiveAPIError.invalidResponse
+    }
+    var allowedCredentialIDs: [Data] = []
+    for descriptor in response.allowCredentials {
+      guard let credentialID = Base64URL.decode(descriptor.id) else {
+        throw LiveAPIError.invalidResponse
+      }
+      allowedCredentialIDs.append(credentialID)
+    }
+    return PasskeyRequestOptions(
+      challenge: decodedChallenge,
+      relyingPartyIdentifier: response.rpId,
+      allowedCredentialIDs: allowedCredentialIDs,
+      userVerification: response.userVerification,
+      timeoutMilliseconds: response.timeout
+    )
+  }
+
+  func completePasskeyAssertion(
+    challenge: MFAChallenge, credential: PasskeyAssertionPayload
+  ) async throws -> LiveSession {
+    let response: LoginResponse = try await send(
+      path: "/api/v1/auth/mfa/passkeys/complete", method: "POST",
+      body: PasskeyCompleteRequest(challenge: challenge, credential: credential), token: nil
+    )
+    return try await adopt(response)
+  }
+
+  private func verifyCode(path: String, challenge: MFAChallenge, code: String) async throws -> LiveSession {
+    let response: LoginResponse = try await send(
+      path: path, method: "POST",
+      body: MFACodeVerifyRequest(challenge: challenge, code: code), token: nil
+    )
+    return try await adopt(response)
+  }
+
+  private func challenge(from response: MFARequiredResponse) throws -> MFAChallenge {
+    guard response.credentialTransport == "body", let challengeToken = response.challengeToken else {
+      throw LiveAPIError.invalidResponse
+    }
+    return MFAChallenge(
+      challengeId: response.challengeId,
+      challengeToken: challengeToken,
+      // Unknown method strings are dropped rather than surfaced; see `MFAMethod`.
+      methods: response.methods.compactMap(MFAMethod.init(rawValue:))
+    )
+  }
+
+  /// Takes ownership of a freshly minted body-transport session: validates the envelope, persists
+  /// the bearer token, and only then keeps it in memory. Shared by every native sign-in entry point
+  /// and by `exchangeMobileAuthorization`.
+  ///
+  /// The persist-before-memory order matters: a keychain write that fails after the in-memory token
+  /// was set would leave the client authenticated for this launch while `restoreSession` finds
+  /// nothing, and the caller — which surfaces the thrown error and stays anonymous — would disagree
+  /// with the client about whether a session exists. Failing before any state is adopted keeps the
+  /// sign-in atomic, so the user simply retries.
+  private func adopt(_ response: LoginResponse) async throws -> LiveSession {
     guard response.credentialTransport == "body", let accessToken = response.accessToken,
       let user = response.bootstrap?.user
     else { throw LiveAPIError.invalidResponse }
-    self.accessToken = accessToken
     try await credentials.saveAccessToken(accessToken)
+    self.accessToken = accessToken
     return LiveSession(accessToken: accessToken, profile: UserProfile(id: user.id, email: user.email))
   }
 
@@ -234,6 +345,20 @@ public actor LiveAPIClient {
     body: Body?,
     token: String?
   ) async throws -> Response {
+    let (data, _) = try await sendRaw(path: path, method: method, body: body, token: token)
+    return try decode(Response.self, from: data)
+  }
+
+  /// The transport half of `send`: performs the request, maps transport failures and non-2xx
+  /// problem documents onto `LiveAPIError`, and hands back the raw body *plus the status code*.
+  /// `mobileLogin` needs the code because `200` (session) and `202` (MFA challenge) are both
+  /// successes carrying different schemas.
+  private func sendRaw<Body: Encodable>(
+    path: String,
+    method: String,
+    body: Body?,
+    token: String?
+  ) async throws -> (Data, Int) {
     var request = URLRequest(url: Self.productionURL.appending(path: path))
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -257,6 +382,10 @@ public actor LiveAPIClient {
         message: problem?.detail ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
       )
     }
+    return (data, http.statusCode)
+  }
+
+  private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
     do {
       return try JSONDecoder().decode(Response.self, from: data)
     } catch {
@@ -288,6 +417,134 @@ private struct BootstrapResponse: Decodable {
 private struct BootstrapUser: Decodable {
   let id: Int
   let email: String
+}
+
+/// `BodyMFARequiredResponse`. `challenge_id` identifies the challenge row; `challenge_token` is
+/// the nonce that authenticates the caller against it in the absence of the challenge cookie.
+private struct MFARequiredResponse: Decodable {
+  let credentialTransport: String
+  let challengeId: String
+  let challengeToken: String?
+  let methods: [String]
+
+  enum CodingKeys: String, CodingKey {
+    case credentialTransport = "credential_transport"
+    case challengeId = "challenge_id"
+    case challengeToken = "challenge_token"
+    case methods
+  }
+}
+
+private struct MobileCredentialsRequest: Encodable {
+  let email: String
+  let password: String
+}
+
+/// `BodyPasskeyAuthBeginRequest` — the smallest body-transport challenge envelope, also the
+/// prefix every other MFA request repeats.
+private struct MFAChallengeRequest: Encodable {
+  let credentialTransport = "body"
+  let challengeId: String
+  let challengeToken: String
+
+  init(challenge: MFAChallenge) {
+    challengeId = challenge.challengeId
+    challengeToken = challenge.challengeToken
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case credentialTransport = "credential_transport"
+    case challengeId = "challenge_id"
+    case challengeToken = "challenge_token"
+  }
+}
+
+/// `BodyMFACodeVerifyRequest`, shared by the TOTP and recovery-code routes.
+private struct MFACodeVerifyRequest: Encodable {
+  let credentialTransport = "body"
+  let challengeId: String
+  let challengeToken: String
+  let code: String
+
+  init(challenge: MFAChallenge, code: String) {
+    challengeId = challenge.challengeId
+    challengeToken = challenge.challengeToken
+    self.code = code
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case credentialTransport = "credential_transport"
+    case challengeId = "challenge_id"
+    case challengeToken = "challenge_token"
+    case code
+  }
+}
+
+/// `BodyPasskeyAuthCompleteRequest`. The nested credential is `WebAuthnAuthenticationCredential`
+/// and keeps the contract's camelCase field names verbatim — unlike the snake_case envelope
+/// around it, those come straight from the WebAuthn spec.
+private struct PasskeyCompleteRequest: Encodable {
+  let credentialTransport = "body"
+  let challengeId: String
+  let challengeToken: String
+  let credential: WireAssertionCredential
+
+  init(challenge: MFAChallenge, credential: PasskeyAssertionPayload) {
+    challengeId = challenge.challengeId
+    challengeToken = challenge.challengeToken
+    self.credential = WireAssertionCredential(credential)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case credentialTransport = "credential_transport"
+    case challengeId = "challenge_id"
+    case challengeToken = "challenge_token"
+    case credential
+  }
+}
+
+private struct WireAssertionCredential: Encodable {
+  let id: String
+  let rawId: String
+  let type = "public-key"
+  let response: WireAssertionResponse
+
+  init(_ payload: PasskeyAssertionPayload) {
+    // The web client sends `id` (the WebAuthn credential's `id` string, already base64url) and
+    // `rawId` (base64url of the same bytes) — identical values. `AuthenticationServices` only
+    // hands back the raw `credentialID`, so both are derived from it here.
+    id = Base64URL.encode(payload.credentialID)
+    rawId = id
+    response = WireAssertionResponse(payload)
+  }
+}
+
+private struct WireAssertionResponse: Encodable {
+  let clientDataJSON: String
+  let authenticatorData: String
+  let signature: String
+  let userHandle: String?
+
+  init(_ payload: PasskeyAssertionPayload) {
+    clientDataJSON = Base64URL.encode(payload.clientDataJSON)
+    authenticatorData = Base64URL.encode(payload.authenticatorData)
+    signature = Base64URL.encode(payload.signature)
+    // Omitted entirely when absent, matching the web client's conditional spread.
+    userHandle = payload.userHandle.map(Base64URL.encode)
+  }
+}
+
+/// `WebAuthnAuthenticationOptions`.
+private struct WebAuthnOptionsResponse: Decodable {
+  let challenge: String
+  let timeout: Int
+  let rpId: String
+  let allowCredentials: [Descriptor]
+  let userVerification: String
+
+  struct Descriptor: Decodable {
+    let id: String
+  }
 }
 
 private struct MobileAuthorizationExchangeRequest: Encodable {

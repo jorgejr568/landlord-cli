@@ -32,16 +32,19 @@ struct AppModelSessionFlowTests {
     }
   }
 
-  @Test("browser sign-in falls back to the local demo shortcut without a live API")
-  func signInWithWebAuthorizationTakesTheDemoShortcut() async throws {
+  @Test("native sign-in against the demo store authenticates as the demo user")
+  func nativeSignInAgainstTheDemoStoreAuthenticates() async throws {
     let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
 
-    // The mock store reports `usesLiveAPI == false`, so no `ASWebAuthenticationSession` is
-    // opened — which is also what keeps this test runnable headlessly.
-    try await app.signInWithWebAuthorization()
+    // The mock store answers `mobileLogin` with `.authenticated(demo user)` and never reports
+    // `.mfaRequired`, so any credentials sign the demo user straight in — headlessly, with no
+    // browser session anywhere in the flow.
+    let outcome = try await app.signIn(email: "demo@rentivo.com.br", password: "irrelevante")
 
+    #expect(outcome == .authenticated(app.currentUser))
     #expect(app.isAuthenticated)
-    #expect(app.notice?.message == "Bem-vinda à demonstração do Rentivo.")
+    #expect(app.selectedTab == .home)
+    #expect(app.notice?.message == "Sessão conectada ao Rentivo.")
   }
 
   @Test("sign-out completes synchronously without toggling isSigningOut")

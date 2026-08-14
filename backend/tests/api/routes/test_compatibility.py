@@ -120,7 +120,15 @@ def test_proxy_routes_machine_and_compatibility_requests_without_spa_fallback() 
     repository_root = Path(__file__).parents[4]
     nginx = (repository_root / "infra/proxy/nginx.conf").read_text()
 
-    for path in ("/health", "/robots.txt", "/sitemap.xml", "/change-password", "/security/pix"):
+    for path in (
+        "/health",
+        "/robots.txt",
+        "/sitemap.xml",
+        "/.well-known/apple-app-site-association",
+        "/.well-known/assetlinks.json",
+        "/change-password",
+        "/security/pix",
+    ):
         assert f"location = {path}" in nginx
     assert "location = /auth/google/login" in nginx
     assert "location ~ ^/billings/[^/]+/bills/[^/]+/(invoice|recibo|receipts/[^/]+)$" in nginx

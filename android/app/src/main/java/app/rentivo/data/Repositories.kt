@@ -25,8 +25,12 @@ import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.InvitationID
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.PasskeyAssertionPayload
+import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.OrganizationRole
@@ -49,8 +53,8 @@ interface AuthRepository {
   /**
    * Whether this store is backed by the real Rentivo API rather than the in-memory demo data.
    * Screens use it to pick their copy ("conectado ao Rentivo" versus "demonstração"), and
-   * `AppModel` uses it for the flows that only exist against a server: browser-based
-   * authorization, token revocation, and account deletion.
+   * `AppModel` uses it for the flows that only exist against a server: token revocation and account
+   * deletion.
    */
   val usesLiveAPI: Boolean
 
@@ -60,8 +64,31 @@ interface AuthRepository {
    */
   suspend fun restoreSession(): UserProfile?
 
-  /** Trades a one-time authorization code minted by the web sign-in flow for an API session. */
-  suspend fun exchangeMobileAuthorization(code: String): UserProfile
+  // MARK: Native sign-in
+  //
+  // The native path talks to the Turnstile-free `/api/v1/auth/mobile/*` endpoints and finishes any
+  // MFA challenge in-app. `mobileLogin` is the only entry point that can return without a session;
+  // when it yields `MfaRequired`, exactly one of the verify/passkey calls below settles it, and
+  // every one needs the whole `MFAChallenge` (the server matches `challenge_id` and authenticates
+  // the caller with `challenge_token`).
+  //
+  // None of these should be retried on failure: the server stalls ~4 s before each failure and
+  // allows only 4 attempts per minute per IP and per e-mail.
+
+  suspend fun mobileLogin(email: String, password: String): MobileLoginOutcome
+
+  suspend fun mobileSignup(email: String, password: String): UserProfile
+
+  suspend fun verifyTotp(challenge: MFAChallenge, code: String): UserProfile
+
+  suspend fun verifyRecoveryCode(challenge: MFAChallenge, code: String): UserProfile
+
+  suspend fun beginPasskeyAssertion(challenge: MFAChallenge): PasskeyRequestOptions
+
+  suspend fun completePasskeyAssertion(
+    challenge: MFAChallenge,
+    credential: PasskeyAssertionPayload,
+  ): UserProfile
 
   /**
    * Best-effort revocation of the current session; never throws, so callers can always drop local

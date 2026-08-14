@@ -22,6 +22,34 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   }
   public func logout() async {}
   public func deleteAccount(password: String) async throws {}
+
+  // The demo has no credentials to check and no second factor to enrol, so native sign-in always
+  // succeeds immediately as the demo user and never reports `.mfaRequired`. That makes the
+  // challenge-bound calls below unreachable from the demo UI; they exist only to satisfy
+  // `AuthRepository` and behave as no-op successes if a caller reaches them anyway.
+  public func mobileLogin(email: String, password: String) async throws -> MobileLoginOutcome {
+    .authenticated(snapshot.profile)
+  }
+  public func mobileSignup(email: String, password: String) async throws -> UserProfile {
+    snapshot.profile
+  }
+  public func verifyTotp(challenge: MFAChallenge, code: String) async throws -> UserProfile {
+    snapshot.profile
+  }
+  public func verifyRecoveryCode(challenge: MFAChallenge, code: String) async throws -> UserProfile {
+    snapshot.profile
+  }
+  public func beginPasskeyAssertion(challenge: MFAChallenge) async throws -> PasskeyRequestOptions {
+    PasskeyRequestOptions(
+      challenge: Data(), relyingPartyIdentifier: "", allowedCredentialIDs: [],
+      userVerification: "preferred", timeoutMilliseconds: 60_000
+    )
+  }
+  public func completePasskeyAssertion(
+    challenge: MFAChallenge, credential: PasskeyAssertionPayload
+  ) async throws -> UserProfile {
+    snapshot.profile
+  }
   public var demoSettings: DemoSettings {
     DemoSettings(
       delayEnabled: delayEnabled,

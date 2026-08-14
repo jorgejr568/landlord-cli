@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request
 from sqlalchemy import text
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from rentivo import db
 from rentivo.api.errors import ProblemException, problem
@@ -25,6 +25,7 @@ DISALLOWED_PATHS: tuple[str, ...] = (
     "/logout",
     "/mfa-verify",
 )
+IOS_BUNDLE_ID = "br.com.rentivo.ios"
 AI_CRAWLERS: tuple[str, ...] = (
     "GPTBot",
     "ChatGPT-User",
@@ -104,6 +105,56 @@ async def ready() -> dict[str, str]:
             )
         ) from None
     return {"status": "ready"}
+
+
+@router.get("/.well-known/apple-app-site-association")
+async def apple_app_site_association() -> Response:
+    """Associated-domains manifest that lets the iOS app reuse the site's passkeys.
+
+    Served at the document root (not under ``/api``) because that is the only
+    place iOS looks. Without a configured team ID there is nothing truthful to
+    publish, so the path simply does not exist.
+    """
+    if not settings.apple_team_id:
+        raise ProblemException.not_found()
+    # This document is not under ``/api`` so ``_APINoStoreMiddleware`` never
+    # touches it. iOS re-fetches it rarely and it changes only when the team ID
+    # changes, so a short shared cache lifetime is safe and avoids hammering the
+    # origin on every associated-domains check.
+    return JSONResponse(
+        {"webcredentials": {"apps": [f"{settings.apple_team_id}.{IOS_BUNDLE_ID}"]}},
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@router.get("/.well-known/assetlinks.json")
+async def android_asset_links() -> Response:
+    """Digital Asset Links manifest that associates the site with the Android app.
+
+    Served at the document root (not under ``/api``) because that is the only
+    place Android Credential Manager and password managers look. Without a
+    configured signing-cert fingerprint there is nothing truthful to publish, so
+    the path simply does not exist.
+    """
+    fingerprints = settings.android_cert_fingerprint_list
+    if not fingerprints:
+        raise ProblemException.not_found()
+    # Like the AASA manifest this lives outside ``/api`` so the no-store
+    # middleware never touches it. It changes only when the package or signing
+    # certificate changes, so a short shared cache lifetime is safe.
+    return JSONResponse(
+        [
+            {
+                "relation": ["delegate_permission/common.get_login_creds"],
+                "target": {
+                    "namespace": "android_app",
+                    "package_name": settings.android_package_name,
+                    "sha256_cert_fingerprints": fingerprints,
+                },
+            }
+        ],
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/robots.txt")

@@ -56,7 +56,7 @@ class LiveSessionTest {
   }
 
   @Test
-  fun `the mobile exchange stores the access token it is handed`() = runTest {
+  fun `native signup stores the access token it is handed`() = runTest {
     val dispatcher = server.route {
       jsonResponse(
         """{"credential_transport":"body","access_token":"fresh-token",""" +
@@ -66,19 +66,19 @@ class LiveSessionTest {
     val credentials = MemoryCredentialStore()
 
     val session = liveClient(server, credentials = credentials)
-      .exchangeMobileAuthorization("auth-code")
+      .mobileSignup("ana@rentivo.com.br", "senha-secreta")
 
     assertEquals("fresh-token", session.accessToken)
     assertEquals("ana@rentivo.com.br", session.profile.email)
     assertEquals("fresh-token", credentials.readAccessToken())
     assertEquals(
-      """{"authorization_code":"auth-code"}""",
-      dispatcher.bodyOf("POST /api/v1/auth/mobile/exchange"),
+      """{"email":"ana@rentivo.com.br","password":"senha-secreta"}""",
+      dispatcher.bodyOf("POST /api/v1/auth/mobile/signup"),
     )
   }
 
   @Test
-  fun `an exchange without a body-transported token is an invalid response`() = runTest {
+  fun `a session without a body-transported token is an invalid response`() = runTest {
     server.route {
       jsonResponse(
         """{"credential_transport":"cookie","bootstrap":{"user":{"id":7,"email":"a@b.c"}}}"""
@@ -87,7 +87,7 @@ class LiveSessionTest {
 
     val error = runCatching {
       liveClient(server, credentials = MemoryCredentialStore())
-        .exchangeMobileAuthorization("auth-code")
+        .mobileSignup("a@b.c", "senha-secreta")
     }.exceptionOrNull()
 
     assertEquals(LiveAPIError.InvalidResponse, error)

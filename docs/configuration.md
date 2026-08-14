@@ -67,6 +67,9 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 | `RENTIVO_WEBAUTHN_RP_ID` | `localhost` | Relying-party ID. Must match the domain users visit; changing it invalidates registered passkeys. |
 | `RENTIVO_WEBAUTHN_RP_NAME` | `Rentivo` | Display name shown in browser passkey prompts. |
 | `RENTIVO_WEBAUTHN_ORIGIN` | `http://localhost:8000` | Expected origin for WebAuthn ceremonies. |
+| `RENTIVO_APPLE_TEAM_ID` | *(empty)* | Apple Developer Team ID. When set, the API serves `/.well-known/apple-app-site-association` declaring `webcredentials` for `<team id>.br.com.rentivo.ios`, which lets the iOS app use passkeys registered for `RENTIVO_WEBAUTHN_RP_ID`. Empty makes that path return 404, disabling iOS passkey associated domains; production startup logs a warning but still boots (password auth is unaffected). |
+| `RENTIVO_ANDROID_PACKAGE_NAME` | `app.rentivo` | Android application ID declared in `/.well-known/assetlinks.json`. Must match the app's `applicationId`. |
+| `RENTIVO_ANDROID_CERT_FINGERPRINTS` | *(empty)* | Comma-separated SHA-256 fingerprints of the Android app's signing certificate (the release/upload signing cert shown in Play Console → App integrity). When set, the API serves `/.well-known/assetlinks.json` with the `delegate_permission/common.get_login_creds` relation, letting Android Credential Manager and password managers (e.g. 1Password) associate the site's saved logins and passkeys with the app. Empty makes that path return 404 — Android passkeys/autofill association will not work until the real fingerprint is configured. Not required in production (Android passkeys are a follow-up). |
 
 ## AI content moderation (communication text)
 

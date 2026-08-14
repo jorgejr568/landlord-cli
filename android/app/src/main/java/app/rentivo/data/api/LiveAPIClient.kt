@@ -4,6 +4,10 @@ import app.rentivo.data.DownloadedFileStore
 import app.rentivo.data.ReceiptCaptureStore
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.LocalizedError
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MFAMethod
+import app.rentivo.domain.PasskeyAssertionPayload
+import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.UserProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -40,6 +44,17 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 data class LiveSession(val accessToken: String, val profile: UserProfile)
+
+/**
+ * `LiveSession`-flavoured `MobileLoginOutcome`. The domain enum carries a `UserProfile` because
+ * `LiveSession` keeps the access token inside this module, so the two shapes exist side by side and
+ * `APIRentivoStore` maps one onto the other. Port of the iOS `LiveLoginOutcome`.
+ */
+sealed interface LiveLoginOutcome {
+  data class Authenticated(val session: LiveSession) : LiveLoginOutcome
+
+  data class MfaRequired(val challenge: MFAChallenge) : LiveLoginOutcome
+}
 
 /** The error model every live API call fails with, carrying user-facing PT-BR copy. */
 sealed class LiveAPIError(message: String) : Exception(message), LocalizedError {
@@ -95,14 +110,113 @@ class LiveAPIClient(
    */
   val sessionExpired: SharedFlow<Unit> = sessionExpiredEvents
 
-  suspend fun exchangeMobileAuthorization(code: String): LiveSession = onIO {
-    val data = send(
-      path = "/api/v1/auth/mobile/exchange",
+  // MARK: - Native (Turnstile-free) authentication
+  //
+  // `/api/v1/auth/mobile/{login,signup}` and the MFA follow-ups all speak `credential_transport =
+  // "body"`: no cookies, no CSRF token, the credential comes back as a bearer token. The server
+  // deliberately stalls ~4 s before *every* failure (the tarpit that replaces Turnstile), so these
+  // calls sit well inside the 30 s call timeout — and must never be retried automatically, since a
+  // retry both burns one of the 4-per-minute attempts and doubles the wait the user sees.
+
+  suspend fun mobileLogin(email: String, password: String): LiveLoginOutcome = onIO {
+    val result = sendRaw(
+      path = "/api/v1/auth/mobile/login",
       method = "POST",
-      body = apiJson.encodeToString(MobileAuthorizationExchangeRequest(code)).toByteArray(),
+      body = apiJson.encodeToString(MobileCredentialsRequest(email, password)).toByteArray(),
       token = null,
     )
-    val response = decodeOrInvalid<LoginResponse>(data)
+    if (result.statusCode == 202) {
+      LiveLoginOutcome.MfaRequired(challengeFrom(decodeOrInvalid<MFARequiredResponse>(result.payload)))
+    } else {
+      LiveLoginOutcome.Authenticated(adopt(decodeOrInvalid<LoginResponse>(result.payload)))
+    }
+  }
+
+  suspend fun mobileSignup(email: String, password: String): LiveSession = onIO {
+    adopt(
+      decodeOrInvalid(
+        send(
+          path = "/api/v1/auth/mobile/signup",
+          method = "POST",
+          body = apiJson.encodeToString(MobileCredentialsRequest(email, password)).toByteArray(),
+          token = null,
+        )
+      )
+    )
+  }
+
+  suspend fun verifyTotp(challenge: MFAChallenge, code: String): LiveSession =
+    onIO { verifyCode("/api/v1/auth/mfa/totp/verify", challenge, code) }
+
+  suspend fun verifyRecoveryCode(challenge: MFAChallenge, code: String): LiveSession =
+    onIO { verifyCode("/api/v1/auth/mfa/recovery/verify", challenge, code) }
+
+  suspend fun beginPasskeyAssertion(challenge: MFAChallenge): PasskeyRequestOptions = onIO {
+    val data = send(
+      path = "/api/v1/auth/mfa/passkeys/begin",
+      method = "POST",
+      body = apiJson.encodeToString(MFAChallengeRequest.from(challenge)).toByteArray(),
+      token = null,
+    )
+    val response = decodeOrInvalid<WebAuthnOptionsResponse>(data)
+    val decodedChallenge = Base64URL.decode(response.challenge) ?: throw LiveAPIError.InvalidResponse
+    val allowedCredentialIDs = response.allowCredentials.map {
+      Base64URL.decode(it.id) ?: throw LiveAPIError.InvalidResponse
+    }
+    PasskeyRequestOptions(
+      challenge = decodedChallenge,
+      relyingPartyIdentifier = response.rpId,
+      allowedCredentialIDs = allowedCredentialIDs,
+      userVerification = response.userVerification,
+      timeoutMilliseconds = response.timeout,
+    )
+  }
+
+  suspend fun completePasskeyAssertion(
+    challenge: MFAChallenge,
+    credential: PasskeyAssertionPayload,
+  ): LiveSession = onIO {
+    adopt(
+      decodeOrInvalid(
+        send(
+          path = "/api/v1/auth/mfa/passkeys/complete",
+          method = "POST",
+          body = apiJson.encodeToString(PasskeyCompleteRequest.from(challenge, credential))
+            .toByteArray(),
+          token = null,
+        )
+      )
+    )
+  }
+
+  private suspend fun verifyCode(path: String, challenge: MFAChallenge, code: String): LiveSession {
+    val data = send(
+      path = path,
+      method = "POST",
+      body = apiJson.encodeToString(MFACodeVerifyRequest.from(challenge, code)).toByteArray(),
+      token = null,
+    )
+    return adopt(decodeOrInvalid(data))
+  }
+
+  private fun challengeFrom(response: MFARequiredResponse): MFAChallenge {
+    val challengeToken = response.challengeToken
+    if (response.credentialTransport != "body" || challengeToken == null) {
+      throw LiveAPIError.InvalidResponse
+    }
+    return MFAChallenge(
+      challengeId = response.challengeId,
+      challengeToken = challengeToken,
+      // Unknown method strings are dropped rather than surfaced; see `MFAMethod`.
+      methods = response.methods.mapNotNull(MFAMethod::fromWire),
+    )
+  }
+
+  /**
+   * Takes ownership of a freshly minted body-transport session: validates the envelope, keeps the
+   * bearer token in memory and persists it. Shared by every native sign-in entry point.
+   */
+  private suspend fun adopt(response: LoginResponse): LiveSession {
     val accessToken = response.accessToken
     val user = response.bootstrap?.user
     if (response.credentialTransport != "body" || accessToken == null || user == null) {
@@ -110,7 +224,7 @@ class LiveAPIClient(
     }
     this.accessToken = accessToken
     credentials.saveAccessToken(accessToken)
-    LiveSession(
+    return LiveSession(
       accessToken = accessToken,
       profile = UserProfile(id = user.id, email = user.email),
     )
@@ -290,16 +404,28 @@ class LiveAPIClient(
   }
 
   /**
-   * The pre-authentication transport, used by the two `/auth` calls. It deliberately skips the
-   * 401 handling in [request]: there is no session to invalidate yet, and [restoreSession] needs
-   * to see the status code to decide whether the *stored* credential should be dropped.
+   * The pre-authentication transport, used by the `/auth` calls. It deliberately skips the 401
+   * handling in [request]: there is no session to invalidate yet, and [restoreSession] needs to
+   * see the status code to decide whether the *stored* credential should be dropped.
    */
   private suspend fun send(
     path: String,
     method: String,
     body: ByteArray?,
     token: String?,
-  ): ByteArray {
+  ): ByteArray = sendRaw(path, method, body, token).payload
+
+  /**
+   * The status-carrying half of [send]: maps non-2xx problem documents onto [LiveAPIError] and
+   * hands back the raw body *plus the status code*. `mobileLogin` needs the code because `200`
+   * (session) and `202` (MFA challenge) are both successes carrying different schemas.
+   */
+  private suspend fun sendRaw(
+    path: String,
+    method: String,
+    body: ByteArray?,
+    token: String?,
+  ): HTTPResult {
     val builder = Request.Builder()
       .url(urlFor(path))
       .method(method, requestBody(body, method, "application/json"))
@@ -313,7 +439,7 @@ class LiveAPIClient(
         statusCode = result.statusCode,
       )
     }
-    return result.payload
+    return result
   }
 
   /** An error body that is not a problem document (a proxy's HTML 502, say) still needs copy. */
@@ -439,7 +565,114 @@ internal data class BootstrapResponse(val user: BootstrapUser)
 @Serializable
 internal data class BootstrapUser(val id: Int, val email: String)
 
+/** `BodyMFARequiredResponse`. `challenge_id` identifies the challenge row; `challenge_token` is the
+ * nonce that authenticates the caller against it in the absence of the challenge cookie. */
 @Serializable
-internal data class MobileAuthorizationExchangeRequest(
-  @SerialName("authorization_code") val authorizationCode: String,
+internal data class MFARequiredResponse(
+  @SerialName("credential_transport") val credentialTransport: String,
+  @SerialName("challenge_id") val challengeId: String,
+  @SerialName("challenge_token") val challengeToken: String? = null,
+  val methods: List<String> = emptyList(),
 )
+
+/** `MobileLoginRequest` / `MobileSignupRequest` — both accept `{email, password}` and nothing else. */
+@Serializable
+internal data class MobileCredentialsRequest(val email: String, val password: String)
+
+/** `BodyPasskeyAuthBeginRequest` — the smallest body-transport challenge envelope, also the prefix
+ * every other MFA request repeats. */
+@Serializable
+internal data class MFAChallengeRequest(
+  @SerialName("challenge_id") val challengeId: String,
+  @SerialName("challenge_token") val challengeToken: String,
+  @SerialName("credential_transport") val credentialTransport: String = "body",
+) {
+  companion object {
+    fun from(challenge: MFAChallenge) =
+      MFAChallengeRequest(challenge.challengeId, challenge.challengeToken)
+  }
+}
+
+/** `BodyMFACodeVerifyRequest`, shared by the TOTP and recovery-code routes. */
+@Serializable
+internal data class MFACodeVerifyRequest(
+  @SerialName("challenge_id") val challengeId: String,
+  @SerialName("challenge_token") val challengeToken: String,
+  val code: String,
+  @SerialName("credential_transport") val credentialTransport: String = "body",
+) {
+  companion object {
+    fun from(challenge: MFAChallenge, code: String) =
+      MFACodeVerifyRequest(challenge.challengeId, challenge.challengeToken, code)
+  }
+}
+
+/** `BodyPasskeyAuthCompleteRequest`. The nested credential is `WebAuthnAuthenticationCredential`
+ * and keeps the contract's camelCase field names verbatim — unlike the snake_case envelope around
+ * it, those come straight from the WebAuthn spec. */
+@Serializable
+internal data class PasskeyCompleteRequest(
+  @SerialName("challenge_id") val challengeId: String,
+  @SerialName("challenge_token") val challengeToken: String,
+  val credential: WireAssertionCredential,
+  @SerialName("credential_transport") val credentialTransport: String = "body",
+) {
+  companion object {
+    fun from(challenge: MFAChallenge, credential: PasskeyAssertionPayload) = PasskeyCompleteRequest(
+      challengeId = challenge.challengeId,
+      challengeToken = challenge.challengeToken,
+      credential = WireAssertionCredential.from(credential),
+    )
+  }
+}
+
+/** `WebAuthnAuthenticationCredential`. */
+@Serializable
+internal data class WireAssertionCredential(
+  val id: String,
+  val rawId: String,
+  val response: WireAssertionResponse,
+  val type: String = "public-key",
+) {
+  companion object {
+    fun from(payload: PasskeyAssertionPayload): WireAssertionCredential {
+      // The web client sends `id` (the WebAuthn credential's `id` string, already base64url) and
+      // `rawId` (base64url of the same bytes) — identical values derived from the raw credential ID.
+      val encodedId = Base64URL.encode(payload.credentialID)
+      return WireAssertionCredential(
+        id = encodedId,
+        rawId = encodedId,
+        response = WireAssertionResponse(
+          clientDataJSON = Base64URL.encode(payload.clientDataJSON),
+          authenticatorData = Base64URL.encode(payload.authenticatorData),
+          signature = Base64URL.encode(payload.signature),
+          // Omitted entirely when absent (apiJson has explicitNulls = false), matching the web
+          // client's conditional spread.
+          userHandle = payload.userHandle?.let(Base64URL::encode),
+        ),
+      )
+    }
+  }
+}
+
+/** `WebAuthnAuthenticatorAssertionResponse`. */
+@Serializable
+internal data class WireAssertionResponse(
+  val clientDataJSON: String,
+  val authenticatorData: String,
+  val signature: String,
+  val userHandle: String? = null,
+)
+
+/** `WebAuthnAuthenticationOptions` — camelCase on the wire, straight from the WebAuthn spec. */
+@Serializable
+internal data class WebAuthnOptionsResponse(
+  val challenge: String,
+  val timeout: Int,
+  val rpId: String,
+  val allowCredentials: List<WebAuthnDescriptor> = emptyList(),
+  val userVerification: String,
+)
+
+@Serializable
+internal data class WebAuthnDescriptor(val id: String)

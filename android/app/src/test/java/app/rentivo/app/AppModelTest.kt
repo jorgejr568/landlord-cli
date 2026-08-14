@@ -6,6 +6,11 @@ import app.rentivo.data.DemoSettings
 import app.rentivo.data.MockRentivoStore
 import app.rentivo.data.mockDependencies
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MFAMethod
+import app.rentivo.domain.MobileLoginOutcome
+import app.rentivo.domain.PasskeyAssertionPayload
+import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.UserProfile
 import kotlinx.coroutines.CompletableDeferred
@@ -86,15 +91,14 @@ class AppModelTest {
   }
 
   @Test
-  fun `demo web authorization takes the local sign-in shortcut`() = runTest {
-    val authenticator = FakeWebAuthenticator()
-    val app = demoModel(backgroundScope, authenticator = authenticator)
+  fun `demo native login authenticates immediately as the demo user`() = runTest {
+    val app = demoModel(backgroundScope)
 
-    app.signInWithWebAuthorization()
+    val outcome = app.signIn(email = "ana@demo.com.br", password = "irrelevante")
 
+    assertEquals(MobileLoginOutcome.Authenticated(app.currentUser), outcome)
     assertTrue(app.isAuthenticated)
-    assertEquals("Bem-vinda à demonstração do Rentivo.", app.notice?.message)
-    assertEquals(0, authenticator.authorizeCount)
+    assertEquals("Sessão conectada ao Rentivo.", app.notice?.message)
   }
 
   @Test
@@ -277,16 +281,16 @@ class AppModelTest {
   // MARK: - Live sign-in
 
   @Test
-  fun `web authorization exchanges the code and connects the session`() = runTest {
+  fun `native login connects the session`() = runTest {
     val auth = FakeAuthRepository()
-    val authenticator = FakeWebAuthenticator(code = "one-time-code")
-    val app = liveModel(backgroundScope, auth = auth, authenticator = authenticator)
+    val app = liveModel(backgroundScope, auth = auth)
     app.selectedTab = AppTab.ACCOUNT
 
-    app.signInWithWebAuthorization()
+    val outcome = app.signIn(email = "  ana@rentivo.com.br  ", password = "senha")
 
-    assertEquals("one-time-code", auth.exchangedCode)
-    assertEquals(auth.exchanged, (app.session as AppModel.Session.Authenticated).profile)
+    assertEquals("  ana@rentivo.com.br  ", auth.loginEmail)
+    assertEquals(MobileLoginOutcome.Authenticated(auth.profile), outcome)
+    assertEquals(auth.profile, (app.session as AppModel.Session.Authenticated).profile)
     assertEquals(AppTab.HOME, app.selectedTab)
     assertEquals(
       AppNotice(AppNotice.Kind.SUCCESS, "Sessão conectada ao Rentivo."),
@@ -295,72 +299,97 @@ class AppModelTest {
   }
 
   @Test
-  fun `a cancelled browser authorization leaves the session alone`() = runTest {
-    val authenticator = FakeWebAuthenticator(authorizeFailure = FakeCancellation())
-    val app = liveModel(backgroundScope, authenticator = authenticator)
+  fun `a login that stops at MFA hands the challenge back without authenticating`() = runTest {
+    val challenge = MFAChallenge(
+      challengeId = "challenge-1",
+      challengeToken = "token-1",
+      methods = listOf(MFAMethod.TOTP, MFAMethod.PASSKEY),
+    )
+    val auth = FakeAuthRepository(loginOutcome = MobileLoginOutcome.MfaRequired(challenge))
+    val app = liveModel(backgroundScope, auth = auth)
     app.restoreSessionIfNeeded()
     app.signOut()
     runCurrent()
 
-    val thrown = runCatching { app.signInWithWebAuthorization() }.exceptionOrNull()
+    val outcome = app.signIn(email = "ana@rentivo.com.br", password = "senha")
+
+    assertEquals(MobileLoginOutcome.MfaRequired(challenge), outcome)
+    // The challenge is screen state; the model stays anonymous until a verify call completes it.
+    assertEquals(AppModel.Session.Anonymous, app.session)
+    assertNull(app.notice)
+  }
+
+  @Test
+  fun `a rejected login surfaces the error and leaves the session alone`() = runTest {
+    val auth = FakeAuthRepository(loginFailure = DemoError("Credenciais inválidas."))
+    val app = liveModel(backgroundScope, auth = auth, sessionExpired = null)
+    app.restoreSessionIfNeeded()
+    app.signOut()
+    runCurrent()
+
+    val thrown = runCatching {
+      app.signIn(email = "ana@rentivo.com.br", password = "errada")
+    }.exceptionOrNull()
 
     // The screen decides whether to report it; the model must not swallow it or half-authenticate.
-    assertTrue(thrown is FakeCancellation)
+    assertEquals("Credenciais inválidas.", (thrown as DemoError).message)
     assertEquals(AppModel.Session.Anonymous, app.session)
+  }
+
+  @Test
+  fun `completing a TOTP challenge connects the session`() = runTest {
+    val challenge = MFAChallenge("c", "t", listOf(MFAMethod.TOTP))
+    val auth = FakeAuthRepository()
+    val app = liveModel(backgroundScope, auth = auth)
+
+    app.completeTOTP(challenge = challenge, code = "123456")
+
+    assertEquals(challenge to "123456", auth.verifiedTotp)
+    assertEquals(auth.profile, (app.session as AppModel.Session.Authenticated).profile)
+    assertEquals(AppTab.HOME, app.selectedTab)
+    assertEquals("Sessão conectada ao Rentivo.", app.notice?.message)
+  }
+
+  @Test
+  fun `completing a recovery-code challenge connects the session`() = runTest {
+    val challenge = MFAChallenge("c", "t", listOf(MFAMethod.RECOVERY))
+    val auth = FakeAuthRepository()
+    val app = liveModel(backgroundScope, auth = auth)
+
+    app.completeRecoveryCode(challenge = challenge, code = "AAAA-BBBB")
+
+    assertEquals(challenge to "AAAA-BBBB", auth.verifiedRecovery)
+    assertTrue(app.isAuthenticated)
+  }
+
+  @Test
+  fun `native signup connects the session`() = runTest {
+    val auth = FakeAuthRepository()
+    val app = liveModel(backgroundScope, auth = auth)
+
+    app.signUp(email = "  nova@rentivo.com.br ", password = "senha-forte")
+
+    assertEquals("  nova@rentivo.com.br ", auth.signedUpEmail)
+    assertEquals(auth.profile, (app.session as AppModel.Session.Authenticated).profile)
+    assertEquals("Sessão conectada ao Rentivo.", app.notice?.message)
   }
 
   // MARK: - Live sign-out
 
   @Test
-  fun `live sign out revokes the token, drops local state and closes the browser session`() =
-    runTest {
-      val auth = FakeAuthRepository()
-      val authenticator = FakeWebAuthenticator()
-      val app = liveModel(backgroundScope, auth = auth, authenticator = authenticator)
-      app.restoreSessionIfNeeded()
-      app.selectedTab = AppTab.BILLINGS
-
-      app.signOut()
-      runCurrent()
-
-      assertEquals(1, auth.logoutCount)
-      assertEquals(1, authenticator.logoutCount)
-      assertEquals(AppModel.Session.Anonymous, app.session)
-      assertEquals(AppTab.HOME, app.selectedTab)
-      assertFalse(app.isSigningOut)
-      assertNull(app.notice)
-    }
-
-  @Test
-  fun `a failed browser logout still signs out but warns about the browser session`() = runTest {
+  fun `live sign out revokes the token and drops local state`() = runTest {
     val auth = FakeAuthRepository()
-    val authenticator = FakeWebAuthenticator(logoutFailure = DemoError.operationFailed)
-    val app = liveModel(backgroundScope, auth = auth, authenticator = authenticator)
+    val app = liveModel(backgroundScope, auth = auth)
     app.restoreSessionIfNeeded()
+    app.selectedTab = AppTab.BILLINGS
 
     app.signOut()
     runCurrent()
 
+    assertEquals(1, auth.logoutCount)
     assertEquals(AppModel.Session.Anonymous, app.session)
-    assertEquals(
-      AppNotice(
-        AppNotice.Kind.WARNING,
-        "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador.",
-      ),
-      app.notice,
-    )
-  }
-
-  @Test
-  fun `dismissing the logout browser tab is a silent, expected outcome`() = runTest {
-    val authenticator = FakeWebAuthenticator(logoutFailure = FakeCancellation())
-    val app = liveModel(backgroundScope, authenticator = authenticator)
-    app.restoreSessionIfNeeded()
-
-    app.signOut()
-    runCurrent()
-
-    assertEquals(AppModel.Session.Anonymous, app.session)
+    assertEquals(AppTab.HOME, app.selectedTab)
+    assertFalse(app.isSigningOut)
     assertNull(app.notice)
   }
 
@@ -381,33 +410,30 @@ class AppModelTest {
   }
 
   @Test
-  fun `sign out finishes the browser leg even when the calling screen's scope is cancelled`() =
-    runTest {
-      // Regression test: `signOut()` used to run on the account screen's `rememberCoroutineScope()`,
-      // which `completeSignOut()` itself destroys by switching the session to anonymous and taking
-      // that screen out of composition. Whether the trailing browser logout survived was then a
-      // matter of frame timing, leaving the browser cookie jar signed in at random.
-      val resumeLogout = CompletableDeferred<Unit>()
-      val auth = FakeAuthRepository(onLogout = { resumeLogout.await() })
-      val authenticator = FakeWebAuthenticator()
-      val app = liveModel(backgroundScope, auth = auth, authenticator = authenticator)
-      app.restoreSessionIfNeeded()
+  fun `sign out finishes even when the calling screen's scope is cancelled`() = runTest {
+    // Regression test: `signOut()` used to run on the account screen's `rememberCoroutineScope()`,
+    // which `completeSignOut()` itself destroys by switching the session to anonymous and taking
+    // that screen out of composition. Whether the trailing token revocation survived was then a
+    // matter of frame timing, leaving the server honoring the old token at random.
+    val resumeLogout = CompletableDeferred<Unit>()
+    val auth = FakeAuthRepository(onLogout = { resumeLogout.await() })
+    val app = liveModel(backgroundScope, auth = auth)
+    app.restoreSessionIfNeeded()
 
-      val screenScope = backgroundScope + Job()
-      screenScope.launch { app.signOut() }
-      runCurrent()
+    val screenScope = backgroundScope + Job()
+    screenScope.launch { app.signOut() }
+    runCurrent()
 
-      // The screen goes away mid-flow, exactly as it does in the app.
-      screenScope.cancel()
-      resumeLogout.complete(Unit)
-      runCurrent()
+    // The screen goes away mid-flow, exactly as it does in the app.
+    screenScope.cancel()
+    resumeLogout.complete(Unit)
+    runCurrent()
 
-      assertEquals(1, auth.logoutCount)
-      assertEquals(1, authenticator.logoutCount)
-      assertEquals(AppModel.Session.Anonymous, app.session)
-      assertFalse(app.isSigningOut)
-      assertNull(app.notice)
-    }
+    assertEquals(1, auth.logoutCount)
+    assertEquals(AppModel.Session.Anonymous, app.session)
+    assertFalse(app.isSigningOut)
+    assertNull(app.notice)
+  }
 
   // MARK: - Account deletion
 
@@ -574,21 +600,17 @@ class AppModelTest {
 private fun demoModel(
   scope: CoroutineScope,
   store: MockRentivoStore = MockRentivoStore(),
-  authenticator: WebAuthenticating? = null,
 ): AppModel = AppModel(
   dependencies = mockDependencies(store),
-  authenticator = authenticator,
   scope = scope,
 )
 
 private fun liveModel(
   scope: CoroutineScope,
   auth: FakeAuthRepository = FakeAuthRepository(),
-  authenticator: WebAuthenticating = FakeWebAuthenticator(),
   sessionExpired: MutableSharedFlow<Unit>? = null,
 ): AppModel = AppModel(
   dependencies = liveDependencies(auth),
-  authenticator = authenticator,
   sessionExpired = sessionExpired,
   scope = scope,
 )
@@ -601,13 +623,18 @@ private class FakeAuthRepository(
   val profile: UserProfile = UserProfile(id = 1, email = "ana@example.com"),
   private val restored: UserProfile? = profile,
   private val restoreFailure: Throwable? = null,
+  private val loginOutcome: MobileLoginOutcome = MobileLoginOutcome.Authenticated(profile),
+  private val loginFailure: Throwable? = null,
   private val deleteFailure: Throwable? = null,
   private val onLogout: suspend () -> Unit = {},
   private val onDeleteAccount: suspend () -> Unit = {},
 ) : AuthRepository {
 
-  val exchanged = UserProfile(id = 1, email = "ana@rentivo.com.br")
-  var exchangedCode: String? = null
+  var loginEmail: String? = null
+  var loginPassword: String? = null
+  var signedUpEmail: String? = null
+  var verifiedTotp: Pair<MFAChallenge, String>? = null
+  var verifiedRecovery: Pair<MFAChallenge, String>? = null
   var logoutCount = 0
   var deletedPassword: String? = null
 
@@ -620,10 +647,35 @@ private class FakeAuthRepository(
     return restored
   }
 
-  override suspend fun exchangeMobileAuthorization(code: String): UserProfile {
-    exchangedCode = code
-    return exchanged
+  override suspend fun mobileLogin(email: String, password: String): MobileLoginOutcome {
+    loginEmail = email
+    loginPassword = password
+    loginFailure?.let { throw it }
+    return loginOutcome
   }
+
+  override suspend fun mobileSignup(email: String, password: String): UserProfile {
+    signedUpEmail = email
+    return profile
+  }
+
+  override suspend fun verifyTotp(challenge: MFAChallenge, code: String): UserProfile {
+    verifiedTotp = challenge to code
+    return profile
+  }
+
+  override suspend fun verifyRecoveryCode(challenge: MFAChallenge, code: String): UserProfile {
+    verifiedRecovery = challenge to code
+    return profile
+  }
+
+  override suspend fun beginPasskeyAssertion(challenge: MFAChallenge): PasskeyRequestOptions =
+    PasskeyRequestOptions(ByteArray(0), "", emptyList(), "preferred", 60_000)
+
+  override suspend fun completePasskeyAssertion(
+    challenge: MFAChallenge,
+    credential: PasskeyAssertionPayload,
+  ): UserProfile = profile
 
   override suspend fun logout() {
     logoutCount += 1
@@ -636,29 +688,3 @@ private class FakeAuthRepository(
     deleteFailure?.let { throw it }
   }
 }
-
-private class FakeWebAuthenticator(
-  private val code: String = "authorization-code",
-  private val authorizeFailure: Throwable? = null,
-  private val logoutFailure: Throwable? = null,
-) : WebAuthenticating {
-
-  var authorizeCount = 0
-  var logoutCount = 0
-
-  override suspend fun authorize(): String {
-    authorizeCount += 1
-    authorizeFailure?.let { throw it }
-    return code
-  }
-
-  override suspend fun logout() {
-    logoutCount += 1
-    logoutFailure?.let { throw it }
-  }
-
-  override fun isUserCancellation(throwable: Throwable): Boolean = throwable is FakeCancellation
-}
-
-/** Stands in for `UserCancelledException`, which is bound to the Android authenticator. */
-private class FakeCancellation : Exception("Autenticação cancelada.")

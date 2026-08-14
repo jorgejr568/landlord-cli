@@ -57,6 +57,8 @@ import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationCapabilities
@@ -66,7 +68,9 @@ import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
 import app.rentivo.domain.Passkey
+import app.rentivo.domain.PasskeyAssertionPayload
 import app.rentivo.domain.PasskeyID
+import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.Receipt
 import app.rentivo.domain.ReceiptID
@@ -124,13 +128,40 @@ class APIRentivoStore(private val client: LiveAPIClient) :
 
   override val usesLiveAPI: Boolean get() = true
 
-  override suspend fun exchangeMobileAuthorization(code: String): UserProfile {
-    user = client.exchangeMobileAuthorization(code).profile
+  override suspend fun restoreSession(): UserProfile? {
+    val session = client.restoreSession() ?: return null
+    user = session.profile
     return user
   }
 
-  override suspend fun restoreSession(): UserProfile? {
-    val session = client.restoreSession() ?: return null
+  override suspend fun mobileLogin(email: String, password: String): MobileLoginOutcome =
+    when (val outcome = client.mobileLogin(email = email, password = password)) {
+      is LiveLoginOutcome.Authenticated -> MobileLoginOutcome.Authenticated(adopt(outcome.session))
+      is LiveLoginOutcome.MfaRequired -> MobileLoginOutcome.MfaRequired(outcome.challenge)
+    }
+
+  override suspend fun mobileSignup(email: String, password: String): UserProfile =
+    adopt(client.mobileSignup(email = email, password = password))
+
+  override suspend fun verifyTotp(challenge: MFAChallenge, code: String): UserProfile =
+    adopt(client.verifyTotp(challenge = challenge, code = code))
+
+  override suspend fun verifyRecoveryCode(challenge: MFAChallenge, code: String): UserProfile =
+    adopt(client.verifyRecoveryCode(challenge = challenge, code = code))
+
+  override suspend fun beginPasskeyAssertion(challenge: MFAChallenge): PasskeyRequestOptions =
+    client.beginPasskeyAssertion(challenge = challenge)
+
+  override suspend fun completePasskeyAssertion(
+    challenge: MFAChallenge,
+    credential: PasskeyAssertionPayload,
+  ): UserProfile = adopt(client.completePasskeyAssertion(challenge = challenge, credential = credential))
+
+  /**
+   * Records the profile behind a newly established session, exactly as the restore path does, and
+   * hands back the public half. The access token never leaves `client`.
+   */
+  private fun adopt(session: LiveSession): UserProfile {
     user = session.profile
     return user
   }

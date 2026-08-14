@@ -5,6 +5,17 @@ import rentivo.settings as settings_module
 from rentivo.settings import _INSECURE_DEFAULT_KEY, Settings
 
 
+class _RecordingLogger:
+    """Captures warning events without depending on the global structlog config
+    (``capture_logs`` misses cached loggers once another test populates them)."""
+
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def warning(self, event, **_kwargs):
+        self.warnings.append(event)
+
+
 def _secure_production_settings(**overrides):
     values = {
         "environment": "production",
@@ -14,6 +25,7 @@ def _secure_production_settings(**overrides):
         "public_app_url": "https://rentivo.example.com",
         "webauthn_origin": "https://rentivo.example.com",
         "webauthn_rp_id": "rentivo.example.com",
+        "apple_team_id": "ABCDE12345",
         "email_backend": "ses",
         "ses_region": "us-east-1",
         "ses_from_email": "noreply@rentivo.example.com",
@@ -138,6 +150,24 @@ def test_production_settings_require_a_fixed_24_hour_login_key_ttl(monkeypatch):
 
     with pytest.raises(ValueError, match="RENTIVO_API_KEY_LOGIN_TTL_SECONDS"):
         settings_module.validate_production_settings()
+
+
+def test_production_settings_warn_but_boot_without_an_apple_team_id(monkeypatch):
+    # A missing Apple Team ID only disables iOS passkey associated domains
+    # (the AASA route 404s); it must warn rather than block a production boot,
+    # since password auth still works.
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        _secure_production_settings(apple_team_id="  "),
+    )
+
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(settings_module, "logger", recorder)
+
+    settings_module.validate_production_settings()
+
+    assert "apple_team_id_unset_in_production" in recorder.warnings
 
 
 def test_production_settings_do_not_report_matching_rp_id_as_mismatched(monkeypatch):

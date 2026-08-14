@@ -22,7 +22,9 @@ let package = Package(
       path: "Rentivo",
       exclude: [
         "App", "DesignSystem", "Features", "Resources",
-        "openapi.json", "openapi-generator-config.yaml",
+        // App-target build inputs, not package sources: the Xcode app signs itself with the
+        // entitlements file and reads the contract copy through its generator plugin.
+        "Rentivo.entitlements", "openapi.json", "openapi-generator-config.yaml",
       ],
       sources: ["Domain", "Data"]
     ),
