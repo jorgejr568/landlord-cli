@@ -70,6 +70,33 @@ class LoginRequest(_CredentialTransportRequest):
         return value
 
 
+class _MobileCredentialsRequest(_AuthRequest):
+    """Native-app credentials. Body transport is implicit: these endpoints never
+    set cookies, so there is no ``credential_transport`` to negotiate. They also
+    carry no ``turnstile_token`` — a native client cannot solve the widget, and
+    rate limits plus a failure tarpit stand in for it.
+    """
+
+    email: str
+    password: str = Field(min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not value:
+            raise ValueError("E-mail obrigatório.")
+        return value
+
+
+class MobileLoginRequest(_MobileCredentialsRequest):
+    pass
+
+
+class MobileSignupRequest(_MobileCredentialsRequest):
+    pass
+
+
 class MobileAuthorizationRequest(_AuthRequest):
     state: str = Field(min_length=16, max_length=512)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -29,6 +30,8 @@ from rentivo.api.schemas.auth import (
     MobileAuthorizationExchangeRequest,
     MobileAuthorizationRequest,
     MobileAuthorizationResponse,
+    MobileLoginRequest,
+    MobileSignupRequest,
     PasswordForgotRequest,
     PasswordResetRequest,
     SessionResponse,
@@ -169,6 +172,114 @@ async def login(
     if result.status == "mfa_required":
         return mfa_response(result, credential_transport=payload.credential_transport)
     return login_response(result, credential_transport=payload.credential_transport)
+
+
+# Native clients cannot solve the Turnstile widget, so `/auth/mobile/*` trades it
+# for two independent budgets — per client IP and per e-mail — plus a fixed delay
+# in front of every failure. The delay is what makes credential stuffing
+# expensive: a caller burns its four attempts in sixteen seconds, not four
+# milliseconds. Success is never delayed.
+_MOBILE_RATE_LIMIT = 4
+_MOBILE_RATE_WINDOW_SECONDS = 60
+_MOBILE_FAILURE_DELAY_SECONDS = 4.0
+_MOBILE_IP_RATE_ACTION = "mobile_auth_ip"
+_MOBILE_EMAIL_RATE_ACTION = "mobile_auth_email"
+
+
+async def _mobile_failure(exc: ProblemException) -> ProblemException:
+    await asyncio.sleep(_MOBILE_FAILURE_DELAY_SECONDS)
+    return exc
+
+
+def _mobile_rate_identity(email: str) -> str:
+    return email.strip().lower()
+
+
+def _reserve_mobile_attempt(services: RequestServices, *, email: str, ip: str) -> bool:
+    # Both budgets are always charged: an IP that has exhausted its own quota
+    # must not get a free pass at probing a fresh e-mail, and vice versa.
+    ip_ok = services.auth_rate_limit.reserve(
+        action=_MOBILE_IP_RATE_ACTION,
+        identity=ip,
+        limit=_MOBILE_RATE_LIMIT,
+        window_seconds=_MOBILE_RATE_WINDOW_SECONDS,
+    )
+    email_ok = services.auth_rate_limit.reserve(
+        action=_MOBILE_EMAIL_RATE_ACTION,
+        identity=_mobile_rate_identity(email),
+        limit=_MOBILE_RATE_LIMIT,
+        window_seconds=_MOBILE_RATE_WINDOW_SECONDS,
+    )
+    return ip_ok and email_ok
+
+
+def _clear_mobile_email_attempts(services: RequestServices, *, email: str) -> None:
+    # Only the e-mail budget is released. The IP budget stays spent so a single
+    # host cannot launder an unlimited attempt stream through one good account.
+    services.auth_rate_limit.clear(
+        action=_MOBILE_EMAIL_RATE_ACTION,
+        identity=_mobile_rate_identity(email),
+    )
+
+
+@router.post("/mobile/signup", response_model=AuthenticatedResponse)
+async def mobile_signup(
+    payload: MobileSignupRequest,
+    request: Request,
+    services: RequestServices = Depends(get_services),
+) -> JSONResponse:
+    ip = client_ip(request)
+    if not _reserve_mobile_attempt(services, email=payload.email, ip=ip):
+        raise await _mobile_failure(_login_failure_problem(rate_limited=True))
+    try:
+        result = services.login.signup(
+            email=payload.email,
+            password=payload.password,
+            client_ip=ip,
+            user_agent=request.headers.get("user-agent", ""),
+            source="mobile",
+        )
+    except UserAlreadyRegisteredError:
+        raise await _mobile_failure(
+            ProblemException.bad_request("email_already_registered", "E-mail já cadastrado.")
+        ) from None
+    _clear_mobile_email_attempts(services, email=payload.email)
+    return login_response(result, credential_transport="body")
+
+
+@router.post(
+    "/mobile/login",
+    response_model=AuthenticatedResponse,
+    responses={202: {"model": MFARequiredResponse}},
+)
+async def mobile_login(
+    payload: MobileLoginRequest,
+    request: Request,
+    services: RequestServices = Depends(get_services),
+) -> JSONResponse:
+    ip = client_ip(request)
+    if not _reserve_mobile_attempt(services, email=payload.email, ip=ip):
+        raise await _mobile_failure(_login_failure_problem(rate_limited=True))
+    try:
+        result = services.login.login(
+            email=payload.email,
+            password=payload.password,
+            client_ip=ip,
+            user_agent=request.headers.get("user-agent", ""),
+            source="mobile",
+        )
+    except ProblemException as exc:
+        if exc.problem.code == "invalid_credentials":
+            _audit_login_failure(services, email=payload.email, ip=ip, source="mobile")
+            raise await _mobile_failure(_login_failure_problem(rate_limited=False)) from None
+        raise
+    if result is None:
+        _audit_login_failure(services, email=payload.email, ip=ip, source="mobile")
+        raise await _mobile_failure(_login_failure_problem(rate_limited=False))
+    _clear_mobile_email_attempts(services, email=payload.email)
+    if result.status == "mfa_required":
+        return mfa_response(result, credential_transport="body")
+    return login_response(result, credential_transport="body")
 
 
 _login_principal = require_login_scope(APIScope.PROFILE_READ)

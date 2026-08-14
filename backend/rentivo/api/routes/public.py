@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request
 from sqlalchemy import text
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from rentivo import db
 from rentivo.api.errors import ProblemException, problem
@@ -25,6 +25,7 @@ DISALLOWED_PATHS: tuple[str, ...] = (
     "/logout",
     "/mfa-verify",
 )
+IOS_BUNDLE_ID = "br.com.rentivo.ios"
 AI_CRAWLERS: tuple[str, ...] = (
     "GPTBot",
     "ChatGPT-User",
@@ -104,6 +105,19 @@ async def ready() -> dict[str, str]:
             )
         ) from None
     return {"status": "ready"}
+
+
+@router.get("/.well-known/apple-app-site-association")
+async def apple_app_site_association() -> Response:
+    """Associated-domains manifest that lets the iOS app reuse the site's passkeys.
+
+    Served at the document root (not under ``/api``) because that is the only
+    place iOS looks. Without a configured team ID there is nothing truthful to
+    publish, so the path simply does not exist.
+    """
+    if not settings.apple_team_id:
+        raise ProblemException.not_found()
+    return JSONResponse({"webcredentials": {"apps": [f"{settings.apple_team_id}.{IOS_BUNDLE_ID}"]}})
 
 
 @router.get("/robots.txt")

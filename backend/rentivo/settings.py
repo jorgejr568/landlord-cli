@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     webauthn_rp_id: str = "localhost"
     webauthn_rp_name: str = "Rentivo"
     webauthn_origin: str = "http://localhost:8000"
+    # Apple Developer Team ID. Published as the app prefix in
+    # /.well-known/apple-app-site-association so the iOS app can use passkeys
+    # registered for webauthn_rp_id. Empty hides the file entirely.
+    apple_team_id: str = ""
 
     # Canonical public origin (no trailing slash) used for robots.txt / sitemap.xml / OG tags.
     # Leave empty to derive from the incoming request at runtime.
