@@ -88,7 +88,7 @@ it("preserves opaque recipient references while explicitly replacing a fully vis
   expect(screen.queryByRole("button", { name: "Adicionar destinatário" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Remover destinatário 1" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("2.850,00");
-  expect(screen.getByLabelText("Valor do item 2 (R$)")).toBeDisabled();
+  expect(screen.queryByLabelText("Valor do item 2 (R$)")).not.toBeInTheDocument();
   await waitFor(() => expect(document.title).toBe("Editar Apartamento 302 - Rentivo"));
   await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));

@@ -478,6 +478,7 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 
 /* Formset / dates grids */
 .item-grid { display: grid; grid-template-columns: 2.5fr 1fr 1fr auto; gap: 0.75rem; align-items: end; }
+.item-grid--variable { grid-template-columns: 2.5fr 1fr auto; }
 .dates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .extras-grid { display: grid; grid-template-columns: 3fr 2fr auto; gap: 0.75rem; align-items: end; }
 .generate-item-grid { display: grid; grid-template-columns: 2fr 1.5fr 1fr; gap: 1rem; align-items: center; }

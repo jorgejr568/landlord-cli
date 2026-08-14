@@ -213,6 +213,23 @@ struct BillingFormEditableRowTests {
     #expect(domain.sortOrder == 3)
   }
 
+  @Test("a malformed variable item is zeroed when it enters editable form state")
+  func variableItemIsNormalizedForEditing() {
+    let original = BillingItem(
+      id: BillingItemID(rawValue: "item-variable"),
+      description: "Água",
+      amount: Money(centavos: 5_000),
+      type: .variable,
+      sortOrder: 0
+    )
+
+    let editable = EditableBillingItem(item: original)
+
+    #expect(editable.id == original.id)
+    #expect(editable.type == .variable)
+    #expect(editable.centavos == 0)
+  }
+
   @Test("a brand-new item starts blank and mints its own identity")
   func newEditableItemStartsBlank() {
     let first = EditableBillingItem(type: .variable)

@@ -51,6 +51,40 @@ import Testing
   #expect(draft.validate().isEmpty)
 }
 
+@Test func variableBillingItemTypeHidesAndClearsTheTemplateAmount() {
+  #expect(!BillingItemType.variable.showsTemplateAmount)
+  #expect(BillingItemType.variable.normalizedTemplateAmount(5_000) == 0)
+  #expect(BillingItemType.fixed.showsTemplateAmount)
+  #expect(BillingItemType.fixed.normalizedTemplateAmount(5_000) == 5_000)
+}
+
+@Test func billingRejectsNonZeroVariableTemplateAmounts() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "Contrato mensal",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(),
+        description: "Água",
+        amount: Money(centavos: 5_000),
+        type: .variable,
+        sortOrder: 0
+      )
+    ]
+  )
+
+  #expect(
+    draft.validate()
+      == [
+        ValidationIssue(
+          field: .itemAmount,
+          message: "Itens variáveis devem ter valor zero no modelo."
+        )
+      ]
+  )
+}
+
 @Test func billingKeepsEveryRecipientItIsGiven() {
   // A billing update replaces the whole recipient set server-side, so a draft carrying
   // several recipients must validate as-is instead of being narrowed to the first one.

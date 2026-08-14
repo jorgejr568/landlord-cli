@@ -191,7 +191,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
               const amountError = fieldErrors[`items.${index}.amount`];
               return (
                 <div className="formset-row" id={`items-row-${index}`} key={item.id}>
-                  <div className="item-grid">
+                  <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
                     <div className="field mb-0">
                       <label className="field__label" htmlFor={`${item.id}-description`}>Descrição</label>
                       <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && fieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
@@ -205,11 +205,13 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                       </select>
                       <FieldError id={`${item.id}-type-error`} message={typeError} />
                     </div>
-                    <div className="field mb-0">
-                      <label className="field__label" htmlFor={`${item.id}-amount`}>Valor (R$)</label>
-                      <input aria-label={`Valor do item ${index + 1} (R$)`} className={`input mono${item.itemType === "variable" ? " input--disabled" : ""}`} disabled={item.itemType === "variable"} id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
-                      <FieldError id={`${item.id}-amount-error`} message={amountError} />
-                    </div>
+                    {item.itemType === "fixed" ? (
+                      <div className="field mb-0">
+                        <label className="field__label" htmlFor={`${item.id}-amount`}>Valor (R$)</label>
+                        <input aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
+                        <FieldError id={`${item.id}-amount-error`} message={amountError} />
+                      </div>
+                    ) : null}
                     <div className="field mb-0">
                       <span className="field__label sr-only">Remover</span>
                       <button aria-label={`Remover item ${index + 1}`} className="icon-btn" disabled={form.items.length === 1} onClick={() => setField("items", form.items.filter((_, current) => current !== index))} title={form.items.length === 1 ? "A cobrança precisa de pelo menos um item" : "Remover item"} type="button"><Trash2 aria-hidden="true" size={16} /></button>

@@ -10,6 +10,10 @@ enum class BillingItemType(val wire: String) {
 
   val label: String get() = if (this == FIXED) "Fixo" else "Variável"
 
+  val showsTemplateAmount: Boolean get() = this == FIXED
+
+  fun normalizedTemplateAmount(centavos: Int): Int = if (this == VARIABLE) 0 else centavos
+
   companion object {
     fun fromWire(wire: String?): BillingItemType? = entries.firstOrNull { it.wire == wire }
   }
@@ -166,6 +170,14 @@ data class BillingDraft(
     if (items.any { it.amount.centavos < 0 }) {
       issues.add(
         ValidationIssue(ValidationField.ITEM_AMOUNT, "Os valores não podem ser negativos.")
+      )
+    }
+    if (items.any { it.type == BillingItemType.VARIABLE && it.amount.centavos != 0 }) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "Itens variáveis devem ter valor zero no modelo.",
+        )
       )
     }
     if (
