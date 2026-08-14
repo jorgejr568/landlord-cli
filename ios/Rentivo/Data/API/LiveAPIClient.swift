@@ -202,15 +202,21 @@ public actor LiveAPIClient {
     )
   }
 
-  /// Takes ownership of a freshly minted body-transport session: validates the envelope, keeps the
-  /// bearer token in memory, and persists it. Shared by every native sign-in entry point and by
-  /// `exchangeMobileAuthorization`.
+  /// Takes ownership of a freshly minted body-transport session: validates the envelope, persists
+  /// the bearer token, and only then keeps it in memory. Shared by every native sign-in entry point
+  /// and by `exchangeMobileAuthorization`.
+  ///
+  /// The persist-before-memory order matters: a keychain write that fails after the in-memory token
+  /// was set would leave the client authenticated for this launch while `restoreSession` finds
+  /// nothing, and the caller — which surfaces the thrown error and stays anonymous — would disagree
+  /// with the client about whether a session exists. Failing before any state is adopted keeps the
+  /// sign-in atomic, so the user simply retries.
   private func adopt(_ response: LoginResponse) async throws -> LiveSession {
     guard response.credentialTransport == "body", let accessToken = response.accessToken,
       let user = response.bootstrap?.user
     else { throw LiveAPIError.invalidResponse }
-    self.accessToken = accessToken
     try await credentials.saveAccessToken(accessToken)
+    self.accessToken = accessToken
     return LiveSession(accessToken: accessToken, profile: UserProfile(id: user.id, email: user.email))
   }
 

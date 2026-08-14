@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 
 #if canImport(RentivoCore)
@@ -85,6 +86,28 @@ struct MobileAuthClientTests {
 
     await #expect(throws: LiveAPIError.invalidResponse) {
       _ = try await client.mobileLogin(email: "ana@rentivo.com.br", password: "segredo")
+    }
+  }
+
+  @Test func mobileLoginAdoptsNoSessionWhenTheTokenCannotBePersisted() async throws {
+    MobileAuthStubURLProtocol.reset()
+    MobileAuthStubURLProtocol.routes["/api/v1/auth/mobile/login"] = .init(
+      statusCode: 200, body: authenticatedBody)
+    let credentials = FailingCredentialStore()
+    let client = LiveAPIClient(session: stubbedSession(), credentials: credentials)
+
+    // A keychain that refuses the write fails the sign-in outright...
+    await #expect(throws: CredentialStoreError.self) {
+      _ = try await client.mobileLogin(email: "ana@rentivo.com.br", password: "segredo")
+    }
+
+    // ...and leaves nothing adopted in memory either. Were the order reversed, the client would
+    // hold a usable bearer token for this launch while `restoreSession` found none — the UI stays
+    // anonymous on the thrown error, so the two would disagree about whether a session exists.
+    // `request` is the only window onto that state: it is what reports `.sessionExpired` when no
+    // token is held.
+    await #expect(throws: LiveAPIError.sessionExpired) {
+      _ = try await client.request(path: "/api/v1/auth/session")
     }
   }
 
@@ -314,6 +337,17 @@ private let authenticatedBody = #"""
 
 private let challenge = MFAChallenge(
   challengeId: "challenge-1", challengeToken: "nonce-1", methods: [.totp, .recovery, .passkey])
+
+/// A keychain that rejects every write, the way a device with no usable data-protection keychain
+/// does (`errSecMissingEntitlement`). `MemoryCredentialStore` can only succeed, so the failure path
+/// through `adopt` needs its own stub.
+private actor FailingCredentialStore: CredentialStore {
+  func readAccessToken() -> String? { nil }
+  func saveAccessToken(_ token: String) throws {
+    throw CredentialStoreError.keychain(status: errSecMissingEntitlement)
+  }
+  func deleteAccessToken() {}
+}
 
 private func stubbedSession() -> URLSession {
   let configuration = URLSessionConfiguration.ephemeral
