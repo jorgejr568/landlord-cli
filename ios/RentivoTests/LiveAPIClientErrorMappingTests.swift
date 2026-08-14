@@ -59,6 +59,155 @@ private final class ProblemDetailURLProtocol: URLProtocol, @unchecked Sendable {
   override func stopLoading() {}
 }
 
+// MARK: - Folding a problem document's `fields` into the message
+//
+// A schema 422 carries the generic envelope detail ("A requisição contém dados inválidos.") and
+// puts the copy that actually names the problem in `fields`. The web client renders those next to
+// each input; the app has no per-field slot, so it folds them into the one message
+// `LiveAPIError.server` carries — otherwise the user is told only that *something* was invalid.
+
+@Test func requestFoldsSchemaFieldErrorsIntoTheGenericValidationDetail() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [SchemaValidationProblemURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  _ = try #require(try await client.restoreSession())
+
+  do {
+    _ = try await client.request(path: "/api/v1/billings")
+    Issue.record("Expected the stubbed 422 response to throw")
+  } catch let error as LiveAPIError {
+    guard case .server(let message, let statusCode) = error else {
+      Issue.record("Expected .server, got \(error)")
+      return
+    }
+    // The `body.` prefix (the HTTP request part, not anything the user filled in) is stripped, keys
+    // are sorted so the message is stable, Pydantic's terse copy is prefixed with the field path it
+    // belongs to, and the backend's own display-ready sentence stands on its own.
+    #expect(
+      message == """
+        A requisição contém dados inválidos.
+        items.0.description: Field required
+        Informe uma chave PIX válida.
+        """
+    )
+    #expect(statusCode == 422)
+  }
+}
+
+private final class SchemaValidationProblemURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isSessionRestore = request.url?.path == "/api/v1/auth/session"
+    let statusCode = isSessionRestore ? 200 : 422
+    let body =
+      isSessionRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : #"{"type":"https://rentivo.com.br/problems/validation_error","title":"Dados inválidos","status":422,"code":"validation_error","detail":"A requisição contém dados inválidos.","fields":{"body.pix_key":"Informe uma chave PIX válida.","body.items.0.description":"Field required"},"request_id":"req-1"}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
+      headerFields: ["Content-Type": "application/problem+json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
+@Test func requestDoesNotRepeatAFieldErrorThatAlreadyIsTheDetail() async throws {
+  // `ProblemException.invalid_field` puts the same sentence in `detail` and under the field, so
+  // folding it in verbatim would show the user the same line twice.
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [InvalidFieldProblemURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  _ = try #require(try await client.restoreSession())
+
+  do {
+    _ = try await client.request(path: "/api/v1/security/pix")
+    Issue.record("Expected the stubbed 422 response to throw")
+  } catch let error as LiveAPIError {
+    guard case .server(let message, let statusCode) = error else {
+      Issue.record("Expected .server, got \(error)")
+      return
+    }
+    #expect(message == "Chave PIX inválida.")
+    #expect(statusCode == 422)
+  }
+}
+
+private final class InvalidFieldProblemURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isSessionRestore = request.url?.path == "/api/v1/auth/session"
+    let statusCode = isSessionRestore ? 200 : 422
+    let body =
+      isSessionRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : #"{"code":"invalid_pix_key","detail":"Chave PIX inválida.","fields":{"pix_key":"Chave PIX inválida."}}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
+      headerFields: ["Content-Type": "application/problem+json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
+@Test func requestKeepsTheDetailVerbatimWhenTheProblemCarriesNoFields() async throws {
+  // Every non-validation problem ships `fields` as an empty object; the message must stay exactly
+  // the detail, with no stray separator.
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [EmptyFieldsProblemURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  _ = try #require(try await client.restoreSession())
+
+  do {
+    _ = try await client.request(path: "/api/v1/billings/billing-1")
+    Issue.record("Expected the stubbed 403 response to throw")
+  } catch let error as LiveAPIError {
+    guard case .server(let message, let statusCode) = error else {
+      Issue.record("Expected .server, got \(error)")
+      return
+    }
+    #expect(message == "Você não tem acesso a esta cobrança.")
+    #expect(statusCode == 403)
+  }
+}
+
+private final class EmptyFieldsProblemURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isSessionRestore = request.url?.path == "/api/v1/auth/session"
+    let statusCode = isSessionRestore ? 200 : 403
+    let body =
+      isSessionRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : #"{"code":"forbidden","detail":"Você não tem acesso a esta cobrança.","fields":{}}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
+      headerFields: ["Content-Type": "application/problem+json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
 @Test func requestFallsBackToGenericMessageWhenErrorBodyIsNotDecodable() async throws {
   let credentials = MemoryCredentialStore(token: "stored-token")
   let configuration = URLSessionConfiguration.ephemeral

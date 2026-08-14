@@ -81,6 +81,13 @@ private final class PurgeAfterLogoutURLProtocol: URLProtocol, @unchecked Sendabl
     }
   }
 
+  // `invalidateSession()` detaches the purge so `.sessionExpired` reaches the UI without waiting on
+  // a directory walk, which means the files are gone *shortly after* the throw rather than before
+  // it. The session is already unusable at the point above — the token is dropped synchronously —
+  // so only the disk cleanup is deferred, and this is the hook that lets the test observe it
+  // instead of polling.
+  await client.awaitPendingPurge()
+
   #expect(!FileManager.default.fileExists(atPath: file.fileURL.path))
 }
 

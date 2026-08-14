@@ -105,12 +105,9 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func listBillings() async throws -> [Billing] {
     let response: RemoteBillingList = try await decode(path: "/api/v1/billings")
-    var billings: [Billing] = []
-    billings.reserveCapacity(response.items.count)
-    for item in response.items {
-      billings.append(try await billing(id: BillingID(rawValue: item.uuid)))
-    }
-    return billings
+    let remote: [RemoteBilling] = try await details(
+      at: response.items.map { "/api/v1/billings/\($0.uuid)" })
+    return remote.map(billing(from:))
   }
   public func billing(id: BillingID) async throws -> Billing {
     let response: RemoteBilling = try await decode(path: "/api/v1/billings/\(id.rawValue)")
@@ -312,12 +309,9 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func listOrganizations() async throws -> [Organization] {
     let response: RemoteOrganizationList = try await decode(path: "/api/v1/organizations")
-    var organizations: [Organization] = []
-    organizations.reserveCapacity(response.items.count)
-    for item in response.items {
-      organizations.append(try await organization(id: OrganizationID(rawValue: item.uuid)))
-    }
-    return organizations
+    let remote: [RemoteOrganization] = try await details(
+      at: response.items.map { "/api/v1/organizations/\($0.uuid)" })
+    return remote.map(organization(from:))
   }
   public func organization(id: OrganizationID) async throws -> Organization {
     let response: RemoteOrganization = try await decode(path: "/api/v1/organizations/\(id.rawValue)")
@@ -350,9 +344,15 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   public func updateMemberRole(organizationID: OrganizationID, userID: Int, role: OrganizationRole) async throws { try await execute(path: "/api/v1/organizations/\(organizationID.rawValue)/members/\(userID)", method: "PATCH", body: RemoteMemberRole(role: role.rawValue)) }
   public func removeMember(organizationID: OrganizationID, userID: Int) async throws { try await execute(path: "/api/v1/organizations/\(organizationID.rawValue)/members/\(userID)", method: "DELETE") }
   public func inviteMember(organizationID: OrganizationID, email: String, role: OrganizationRole) async throws -> Invitation {
+    // Best-effort enrichment for the returned invitation's display name, started *before* the POST
+    // rather than after it so the two round trips overlap instead of queueing: the invite doesn't
+    // depend on the name, and the name doesn't depend on the invite. A failure here (including a
+    // caller who may invite but not read the organization) still falls back to the placeholder,
+    // exactly as when this ran sequentially — the invite itself already succeeded.
+    async let remoteOrganization: RemoteOrganization? = try? self.decode(
+      path: "/api/v1/organizations/\(organizationID.rawValue)")
     let response: RemoteInvitation = try await decode(path: "/api/v1/organizations/\(organizationID.rawValue)/invites", method: "POST", body: RemoteInviteCreate(email: email, role: role.rawValue))
-    // Best-effort enrichment: the invite already succeeded, so a failure here shouldn't fail the whole call.
-    let organizationName = (try? await organization(id: organizationID))?.name ?? "Organização"
+    let organizationName = await remoteOrganization.map(organization(from:))?.name ?? "Organização"
     return Invitation(id: InvitationID(rawValue: response.uuid), organizationID: organizationID, organizationName: organizationName, email: response.invitedEmail, role: OrganizationRole(rawValue: response.role) ?? .viewer, status: InvitationStatus(rawValue: response.status) ?? .pending)
   }
   public func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws { try await execute(path: "/api/v1/organizations/\(organizationID.rawValue)/mfa-policy", method: "PUT", body: RemoteMFAPolicy(enforceMFA: required)) }
@@ -433,46 +433,100 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     try await execute(path: themePath(for: target), method: "DELETE")
   }
 
-  private func decode<Response: Decodable>(path: String) async throws -> Response {
-    let data = try await client.request(path: path)
-    do { return try JSONDecoder().decode(Response.self, from: data) }
-    catch { throw LiveAPIError.invalidResponse }
+  // MARK: - Transport helpers
+  //
+  // Every helper below is `nonisolated`, and deliberately so. This store is `@MainActor` because it
+  // owns `user` and hands Domain values to SwiftUI, but nothing about serialization needs the main
+  // actor: as MainActor members these ran JSON decoding of every list payload, JSON encoding of
+  // every request body, and the full multipart assembly — which copies a receipt of up to 10 MB —
+  // on the thread that also draws the app. In Swift 6 a `nonisolated async` function runs on the
+  // global concurrent executor rather than inheriting its caller's actor, so marking them is the
+  // whole fix. It is also what makes the concurrent fan-out in `details(at:)` real: child tasks
+  // calling a MainActor-isolated helper would just queue back up behind each other on the main
+  // actor. The `user` mutations and every `Remote*` → Domain mapping stay on the main actor.
+
+  private nonisolated func decode<Response: Decodable & Sendable>(path: String) async throws -> Response {
+    try Self.decode(try await client.request(path: path))
   }
 
-  private func decode<Response: Decodable>(path: String, method: String) async throws -> Response {
-    let data = try await client.request(path: path, method: method)
-    do { return try JSONDecoder().decode(Response.self, from: data) }
-    catch { throw LiveAPIError.invalidResponse }
+  private nonisolated func decode<Response: Decodable & Sendable>(path: String, method: String) async throws -> Response {
+    try Self.decode(try await client.request(path: path, method: method))
   }
 
-  private func decode<Response: Decodable, Body: Encodable>(path: String, method: String, body: Body) async throws -> Response {
-    let data = try await client.request(path: path, method: method, body: try JSONEncoder().encode(body))
-    do { return try JSONDecoder().decode(Response.self, from: data) }
-    catch { throw LiveAPIError.invalidResponse }
+  private nonisolated func decode<Response: Decodable & Sendable, Body: Encodable & Sendable>(
+    path: String, method: String, body: Body
+  ) async throws -> Response {
+    try Self.decode(
+      try await client.request(path: path, method: method, body: try WireJSON.encoder.encode(body)))
   }
 
-  private func decodeMultipart<Response: Decodable>(
+  private nonisolated func decodeMultipart<Response: Decodable & Sendable>(
     path: String, name: String? = nil, files: [(field: String, upload: FileUpload)]
   ) async throws -> Response {
     let boundary = "RentivoBoundary-\(UUID().uuidString)"
-    let data = multipartBody(boundary: boundary, name: name, files: files)
-    let response = try await client.request(
-      path: path, method: "POST", body: data,
-      contentType: "multipart/form-data; boundary=\(boundary)"
-    )
-    do { return try JSONDecoder().decode(Response.self, from: response) }
-    catch { throw LiveAPIError.invalidResponse }
+    let data = Self.multipartBody(boundary: boundary, name: name, files: files)
+    return try Self.decode(
+      try await client.request(
+        path: path, method: "POST", body: data,
+        contentType: "multipart/form-data; boundary=\(boundary)"
+      ))
   }
 
-  private func execute(path: String, method: String) async throws {
+  private nonisolated func execute(path: String, method: String) async throws {
     _ = try await client.request(path: path, method: method)
   }
 
-  private func execute<Body: Encodable>(path: String, method: String, body: Body) async throws {
-    _ = try await client.request(path: path, method: method, body: try JSONEncoder().encode(body))
+  private nonisolated func execute<Body: Encodable & Sendable>(path: String, method: String, body: Body) async throws {
+    _ = try await client.request(path: path, method: method, body: try WireJSON.encoder.encode(body))
   }
 
-  private func multipartBody(
+  /// How many detail requests `details(at:)` keeps in flight.
+  ///
+  /// High enough that a portfolio-sized list finishes in a couple of round trips, low enough that a
+  /// large one doesn't queue dozens of requests behind `URLSession`'s own per-host connection limit
+  /// (which would serialize them again anyway) or hold every decoded payload in memory at once.
+  private nonisolated static let maxConcurrentDetailRequests = 5
+
+  /// Fetches one detail document per path concurrently and returns them in the order given.
+  ///
+  /// The list endpoints return summaries that omit what the app actually shows — a billing's items
+  /// and recipients, an organization's members — so a detail request per row is unavoidable. Doing
+  /// them one `await` at a time made the wait grow linearly with the list: ten billings meant ten
+  /// serial round trips before anything appeared. The bounded group overlaps them while keeping the
+  /// result order the list defined, since that order is what the UI renders. The first failure
+  /// cancels the rest and propagates, matching the sequential loop this replaced.
+  private nonisolated func details<Response: Decodable & Sendable>(at paths: [String]) async throws -> [Response] {
+    guard !paths.isEmpty else { return [] }
+    var responses = [Response?](repeating: nil, count: paths.count)
+    try await withThrowingTaskGroup(of: (Int, Response).self) { group in
+      var next = 0
+      while next < min(Self.maxConcurrentDetailRequests, paths.count) {
+        let index = next
+        group.addTask { (index, try await self.decode(path: paths[index])) }
+        next += 1
+      }
+      while let (index, response) = try await group.next() {
+        responses[index] = response
+        guard next < paths.count else { continue }
+        let index = next
+        group.addTask { (index, try await self.decode(path: paths[index])) }
+        next += 1
+      }
+    }
+    // The group only finishes without throwing once every task has reported, so no slot can still
+    // be empty here; the guard is there so a future change can't turn that into a silent short list.
+    return try responses.map { response in
+      guard let response else { throw LiveAPIError.invalidResponse }
+      return response
+    }
+  }
+
+  private nonisolated static func decode<Response: Decodable>(_ data: Data) throws -> Response {
+    do { return try WireJSON.decoder.decode(Response.self, from: data) }
+    catch { throw LiveAPIError.invalidResponse }
+  }
+
+  private nonisolated static func multipartBody(
     boundary: String, name: String?, files: [(field: String, upload: FileUpload)]
   ) -> Data {
     var body = Data()
@@ -483,7 +537,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     }
     for file in files {
       append("--\(boundary)\r\n")
-      append("Content-Disposition: form-data; name=\"\(file.field)\"; filename=\"\(sanitizedFilename(file.upload.filename))\"\r\n")
+      append("Content-Disposition: form-data; name=\"\(file.field)\"; filename=\"\(Self.sanitizedFilename(file.upload.filename))\"\r\n")
       append("Content-Type: \(file.upload.mediaType)\r\n\r\n")
       body.append(file.upload.data)
       append("\r\n")
@@ -494,7 +548,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
 
   // Strips characters that could break out of the quoted `filename="..."` attribute (or the
   // header line entirely) and inject extra multipart headers/parts.
-  private func sanitizedFilename(_ filename: String) -> String {
+  private nonisolated static func sanitizedFilename(_ filename: String) -> String {
     var sanitized = filename
     for token in ["\r\n", "\r", "\n", "\""] {
       sanitized = sanitized.replacingOccurrences(of: token, with: "")
