@@ -38,24 +38,14 @@ final class AppModel {
   var demoSettings: DemoSettings
   var dataRevision = 0
   let dependencies: AppDependencies
-  private let mobileWebAuthenticator = MobileWebAuthenticator()
-  /// Replaces the shared-browser cookie logout in tests, which cannot present an
-  /// `ASWebAuthenticationSession`. `nil` — every production path — uses
-  /// `mobileWebAuthenticator`.
-  private let browserLogoutOverride: (@MainActor () async throws -> Void)?
 
   init(store: MockRentivoStore = MockRentivoStore(fixtures: .canonical)) {
     dependencies = .mock(store: store)
     demoSettings = store.demoSettings
-    browserLogoutOverride = nil
   }
 
-  init(
-    dependencies: AppDependencies,
-    browserLogout: (@MainActor () async throws -> Void)? = nil
-  ) {
+  init(dependencies: AppDependencies) {
     self.dependencies = dependencies
-    browserLogoutOverride = browserLogout
     demoSettings = dependencies.demo.demoSettings
     if dependencies.auth.usesLiveAPI {
       session = .restoring
@@ -109,19 +99,10 @@ final class AppModel {
     notice = AppNotice(kind: .success, message: "Bem-vinda à demonstração do Rentivo.")
   }
 
-  func signInWithWebAuthorization() async throws {
-    // Demo mode has no server to authorize against, so it takes the local sign-in shortcut
-    // instead of opening a browser sheet.
-    guard dependencies.auth.usesLiveAPI else { signIn(); return }
-    let code = try await mobileWebAuthenticator.authorize()
-    adoptSignedInProfile(try await dependencies.auth.exchangeMobileAuthorization(code: code))
-  }
-
   // MARK: - Native sign-in
   //
   // These are the app-state half of the native (`/api/v1/auth/mobile/*`) flow the login screen
-  // drives; the browser hand-off above stays available for what it alone can do (Google sign-in
-  // and the Turnstile-verified web flows).
+  // drives.
   //
   // `dependencies.auth` already owns the credential half — every one of these calls persists the
   // bearer token and records the profile as the store's current user before returning (see
@@ -168,8 +149,7 @@ final class AppModel {
 
   func signOut() async {
     guard !isSigningOut else { return }
-    // Demo mode has neither a token to revoke nor a browser session to close, so it drops
-    // straight to local state.
+    // Demo mode has no token to revoke, so it drops straight to local state.
     guard dependencies.auth.usesLiveAPI else {
       completeSignOut()
       return
@@ -182,9 +162,6 @@ final class AppModel {
     // token, nor stuck signed in locally because a later step failed.
     await dependencies.auth.logout()
     completeSignOut()
-    await closeBrowserSession(
-      warning: "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador."
-    )
   }
 
   func deleteAccount(password: String) async {
@@ -202,30 +179,8 @@ final class AppModel {
       completeSignOut()
       // After `completeSignOut()`, which clears the notice the deletion needs to report.
       notice = AppNotice(kind: .success, message: "Sua conta foi excluída.")
-      // The deleted account's web cookies would otherwise survive in the shared browser and
-      // open the next login sheet into a half-authenticated session.
-      await closeBrowserSession(
-        warning: "Sua conta foi excluída, mas não foi possível encerrar a sessão do navegador."
-      )
     } catch {
       notice = AppNotice(kind: .warning, message: error.localizedDescription)
-    }
-  }
-
-  /// Closes the shared browser (cookie) session after the local session is already gone.
-  /// Best-effort by design: it must never block the sign-out or deletion that already
-  /// happened, and dismissing the sheet is an expected, silent outcome, not a failure worth
-  /// reporting — so only a real failure replaces the caller's notice with `warning`.
-  private func closeBrowserSession(warning: String) async {
-    do {
-      if let browserLogoutOverride {
-        try await browserLogoutOverride()
-      } else {
-        try await mobileWebAuthenticator.logout()
-      }
-    } catch {
-      guard !MobileWebAuthenticator.isUserCancellation(error) else { return }
-      notice = AppNotice(kind: .warning, message: warning)
     }
   }
 

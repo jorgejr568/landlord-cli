@@ -102,9 +102,17 @@ private struct AuthErrorLabel: View {
 /// The pending `MFAChallenge` lives here rather than in `AppModel` because it is screen state —
 /// it exists only while this view is on screen, and leaving the screen (or going back to the
 /// credential form) is what discards it.
+/// The typed credentials live here rather than inside `SignInForm` for the same reason: showing
+/// the challenge takes `SignInForm` out of the hierarchy, and a `@State` property dies with the
+/// view that owns it. Held one level up, "Voltar" comes back to the form the user actually filled
+/// in instead of two empty fields. The password is kept alongside the e-mail on purpose — the MFA
+/// step is the same screen and the same sign-in attempt, so re-typing it would be a penalty for
+/// nothing; it goes away with the whole screen the moment the login lands.
 struct LoginView: View {
   @State private var challenge: MFAChallenge?
   @State private var isCreatingAccount = false
+  @State private var email = ""
+  @State private var password = ""
 
   var body: some View {
     if let challenge {
@@ -113,6 +121,8 @@ struct LoginView: View {
       SignUpForm(onSignIn: { isCreatingAccount = false })
     } else {
       SignInForm(
+        email: $email,
+        password: $password,
         onCreateAccount: { isCreatingAccount = true },
         onChallenge: { challenge = $0 }
       )
@@ -122,10 +132,10 @@ struct LoginView: View {
 
 private struct SignInForm: View {
   @Environment(AppModel.self) private var app
+  @Binding var email: String
+  @Binding var password: String
   let onCreateAccount: () -> Void
   let onChallenge: (MFAChallenge) -> Void
-  @State private var email = ""
-  @State private var password = ""
   @State private var validationMessage: String?
   @State private var isAuthenticating = false
 
@@ -183,16 +193,6 @@ private struct SignInForm: View {
           AuthLinkButton(title: "Criar conta", action: onCreateAccount)
             .accessibilityIdentifier("login.signup")
         }
-        Divider()
-        Button(action: submitWithBrowser) {
-          Text("Entrar pelo navegador")
-        }
-        .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
-        .disabled(isAuthenticating)
-        .accessibilityIdentifier("login.browser")
-        Text("Entre pelo navegador para usar sua conta Google ou concluir a verificação de segurança do site.")
-          .font(.footnote)
-          .foregroundStyle(RentivoColors.secondaryInk)
       }
     }
   }
@@ -203,22 +203,7 @@ private struct SignInForm: View {
       if case .mfaRequired(let challenge) = try await app.signIn(
         email: email.trimmed, password: password)
       {
-        password = ""
         onChallenge(challenge)
-      }
-    }
-  }
-
-  /// The browser hand-off, kept as the secondary path: it is the only one that can run Google
-  /// sign-in and the Turnstile-verified web flows.
-  private func submitWithBrowser() {
-    guard !isAuthenticating else { return }
-    authenticate {
-      do {
-        try await app.signInWithWebAuthorization()
-      } catch {
-        guard !MobileWebAuthenticator.isUserCancellation(error) else { return }
-        throw error
       }
     }
   }
@@ -394,7 +379,10 @@ private struct MFAChallengeForm: View {
           AuthField(codeKind.label) {
             TextField(codeKind.placeholder, text: $code)
               .keyboardType(codeKind == .totp ? .numberPad : .asciiCapable)
-              .textContentType(.oneTimeCode)
+              // `.oneTimeCode` is what surfaces the authenticator code above the keyboard; a
+              // recovery code is a stored secret, never an incoming one, so the hint would only
+              // offer an unrelated TOTP in its place.
+              .textContentType(codeKind == .totp ? .oneTimeCode : nil)
               .textInputAutocapitalization(.characters)
               .autocorrectionDisabled()
               .submitLabel(.go)
@@ -432,7 +420,7 @@ private struct MFAChallengeForm: View {
           .accessibilityIdentifier("login.mfa.recovery")
         }
         if !offersCode && !offersPasskey {
-          Text("Nenhuma verificação disponível neste aplicativo. Entre pelo navegador para concluir.")
+          Text("Nenhuma verificação disponível para este dispositivo.")
             .font(.footnote)
             .foregroundStyle(RentivoColors.secondaryInk)
         }
