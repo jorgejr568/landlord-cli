@@ -8,36 +8,15 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import app.rentivo.data.AppDependencies
 import app.rentivo.data.DemoSettings
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MobileLoginOutcome
+import app.rentivo.domain.PasskeyAssertionPayload
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.UserProfile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-
-/**
- * The browser leg of authentication, as `AppModel` needs it.
- *
- * `MobileWebAuthenticator` — the production implementation — is bound to Custom Tabs and
- * `android.net.Uri`, so `AppModel` talks to this pure-JVM seam instead. `MainActivity` adapts the
- * real authenticator onto it (see `MobileWebAuthenticating`), and unit tests substitute a fake.
- * The iOS `AppModel` owns its `MobileWebAuthenticator` directly because `ASWebAuthenticationSession`
- * needs no such split.
- */
-interface WebAuthenticating {
-
-  /** Opens the login page and returns the one-time authorization code. */
-  suspend fun authorize(): String
-
-  /** Opens the logout page, clearing the shared browser session. */
-  suspend fun logout()
-
-  /**
-   * Whether [throwable] is the user dismissing the browser rather than a real failure. Cancellation
-   * is an expected outcome that callers stay silent about.
-   */
-  fun isUserCancellation(throwable: Throwable): Boolean
-}
 
 /**
  * App-wide session, navigation and notice state. Port of `ios/Rentivo/App/AppModel.swift`.
@@ -48,7 +27,6 @@ interface WebAuthenticating {
  * `@MainActor` isolation.
  *
  * @param dependencies the 17 repositories every screen resolves through.
- * @param authenticator browser-backed sign-in/sign-out; `null` in demo builds, which never use it.
  * @param sessionExpired fires when `LiveAPIClient` sees a 401 for the stored token (the analog of
  *   the iOS `liveAPIClientSessionExpired` notification). Only collected for live dependencies.
  * @param scope the app model's own lifetime, outliving any one screen. It carries the session-expiry
@@ -58,7 +36,6 @@ interface WebAuthenticating {
 @Stable
 class AppModel(
   val dependencies: AppDependencies,
-  private val authenticator: WebAuthenticating? = null,
   sessionExpired: Flow<Unit>? = null,
   private val scope: CoroutineScope,
 ) {
@@ -143,18 +120,46 @@ class AppModel(
     )
   }
 
-  suspend fun signInWithWebAuthorization() {
-    // Demo mode has no server to authorize against, so it takes the local sign-in shortcut instead
-    // of opening a browser sheet.
-    if (!dependencies.auth.usesLiveAPI) {
-      signIn()
-      return
-    }
-    val browser = requireNotNull(authenticator) {
-      "Live dependencies require a WebAuthenticating to sign in through the browser."
-    }
-    val code = browser.authorize()
-    session = Session.Authenticated(dependencies.auth.exchangeMobileAuthorization(code = code))
+  // MARK: - Native sign-in
+  //
+  // These are the app-state half of the native (`/api/v1/auth/mobile/*`) flow the login screen
+  // drives. `dependencies.auth` already owns the credential half — every one of these calls
+  // persists the bearer token and records the profile as the store's current user before returning
+  // — so nothing here re-adopts it; they only move the session, the selected tab, and the notice.
+  // Errors propagate to the caller, which owns the screen the user is still looking at; the session
+  // is left untouched so a failed attempt keeps them on the form.
+  //
+  // `signIn` is the only one that can return without a session: its `MfaRequired` outcome is handed
+  // back verbatim so the login screen can present the second factor and finish with one of the
+  // completion calls below.
+
+  suspend fun signIn(email: String, password: String): MobileLoginOutcome {
+    val outcome = dependencies.auth.mobileLogin(email = email, password = password)
+    if (outcome is MobileLoginOutcome.Authenticated) adoptSignedInProfile(outcome.profile)
+    return outcome
+  }
+
+  suspend fun signUp(email: String, password: String) {
+    adoptSignedInProfile(dependencies.auth.mobileSignup(email = email, password = password))
+  }
+
+  suspend fun completeTOTP(challenge: MFAChallenge, code: String) {
+    adoptSignedInProfile(dependencies.auth.verifyTotp(challenge = challenge, code = code))
+  }
+
+  suspend fun completeRecoveryCode(challenge: MFAChallenge, code: String) {
+    adoptSignedInProfile(dependencies.auth.verifyRecoveryCode(challenge = challenge, code = code))
+  }
+
+  suspend fun completePasskey(challenge: MFAChallenge, credential: PasskeyAssertionPayload) {
+    adoptSignedInProfile(
+      dependencies.auth.completePasskeyAssertion(challenge = challenge, credential = credential)
+    )
+  }
+
+  /** The state every server-backed sign-in lands on, whichever path produced the profile. */
+  private fun adoptSignedInProfile(profile: UserProfile) {
+    session = Session.Authenticated(profile)
     selectedTab = AppTab.HOME
     notice = AppNotice(kind = AppNotice.Kind.SUCCESS, message = "Sessão conectada ao Rentivo.")
   }
@@ -164,16 +169,16 @@ class AppModel(
    *
    * Deliberately not a `suspend` function. Its very first effect — [completeSignOut] — removes the
    * account screen that started it from composition, which cancels that screen's
-   * `rememberCoroutineScope()`; anything still awaited at that point (here, the trailing browser
-   * logout) would be cancelled somewhere between "always runs" and "never runs" depending on frame
-   * timing. Running the sequence on the app model's own scope, which lives as long as the session
-   * does, makes the whole thing complete regardless of what happens to the caller. Callers keep
-   * working unchanged: invoking a non-suspending function inside `scope.launch { … }` is fine.
+   * `rememberCoroutineScope()`; the token revocation still in flight at that point would be
+   * cancelled somewhere between "always runs" and "never runs" depending on frame timing. Running
+   * the sequence on the app model's own scope, which lives as long as the session does, makes it
+   * complete regardless of what happens to the caller. Callers keep working unchanged: invoking a
+   * non-suspending function inside `scope.launch { … }` is fine.
    */
   fun signOut() {
     if (isSigningOut) return
-    // Demo mode has neither a token to revoke nor a browser session to close, so it drops straight
-    // to local state — synchronously, with no scope involved and no in-flight flag to toggle.
+    // Demo mode has no token to revoke, so it drops straight to local state — synchronously, with
+    // no scope involved and no in-flight flag to toggle.
     if (!dependencies.auth.usesLiveAPI) {
       completeSignOut()
       return
@@ -185,24 +190,10 @@ class AppModel(
       try {
         // Revoke the API token first (best-effort inside `logout()`), then unconditionally drop
         // local credentials/state: the user must never end up "signed out" locally while the server
-        // still honors the old token, nor stuck signed in locally because a later step failed.
+        // still honors the old token, nor stuck signed in locally because a later step failed. With
+        // native sign-in there is no browser session to close afterwards.
         dependencies.auth.logout()
         completeSignOut()
-        // The browser-cookie logout is best-effort and must never block sign-out (which already
-        // happened above). Cancelling that sheet is an expected, silent outcome, not a failure
-        // worth reporting.
-        val browser = authenticator ?: return@launch
-        try {
-          browser.logout()
-        } catch (cancellation: CancellationException) {
-          throw cancellation
-        } catch (throwable: Throwable) {
-          if (browser.isUserCancellation(throwable)) return@launch
-          notice = AppNotice(
-            kind = AppNotice.Kind.WARNING,
-            message = "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador.",
-          )
-        }
       } finally {
         isSigningOut = false
       }

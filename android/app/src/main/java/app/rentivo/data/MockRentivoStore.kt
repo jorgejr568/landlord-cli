@@ -31,6 +31,8 @@ import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
+import app.rentivo.domain.MFAChallenge
+import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationCapabilities
@@ -39,7 +41,9 @@ import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.PasskeyAssertionPayload
 import app.rentivo.domain.PasskeyID
+import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.Receipt
 import app.rentivo.domain.ReceiptID
@@ -148,7 +152,33 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   // selected by `usesLiveAPI`.
   override suspend fun restoreSession(): UserProfile? = null
 
-  override suspend fun exchangeMobileAuthorization(code: String): UserProfile = profileState
+  // The demo has no credentials to check and no second factor to enrol, so native sign-in always
+  // succeeds immediately as the demo user and never reports `MfaRequired`. That makes the
+  // challenge-bound calls below unreachable from the demo UI; they exist only to satisfy
+  // `AuthRepository` and behave as no-op successes if a caller reaches them anyway.
+  override suspend fun mobileLogin(email: String, password: String): MobileLoginOutcome =
+    MobileLoginOutcome.Authenticated(profileState)
+
+  override suspend fun mobileSignup(email: String, password: String): UserProfile = profileState
+
+  override suspend fun verifyTotp(challenge: MFAChallenge, code: String): UserProfile = profileState
+
+  override suspend fun verifyRecoveryCode(challenge: MFAChallenge, code: String): UserProfile =
+    profileState
+
+  override suspend fun beginPasskeyAssertion(challenge: MFAChallenge): PasskeyRequestOptions =
+    PasskeyRequestOptions(
+      challenge = ByteArray(0),
+      relyingPartyIdentifier = "",
+      allowedCredentialIDs = emptyList(),
+      userVerification = "preferred",
+      timeoutMilliseconds = 60_000,
+    )
+
+  override suspend fun completePasskeyAssertion(
+    challenge: MFAChallenge,
+    credential: PasskeyAssertionPayload,
+  ): UserProfile = profileState
 
   override suspend fun logout() = Unit
 

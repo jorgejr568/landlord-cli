@@ -13,6 +13,7 @@ import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
@@ -558,8 +559,10 @@ class MockRentivoStoreTest {
     store.deleteAccount(password = "senha-de-demonstração")
     assertEquals(store.snapshot.profile, store.currentUser)
 
-    val exchanged = store.exchangeMobileAuthorization(code = "codigo-de-demonstração")
-    assertEquals(store.snapshot.profile, exchanged)
+    // Native sign-in always succeeds immediately as the demo user and never asks for a factor.
+    val outcome = store.mobileLogin(email = "ana@demo.com.br", password = "irrelevante")
+    assertEquals(MobileLoginOutcome.Authenticated(store.snapshot.profile), outcome)
+    assertEquals(store.snapshot.profile, store.mobileSignup(email = "ana@demo.com.br", password = "x"))
   }
 
   @Test

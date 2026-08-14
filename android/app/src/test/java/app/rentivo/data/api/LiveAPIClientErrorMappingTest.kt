@@ -201,7 +201,7 @@ class LiveAPIClientErrorMappingTest {
     )
 
     val error = serverError(
-      runCatching { client.exchangeMobileAuthorization("any-code") }.exceptionOrNull()
+      runCatching { client.mobileSignup("ana@rentivo.com.br", "senha-secreta") }.exceptionOrNull()
     )
 
     assertEquals(
@@ -223,7 +223,7 @@ class LiveAPIClientErrorMappingTest {
     )
 
     val error = serverError(
-      runCatching { client.exchangeMobileAuthorization("any-code") }.exceptionOrNull()
+      runCatching { client.mobileSignup("ana@rentivo.com.br", "senha-secreta") }.exceptionOrNull()
     )
 
     assertEquals(
@@ -242,7 +242,7 @@ class LiveAPIClientErrorMappingTest {
     )
 
     val error = serverError(
-      runCatching { client.exchangeMobileAuthorization("any-code") }.exceptionOrNull()
+      runCatching { client.mobileSignup("ana@rentivo.com.br", "senha-secreta") }.exceptionOrNull()
     )
 
     assertEquals(
@@ -261,7 +261,7 @@ class LiveAPIClientErrorMappingTest {
     )
 
     val error = serverError(
-      runCatching { client.exchangeMobileAuthorization("any-code") }.exceptionOrNull()
+      runCatching { client.mobileSignup("ana@rentivo.com.br", "senha-secreta") }.exceptionOrNull()
     )
 
     assertEquals("Não foi possível conectar ao Rentivo. Tente novamente.", error.message)
