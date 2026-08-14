@@ -42,6 +42,7 @@ struct BillingListView: View {
   @State private var searchText = ""
   @State private var ownerFilter: BillingOwnerFilter = .all
   @State private var showingCreate = false
+  @State private var refresh = RefreshActivity()
 
   var body: some View {
     PageStateView(
@@ -60,15 +61,14 @@ struct BillingListView: View {
     .navigationTitle("Cobranças")
     .searchable(text: $searchText, prompt: "Buscar por nome, responsável ou descrição")
     .toolbar {
-      // iOS refreshes with a pull gesture, which macOS has no equivalent for, so the same
-      // `load()` is reachable from the toolbar (and from ⌘R) instead.
       ToolbarItem(placement: .primaryAction) {
-        Button {
-          Task { await load() }
-        } label: {
-          Label("Atualizar", systemImage: "arrow.clockwise")
+        RefreshToolbarButton(
+          activity: refresh,
+          help: "Atualizar as cobranças",
+          accessibilityIdentifier: "billing.refresh"
+        ) {
+          await load()
         }
-        .keyboardShortcut("r", modifiers: .command)
       }
       ToolbarItem(placement: .primaryAction) {
         if canCreateBilling {

@@ -60,6 +60,9 @@ struct BillFormView: View {
   @State private var notes: String
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
+  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
+  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var submitErrorMessage: String?
   @State private var saving = false
 
   init(billing: Billing, bill: Bill? = nil, onSaved: @escaping () async -> Void) {
@@ -156,11 +159,16 @@ struct BillFormView: View {
         MoneyText(money: total)
       }
 
-      if !issues.isEmpty {
+      if !issues.isEmpty || submitErrorMessage != nil {
         Section("Revise a fatura") {
           ForEach(issues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
               .foregroundStyle(RentivoColors.coral)
+          }
+          if let submitErrorMessage {
+            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("bill.form.error")
           }
         }
       }
@@ -220,6 +228,7 @@ struct BillFormView: View {
   }
 
   private func save() async {
+    submitErrorMessage = nil
     let draft = BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
@@ -245,7 +254,7 @@ struct BillFormView: View {
       app.showNotice(bill == nil ? "Fatura criada como rascunho." : "Fatura atualizada.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      submitErrorMessage = DemoError(error).message
     }
   }
 

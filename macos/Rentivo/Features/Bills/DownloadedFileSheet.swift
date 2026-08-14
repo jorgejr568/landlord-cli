@@ -79,12 +79,16 @@ private struct DownloadedFileDocument: FileDocument {
 /// things a user actually wants — save it somewhere, or just look at it — are direct buttons, and
 /// sharing stays as the third option rather than the only one.
 struct DownloadShareView: View {
-  @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let file: DownloadedFile
 
   @State private var exportDocument: DownloadedFileDocument?
   @State private var showingExporter = false
+  @State private var isPreparingExport = false
+  /// A failed save, reported under the button rather than through the global banner: that banner
+  /// is overlaid on the window this sheet covers, so the message would only appear after the sheet
+  /// closes — long after it meant anything. Cleared on the next attempt.
+  @State private var exportError: String?
 
   var body: some View {
     NavigationStack { content }
@@ -102,10 +106,26 @@ struct DownloadShareView: View {
         Button {
           prepareExport()
         } label: {
-          Label("Salvar como…", systemImage: "square.and.arrow.down")
+          HStack(spacing: RentivoSpacing.small) {
+            if isPreparingExport {
+              ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+            }
+            Label("Salvar como…", systemImage: "square.and.arrow.down")
+          }
         }
         .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+        .disabled(isPreparingExport)
         .accessibilityIdentifier("download.save")
+
+        if let exportError {
+          Label(exportError, systemImage: "exclamationmark.circle.fill")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.coral)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("download.save.error")
+        }
 
         Button {
           NSWorkspace.shared.open(file.fileURL)
@@ -140,19 +160,36 @@ struct DownloadShareView: View {
       defaultFilename: DownloadedFileExport.defaultFilename(for: file)
     ) { result in
       if case .failure(let error) = result {
-        app.reportFailure(error)
+        exportError = DemoError(error).message
       }
     }
   }
 
   /// Reads the temp file up front so the exporter owns the bytes, and reports the rare failure
   /// (a file the system already reclaimed) instead of opening an empty save panel.
+  ///
+  /// The read runs off the main actor: a downloaded fatura is small but not bounded, and this used
+  /// to block the window between the click and the save panel appearing — the one moment the user
+  /// is watching for a response.
   private func prepareExport() {
-    do {
-      exportDocument = DownloadedFileDocument(data: try Data(contentsOf: file.fileURL))
-      showingExporter = true
-    } catch {
-      app.showNotice("Não foi possível ler o arquivo baixado.", kind: .warning)
+    guard !isPreparingExport else { return }
+    isPreparingExport = true
+    exportError = nil
+    Task {
+      defer { isPreparingExport = false }
+      do {
+        let data = try await Self.bytes(at: file.fileURL)
+        exportDocument = DownloadedFileDocument(data: data)
+        showingExporter = true
+      } catch {
+        exportError = "Não foi possível ler o arquivo baixado."
+      }
     }
+  }
+
+  /// `nonisolated` and `async`, so the blocking read happens on the cooperative pool rather than
+  /// on the main actor this view otherwise lives on.
+  private nonisolated static func bytes(at url: URL) async throws -> Data {
+    try Data(contentsOf: url)
   }
 }

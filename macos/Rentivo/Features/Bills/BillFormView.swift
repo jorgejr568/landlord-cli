@@ -69,6 +69,10 @@ struct BillFormView: View {
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
   @State private var saving = false
+  /// A rejection from the server, shown beside the local validation issues rather than through
+  /// `app.reportFailure`: the global banner renders behind this sheet, so a save that fails on the
+  /// server used to look like a save that did nothing at all.
+  @State private var submissionError: String?
 
   init(billing: Billing, bill: Bill? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -157,10 +161,14 @@ struct BillFormView: View {
         MoneyText(money: total)
       }
 
-      if !issues.isEmpty {
+      if !issues.isEmpty || submissionError != nil {
         RentivoSection("Revise a fatura") {
           ForEach(issues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+          }
+          if let submissionError {
+            Label(submissionError, systemImage: "exclamationmark.circle.fill")
               .foregroundStyle(RentivoColors.coral)
           }
         }
@@ -170,7 +178,10 @@ struct BillFormView: View {
     .navigationTitle(bill == nil ? "Gerar fatura" : "Editar fatura")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
+        // Dismissing mid-save would leave the request running with no screen to report it, so
+        // Cancelar goes down with the sheet's other exits while `saving`.
         Button("Cancelar") { dismiss() }
+          .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -178,6 +189,7 @@ struct BillFormView: View {
           .accessibilityIdentifier("bill.form.save")
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
@@ -229,6 +241,8 @@ struct BillFormView: View {
   }
 
   private func save() async {
+    guard !saving else { return }
+    submissionError = nil
     let draft = BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
@@ -254,7 +268,7 @@ struct BillFormView: View {
       await onSaved()
       dismiss()
     } catch {
-      app.reportFailure(error)
+      submissionError = DemoError(error).message
     }
   }
 }

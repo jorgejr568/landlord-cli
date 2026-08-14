@@ -13,6 +13,13 @@ struct ReceiptManagerView: View {
   @State private var showingFileImporter = false
   @State private var isDropTargeted = false
   @State private var pendingDeletion: Receipt?
+  /// Covers the whole upload — the off-main read and transcode as well as the request — because
+  /// all three are time the user is waiting on one file, and a second file dropped into the middle
+  /// of it would race the refresh that follows.
+  @State private var isUploading = false
+  /// Which receipt is being fetched, so the row that started it shows the wait and a second click
+  /// cannot queue a duplicate download of the same file.
+  @State private var downloadingReceiptID: ReceiptID?
 
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
@@ -25,7 +32,9 @@ struct ReceiptManagerView: View {
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
-      if bill.receipts.isEmpty {
+      // The card also has to appear for a bill with no receipts yet while one is being sent —
+      // otherwise the very first upload has nowhere to show its progress.
+      if bill.receipts.isEmpty && !isUploading {
         Text("Nenhum comprovante anexado.")
           .foregroundStyle(RentivoColors.secondaryInk)
       } else {
@@ -36,10 +45,16 @@ struct ReceiptManagerView: View {
                 Label(receipt.name, systemImage: "doc.fill")
                   .font(RentivoTypography.body)
                 Spacer()
+                if downloadingReceiptID == receipt.id {
+                  ProgressView()
+                    .controlSize(.small)
+                }
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }
+                    .disabled(downloadingReceiptID != nil)
                   if canWrite {
                     Button("Excluir", role: .destructive) { pendingDeletion = receipt }
+                      .disabled(isUploading)
                   }
                 } label: {
                   Image(systemName: "ellipsis.circle")
@@ -50,6 +65,17 @@ struct ReceiptManagerView: View {
               }
               .rentivoHoverLift(elevated: true)
             }
+            if isUploading {
+              HStack(spacing: RentivoSpacing.small) {
+                ProgressView()
+                  .controlSize(.small)
+                Text("Enviando…")
+                  .font(RentivoTypography.body)
+                  .foregroundStyle(RentivoColors.secondaryInk)
+                Spacer()
+              }
+              .accessibilityIdentifier("receipt.uploading")
+            }
             // Drag-to-reorder would need these rows hosted in a `List`, but this section renders
             // inside a `RentivoCard`/`VStack` (the surrounding screen is a `ScrollView`, not a
             // `List`). Kept as an explicit action instead of restructuring the whole detail
@@ -57,6 +83,7 @@ struct ReceiptManagerView: View {
             if bill.receipts.count > 1 && canWrite {
               Button("Inverter ordem") { Task { await reverse() } }
                 .buttonStyle(.bordered)
+                .disabled(isUploading)
             }
           }
         }
@@ -68,6 +95,7 @@ struct ReceiptManagerView: View {
           Label("Adicionar comprovante", systemImage: "plus")
         }
         .buttonStyle(.bordered)
+        .disabled(isUploading)
         // Drag-and-drop is invisible until it is named: without this line the drop target below
         // is a feature only a user who happens to try it would ever find.
         Text("Ou arraste um arquivo do Finder para esta área.")
@@ -84,14 +112,22 @@ struct ReceiptManagerView: View {
             RentivoColors.emerald,
             style: StrokeStyle(lineWidth: 2, dash: [6, 4])
           )
-          .opacity(isDropTargeted ? 1 : 0)
+          // `isDropTargeted` records only where the pointer is; whether the drop would be taken is
+          // decided here, at render time. Folding `!isUploading` into the callback instead latched
+          // a `false` for the whole of a drag that began during an upload, so the border stayed
+          // dark even after the upload finished and the drop became available again.
+          .opacity(isDropTargeted && !isUploading ? 1 : 0)
       }
     }
     .animation(.easeOut(duration: 0.12), value: isDropTargeted)
     // Only accepted while the user may write: a viewer dropping a file would otherwise get a
-    // permission error from the server for a gesture the UI implied was available.
+    // permission error from the server for a gesture the UI implied was available. Refusing the
+    // drop outright while an upload is in flight is what keeps a second file from racing the
+    // first one's refresh — returning `false` also tells Finder the drop was not taken.
     .dropDestination(for: URL.self) { urls, _ in
-      guard canWrite, let url = ReceiptIntake.firstFileURL(in: urls) else { return false }
+      guard canWrite, !isUploading, let url = ReceiptIntake.firstFileURL(in: urls) else {
+        return false
+      }
       Task { await add(fileURL: url) }
       return true
     } isTargeted: { isDropTargeted = $0 }
@@ -119,19 +155,28 @@ struct ReceiptManagerView: View {
   }
 
   private func add(fileURL: URL) async {
+    // The importer and the drop target are both closed while `isUploading`, but a file importer
+    // that was already open when the flag went up can still deliver — so the guard lives here,
+    // where every path passes.
+    guard !isUploading else { return }
+    isUploading = true
+    defer { isUploading = false }
     do {
-      guard let upload = try ReceiptIntake.upload(from: fileURL) else {
+      guard let upload = try await ReceiptIntake.upload(from: fileURL) else {
         app.showNotice("Não foi possível ler o arquivo selecionado.", kind: .warning)
         return
       }
       await send(upload)
+    } catch let error as ReceiptIntakeError {
+      app.showNotice(error.message, kind: .warning)
     } catch { app.reportFailure(error) }
   }
 
   private func send(_ upload: FileUpload) async {
+    // The intake already refused anything the filesystem reported as oversize; this is the same
+    // rule applied to the bytes that actually came out of it, which a re-encode can have grown.
     guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
-      app.showNotice(
-        "O comprovante excede o limite de \(ReceiptUploadLimit.label).", kind: .warning)
+      app.showNotice(ReceiptIntakeError.exceedsSizeLimit.message, kind: .warning)
       return
     }
     do {
@@ -165,6 +210,9 @@ struct ReceiptManagerView: View {
   }
 
   private func download(_ receipt: Receipt) async {
+    guard downloadingReceiptID == nil else { return }
+    downloadingReceiptID = receipt.id
+    defer { downloadingReceiptID = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadReceipt(
         billingID: billingID, billID: bill.id, receiptID: receipt.id

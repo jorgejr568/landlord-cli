@@ -130,6 +130,7 @@ struct BillingFormView: View {
   @State private var replyTo: String
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
+  @State private var submitFailureMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded = false
@@ -149,6 +150,13 @@ struct BillingFormView: View {
   }
 
   var body: some View {
+    // Each row's own position, resolved once per body evaluation instead of by a `firstIndex` scan
+    // per row (three of them, in fact: the index and both move buttons). Every keystroke in any
+    // field re-evaluates this body, so the scans made editing a long list quadratic. The maps and
+    // the rows come from the same body evaluation, so the positions the buttons act on are the
+    // ones the user is looking at.
+    let itemPositions = positions(in: items)
+    let recipientPositions = positions(in: recipients)
     Form {
       RentivoSection("Identificação") {
         TextField("Nome", text: $name)
@@ -160,6 +168,20 @@ struct BillingFormView: View {
             Text(owner.name).tag(owner.id)
           }
         }
+        .disabled(!organizationsLoaded)
+        if !organizationsLoaded {
+          // Salvar is disabled until the organizations arrive, because until then the list of
+          // responsáveis is incomplete and the cobrança could be filed under the wrong one. That
+          // wait is a second or two of a dead button otherwise, so it says what it is waiting for.
+          HStack(spacing: RentivoSpacing.small) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Carregando os responsáveis disponíveis…")
+              .font(RentivoTypography.caption)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
+          .accessibilityIdentifier("billing.form.owners.loading")
+        }
       }
 
       Section {
@@ -170,10 +192,10 @@ struct BillingFormView: View {
               // macOS has neither swipe-to-delete nor `EditButton`, so reordering and removal are
               // ordinary buttons on the row itself.
               RowOrderControls(
-                index: index(of: item.id, in: items),
+                index: itemPositions[item.id] ?? 0,
                 count: items.count,
-                moveUp: { move(&items, from: index(of: item.id, in: items), by: -1) },
-                moveDown: { move(&items, from: index(of: item.id, in: items), by: 1) },
+                moveUp: { move(&items, from: itemPositions[item.id] ?? 0, by: -1) },
+                moveDown: { move(&items, from: itemPositions[item.id] ?? 0, by: 1) },
                 remove: { items.removeAll { $0.id == item.id } },
                 removeLabel: "Remover item"
               )
@@ -218,10 +240,10 @@ struct BillingFormView: View {
             HStack(spacing: RentivoSpacing.small) {
               TextField("Nome do destinatário", text: $recipient.name)
               RowOrderControls(
-                index: index(of: recipient.id, in: recipients),
+                index: recipientPositions[recipient.id] ?? 0,
                 count: recipients.count,
-                moveUp: { move(&recipients, from: index(of: recipient.id, in: recipients), by: -1) },
-                moveDown: { move(&recipients, from: index(of: recipient.id, in: recipients), by: 1) },
+                moveUp: { move(&recipients, from: recipientPositions[recipient.id] ?? 0, by: -1) },
+                moveDown: { move(&recipients, from: recipientPositions[recipient.id] ?? 0, by: 1) },
                 remove: { recipients.removeAll { $0.id == recipient.id } },
                 removeLabel: "Remover destinatário"
               )
@@ -245,7 +267,9 @@ struct BillingFormView: View {
         Text("Todos os destinatários listados recebem as comunicações desta cobrança.")
       }
 
-      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil {
+      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
+        || submitFailureMessage != nil
+      {
         RentivoSection("Revise os campos") {
           ForEach(validationIssues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
@@ -257,6 +281,14 @@ struct BillingFormView: View {
               .foregroundStyle(RentivoColors.coral)
               .accessibilityIdentifier("billing.form.validation")
           }
+          if let submitFailureMessage {
+            // The global banner is overlaid on the window, which this sheet covers, so a failed
+            // save reported there would be invisible until the sheet closes — and the sheet stays
+            // open precisely because the save failed. It is reported here instead.
+            Label(submitFailureMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("billing.form.submitFailure")
+          }
         }
       }
     }
@@ -264,7 +296,10 @@ struct BillingFormView: View {
     .navigationTitle(billing == nil ? "Nova cobrança" : "Editar cobrança")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
+        // Dismissing mid-save would leave the request running with no screen to report it, so
+        // Cancelar goes down with the sheet's other exits while `saving`.
         Button("Cancelar") { dismiss() }
+          .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -287,8 +322,16 @@ struct BillingFormView: View {
     )
   }
 
-  private func index<Element: Identifiable>(of id: Element.ID, in collection: [Element]) -> Int {
-    collection.firstIndex { $0.id == id } ?? 0
+  /// Every element's position, keyed by its id.
+  ///
+  /// Duplicate ids cannot happen — items and destinatários are identified by a server id or a
+  /// fresh `UUID` — but the first position wins rather than trapping, because a `ForEach` over
+  /// duplicated ids is already the broken thing here and a crash would not explain it.
+  private func positions<Element: Identifiable>(in collection: [Element]) -> [Element.ID: Int] {
+    Dictionary(
+      collection.enumerated().map { ($0.element.id, $0.offset) },
+      uniquingKeysWith: { first, _ in first }
+    )
   }
 
   private func move<Element>(_ collection: inout [Element], from index: Int, by offset: Int) {
@@ -300,8 +343,14 @@ struct BillingFormView: View {
   }
 
   private func save() async {
+    // Salvar is disabled while `saving`, but a second click can land before the first `Task`
+    // suspends and the flag is set, which used to create the cobrança twice.
+    guard !saving else { return }
+    // Every issue from the previous attempt is re-derived below, so the section never mixes a
+    // fresh validation run with a stale server error.
+    submitFailureMessage = nil
     guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
-      app.showNotice("Não foi possível confirmar o responsável.", kind: .warning)
+      submitFailureMessage = "Não foi possível confirmar o responsável."
       return
     }
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
@@ -335,7 +384,7 @@ struct BillingFormView: View {
       await onSaved()
       dismiss()
     } catch {
-      app.reportFailure(error)
+      submitFailureMessage = DemoError(error).message
     }
   }
 }

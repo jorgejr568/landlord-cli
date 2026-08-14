@@ -5,6 +5,8 @@ struct InvitationListView: View {
   @Environment(AppModel.self) private var app
   let onMutation: () async -> Void
   @State private var state: LoadState<[Invitation]> = .idle
+  @State private var respondingID: InvitationID?
+  @State private var respondFailureMessage: String?
 
   var body: some View {
     PageStateView(
@@ -14,6 +16,13 @@ struct InvitationListView: View {
       emptySystemImage: "envelope.open"
     ) { invitations in
       List {
+        if let respondFailureMessage {
+          Section {
+            Label(respondFailureMessage, systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("invitation.respond.error")
+          }
+        }
         ForEach(invitations) { invitation in
           VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
             Text(invitation.organizationName).font(RentivoTypography.cardTitle)
@@ -31,7 +40,13 @@ struct InvitationListView: View {
                   Task { await respond(invitation, accept: false) }
                 }
                 .buttonStyle(.bordered)
+                if respondingID == invitation.id {
+                  ProgressView().controlSize(.small)
+                }
               }
+              // Both buttons on every row hold while any response is in flight: the answer
+              // reshapes the whole list, so a second click would act on a stale row.
+              .disabled(respondingID != nil)
             }
           }
           .padding(.vertical, RentivoSpacing.small)
@@ -57,6 +72,10 @@ struct InvitationListView: View {
   }
 
   private func respond(_ invitation: Invitation, accept: Bool) async {
+    guard respondingID == nil else { return }
+    respondingID = invitation.id
+    respondFailureMessage = nil
+    defer { respondingID = nil }
     do {
       if accept {
         try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
@@ -66,7 +85,11 @@ struct InvitationListView: View {
       app.showNotice(accept ? "Convite aceito." : "Convite recusado.")
       await load()
       await onMutation()
-    } catch { app.reportFailure(error) }
+    } catch {
+      // This whole list is presented as a sheet, and the global banner renders behind it — a
+      // failure reported there would read as the button doing nothing at all.
+      respondFailureMessage = DemoError(error).message
+    }
   }
 }
 
@@ -77,6 +100,8 @@ struct InviteMemberView: View {
   let onSaved: () async -> Void
   @State private var email = ""
   @State private var role: OrganizationRole = .viewer
+  @State private var submitFailureMessage: String?
+  @State private var saving = false
 
   var body: some View {
     Form {
@@ -93,27 +118,51 @@ struct InviteMemberView: View {
         Label("O convite ficará pendente apenas na memória do app.", systemImage: "info.circle")
           .font(RentivoTypography.caption)
       }
+
+      if let submitFailureMessage {
+        Section {
+          Label(submitFailureMessage, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("invitation.form.error")
+        }
+      }
     }
     .formStyle(.grouped)
     .navigationTitle("Convidar membro")
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
-        Button("Convidar") { Task { await invite() } }.disabled(!email.contains("@"))
+        Button("Convidar") { Task { await invite() } }
+          .disabled(saving || !email.contains("@"))
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   private func invite() async {
+    // Without this the sheet stays interactive across the round trip and a double-click sends the
+    // same person two invitations.
+    guard !saving else { return }
+    submitFailureMessage = nil
+    saving = true
+    defer { saving = false }
     do {
       _ = try await app.dependencies.organizations.inviteMember(
         organizationID: organization.id,
         email: email,
         role: role
       )
+      // The notice outlives the sheet — `app.notice` holds it until the banner is dismissed — so
+      // setting it just before `dismiss()` still leaves it visible once the sheet is gone.
       app.showNotice("Convite enviado.")
       await onSaved()
       dismiss()
-    } catch { app.reportFailure(error) }
+    } catch {
+      // The global banner renders behind this sheet, so a failure reported there would read as
+      // Convidar doing nothing at all. Keep it inline, where the user is looking.
+      submitFailureMessage = DemoError(error).message
+    }
   }
 }

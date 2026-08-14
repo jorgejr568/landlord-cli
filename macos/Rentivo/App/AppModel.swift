@@ -151,6 +151,21 @@ final class AppModel {
     notice = AppNotice(kind: .success, message: "Sessão conectada ao Rentivo.")
   }
 
+  /// What the window says while an account-wide request is in flight, or `nil` when nothing is.
+  ///
+  /// Both of these are reachable from menus that every section shares — "Sair da conta" from the
+  /// Conta menu, account deletion from the Conta section — and both await the server before the
+  /// screen changes at all. Without this the app just looks frozen on a slow connection, so
+  /// `RootView` renders the message and holds the rest of the window inert until it clears.
+  ///
+  /// Deletion wins the tie: it is the stronger claim, and the sign-out it ends with is a
+  /// consequence of it rather than a second thing happening to the user.
+  var globalActivityMessage: String? {
+    if isDeletingAccount { return "Excluindo sua conta…" }
+    if isSigningOut { return "Saindo da conta…" }
+    return nil
+  }
+
   func signOut() async {
     guard !isSigningOut else { return }
     // Demo mode has neither a token to revoke nor a browser session to close, so it drops

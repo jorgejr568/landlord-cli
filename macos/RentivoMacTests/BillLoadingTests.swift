@@ -4,6 +4,80 @@ import Testing
 
 @testable import Rentivo
 
+/// A `BillRepository` that only answers `listBills`, recording how many of those calls are in
+/// flight at once so the fan-out's window can be measured. Every other member is unreachable from
+/// `BillLoading`, which is the only thing under test here.
+@MainActor
+private final class FanOutProbeRepository: BillRepository {
+  /// The most requests that were ever open at the same time.
+  private(set) var peakInFlight = 0
+  private(set) var requestedBillings: [BillingID] = []
+  /// The one billing whose request fails, used to check that a failure in a later wave still
+  /// fails the whole load.
+  var failingBillingID: BillingID?
+  private var inFlight = 0
+
+  func listBills(billingID: BillingID) async throws -> [Bill] {
+    inFlight += 1
+    peakInFlight = max(peakInFlight, inFlight)
+    requestedBillings.append(billingID)
+    // Standing in for the network wait: without a suspension every child would run to completion
+    // before the next one got the main actor, and nothing would ever overlap.
+    try? await Task.sleep(for: .milliseconds(20))
+    inFlight -= 1
+    guard billingID != failingBillingID else { throw DemoError.operationFailed }
+    return [
+      Bill(
+        id: BillID(rawValue: "bill-\(billingID.rawValue)"),
+        billingID: billingID,
+        referenceMonth: ReferenceMonth(year: 2026, month: 8),
+        dueDate: nil,
+        paidAt: nil,
+        notes: "",
+        status: .draft,
+        lineItems: [],
+        receipts: []
+      )
+    ]
+  }
+
+  func bill(billingID: BillingID, id: BillID) async throws -> Bill { unreachable() }
+  func createBill(_ draft: BillDraft) async throws -> Bill { unreachable() }
+  func updateBill(billingID: BillingID, billID: BillID, draft: BillDraft) async throws -> Bill {
+    unreachable()
+  }
+  func deleteBill(billingID: BillingID, billID: BillID) async throws { unreachable() }
+  func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+    unreachable()
+  }
+  func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill { unreachable() }
+  func addReceipt(billingID: BillingID, billID: BillID, upload: FileUpload) async throws -> Receipt {
+    unreachable()
+  }
+  func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws {
+    unreachable()
+  }
+  func deleteReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws {
+    unreachable()
+  }
+
+  private func unreachable(function: StaticString = #function) -> Never {
+    fatalError("BillLoading never calls \(function)")
+  }
+}
+
+private func makeProbeBillings(count: Int) -> [Billing] {
+  (0..<count).map {
+    Billing(
+      id: BillingID(rawValue: "billing-\($0)"),
+      name: "Cobrança \($0)",
+      description: "",
+      owner: .user(id: StableID.userAna, name: "Pessoal"),
+      items: []
+    )
+  }
+}
+
 @Suite("macOS concurrent bill loading")
 @MainActor
 struct BillLoadingTests {
@@ -75,6 +149,47 @@ struct BillLoadingTests {
 
     await #expect(throws: DemoError.operationFailed) {
       _ = try await BillLoading.billsByBilling(for: billings, using: store)
+    }
+  }
+
+  @Test("a large portfolio never opens more requests than the window allows")
+  func fanOutStaysWithinTheWindow() async throws {
+    let repository = FanOutProbeRepository()
+    let billings = makeProbeBillings(count: BillLoading.maxConcurrentRequests * 3)
+
+    let pairs = try await BillLoading.billsByBilling(for: billings, using: repository)
+
+    #expect(repository.peakInFlight == BillLoading.maxConcurrentRequests)
+    // Capping the fan-out must not drop or reorder anything: every billing is still requested
+    // exactly once and still gets its own bills back, in the order it was given.
+    #expect(repository.requestedBillings.count == billings.count)
+    #expect(Set(repository.requestedBillings) == Set(billings.map(\.id)))
+    #expect(pairs.map(\.billing.id) == billings.map(\.id))
+    for pair in pairs {
+      #expect(pair.bills.map(\.billingID) == [pair.billing.id])
+    }
+  }
+
+  @Test("a portfolio smaller than the window still starts every request at once")
+  func smallPortfolioIsNotPaced() async throws {
+    let repository = FanOutProbeRepository()
+    let billings = makeProbeBillings(count: BillLoading.maxConcurrentRequests - 2)
+
+    _ = try await BillLoading.billsByBilling(for: billings, using: repository)
+
+    #expect(repository.peakInFlight == billings.count)
+  }
+
+  @Test("a failure in a later wave fails the load like one in the first")
+  func failureAfterTheFirstWaveFailsTheLoad() async throws {
+    let repository = FanOutProbeRepository()
+    let billings = makeProbeBillings(count: BillLoading.maxConcurrentRequests * 2)
+    // Refilled positions only run once an earlier request completed, so this one is reached by the
+    // window's refill path rather than by the initial fill.
+    repository.failingBillingID = billings.last?.id
+
+    await #expect(throws: DemoError.operationFailed) {
+      _ = try await BillLoading.billsByBilling(for: billings, using: repository)
     }
   }
 

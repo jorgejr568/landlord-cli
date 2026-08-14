@@ -32,6 +32,18 @@ public enum LiveAPIError: LocalizedError, Sendable, Equatable {
   }
 }
 
+/// The module's shared JSON coders.
+///
+/// `JSONDecoder`/`JSONEncoder` are `@unchecked Sendable` from macOS 13 / iOS 16 on — below both of
+/// this package's deployment targets — and hold no per-call state once configured, so one instance
+/// each serves every request instead of allocating a fresh pair on every hop of the request path.
+/// Neither may ever be reconfigured: a strategy set from one call site would silently change the
+/// wire format of every other one.
+enum WireJSON {
+  static let decoder = JSONDecoder()
+  static let encoder = JSONEncoder()
+}
+
 extension Notification.Name {
   /// Posted whenever `LiveAPIClient` observes a 401 response (or discovers it
   /// has no stored token) while serving an authenticated request. `AppModel`
@@ -50,6 +62,9 @@ public actor LiveAPIClient {
   private let credentials: any CredentialStore
   private let downloads: DownloadedFileStore
   private var accessToken: String?
+  /// The purge `invalidateSession()` kicked off, kept only so tests can observe it; see
+  /// `awaitPendingPurge()`.
+  private var purgeTask: Task<Void, Never>?
 
   init(
     session: URLSession? = nil, credentials: any CredentialStore,
@@ -264,9 +279,9 @@ public actor LiveAPIClient {
       throw LiveAPIError.sessionExpired
     }
     guard (200..<300).contains(http.statusCode) else {
-      let problem = try? JSONDecoder().decode(ProblemResponse.self, from: data)
+      let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.detail ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
       )
     }
     return data
@@ -275,23 +290,49 @@ public actor LiveAPIClient {
   func logout() async {
     accessToken = nil
     try? await credentials.deleteAccessToken()
-    purgeLocalArtifacts()
+    // Unlike the 401 path below, an explicit sign-out has nothing racing it: the caller is already
+    // waiting on this call and expects the session's files to be gone when it returns.
+    Self.purgeLocalArtifacts(downloads: downloads)
   }
 
   /// Clears the in-memory token and the persisted credential, then notifies
   /// any observers (see `AppModel`) that the session is no longer valid.
+  ///
+  /// The disk purge is deliberately *not* awaited. It walks and unlinks the whole downloads
+  /// directory and blows away `URLCache.shared`, and every one of those milliseconds used to sit
+  /// between the 401 arriving and `.sessionExpired` reaching the screen the user is looking at.
+  /// Detaching it lets the app return to the sign-in screen immediately; the token — the only part
+  /// that decides whether the session is usable — is already gone by then.
   private func invalidateSession() async {
     accessToken = nil
     try? await credentials.deleteAccessToken()
-    purgeLocalArtifacts()
+    let downloads = self.downloads
+    // Chained onto whatever purge is still running rather than started alongside it: a purge
+    // removes the whole downloads directory, so two overlapping ones (a second 401, or a 401 for a
+    // session the user has already replaced by signing in again) could delete the directory out
+    // from under files the newer session is writing into it.
+    purgeTask = Task.detached(priority: .utility) { [previous = purgeTask] in
+      await previous?.value
+      Self.purgeLocalArtifacts(downloads: downloads)
+    }
     NotificationCenter.default.post(name: .liveAPIClientSessionExpired, object: nil)
+  }
+
+  /// Awaits the purge `invalidateSession()` detached, if any. Only tests need this: the app never
+  /// waits for it, which is the whole point of detaching it. Each purge awaits the one before it,
+  /// so awaiting the latest task awaits every purge this client started.
+  func awaitPendingPurge() async {
+    await purgeTask?.value
   }
 
   /// Drops what an authenticated session leaves behind on disk: documents the user downloaded
   /// through the share sheet, and any response an earlier build stored in `URLCache.shared`.
   /// `makeSession()` no longer uses that cache, but a build shipped before it stopped may have
   /// written to it and nothing else would ever clear it.
-  private func purgeLocalArtifacts() {
+  ///
+  /// `static` and `nonisolated` so the detached purge above needs nothing from the actor beyond the
+  /// (`Sendable`) store it writes through.
+  private nonisolated static func purgeLocalArtifacts(downloads: DownloadedFileStore) {
     URLCache.shared.removeAllCachedResponses()
     downloads.purge()
   }
@@ -303,18 +344,27 @@ public actor LiveAPIClient {
     var request = URLRequest(url: Self.productionURL.appending(path: path))
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue(mediaType, forHTTPHeaderField: "Accept")
-    let (data, response): (Data, URLResponse)
+    // `download(for:)` streams the body straight to a file instead of accumulating it in memory,
+    // so a 10 MB receipt costs a rename rather than a 10 MB `Data` plus a synchronous write that
+    // blocked this actor for the whole of it. Every path that does not adopt the staged file has
+    // to delete it — `URLSession` hands ownership over and reclaims nothing itself.
+    let (staged, response): (URL, URLResponse)
     do {
-      (data, response) = try await session.data(for: request)
+      (staged, response) = try await session.download(for: request)
     } catch {
       throw transportError(from: error)
     }
-    guard let http = response as? HTTPURLResponse else { throw LiveAPIError.invalidResponse }
+    guard let http = response as? HTTPURLResponse else {
+      try? FileManager.default.removeItem(at: staged)
+      throw LiveAPIError.invalidResponse
+    }
     if http.statusCode == 401 {
+      try? FileManager.default.removeItem(at: staged)
       await invalidateSession()
       throw LiveAPIError.sessionExpired
     }
     guard (200..<300).contains(http.statusCode) else {
+      try? FileManager.default.removeItem(at: staged)
       throw LiveAPIError.server(message: "Não foi possível baixar o arquivo.")
     }
     let responseMediaType = (http.value(forHTTPHeaderField: "Content-Type") ?? mediaType)
@@ -322,10 +372,31 @@ public actor LiveAPIClient {
     let resolvedFilename = filename.contains(".")
       ? filename
       : "\(filename).\(fileExtension(for: responseMediaType))"
-    let destination = try downloads.makeDestination(
-      pathExtension: (resolvedFilename as NSString).pathExtension)
-    try data.write(to: destination, options: DownloadedFileStore.writingOptions)
-    return DownloadedFile(fileURL: destination, filename: resolvedFilename, mediaType: responseMediaType)
+    do {
+      let destination = try downloads.makeDestination(
+        pathExtension: (resolvedFilename as NSString).pathExtension)
+      try Self.adopt(staged, at: destination)
+      return DownloadedFile(fileURL: destination, filename: resolvedFilename, mediaType: responseMediaType)
+    } catch {
+      try? FileManager.default.removeItem(at: staged)
+      throw error
+    }
+  }
+
+  /// Moves a staged download into the downloads directory under its final name.
+  ///
+  /// `destination` is a fresh UUID inside the app's own temporary directory, so this is a
+  /// same-volume rename: atomic, which is what the replaced `Data.write(options: .atomic)` bought,
+  /// and O(1) in the file's size. The protection class has to be reapplied by hand because it rode
+  /// on those same writing options before; it is best effort for the same reason the store's
+  /// options were (see `DownloadedFileStore.writingOptions`) — whether Darwin honors a
+  /// data-protection class depends on the environment, and a document the user asked for should not
+  /// fail to arrive because the extra at-rest protection could not be set.
+  private nonisolated static func adopt(_ staged: URL, at destination: URL) throws {
+    let manager = FileManager.default
+    try manager.moveItem(at: staged, to: destination)
+    try? manager.setAttributes(
+      [.protectionKey: FileProtectionType.completeUnlessOpen], ofItemAtPath: destination.path)
   }
 
   private func fileExtension(for mediaType: String) -> String {
@@ -367,7 +438,7 @@ public actor LiveAPIClient {
     }
     if let body {
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      request.httpBody = try JSONEncoder().encode(body)
+      request.httpBody = try WireJSON.encoder.encode(body)
     }
     let (data, response): (Data, URLResponse)
     do {
@@ -377,9 +448,9 @@ public actor LiveAPIClient {
     }
     guard let http = response as? HTTPURLResponse else { throw LiveAPIError.invalidResponse }
     guard (200..<300).contains(http.statusCode) else {
-      let problem = try? JSONDecoder().decode(ProblemResponse.self, from: data)
+      let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.detail ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
       )
     }
     return (data, http.statusCode)
@@ -387,7 +458,7 @@ public actor LiveAPIClient {
 
   private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
     do {
-      return try JSONDecoder().decode(Response.self, from: data)
+      return try WireJSON.decoder.decode(Response.self, from: data)
     } catch {
       throw LiveAPIError.invalidResponse
     }
@@ -556,6 +627,52 @@ private struct ProfileResponse: Decodable {
   let email: String
 }
 
+/// The RFC-7807 problem document every non-2xx `/api/v1` response carries (see `Problem` in
+/// `backend/rentivo/api/errors.py`). Only the two human-readable halves are decoded.
 private struct ProblemResponse: Decodable {
   let detail: String?
+  /// Per-field PT-BR copy, keyed by the request location that failed. Schema-origin keys come from
+  /// FastAPI's `loc` joined with dots and are prefixed with the request part
+  /// (`body.items.0.description`); route-origin ones (`ProblemException.invalid_field`) are the
+  /// bare field name.
+  let fields: [String: String]?
+
+  /// Folds `detail` and `fields` into the single line of copy `LiveAPIError.server` can carry.
+  ///
+  /// The app has no per-field error slot like the web client's (see `normalizedFieldErrors` in
+  /// `frontend/src/lib/api/errors.ts`), so before this a schema 422 collapsed to the envelope's
+  /// generic `detail` — "A requisição contém dados inválidos." — and the user was never told what
+  /// the server rejected. Rules, in order:
+  ///
+  /// - A field message identical to `detail` adds nothing and is dropped. That is exactly what
+  ///   `ProblemException.invalid_field` emits, so single-field route errors keep reading as the one
+  ///   sentence they were written as.
+  /// - Only a message that already ends as a sentence is kept: that is the backend's own
+  ///   display-ready PT-BR copy. Pydantic's terse schema copy ("Field required") fails the test and
+  ///   is dropped rather than shown, because it is untranslated English and every string this app
+  ///   puts on screen is PT-BR. The wire key is never shown either — `body.items.0.description`
+  ///   names a request path, not anything the user filled in.
+  /// - With nothing left to add, the message is exactly the detail.
+  ///
+  /// Keys are sorted so the same problem document always produces the same message; `fields` is a
+  /// dictionary and its iteration order is not stable.
+  var message: String? {
+    let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fieldMessages = (fields ?? [:])
+      .sorted { $0.key < $1.key }
+      .compactMap { _, message -> String? in
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, message != detail, Self.readsAsASentence(message) else { return nil }
+        return message
+      }
+    guard let detail, !detail.isEmpty else {
+      return fieldMessages.isEmpty ? nil : fieldMessages.joined(separator: "\n")
+    }
+    return ([detail] + fieldMessages).joined(separator: "\n")
+  }
+
+  private static func readsAsASentence(_ message: String) -> Bool {
+    guard let last = message.last else { return false }
+    return ".!?".contains(last)
+  }
 }

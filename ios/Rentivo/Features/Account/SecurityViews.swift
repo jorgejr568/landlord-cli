@@ -122,13 +122,17 @@ struct SecurityView: View {
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 
-  private func confirmTOTP(code: String) async {
+  /// Returns the failure message instead of routing it to the global notice banner: the
+  /// enrollment sheet stays open on a wrong code, and the banner renders behind it, so a rejected
+  /// code would look like the button did nothing. `TOTPEnrollmentView` shows the result inline.
+  private func confirmTOTP(code: String) async -> String? {
     do {
       recoveryCodes = try await app.dependencies.security.confirmTOTPEnrollment(code: code)
       enrollment = nil
       await load()
       showingRecoveryCodes = true
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+      return nil
+    } catch { return DemoError(error).message }
   }
 
   private func disableTOTP() async {
@@ -253,8 +257,13 @@ private struct RecoveryCodeView: View {
 private struct TOTPEnrollmentView: View {
   @Environment(\.dismiss) private var dismiss
   let enrollment: TOTPEnrollment
-  let onConfirm: (String) async -> Void
+  /// Returns the failure message when the code is rejected, or `nil` once the enrollment is
+  /// confirmed. The sheet stays open on failure, so the message is rendered here rather than in
+  /// the global notice banner behind it.
+  let onConfirm: (String) async -> String?
   @State private var code = ""
+  @State private var errorMessage: String?
+  @State private var isConfirming = false
 
   var body: some View {
     NavigationStack {
@@ -272,15 +281,42 @@ private struct TOTPEnrollmentView: View {
         TextField("Código do autenticador", text: $code)
           .keyboardType(.numberPad)
           .textContentType(.oneTimeCode)
-        Button("Confirmar") { Task { await onConfirm(code) } }
-          .buttonStyle(RentivoButtonStyle())
-          .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if let errorMessage {
+          Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("security.totp.error")
+        }
+        Button(action: confirm) {
+          HStack(spacing: RentivoSpacing.small) {
+            if isConfirming {
+              ProgressView()
+                .tint(.white)
+            }
+            Text("Confirmar")
+          }
+        }
+        .buttonStyle(RentivoButtonStyle())
+        .disabled(isConfirming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         Spacer()
       }
       .padding(RentivoSpacing.page)
       .background(RentivoColors.paper)
       .navigationTitle("Autenticador")
-      .toolbar { Button("Cancelar") { dismiss() } }
+      .toolbar {
+        Button("Cancelar") { dismiss() }
+          .disabled(isConfirming)
+      }
+    }
+  }
+
+  private func confirm() {
+    guard !isConfirming else { return }
+    errorMessage = nil
+    isConfirming = true
+    Task {
+      defer { isConfirming = false }
+      errorMessage = await onConfirm(code)
     }
   }
 }

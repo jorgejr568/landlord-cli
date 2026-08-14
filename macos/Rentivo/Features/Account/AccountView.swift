@@ -153,6 +153,9 @@ private struct AccountRow: View {
 struct ProfilePixView: View {
   @Environment(AppModel.self) private var app
   @State private var form = ProfilePIXForm()
+  @State private var hasLoaded = false
+  @State private var loadFailureMessage: String?
+  @State private var isSaving = false
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -168,11 +171,33 @@ struct ProfilePixView: View {
         LabeledContent("Ambiente", value: app.usesLiveAPI ? "Rentivo" : "Demonstração local")
       }
       RentivoSection("PIX pessoal") {
-        TextField("Chave PIX", text: $form.key)
-        TextField("Nome do recebedor", text: $form.merchantName)
-        TextField("Cidade", text: $form.merchantCity)
+        if hasLoaded {
+          // The viewer lock sits on the fields rather than on the whole section, because the
+          // section also holds the retry below. SwiftUI's `disabled` only accumulates — a
+          // descendant cannot re-enable itself — so a lock at section level took the retry with
+          // it, and a load that failed in viewer mode had no way back.
+          Group {
+            TextField("Chave PIX", text: $form.key)
+            TextField("Nome do recebedor", text: $form.merchantName)
+            TextField("Cidade", text: $form.merchantCity)
+          }
+          .disabled(isDemoViewerLocked)
+        } else if let loadFailureMessage {
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            Label(loadFailureMessage, systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+            // Re-reading the configuration is not editing it, so this stays live in viewer mode.
+            Button("Tentar novamente") { Task { await load() } }
+          }
+          .accessibilityIdentifier("profile.pix.error")
+        } else {
+          HStack(spacing: RentivoSpacing.small) {
+            ProgressView().controlSize(.small)
+            Text("Carregando seus dados…")
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
+        }
       }
-      .disabled(isDemoViewerLocked)
       Section {
         Label(
           "Cobranças pessoais sem PIX próprio herdam esta configuração.",
@@ -186,27 +211,46 @@ struct ProfilePixView: View {
     .toolbar {
       if !isDemoViewerLocked {
         ToolbarItem(placement: .primaryAction) {
-          Button("Salvar") { Task { await save() } }
-            .disabled(
-              !form.configuration.isComplete
-            )
-            .accessibilityIdentifier("profile.pix.save")
+          Button {
+            Task { await save() }
+          } label: {
+            if isSaving {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("Salvar")
+            }
+          }
+          .disabled(!hasLoaded || isSaving || !form.configuration.isComplete)
+          .accessibilityIdentifier("profile.pix.save")
         }
       }
     }
-    .task {
-      do {
-        form = ProfilePIXForm(profile: try await app.loadProfile())
-      } catch {
-        app.reportFailure(error)
-      }
+    .task { await load() }
+  }
+
+  /// The fields stay behind the load rather than starting empty: a blank form mid-request reads as
+  /// an account with no PIX configured, and anything typed into it would be overwritten the moment
+  /// the real values landed.
+  private func load() async {
+    loadFailureMessage = nil
+    do {
+      form = ProfilePIXForm(profile: try await app.loadProfile())
+      hasLoaded = true
+    } catch {
+      // Reported in the section, with a retry, rather than through the global banner: the failure
+      // is what the section is standing in for, so that is where it belongs.
+      loadFailureMessage = DemoError(error).message
     }
   }
 
   private func save() async {
+    guard !isSaving else { return }
+    isSaving = true
+    defer { isSaving = false }
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
       app.showNotice("PIX pessoal atualizado.")
+      // This screen is pushed rather than presented, so the global banner is visible here.
     } catch { app.reportFailure(error) }
   }
 }

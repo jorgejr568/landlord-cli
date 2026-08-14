@@ -82,6 +82,37 @@ struct AppModelSessionFlowTests {
     #expect(app.notice == nil)
   }
 
+  @Test("nothing is announced globally while no account-wide request is running")
+  func globalActivityIsSilentWhenIdle() {
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+    app.signIn()
+
+    #expect(app.globalActivityMessage == nil)
+  }
+
+  @Test("signing out and deleting the account each announce the wait in PT-BR")
+  func globalActivityNamesTheRequestInFlight() {
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+
+    app.isSigningOut = true
+    #expect(app.globalActivityMessage == "Saindo da conta…")
+
+    app.isSigningOut = false
+    app.isDeletingAccount = true
+    #expect(app.globalActivityMessage == "Excluindo sua conta…")
+  }
+
+  @Test("a deletion that is also signing out announces the deletion")
+  func globalActivityPrefersDeletionOverSignOut() {
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+
+    app.isSigningOut = true
+    app.isDeletingAccount = true
+
+    // The sign-out is part of the deletion, not a second thing happening to the user.
+    #expect(app.globalActivityMessage == "Excluindo sua conta…")
+  }
+
   @Test("restoreSessionIfNeeded is a no-op because the demo store never starts restoring")
   func restoreSessionIfNeededIsANoOpForTheMockStoreSinceItNeverStartsRestoring() async {
     let app = AppModel(store: MockRentivoStore(fixtures: .canonical))

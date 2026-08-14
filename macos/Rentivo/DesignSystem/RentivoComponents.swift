@@ -201,13 +201,16 @@ struct MoneyText: View {
   var accessibilityLabelOverride: String? = nil
 
   var body: some View {
-    Text(money.formatted())
+    // Formatted once per body evaluation: the label reuses the same string instead of
+    // paying for a second currency format on every render.
+    let amount = money.formatted()
+    return Text(amount)
       .font(font)
       .foregroundStyle(color)
       .monospacedDigit()
       .minimumScaleFactor(minimumScaleFactor)
       .lineLimit(lineLimit)
-      .accessibilityLabel(accessibilityLabelOverride ?? "Valor: \(money.formatted())")
+      .accessibilityLabel(accessibilityLabelOverride ?? "Valor: \(amount)")
   }
 }
 

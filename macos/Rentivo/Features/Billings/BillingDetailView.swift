@@ -280,10 +280,19 @@ struct BillingDetailView: View {
   private func load() async {
     state.prepareForRefresh()
     do {
+      // The record, its faturas, and its despesas are three independent requests: run them
+      // together so the screen costs the slowest one instead of all three end to end.
+      // `RepositoryBox` is what carries a main-actor repository into the child tasks.
+      let billingsRepository = RepositoryBox(app.dependencies.billings)
+      let billsRepository = RepositoryBox(app.dependencies.bills)
+      let expensesRepository = RepositoryBox(app.dependencies.expenses)
+      async let billingRequest = billingsRepository.repository.billing(id: billingID)
+      async let billsRequest = billsRepository.repository.listBills(billingID: billingID)
+      async let expensesRequest = expensesRepository.repository.listExpenses(billingID: billingID)
       let data = BillingDetailData(
-        billing: try await app.dependencies.billings.billing(id: billingID),
-        bills: try await app.dependencies.bills.listBills(billingID: billingID),
-        expenses: try await app.dependencies.expenses.listExpenses(billingID: billingID)
+        billing: try await billingRequest,
+        bills: try await billsRequest,
+        expenses: try await expensesRequest
       )
       withAnimation(BillingsMotion.load) {
         state = .loaded(data)

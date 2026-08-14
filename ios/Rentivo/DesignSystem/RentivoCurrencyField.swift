@@ -38,10 +38,12 @@ struct CurrencyCentavosField: View {
         }
       }
       .onChange(of: centavos) { _, newValue in
-        let formatted = Self.format(newValue)
-        if formatted != text {
-          text = formatted
-        }
+        // Typing already wrote the formatted text above, and this fires right after with
+        // the value that text encodes; formatting again would only rebuild the identical
+        // string. Comparing the digits skips that, leaving only external value changes
+        // (a parent rewriting the binding) to reformat.
+        guard (Int(text.filter(\.isNumber)) ?? 0) != newValue else { return }
+        text = Self.format(newValue)
       }
   }
 

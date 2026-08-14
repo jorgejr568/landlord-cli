@@ -79,6 +79,10 @@ struct BillingFormView: View {
   @State private var replyTo: String
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
+  /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
+  /// global notice banner because this form is presented in a sheet, and the banner renders
+  /// behind it — the user would never see it.
+  @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded = false
@@ -189,7 +193,9 @@ struct BillingFormView: View {
         Text("Todos os destinatários listados recebem as comunicações desta cobrança.")
       }
 
-      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil {
+      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
+        || submitErrorMessage != nil
+      {
         Section("Revise os campos") {
           ForEach(validationIssues, id: \.self) { issue in
             Label(issue.message, systemImage: "exclamationmark.circle.fill")
@@ -198,6 +204,11 @@ struct BillingFormView: View {
           }
           if let pixRecipientRequiredMessage {
             Label(pixRecipientRequiredMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("billing.form.validation")
+          }
+          if let submitErrorMessage {
+            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
               .foregroundStyle(RentivoColors.coral)
               .accessibilityIdentifier("billing.form.validation")
           }
@@ -242,8 +253,9 @@ struct BillingFormView: View {
   }
 
   private func save() async {
+    submitErrorMessage = nil
     guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
-      app.showNotice("Não foi possível confirmar o responsável.", kind: .warning)
+      submitErrorMessage = "Não foi possível confirmar o responsável."
       return
     }
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
@@ -286,7 +298,7 @@ struct BillingFormView: View {
       app.showNotice(billing == nil ? "Cobrança criada." : "Cobrança atualizada.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      submitErrorMessage = DemoError(error).message
     }
   }
 }

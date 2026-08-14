@@ -56,6 +56,8 @@ public enum ReceiptUploadLimit {
 }
 
 public enum ReceiptFilename {
+  private static let gregorian = Calendar(identifier: .gregorian)
+
   /// Names a receipt captured from the camera or the photo library, which carries no filename of
   /// its own: `comprovante-20260809-143005.jpg`.
   public static func captured(
@@ -63,11 +65,15 @@ public enum ReceiptFilename {
     filenameExtension: String = ReceiptMediaDescriptor.jpeg.filenameExtension,
     timeZone: TimeZone = .current
   ) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = timeZone
-    formatter.dateFormat = "yyyyMMdd-HHmmss"
-    return "comprovante-\(formatter.string(from: date)).\(filenameExtension)"
+    // Built from calendar components rather than a `DateFormatter`: the stamp is a fixed
+    // machine format with no locale input, and `Calendar` is a `Sendable` value type that
+    // can be shared statically, unlike the formatter class this used to allocate per call.
+    let parts = Self.gregorian.dateComponents(in: timeZone, from: date)
+    let stamp = String(
+      format: "%04d%02d%02d-%02d%02d%02d",
+      parts.year ?? 0, parts.month ?? 0, parts.day ?? 0,
+      parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0)
+    return "comprovante-\(stamp).\(filenameExtension)"
   }
 
   /// Renames a file whose bytes had to be re-encoded, so the extension keeps matching the media
