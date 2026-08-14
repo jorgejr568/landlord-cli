@@ -17,6 +17,26 @@ public protocol AuthRepository: AnyObject {
   /// Trades a one-time authorization code minted by the web sign-in flow for an API session.
   func exchangeMobileAuthorization(code: String) async throws -> UserProfile
 
+  // MARK: Native sign-in
+  //
+  // The native path talks to the Turnstile-free `/api/v1/auth/mobile/*` endpoints and finishes any
+  // MFA challenge in-app. `mobileLogin` is the only entry point that can return without a session;
+  // when it yields `.mfaRequired`, exactly one of the verify/passkey calls below settles it, and
+  // every one of them needs the whole `MFAChallenge` (the server matches `challenge_id` and
+  // authenticates the caller with `challenge_token`).
+  //
+  // None of these should be retried on failure: the server stalls ~4 s before each failure and
+  // allows only 4 attempts per minute per IP and per e-mail.
+
+  func mobileLogin(email: String, password: String) async throws -> MobileLoginOutcome
+  func mobileSignup(email: String, password: String) async throws -> UserProfile
+  func verifyTotp(challenge: MFAChallenge, code: String) async throws -> UserProfile
+  func verifyRecoveryCode(challenge: MFAChallenge, code: String) async throws -> UserProfile
+  func beginPasskeyAssertion(challenge: MFAChallenge) async throws -> PasskeyRequestOptions
+  func completePasskeyAssertion(
+    challenge: MFAChallenge, credential: PasskeyAssertionPayload
+  ) async throws -> UserProfile
+
   /// Best-effort revocation of the current session; never throws, so callers can always drop
   /// local state afterwards.
   func logout() async
