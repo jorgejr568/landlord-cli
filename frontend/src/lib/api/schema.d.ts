@@ -1,4 +1,28 @@
 export interface paths {
+    "/.well-known/apple-app-site-association": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Apple App Site Association
+         * @description Associated-domains manifest that lets the iOS app reuse the site's passkeys.
+         *
+         *     Served at the document root (not under ``/api``) because that is the only
+         *     place iOS looks. Without a configured team ID there is nothing truthful to
+         *     publish, so the path simply does not exist.
+         */
+        get: operations["apple_app_site_association__well_known_apple_app_site_association_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -251,6 +275,40 @@ export interface paths {
         put?: never;
         /** Exchange Mobile Authorization */
         post: operations["exchange_mobile_authorization_api_v1_auth_mobile_exchange_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mobile/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mobile Login */
+        post: operations["mobile_login_api_v1_auth_mobile_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mobile/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mobile Signup */
+        post: operations["mobile_signup_api_v1_auth_mobile_signup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2464,6 +2522,20 @@ export interface components {
             /** State */
             state: string;
         };
+        /** MobileLoginRequest */
+        MobileLoginRequest: {
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /** MobileSignupRequest */
+        MobileSignupRequest: {
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+        };
         /** OrganizationCapabilitiesResponse */
         OrganizationCapabilitiesResponse: {
             /** Can Create Billing */
@@ -3267,6 +3339,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    apple_app_site_association__well_known_apple_app_site_association_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_api_keys_api_v1_api_keys_get: {
         parameters: {
             query?: never;
@@ -3889,6 +3981,81 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MobileAuthorizationExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticatedResponse"];
+                };
+            };
+            /** @description Request validation problem */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mobile_login_api_v1_auth_mobile_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobileLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticatedResponse"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MFARequiredResponse"];
+                };
+            };
+            /** @description Request validation problem */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mobile_signup_api_v1_auth_mobile_signup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobileSignupRequest"];
             };
         };
         responses: {
