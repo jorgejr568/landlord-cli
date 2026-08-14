@@ -21,7 +21,10 @@ public struct Money: Hashable, Codable, Sendable, Comparable {
     lhs.centavos < rhs.centavos
   }
 
-  private static let brazilianLocale = Locale(identifier: "pt_BR")
+  /// The app's default presentation locale. It is also the default argument of `formatted(locale:)`
+  /// so the common path compares this very value against itself instead of building a `Locale` per
+  /// call just to find out it is the cached one.
+  public static let brazilianLocale = Locale(identifier: "pt_BR")
 
   /// Presentation for the default pt-BR/BRL path, shared by every rendered amount.
   /// `Decimal.FormatStyle.Currency` is a `Sendable` value type, so it can be held as
@@ -32,7 +35,7 @@ public struct Money: Hashable, Codable, Sendable, Comparable {
   private static let brazilianStyle = Decimal.FormatStyle.Currency(
     code: "BRL", locale: Money.brazilianLocale)
 
-  public func formatted(locale: Locale = Locale(identifier: "pt_BR")) -> String {
+  public func formatted(locale: Locale = Money.brazilianLocale) -> String {
     let amount = Decimal(centavos) / 100
     // Locales other than the pt-BR default are rare, so they build a style per call
     // rather than growing a cache keyed by locale.

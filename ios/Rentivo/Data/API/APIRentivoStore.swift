@@ -508,8 +508,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       while let (index, response) = try await group.next() {
         responses[index] = response
         guard next < paths.count else { continue }
-        let index = next
-        group.addTask { (index, try await self.decode(path: paths[index])) }
+        // Deliberately not `index`: that name is bound to the *completed* task's slot two lines
+        // above, and shadowing it here would make the next task's slot read like the finished one's.
+        let nextIndex = next
+        group.addTask { (nextIndex, try await self.decode(path: paths[nextIndex])) }
         next += 1
       }
     }

@@ -307,14 +307,20 @@ public actor LiveAPIClient {
     accessToken = nil
     try? await credentials.deleteAccessToken()
     let downloads = self.downloads
-    purgeTask = Task.detached(priority: .utility) {
+    // Chained onto whatever purge is still running rather than started alongside it: a purge
+    // removes the whole downloads directory, so two overlapping ones (a second 401, or a 401 for a
+    // session the user has already replaced by signing in again) could delete the directory out
+    // from under files the newer session is writing into it.
+    purgeTask = Task.detached(priority: .utility) { [previous = purgeTask] in
+      await previous?.value
       Self.purgeLocalArtifacts(downloads: downloads)
     }
     NotificationCenter.default.post(name: .liveAPIClientSessionExpired, object: nil)
   }
 
   /// Awaits the purge `invalidateSession()` detached, if any. Only tests need this: the app never
-  /// waits for it, which is the whole point of detaching it.
+  /// waits for it, which is the whole point of detaching it. Each purge awaits the one before it,
+  /// so awaiting the latest task awaits every purge this client started.
   func awaitPendingPurge() async {
     await purgeTask?.value
   }
@@ -635,17 +641,18 @@ private struct ProblemResponse: Decodable {
   ///
   /// The app has no per-field error slot like the web client's (see `normalizedFieldErrors` in
   /// `frontend/src/lib/api/errors.ts`), so before this a schema 422 collapsed to the envelope's
-  /// generic `detail` — "A requisição contém dados inválidos." — and the user was never told which
-  /// field the server rejected. Rules, in order:
+  /// generic `detail` — "A requisição contém dados inválidos." — and the user was never told what
+  /// the server rejected. Rules, in order:
   ///
   /// - A field message identical to `detail` adds nothing and is dropped. That is exactly what
   ///   `ProblemException.invalid_field` emits, so single-field route errors keep reading as the one
   ///   sentence they were written as.
-  /// - The `body.` prefix is stripped, matching the web client, since "body" names the HTTP request
-  ///   part and not anything the user filled in.
-  /// - A message that already ends as a sentence is the backend's own display-ready copy and stands
-  ///   alone; anything else — notably Pydantic's terse schema copy — is prefixed with the field
-  ///   path, which is the half that makes it actionable.
+  /// - Only a message that already ends as a sentence is kept: that is the backend's own
+  ///   display-ready PT-BR copy. Pydantic's terse schema copy ("Field required") fails the test and
+  ///   is dropped rather than shown, because it is untranslated English and every string this app
+  ///   puts on screen is PT-BR. The wire key is never shown either — `body.items.0.description`
+  ///   names a request path, not anything the user filled in.
+  /// - With nothing left to add, the message is exactly the detail.
   ///
   /// Keys are sorted so the same problem document always produces the same message; `fields` is a
   /// dictionary and its iteration order is not stable.
@@ -653,12 +660,10 @@ private struct ProblemResponse: Decodable {
     let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
     let fieldMessages = (fields ?? [:])
       .sorted { $0.key < $1.key }
-      .compactMap { key, message -> String? in
+      .compactMap { _, message -> String? in
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty, message != detail else { return nil }
-        let field = key.hasPrefix("body.") ? String(key.dropFirst("body.".count)) : key
-        guard !field.isEmpty, !Self.readsAsASentence(message) else { return message }
-        return "\(field): \(message)"
+        guard !message.isEmpty, message != detail, Self.readsAsASentence(message) else { return nil }
+        return message
       }
     guard let detail, !detail.isEmpty else {
       return fieldMessages.isEmpty ? nil : fieldMessages.joined(separator: "\n")

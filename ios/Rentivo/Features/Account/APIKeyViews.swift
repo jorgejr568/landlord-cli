@@ -242,8 +242,17 @@ private struct APIKeyFormView: View {
         Button("Cancelar") { dismiss() }.disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
-        Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
-          .disabled(saving || name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
+        // The spinner is the only sign the request is still in flight: everything else this form
+        // does while saving is a disable, which on a stalled request reads as a frozen sheet.
+        Button {
+          Task { await save() }
+        } label: {
+          HStack(spacing: RentivoSpacing.small) {
+            if saving { ProgressView() }
+            Text(key == nil ? "Criar" : "Salvar")
+          }
+        }
+        .disabled(saving || name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
       }
     }
     .interactiveDismissDisabled(saving)
