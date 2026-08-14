@@ -3,7 +3,8 @@
 Rentivo ships two native clients — `ios/` (SwiftUI) and `android/` (Kotlin and
 Jetpack Compose) — that are 1:1 ports of each other. Both are thin clients over
 the same FastAPI contract the browser uses: no local database, no offline mode,
-no mobile-only endpoints beyond the two authentication routes described below.
+no mobile-only endpoints beyond the `/api/v1/auth/mobile/*` routes and the
+Apple associated-domains file described below.
 
 This guide covers what the two apps share and where they differ. For the
 day-to-day commands, see [`development.md`](development.md); for the iOS
@@ -27,6 +28,7 @@ diff against the other:
 | UI framework | SwiftUI | Jetpack Compose |
 | Layers | `Domain/`, `Data/`, `Data/API/`, `App/`, `DesignSystem/`, `Features/` | `domain/`, `data/`, `data/api/`, `app/`, `designsystem/`, `features/` |
 | Feature set | Auth, home, bills, billings, organizations, account | Same |
+| Sign-in | Native e-mail/password + in-app MFA; browser handoff for Google and Turnstile-gated flows | Browser handoff only |
 | Wire DTOs | Hand-written `Codable` (`ios/Rentivo/Data/API/RemoteDTOs.swift`) | Hand-written `kotlinx.serialization` (`android/app/src/main/java/app/rentivo/data/api/RemoteDTOs.kt`) |
 | Token storage | Keychain (`KeychainCredentialStore`) | `EncryptedSharedPreferences` (`EncryptedCredentialStore`) |
 | Appearance | Light only, portrait only | Light only, portrait only |
@@ -68,11 +70,110 @@ One loose end: the Xcode app target still carries the
 output. The `RentivoCore` package does not reference the generator at all.
 Removing the leftover Xcode dependency is a tracked follow-up.
 
-## Authentication handoff
+## Authentication
 
-Neither app has a password field. Sign-in is handed to the system browser so
-the native apps never touch credentials, and so MFA, Google sign-in, and
-Turnstile stay implemented once, on the web.
+There are two ways in, and they are not equivalent.
+
+**Native credentials are the primary path**: the iOS app signs in with e-mail
+and password against `/api/v1/auth/mobile/*` and finishes TOTP, recovery-code,
+and passkey challenges in-app, without ever opening a browser. **The browser
+handoff is the secondary path**, kept for what the app cannot do itself —
+Google sign-in and anything gated by Turnstile. Android has no native sign-in
+screens yet and uses the handoff for every login; so does macOS (see
+[`macos.md`](macos.md)), even though it links the same `RentivoCore` client.
+
+### Native sign-in
+
+`POST /api/v1/auth/mobile/login` and `POST /api/v1/auth/mobile/signup`
+(`backend/rentivo/api/routes/auth.py`) accept `{email, password}` and nothing
+else. Body transport is implicit: these routes never set cookies, so there is
+no `credential_transport` to negotiate and no CSRF token to carry — the bearer
+token comes back in the response body, the same way `/auth/mobile/exchange`
+returns it. Both record the session with `source="mobile"`.
+
+Login settles in one of two shapes: `200` with a session, or `202` with an MFA
+challenge carrying `challenge_id`, `challenge_token`, and the accepted
+`methods` (`totp`, `recovery`, `passkey`). The app finishes the challenge
+against the same MFA routes the browser uses —
+`/api/v1/auth/mfa/totp/verify`, `/api/v1/auth/mfa/recovery/verify`, and
+`/api/v1/auth/mfa/passkeys/begin` plus `/complete` — repeating the whole pair
+on every call: `challenge_id` identifies the challenge row and
+`challenge_token` authenticates the caller against it, standing in for the
+browser's challenge cookie.
+
+The client surface lives in `RentivoCore`, so it is shared with macOS:
+
+- `ios/Rentivo/Domain/MobileAuthModels.swift` — `MFAMethod`, `MFAChallenge`,
+  `MobileLoginOutcome`, `PasskeyRequestOptions`, `PasskeyAssertionPayload`.
+  Unknown `methods` strings are dropped at decode time rather than surfaced or
+  raised, so a factor a future server offers cannot crash the login screen; a
+  challenge whose methods are all unknown decodes to an empty array.
+- `ios/Rentivo/Data/Repositories.swift` — the `AuthRepository` entry points
+  (`mobileLogin`, `mobileSignup`, `verifyTotp`, `verifyRecoveryCode`,
+  `beginPasskeyAssertion`, `completePasskeyAssertion`).
+- `ios/Rentivo/Data/API/LiveAPIClient.swift` — the wire DTOs and the bearer
+  token adoption shared with the handoff path.
+
+None of these calls may be retried automatically. A retry burns one of the
+four attempts per minute *and* doubles the delay the user waits, because every
+failure is deliberately slow — see below.
+
+### Abuse controls on the native path
+
+A native client cannot render the Turnstile widget, so `/auth/mobile/*` drops
+it and buys back the cost per attempt another way:
+
+- **Two independent budgets, both charged on every attempt.** Action
+  `mobile_auth_ip` is keyed on the client IP, `mobile_auth_email` on the
+  trimmed and lowercased e-mail; each allows 4 attempts per 60 seconds.
+  Failing either budget returns `429 login_rate_limited`. Charging both means
+  an IP that exhausted its quota gets no free pass at a fresh e-mail, and vice
+  versa.
+- **A fixed 4-second tarpit in front of every failure** — bad credentials,
+  rate limit, and `email_already_registered` alike. Success is never delayed.
+  That is what makes stuffing expensive: four attempts cost sixteen seconds,
+  not four milliseconds.
+- **Success clears only the e-mail budget.** The IP budget stays spent, so a
+  single host cannot launder an unlimited attempt stream through one account
+  it does know the password for.
+
+The tradeoff is real and worth stating plainly. Against an attacker with a
+wide pool of IP addresses this is weaker than Turnstile: nothing here proves a
+human or a real browser is present, only that attempts are slow and capped.
+Per identity it is stronger — the web login has no tarpit and a 5-per-minute
+budget keyed on the *pair* (e-mail, IP), so a single e-mail tolerates far more
+probing there. `/auth/login` and `/auth/signup` keep Turnstile unchanged; only
+the `/auth/mobile/*` pair trades it away.
+
+### Passkeys
+
+Passkeys work in the app because it presents the *website's* credentials: the
+relying party is `webauthn_rp_id` (`rentivo.com.br` in production), not a
+separate app-scoped RP. Apple only permits that when the domain and the app
+vouch for each other:
+
+- **Server side.** `GET /.well-known/apple-app-site-association`
+  (`backend/rentivo/api/routes/public.py`) returns
+  `{"webcredentials": {"apps": ["<team id>.br.com.rentivo.ios"]}}`. It is
+  served at the document root because that is the only place iOS looks, and
+  `infra/proxy/nginx.conf` proxies that exact path to the API so the SPA
+  fallback never answers it — Apple fetches the path directly and follows no
+  redirect. While `RENTIVO_APPLE_TEAM_ID` is empty the route returns **404**
+  on purpose: without a team ID there is nothing truthful to publish.
+- **App side.** The app declares the associated-domains entitlement
+  `webcredentials:rentivo.com.br`.
+- **Manual prerequisite, not automatable from this repository.** The
+  Associated Domains capability has to be enabled for the App ID
+  `br.com.rentivo.ios` in the Apple Developer portal **before the next release
+  signing**. The entitlement in the project is only half of it; a provisioning
+  profile issued without the capability will not carry it, and the archive
+  step in [`runbooks/ios-release.md`](runbooks/ios-release.md) fails or ships
+  a build where passkey sign-in silently never offers a credential.
+
+### Browser handoff
+
+The handoff remains the only way to reach Google sign-in and any Turnstile-
+gated flow, and it is still what Android and macOS use for every sign-in.
 
 1. The app generates a random `state` and opens
    `<base>/login?mobile_state=<state>` — iOS in an
@@ -91,8 +192,19 @@ Turnstile stay implemented once, on the web.
    one-time challenge and completes the login with `source="mobile"`, returning
    the bearer token in the response body (`credential_transport: "body"`) rather
    than a cookie.
-5. The token is persisted — Keychain on iOS, `EncryptedSharedPreferences` on
-   Android — and sent as `Authorization: Bearer …` on every subsequent request.
+5. The token is persisted and used exactly like a natively obtained one.
+
+The flow logic itself is pure and unit-tested on both platforms
+(`MobileWebAuthenticationFlow` in `ios/Rentivo/Data/API/MobileWebAuthenticator.swift`
+and `android/app/src/main/java/app/rentivo/data/api/MobileWebAuthenticationFlow.kt`),
+including rejection of mismatched state, empty codes, and percent-encoded path
+tricks.
+
+### Session lifetime
+
+Whichever path minted it, the token is stored the same way — Keychain on iOS,
+`EncryptedSharedPreferences` on Android — and sent as
+`Authorization: Bearer …` on every subsequent request.
 
 On launch the app calls `GET /api/v1/auth/session` with the stored token to
 restore the session; a 401 there clears it. During normal use, a 401 raises a
@@ -100,18 +212,16 @@ session-expired signal — a `liveAPIClientSessionExpired` `NotificationCenter`
 post on iOS, a `sessionExpired` `Flow` on Android — which the app model observes
 to drop back to the anonymous state.
 
-Logout round-trips through the browser too: the app opens
-`<base>/mobile-logout?state=<state>` and waits for
+Sign-out still round-trips through the browser, even for a session created
+natively: the app revokes the token, drops local state unconditionally, then
+opens `<base>/mobile-logout?state=<state>` and waits for
 `rentivo://auth/logout?state=<state>`, so the shared browser cookie jar is
-cleared alongside the local token. The browser session is deliberately
+cleared alongside the local token. That round-trip is best-effort and never
+blocks the sign-out that already happened; a cancelled sheet is a silent
+outcome. Account deletion does the same, so the deleted account's web cookies
+cannot survive into the next login sheet. The browser session is deliberately
 non-ephemeral on iOS (`prefersEphemeralWebBrowserSession = false`) so login and
 logout see the same cookies as the website.
-
-The flow logic itself is pure and unit-tested on both platforms
-(`MobileWebAuthenticationFlow` in `ios/Rentivo/Data/API/MobileWebAuthenticator.swift`
-and `android/app/src/main/java/app/rentivo/data/api/MobileWebAuthenticationFlow.kt`),
-including rejection of mismatched state, empty codes, and percent-encoded path
-tricks.
 
 ## iOS
 
@@ -222,9 +332,15 @@ Release builds never enter mock mode and always talk to production.
 
 ## Security notes
 
-- **No credentials in the app.** Passwords, MFA, and federated sign-in happen
-  in the browser; the app only ever holds a bearer token obtained by exchanging
-  a one-time code.
+- **Credentials in the app, on iOS only.** iOS accepts a password and MFA code
+  and posts them to `/api/v1/auth/mobile/*`; nothing is stored but the
+  resulting bearer token — the password is never written to the Keychain, and
+  the passkey private key never leaves the device. Android still hands
+  every sign-in to the browser and holds only a bearer token exchanged from a
+  one-time code. Federated (Google) sign-in stays in the browser on both.
+- **Turnstile traded for rate limits on the native path.** `/auth/mobile/*`
+  has no bot check; it relies on the per-IP and per-e-mail budgets and the
+  4-second failure tarpit described above. The web routes are unchanged.
 - **Token at rest.** iOS uses a generic-password Keychain item with
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, re-asserted on every
   update. Android uses `EncryptedSharedPreferences` (`AES256_SIV` keys,

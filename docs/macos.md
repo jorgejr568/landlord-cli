@@ -138,13 +138,20 @@ sections in the same order.
 
 ## Authentication
 
-Identical to iOS, because it *is* the iOS code: `MobileWebAuthenticator` lives in
-`ios/Rentivo/Data/API/MobileWebAuthenticator.swift` inside `RentivoCore` and is
-used unchanged. The app has no password field; sign-in opens
-`ASWebAuthenticationSession` against `<base>/login?mobile_state=<state>` and
-completes on a `rentivo://auth/callback` redirect whose scheme, host, path, and
-`state` are all validated before the code is exchanged. The full sequence is
-documented in [`mobile.md` § Authentication handoff](mobile.md#authentication-handoff).
+The browser handoff, because it *is* the iOS code: `MobileWebAuthenticator`
+lives in `ios/Rentivo/Data/API/MobileWebAuthenticator.swift` inside
+`RentivoCore` and is used unchanged. The app has no password field; sign-in
+opens `ASWebAuthenticationSession` against `<base>/login?mobile_state=<state>`
+and completes on a `rentivo://auth/callback` redirect whose scheme, host, path,
+and `state` are all validated before the code is exchanged. The full sequence
+is documented in [`mobile.md` § Browser handoff](mobile.md#browser-handoff).
+
+iOS has since moved its primary sign-in to native e-mail/password against
+`/api/v1/auth/mobile/*`, with MFA and passkeys handled in-app. That client
+surface sits in `RentivoCore` and is therefore already linked here, but the
+macOS app layer does not use it — the Mac still signs in through the browser
+on every path. See
+[`mobile.md` § Native sign-in](mobile.md#native-sign-in).
 
 Two macOS-relevant details:
 
