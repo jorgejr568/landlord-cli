@@ -31,6 +31,7 @@ from tests.api.routes.test_auth import (
 LOGIN_PATH = "/api/v1/auth/mobile/login"
 SIGNUP_PATH = "/api/v1/auth/mobile/signup"
 AASA_PATH = "/.well-known/apple-app-site-association"
+ASSET_LINKS_PATH = "/.well-known/assetlinks.json"
 
 LOGIN_PAYLOAD = {"email": USER.email, "password": "correct"}
 SIGNUP_PAYLOAD = {"email": USER.email, "password": "correct horse battery staple"}
@@ -473,6 +474,41 @@ def test_apple_app_site_association_is_absent_without_a_configured_team(
     monkeypatch.setattr(settings, "apple_team_id", "")
 
     response = TestClient(create_app()).get(AASA_PATH)
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "not_found"
+
+
+def test_android_asset_links_declares_the_package_with_short_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "android_package_name", "app.rentivo")
+    monkeypatch.setattr(settings, "android_cert_fingerprints", " AA:BB:CC , DD:EE:FF ,")
+
+    response = TestClient(create_app()).get(ASSET_LINKS_PATH)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["cache-control"] == "public, max-age=300"
+    assert response.json() == [
+        {
+            "relation": ["delegate_permission/common.get_login_creds"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "app.rentivo",
+                "sha256_cert_fingerprints": ["AA:BB:CC", "DD:EE:FF"],
+            },
+        }
+    ]
+
+
+def test_android_asset_links_is_absent_without_configured_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "android_cert_fingerprints", "")
+
+    response = TestClient(create_app()).get(ASSET_LINKS_PATH)
 
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/problem+json"

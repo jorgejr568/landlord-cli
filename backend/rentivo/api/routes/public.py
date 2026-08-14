@@ -127,6 +127,36 @@ async def apple_app_site_association() -> Response:
     )
 
 
+@router.get("/.well-known/assetlinks.json")
+async def android_asset_links() -> Response:
+    """Digital Asset Links manifest that associates the site with the Android app.
+
+    Served at the document root (not under ``/api``) because that is the only
+    place Android Credential Manager and password managers look. Without a
+    configured signing-cert fingerprint there is nothing truthful to publish, so
+    the path simply does not exist.
+    """
+    fingerprints = settings.android_cert_fingerprint_list
+    if not fingerprints:
+        raise ProblemException.not_found()
+    # Like the AASA manifest this lives outside ``/api`` so the no-store
+    # middleware never touches it. It changes only when the package or signing
+    # certificate changes, so a short shared cache lifetime is safe.
+    return JSONResponse(
+        [
+            {
+                "relation": ["delegate_permission/common.get_login_creds"],
+                "target": {
+                    "namespace": "android_app",
+                    "package_name": settings.android_package_name,
+                    "sha256_cert_fingerprints": fingerprints,
+                },
+            }
+        ],
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
 @router.get("/robots.txt")
 async def robots_txt(request: Request) -> Response:
     blocks = [_rules_block("*"), *(_rules_block(agent) for agent in AI_CRAWLERS)]

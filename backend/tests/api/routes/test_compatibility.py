@@ -125,6 +125,7 @@ def test_proxy_routes_machine_and_compatibility_requests_without_spa_fallback() 
         "/robots.txt",
         "/sitemap.xml",
         "/.well-known/apple-app-site-association",
+        "/.well-known/assetlinks.json",
         "/change-password",
         "/security/pix",
     ):
