@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct AuthenticationView: View {
   var body: some View {
@@ -77,12 +78,12 @@ private extension View {
   /// Renders a placeholder we own, so its colour is deterministic. iOS tints the *native*
   /// placeholder of an autofill-eligible username field in the system accent once saved
   /// credentials exist, which reads like pre-filled link text; owning it keeps the placeholder
-  /// the same muted grey as every other field.
+  /// the exact system placeholder grey the other fields render natively.
   func authFieldPlaceholder(_ text: String, visible: Bool) -> some View {
     overlay(alignment: .leading) {
       if visible {
         Text(text)
-          .foregroundStyle(RentivoColors.secondaryInk)
+          .foregroundStyle(Color(uiColor: .placeholderText))
           .allowsHitTesting(false)
       }
     }
