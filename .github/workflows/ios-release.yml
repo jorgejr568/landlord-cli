@@ -201,6 +201,23 @@ jobs:
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Embed entitlements into the archived app
+        # The unsigned archive carries no entitlements, so -exportArchive would
+        # re-sign from the App Store profile alone and drop app-specific ones —
+        # notably com.apple.developer.associated-domains, which iOS passkeys and
+        # password-manager autofill depend on. Ad-hoc re-signing the archived
+        # app WITH the entitlements file embeds them; the export step then
+        # re-signs for distribution and preserves them (validated against the
+        # profile, which grants Associated Domains once the App ID capability is
+        # enabled). Needs no certificate, provisioning profile, or device — and
+        # export re-signs everything afterwards, so this ad-hoc signature is
+        # only a carrier for the entitlements. Verified end to end: the exported
+        # IPA passes `altool --validate-app` with the entitlement present.
+        run: |
+          set -euo pipefail
+          codesign --force --sign - \
+            --entitlements ios/Rentivo/Rentivo.entitlements \
+            "$RUNNER_TEMP/Rentivo.xcarchive/Products/Applications/Rentivo.app"
       - name: Write export options
         run: |
           set -euo pipefail
