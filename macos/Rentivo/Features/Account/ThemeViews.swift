@@ -8,6 +8,13 @@ struct ThemeEditorView: View {
   @State private var values = ThemeValues.rentivo
   @State private var loadedValues: ThemeValues?
   @State private var error: DemoError?
+  /// A nil `record` means the real values haven't arrived, so the editors below would be showing
+  /// `ThemeValues.rentivo` — a placeholder, not this target's theme. This separates "still on its
+  /// way" from "won't arrive", so the form can offer a retry instead of spinning forever once the
+  /// failure alert is dismissed.
+  @State private var loadFailed = false
+  @State private var isSaving = false
+  @State private var isResetting = false
 
   /// True once the user has changed a field since the last successful load/save.
   /// Guards against `.task(id:)` reloads (triggered by unrelated `app.dataRevision`
@@ -34,31 +41,65 @@ struct ThemeEditorView: View {
         }
       }
 
-      RentivoSection("Tipografia") {
-        Picker("Fonte de títulos", selection: $values.headerFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+      if record == nil {
+        Section {
+          if loadFailed {
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              Label(
+                "Não foi possível carregar a aparência.",
+                systemImage: "exclamationmark.triangle.fill"
+              )
+              .foregroundStyle(RentivoColors.coral)
+              Button("Tentar novamente") { Task { await load() } }
+            }
+            .accessibilityIdentifier("theme.error")
+          } else {
+            HStack(spacing: RentivoSpacing.small) {
+              ProgressView().controlSize(.small)
+              Text("Carregando aparência…")
+                .foregroundStyle(RentivoColors.secondaryInk)
+            }
+          }
         }
-        Picker("Fonte de texto", selection: $values.textFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+      } else {
+        RentivoSection("Tipografia") {
+          Picker("Fonte de títulos", selection: $values.headerFont) {
+            ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+          }
+          Picker("Fonte de texto", selection: $values.textFont) {
+            ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+          }
         }
-      }
 
-      RentivoSection("Cores da API") {
-        ThemeColorField(title: "Primária", value: $values.primary)
-        ThemeColorField(title: "Primária clara", value: $values.primaryLight)
-        ThemeColorField(title: "Secundária", value: $values.secondary)
-        ThemeColorField(title: "Secundária escura", value: $values.secondaryDark)
-        ThemeColorField(title: "Texto", value: $values.textColor)
-        ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
-      }
+        RentivoSection("Cores da API") {
+          ThemeColorField(title: "Primária", value: $values.primary)
+          ThemeColorField(title: "Primária clara", value: $values.primaryLight)
+          ThemeColorField(title: "Secundária", value: $values.secondary)
+          ThemeColorField(title: "Secundária escura", value: $values.secondaryDark)
+          ThemeColorField(title: "Texto", value: $values.textColor)
+          ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
+        }
 
-      RentivoSection("Prévia") {
-        ThemePreview(values: values)
+        RentivoSection("Prévia") {
+          ThemePreview(values: values)
+        }
       }
 
       if record?.canReset == true {
         Section {
-          Button("Restaurar herança", role: .destructive) { Task { await reset() } }
+          Button(role: .destructive) {
+            Task { await reset() }
+          } label: {
+            if isResetting {
+              HStack(spacing: RentivoSpacing.small) {
+                ProgressView().controlSize(.small)
+                Text("Restaurando…")
+              }
+            } else {
+              Text("Restaurar herança")
+            }
+          }
+          .disabled(isSaving || isResetting)
         }
       }
     }
@@ -67,13 +108,24 @@ struct ThemeEditorView: View {
     .toolbar {
       if record?.canEdit == true {
         ToolbarItem(placement: .primaryAction) {
-          Button("Salvar") { Task { await save() } }
-            .accessibilityIdentifier("theme.save")
+          Button {
+            Task { await save() }
+          } label: {
+            if isSaving {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("Salvar")
+            }
+          }
+          .disabled(isSaving || isResetting)
+          .accessibilityIdentifier("theme.save")
         }
       }
     }
     .task(id: app.dataRevision) {
-      guard !isDirty else { return }
+      // A write in flight ends in its own `load()`; letting an unrelated revision bump race a
+      // second one would only reorder the two results.
+      guard !isDirty, !isSaving, !isResetting else { return }
       await load()
     }
     .alert(
@@ -92,10 +144,17 @@ struct ThemeEditorView: View {
       record = loaded
       values = loaded.stored ?? loaded.effective
       loadedValues = values
-    } catch { self.error = DemoError(error) }
+      loadFailed = false
+    } catch {
+      self.error = DemoError(error)
+      loadFailed = true
+    }
   }
 
   private func save() async {
+    guard !isSaving, !isResetting else { return }
+    isSaving = true
+    defer { isSaving = false }
     do {
       try await app.dependencies.themes.updateTheme(target: target, values: values)
       await load()
@@ -104,6 +163,9 @@ struct ThemeEditorView: View {
   }
 
   private func reset() async {
+    guard !isSaving, !isResetting else { return }
+    isResetting = true
+    defer { isResetting = false }
     do {
       try await app.dependencies.themes.resetTheme(target: target)
       await load()

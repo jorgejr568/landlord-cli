@@ -44,6 +44,72 @@ struct OrganizationFormValidationTests {
   }
 }
 
+@Suite("macOS organization billing index")
+struct OrganizationBillingIndexTests {
+  private func billing(_ id: String, owner: BillingOwner) -> Billing {
+    Billing(
+      id: BillingID(rawValue: id), name: id, description: "", owner: owner, items: []
+    )
+  }
+
+  @Test("an organization's cobranças are keyed by the organization's own identifier")
+  func organizationBillingsAreKeyedByOrganizationID() {
+    // The list screen counts, and the detail screen lists, through this key. `BillingOwner`
+    // derives the workspace key from the organization's raw identifier, so the two sides only meet
+    // if `workspaceID(of:)` derives it the same way.
+    let organizationID = OrganizationID(rawValue: "org-horizonte")
+    let owned = billing("b1", owner: .organization(id: organizationID, name: "Horizonte"))
+    let personal = billing("b2", owner: .user(id: 7, name: "Pessoal"))
+
+    let index = OrganizationBillingIndex.byWorkspace([owned, personal])
+
+    #expect(index[OrganizationBillingIndex.workspaceID(of: organizationID)] == [owned])
+    #expect(index[.personal] == [personal])
+  }
+
+  @Test("an organization with no cobranças has no entry, which reads as a count of zero")
+  func organizationsWithoutBillingsAreAbsent() {
+    let index = OrganizationBillingIndex.byWorkspace([
+      billing("b1", owner: .user(id: 7, name: "Pessoal"))
+    ])
+
+    let empty = OrganizationBillingIndex.workspaceID(of: OrganizationID(rawValue: "org-vazia"))
+    #expect(index[empty] == nil)
+    #expect((index[empty] ?? []).count == 0)
+  }
+
+  @Test("only cobranças outside every organization are offered for transfer")
+  func personalBillingsExcludeOrganizationOwned() {
+    let owned = billing(
+      "b1", owner: .organization(id: OrganizationID(rawValue: "org-horizonte"), name: "Horizonte")
+    )
+    let personal = billing("b2", owner: .user(id: 7, name: "Pessoal"))
+
+    #expect(OrganizationBillingIndex.personal([owned, personal]) == [personal])
+  }
+
+  @Test("grouping agrees with the per-organization filter it replaced")
+  @MainActor
+  func groupingAgreesWithTheFilterItReplaced() async throws {
+    // The screens used to filter the whole portfolio once per organization. The counts have to be
+    // identical against the canonical fixtures, not just against hand-built owners.
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+    let organizations = try await app.dependencies.organizations.listOrganizations()
+    let billings = try await app.dependencies.billings.listBillings()
+
+    let index = OrganizationBillingIndex.byWorkspace(billings)
+
+    #expect(organizations.isEmpty == false)
+    for organization in organizations {
+      let filtered = billings.filter {
+        $0.owner.workspaceID.rawValue == organization.id.rawValue
+      }
+      let grouped = index[OrganizationBillingIndex.workspaceID(of: organization.id)] ?? []
+      #expect(grouped == filtered)
+    }
+  }
+}
+
 @Suite("macOS organization member actions")
 struct OrganizationMemberActionsTests {
   @Test("the role menu never offers admin, and never re-offers the member's current role")

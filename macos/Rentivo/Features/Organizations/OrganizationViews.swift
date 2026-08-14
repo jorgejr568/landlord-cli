@@ -32,6 +32,32 @@ enum OrganizationFormValidation {
   }
 }
 
+/// Indexes an account's cobranças by the workspace that owns them.
+///
+/// Both organization screens need a per-organization slice of the same `listBillings()` result.
+/// Filtering the whole portfolio once per organization costs `organizations × billings` on the
+/// list screen, and the detail screen paid its two filters again on every `body` evaluation —
+/// every hover, every sheet toggle, every keystroke in a presented form. Grouping once per load
+/// turns both into a dictionary lookup.
+enum OrganizationBillingIndex {
+  /// The workspace key a cobrança owned by `organization` is filed under.
+  ///
+  /// `BillingOwner.workspaceID` reuses the organization's raw identifier for organization-owned
+  /// cobranças, so this is the one key both sides of the lookup agree on.
+  static func workspaceID(of organization: OrganizationID) -> WorkspaceID {
+    WorkspaceID(rawValue: organization.rawValue)
+  }
+
+  static func byWorkspace(_ billings: [Billing]) -> [WorkspaceID: [Billing]] {
+    Dictionary(grouping: billings, by: \.owner.workspaceID)
+  }
+
+  /// The cobranças that belong to no organization — the transfer menu's candidates.
+  static func personal(_ billings: [Billing]) -> [Billing] {
+    billings.filter { !$0.owner.isOrganization }
+  }
+}
+
 /// The roles a manager may assign to a member from the member row's menu.
 enum OrganizationMemberActions {
   /// Admin has no menu at all (the member list renders a crown instead), so offering "admin"
@@ -48,6 +74,7 @@ struct OrganizationListView: View {
   @State private var pendingCount = 0
   @State private var showingCreate = false
   @State private var showingInvitations = false
+  @State private var refresh = RefreshActivity()
 
   // `viewerMode` is a demo-mode-only concept: `LiveDemoRepository.setViewerMode`
   // just flips a local flag with zero effect on the live server, so gating a
@@ -109,13 +136,13 @@ struct OrganizationListView: View {
     .background(RentivoColors.paper)
     .navigationTitle("Organizações")
     .toolbar {
-      // macOS has no pull-to-refresh, so the reload iOS gets from `.refreshable` is an explicit
-      // toolbar command here.
       ToolbarItem(placement: .primaryAction) {
-        Button {
-          Task { await load() }
-        } label: {
-          Label("Atualizar", systemImage: "arrow.clockwise")
+        RefreshToolbarButton(
+          activity: refresh,
+          help: "Atualizar as organizações",
+          accessibilityIdentifier: "organization.refresh"
+        ) {
+          await load()
         }
       }
       if canCreateOrganization {
@@ -146,15 +173,28 @@ struct OrganizationListView: View {
   private func load() async {
     state.prepareForRefresh()
     do {
-      let organizations = try await app.dependencies.organizations.listOrganizations()
-      let billings = try await app.dependencies.billings.listBillings()
+      // The organizations, the portfolio, and the pending invitations are three independent
+      // requests: run them together so the screen costs the slowest one instead of all three end
+      // to end. `RepositoryBox` is what carries a main-actor repository into the child tasks.
+      let organizationsRepository = RepositoryBox(app.dependencies.organizations)
+      let billingsRepository = RepositoryBox(app.dependencies.billings)
+      let invitationsRepository = RepositoryBox(app.dependencies.invitations)
+      async let organizationsRequest = organizationsRepository.repository.listOrganizations()
+      async let billingsRequest = billingsRepository.repository.listBillings()
+      async let invitationsRequest = invitationsRepository.repository.listPendingInvitations()
+      let (organizations, billings, invitations) = try await (
+        organizationsRequest, billingsRequest, invitationsRequest
+      )
+      let billingsByWorkspace = OrganizationBillingIndex.byWorkspace(billings)
       let values = organizations.map { organization in
         OrganizationListItem(
           organization: organization,
-          billingCount: billings.filter { $0.owner.workspaceID.rawValue == organization.id.rawValue }.count
+          billingCount: billingsByWorkspace[
+            OrganizationBillingIndex.workspaceID(of: organization.id)
+          ]?.count ?? 0
         )
       }
-      pendingCount = try await app.dependencies.invitations.listPendingInvitations().count
+      pendingCount = invitations.count
       state = values.isEmpty ? .empty : .loaded(values)
     } catch {
       state.settleFailure(error, reportingTo: app)
@@ -220,6 +260,8 @@ struct OrganizationFormView: View {
   @State private var merchantName: String
   @State private var city: String
   @State private var pixValidationMessage: String?
+  @State private var submitFailureMessage: String?
+  @State private var saving = false
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
@@ -248,18 +290,34 @@ struct OrganizationFormView: View {
             .accessibilityIdentifier("organization.form.validation")
         }
       }
+
+      if let submitFailureMessage {
+        RentivoSection("Não foi possível salvar") {
+          Label(submitFailureMessage, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("organization.form.error")
+        }
+      }
     }
     .formStyle(.grouped)
     .navigationTitle(organization == nil ? "Nova organização" : "Editar organização")
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
-        Button("Salvar") { Task { await save() } }.disabled(name.isEmpty)
+        Button("Salvar") { Task { await save() } }
+          .disabled(saving || name.isEmpty)
+          .accessibilityIdentifier("organization.form.save")
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   private func save() async {
+    // Without this the sheet stays interactive across the round trip and a double-click creates
+    // two organizations.
+    guard !saving else { return }
     let trimmedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -272,6 +330,9 @@ struct OrganizationFormView: View {
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    submitFailureMessage = nil
+    saving = true
+    defer { saving = false }
     do {
       if let organization {
         _ = try await app.dependencies.organizations.updateOrganization(
@@ -279,11 +340,30 @@ struct OrganizationFormView: View {
       } else {
         _ = try await app.dependencies.organizations.createOrganization(draft)
       }
+      // The notice outlives the sheet — `app.notice` holds it until the banner is dismissed — so
+      // setting it just before `dismiss()` still leaves it visible once the sheet is gone.
       app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
       await onSaved()
       dismiss()
-    } catch { app.reportFailure(error) }
+    } catch {
+      // The global banner renders behind this sheet, so a failure reported there would read as
+      // Salvar doing nothing at all. Keep it inline, where the user is looking.
+      submitFailureMessage = DemoError(error).message
+    }
   }
+}
+
+/// The one mutation the detail screen has in flight, so the control that started it can show the
+/// wait and refuse a second click for the length of the round trip.
+///
+/// A single slot rather than one flag per control: these actions all end in `refreshAll()`, so
+/// letting two run at once would race two reloads against each other for no gain.
+private enum OrganizationDetailAction: Equatable {
+  /// A role change or a removal, keyed by the member the row belongs to.
+  case member(Int)
+  case policy
+  case transfer(BillingID)
+  case delete
 }
 
 struct OrganizationDetailView: View {
@@ -292,11 +372,18 @@ struct OrganizationDetailView: View {
   let organizationID: OrganizationID
   let onMutation: () async -> Void
   @State private var state: LoadState<Organization> = .idle
-  @State private var billings: [Billing] = []
+  @State private var billingsByWorkspace: [WorkspaceID: [Billing]] = [:]
+  @State private var personalBillings: [Billing] = []
   @State private var showingEdit = false
   @State private var showingInvite = false
   @State private var confirmingMFA = false
   @State private var confirmingDelete = false
+  @State private var runningAction: OrganizationDetailAction?
+
+  private var isTransferring: Bool {
+    if case .transfer = runningAction { return true }
+    return false
+  }
 
   var body: some View {
     PageStateView(state: state) { organization in
@@ -378,9 +465,18 @@ struct OrganizationDetailView: View {
           Button(role: .destructive) {
             confirmingDelete = true
           } label: {
-            Label("Excluir organização", systemImage: "trash").frame(maxWidth: .infinity)
+            if runningAction == .delete {
+              HStack(spacing: RentivoSpacing.small) {
+                ProgressView().controlSize(.small)
+                Text("Excluindo…")
+              }
+              .frame(maxWidth: .infinity)
+            } else {
+              Label("Excluir organização", systemImage: "trash").frame(maxWidth: .infinity)
+            }
           }
           .buttonStyle(.bordered)
+          .disabled(runningAction != nil)
         } else {
           Label(
             "Seu papel permite consultar esta organização, sem alterar sua configuração.",
@@ -414,6 +510,8 @@ struct OrganizationDetailView: View {
             MemberRow(
               member: member,
               canManage: organization.capabilities.canManage,
+              isBusy: runningAction == .member(member.userID),
+              isLocked: runningAction != nil,
               changeRole: { role in await changeRole(member, to: role) },
               remove: { await remove(member) }
             )
@@ -435,6 +533,9 @@ struct OrganizationDetailView: View {
               .foregroundStyle(RentivoColors.secondaryInk)
           }
           Spacer()
+          if runningAction == .policy {
+            ProgressView().controlSize(.small)
+          }
           // A real `Toggle` (not a hit-test-disabled decoration behind an
           // `onTapGesture`) so VoiceOver can focus and activate it directly.
           // The binding never applies the tap's intended value: it only
@@ -452,7 +553,7 @@ struct OrganizationDetailView: View {
           )
           .toggleStyle(.switch)
           .labelsHidden()
-          .disabled(!organization.capabilities.canManage)
+          .disabled(!organization.capabilities.canManage || runningAction != nil)
           .accessibilityIdentifier("organization.mfa.toggle")
         }
       }
@@ -462,7 +563,10 @@ struct OrganizationDetailView: View {
   private func billingSection(_ organization: Organization) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
       SectionTitle(title: "Cobranças", symbol: "house.fill")
-      let owned = billings.filter { $0.owner.workspaceID.rawValue == organization.id.rawValue }
+      // Both slices come from the dictionary `load()` built, rather than from two filters over the
+      // whole portfolio that SwiftUI would re-run on every `body` evaluation.
+      let owned =
+        billingsByWorkspace[OrganizationBillingIndex.workspaceID(of: organization.id)] ?? []
       if owned.isEmpty {
         Text("Nenhuma cobrança pertence a esta organização.")
           .foregroundStyle(RentivoColors.secondaryInk)
@@ -476,17 +580,24 @@ struct OrganizationDetailView: View {
           }
         }
       }
-      let personal = billings.filter { !$0.owner.isOrganization }
-      if !personal.isEmpty && organization.capabilities.canCreateBilling {
+      if !personalBillings.isEmpty && organization.capabilities.canCreateBilling {
         Menu {
-          ForEach(personal) { billing in
+          ForEach(personalBillings) { billing in
             Button(billing.name) { Task { await transfer(billing, to: organization) } }
           }
         } label: {
-          Label("Transferir cobrança para cá", systemImage: "arrow.right.square.fill")
+          if isTransferring {
+            HStack(spacing: RentivoSpacing.small) {
+              ProgressView().controlSize(.small)
+              Text("Transferindo…")
+            }
+          } else {
+            Label("Transferir cobrança para cá", systemImage: "arrow.right.square.fill")
+          }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .disabled(runningAction != nil)
       }
     }
   }
@@ -496,11 +607,18 @@ struct OrganizationDetailView: View {
     // `prepareForRefresh()` is what keeps the organization on screen through all of them.
     state.prepareForRefresh()
     do {
-      let loadedOrganization = try await app.dependencies.organizations.organization(
+      // The record and the portfolio are independent requests, so the screen costs the slower of
+      // the two rather than their sum. `RepositoryBox` is what carries a main-actor repository
+      // into the child tasks.
+      let organizationsRepository = RepositoryBox(app.dependencies.organizations)
+      let billingsRepository = RepositoryBox(app.dependencies.billings)
+      async let organizationRequest = organizationsRepository.repository.organization(
         id: organizationID
       )
-      let loadedBillings = try await app.dependencies.billings.listBillings()
-      billings = loadedBillings
+      async let billingsRequest = billingsRepository.repository.listBillings()
+      let (loadedOrganization, loadedBillings) = try await (organizationRequest, billingsRequest)
+      billingsByWorkspace = OrganizationBillingIndex.byWorkspace(loadedBillings)
+      personalBillings = OrganizationBillingIndex.personal(loadedBillings)
       state = .loaded(loadedOrganization)
     } catch {
       state.settleFailure(error, reportingTo: app)
@@ -512,7 +630,14 @@ struct OrganizationDetailView: View {
     await onMutation()
   }
 
+  // Each mutation below claims `runningAction` for the length of its round trip and the reload
+  // that follows it, which is what lets the control that started it show the wait. Failures still
+  // report to the global banner: this screen is pushed, not presented, so the banner is visible.
+
   private func changeRole(_ member: OrganizationMember, to role: OrganizationRole) async {
+    guard runningAction == nil else { return }
+    runningAction = .member(member.userID)
+    defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.updateMemberRole(
         organizationID: organizationID,
@@ -524,6 +649,9 @@ struct OrganizationDetailView: View {
   }
 
   private func remove(_ member: OrganizationMember) async {
+    guard runningAction == nil else { return }
+    runningAction = .member(member.userID)
+    defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.removeMember(
         organizationID: organizationID, userID: member.userID)
@@ -532,7 +660,9 @@ struct OrganizationDetailView: View {
   }
 
   private func toggleMFA() async {
-    guard let organization = state.value else { return }
+    guard let organization = state.value, runningAction == nil else { return }
+    runningAction = .policy
+    defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
@@ -543,6 +673,9 @@ struct OrganizationDetailView: View {
   }
 
   private func transfer(_ billing: Billing, to organization: Organization) async {
+    guard runningAction == nil else { return }
+    runningAction = .transfer(billing.id)
+    defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.transferBilling(
         billingID: billing.id,
@@ -553,6 +686,9 @@ struct OrganizationDetailView: View {
   }
 
   private func deleteOrganization() async {
+    guard runningAction == nil else { return }
+    runningAction = .delete
+    defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.deleteOrganization(id: organizationID)
       await onMutation()
@@ -566,6 +702,10 @@ struct OrganizationDetailView: View {
 private struct MemberRow: View {
   let member: OrganizationMember
   let canManage: Bool
+  /// This row's own role change or removal is in flight.
+  let isBusy: Bool
+  /// Some mutation on the screen is in flight — this row's or another's.
+  let isLocked: Bool
   let changeRole: (OrganizationRole) async -> Void
   let remove: () async -> Void
 
@@ -581,18 +721,25 @@ private struct MemberRow: View {
       if member.role == .admin {
         Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
       } else if canManage {
-        Menu {
-          ForEach(OrganizationMemberActions.assignableRoles(excluding: member.role), id: \.self) { role in
-            Button(role.label) { Task { await changeRole(role) } }
+        if isBusy {
+          // The menu is replaced rather than merely dimmed, so the wait reads on the row the
+          // change belongs to instead of on a control that looks unavailable for no reason.
+          ProgressView().controlSize(.small)
+        } else {
+          Menu {
+            ForEach(OrganizationMemberActions.assignableRoles(excluding: member.role), id: \.self) { role in
+              Button(role.label) { Task { await changeRole(role) } }
+            }
+            Divider()
+            Button("Remover", role: .destructive) { Task { await remove() } }
+          } label: {
+            Image(systemName: "ellipsis.circle")
           }
-          Divider()
-          Button("Remover", role: .destructive) { Task { await remove() } }
-        } label: {
-          Image(systemName: "ellipsis.circle")
+          .menuStyle(.borderlessButton)
+          .menuIndicator(.hidden)
+          .fixedSize()
+          .disabled(isLocked)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
       }
     }
     .padding(.horizontal, RentivoSpacing.small)

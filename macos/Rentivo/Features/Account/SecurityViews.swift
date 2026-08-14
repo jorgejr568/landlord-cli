@@ -11,12 +11,22 @@ struct SecurityView: View {
   @State private var showingDisableTOTP = false
   @State private var password = ""
   @State private var passkeyPendingDelete: Passkey?
+  @State private var isBeginningTOTP = false
+  @State private var isRegeneratingCodes = false
+  @State private var isDisablingTOTP = false
+  @State private var passkeyBeingRemoved: PasskeyID?
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
   /// screen should be fully enabled regardless of the demo viewer-mode toggle.
   private var isDemoViewerLocked: Bool {
     !app.usesLiveAPI && app.demoSettings.viewerMode
+  }
+
+  /// Any security round trip is in flight. These all mutate the same summary and end in `load()`,
+  /// so the whole set holds until the running one finishes.
+  private var isSecurityActionRunning: Bool {
+    isBeginningTOTP || isRegeneratingCodes || isDisablingTOTP || passkeyBeingRemoved != nil
   }
 
   var body: some View {
@@ -34,12 +44,35 @@ struct SecurityView: View {
           if !isDemoViewerLocked {
             if summary.totpEnabled {
               Button("Desativar", role: .destructive) { showingDisableTOTP = true }
+                .disabled(isSecurityActionRunning)
             } else {
-              Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
+              Button {
+                Task { await beginTOTP() }
+              } label: {
+                if isBeginningTOTP {
+                  HStack(spacing: RentivoSpacing.small) {
+                    ProgressView().controlSize(.small)
+                    Text("Preparando…")
+                  }
+                } else {
+                  Text("Configurar aplicativo autenticador")
+                }
+              }
+              .disabled(isSecurityActionRunning)
             }
-            Button("Gerar novos códigos de recuperação") {
+            Button {
               Task { await regenerateCodes() }
+            } label: {
+              if isRegeneratingCodes {
+                HStack(spacing: RentivoSpacing.small) {
+                  ProgressView().controlSize(.small)
+                  Text("Gerando…")
+                }
+              } else {
+                Text("Gerar novos códigos de recuperação")
+              }
             }
+            .disabled(isSecurityActionRunning)
           }
           LabeledContent("Códigos disponíveis", value: "\(summary.recoveryCodeCount)")
         }
@@ -56,9 +89,19 @@ struct SecurityView: View {
                   .font(RentivoTypography.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
                 if !isDemoViewerLocked {
-                  Button("Excluir", role: .destructive) { passkeyPendingDelete = passkey }
+                  if passkeyBeingRemoved == passkey.id {
+                    HStack(spacing: RentivoSpacing.small) {
+                      ProgressView().controlSize(.small)
+                      Text("Excluindo…")
+                    }
                     .font(RentivoTypography.metadata)
-                    .accessibilityIdentifier("security.passkey.delete")
+                    .foregroundStyle(RentivoColors.secondaryInk)
+                  } else {
+                    Button("Excluir", role: .destructive) { passkeyPendingDelete = passkey }
+                      .font(RentivoTypography.metadata)
+                      .disabled(isSecurityActionRunning)
+                      .accessibilityIdentifier("security.passkey.delete")
+                  }
                 }
               }
             }
@@ -118,21 +161,37 @@ struct SecurityView: View {
   }
 
   private func beginTOTP() async {
+    // The button gates a sheet that only opens once the request returns, so without this it sits
+    // enabled and unchanged for the whole round trip and invites a second click.
+    guard !isBeginningTOTP else { return }
+    isBeginningTOTP = true
+    defer { isBeginningTOTP = false }
     do {
       enrollment = try await app.dependencies.security.beginTOTPEnrollment()
     } catch { app.reportFailure(error) }
   }
 
-  private func confirmTOTP(code: String) async {
+  /// Confirms the enrollment and hands any failure back for the sheet to render inline, rather
+  /// than reporting it here.
+  ///
+  /// A wrong six-digit code leaves the enrollment sheet open, and the global banner renders behind
+  /// it — reporting there would make Confirmar look like it did nothing at all.
+  private func confirmTOTP(code: String) async -> String? {
     do {
       recoveryCodes = try await app.dependencies.security.confirmTOTPEnrollment(code: code)
       enrollment = nil
       await load()
       showingRecoveryCodes = true
-    } catch { app.reportFailure(error) }
+      return nil
+    } catch {
+      return DemoError(error).message
+    }
   }
 
   private func disableTOTP() async {
+    guard !isDisablingTOTP else { return }
+    isDisablingTOTP = true
+    defer { isDisablingTOTP = false }
     do {
       try await app.dependencies.security.disableTOTP(password: password)
       password = ""
@@ -141,6 +200,11 @@ struct SecurityView: View {
   }
 
   private func regenerateCodes() async {
+    // A second click would mint another set and invalidate the one the sheet is about to reveal —
+    // codes the user may already be copying down.
+    guard !isRegeneratingCodes else { return }
+    isRegeneratingCodes = true
+    defer { isRegeneratingCodes = false }
     do {
       recoveryCodes = try await app.dependencies.security.regenerateRecoveryCodes()
       await load()
@@ -149,6 +213,9 @@ struct SecurityView: View {
   }
 
   private func remove(_ passkey: Passkey) async {
+    guard passkeyBeingRemoved == nil else { return }
+    passkeyBeingRemoved = passkey.id
+    defer { passkeyBeingRemoved = nil }
     do {
       try await app.dependencies.security.deletePasskey(id: passkey.id)
       await load()
@@ -188,8 +255,17 @@ private struct ChangePasswordView: View {
       }
 
       Section {
-        Button("Salvar nova senha", action: save)
-          .disabled(isSaving || currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty)
+        Button(action: save) {
+          if isSaving {
+            HStack(spacing: RentivoSpacing.small) {
+              ProgressView().controlSize(.small)
+              Text("Salvando…")
+            }
+          } else {
+            Text("Salvar nova senha")
+          }
+        }
+        .disabled(isSaving || currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty)
       }
     }
     .formStyle(.grouped)
@@ -263,8 +339,15 @@ private struct RecoveryCodeView: View {
 private struct TOTPEnrollmentView: View {
   @Environment(\.dismiss) private var dismiss
   let enrollment: TOTPEnrollment
-  let onConfirm: (String) async -> Void
+  /// Returns the PT-BR message to show inline, or `nil` once the code is accepted.
+  let onConfirm: (String) async -> String?
   @State private var code = ""
+  @State private var isConfirming = false
+  @State private var failureMessage: String?
+  /// Decoded once on appear instead of on every `body` evaluation: `qrCodeImage` base64-decodes
+  /// the payload and builds a fresh `NSImage`, and the code field below re-evaluates this body on
+  /// every keystroke.
+  @State private var qrCode: NSImage?
 
   var body: some View {
     NavigationStack {
@@ -275,7 +358,7 @@ private struct TOTPEnrollmentView: View {
         HStack(alignment: .top, spacing: RentivoSpacing.large) {
           // The Mac has no camera pointed at itself, so the QR code is here to be scanned by the
           // phone that holds the authenticator app; the secret beside it stays for manual entry.
-          if let qrCode = enrollment.qrCodeImage {
+          if let qrCode {
             VStack(spacing: RentivoSpacing.small) {
               Image(nsImage: qrCode)
                 .interpolation(.none)
@@ -305,9 +388,25 @@ private struct TOTPEnrollmentView: View {
         }
         TextField("Código do autenticador", text: $code)
           .textContentType(.oneTimeCode)
-        Button("Confirmar") { Task { await onConfirm(code) } }
-          .buttonStyle(RentivoButtonStyle())
-          .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if let failureMessage {
+          Label(failureMessage, systemImage: "exclamationmark.circle.fill")
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("security.totp.error")
+        }
+        Button {
+          Task { await confirm() }
+        } label: {
+          if isConfirming {
+            HStack(spacing: RentivoSpacing.small) {
+              ProgressView().controlSize(.small).tint(.white)
+              Text("Confirmando…")
+            }
+          } else {
+            Text("Confirmar")
+          }
+        }
+        .buttonStyle(RentivoButtonStyle())
+        .disabled(isConfirming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         Spacer()
       }
       .rentivoSheetIntro()
@@ -315,10 +414,21 @@ private struct TOTPEnrollmentView: View {
       .rentivoPage()
       .navigationTitle("Autenticador")
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancelar") { dismiss() }.disabled(isConfirming)
+        }
       }
+      .task { qrCode = enrollment.qrCodeImage }
     }
     .rentivoSheetFrame()
+    .interactiveDismissDisabled(isConfirming)
+  }
+
+  private func confirm() async {
+    guard !isConfirming else { return }
+    isConfirming = true
+    defer { isConfirming = false }
+    failureMessage = await onConfirm(code)
   }
 }
 

@@ -35,6 +35,7 @@ struct APIKeyListView: View {
   @State private var createdSecret: CreatedAPIKeySecret?
   @State private var editingKey: APIKeyMetadata?
   @State private var keyPendingRevoke: APIKeyMetadata?
+  @State private var refresh = RefreshActivity()
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -72,13 +73,13 @@ struct APIKeyListView: View {
     .background(RentivoColors.paper)
     .navigationTitle("Chaves de integração")
     .toolbar {
-      // macOS has no pull-to-refresh, so the reload iOS gets from `.refreshable` is an explicit
-      // toolbar command here.
       ToolbarItem(placement: .primaryAction) {
-        Button {
-          Task { await load() }
-        } label: {
-          Label("Atualizar", systemImage: "arrow.clockwise")
+        RefreshToolbarButton(
+          activity: refresh,
+          help: "Atualizar as chaves de integração",
+          accessibilityIdentifier: "api-key.refresh"
+        ) {
+          await load()
         }
       }
       if !isDemoViewerLocked {
@@ -221,7 +222,12 @@ private struct APIKeyFormView: View {
   @State private var scopes: Set<APIKeyScope>
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
-  @State private var organizations: [Organization] = []
+  /// The organizations the key can be granted access to. Modelled as a load state rather than a
+  /// silent `try?`: until it settles the "Acesso" section can't offer the organization toggles,
+  /// and saving early would persist a key missing every grant the user was never shown.
+  @State private var resources: LoadState<[Organization]> = .idle
+  @State private var saving = false
+  @State private var submitFailureMessage: String?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
 
   init(
@@ -256,25 +262,69 @@ private struct APIKeyFormView: View {
       }
       RentivoSection("Acesso") {
         resourceToggle("Conta pessoal", id: .personal)
-        ForEach(organizations) { organization in
-          resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+        switch resources {
+        case .idle, .loading:
+          HStack(spacing: RentivoSpacing.small) {
+            ProgressView().controlSize(.small)
+            Text("Carregando organizações…")
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
+        case .loaded(let organizations):
+          ForEach(organizations) { organization in
+            resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+          }
+        case .empty:
+          // `loadResources()` never settles on `.empty`: an account that belongs to no
+          // organization still has the personal toggle above, so there is no empty state to draw.
+          EmptyView()
+        case .failed(let error):
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            Label(error.message, systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+            Button("Tentar novamente") { Task { await loadResources() } }
+          }
+          .accessibilityIdentifier("api-key.form.resources.error")
         }
       }
       RentivoSection("Validade") {
         DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
       }
+
+      if let submitFailureMessage {
+        RentivoSection("Não foi possível salvar") {
+          Label(submitFailureMessage, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("api-key.form.error")
+        }
+      }
     }
     .formStyle(.grouped)
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
         Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
-          .disabled(!APIKeyFormRules.isSavable(name: name, scopes: scopes, resourceIDs: grantIDs))
+          .disabled(
+            saving || resources.value == nil
+              || !APIKeyFormRules.isSavable(name: name, scopes: scopes, resourceIDs: grantIDs)
+          )
       }
     }
-    .task {
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
+    .interactiveDismissDisabled(saving)
+    .task { await loadResources() }
+  }
+
+  private func loadResources() async {
+    resources.prepareForRefresh()
+    do {
+      // Always `.loaded`, never `.empty` — see the "Acesso" section.
+      resources = .loaded(try await app.dependencies.organizations.listOrganizations())
+    } catch {
+      // Failing into the section rather than through `settleFailure`: this form is a sheet, and
+      // the global banner renders behind it.
+      resources = .failed(DemoError(error))
     }
   }
 
@@ -291,12 +341,18 @@ private struct APIKeyFormView: View {
   }
 
   private func save() async {
+    // Without this the sheet stays interactive across the round trip and a double-click mints two
+    // keys — each with its own secret, only one of which is ever shown.
+    guard !saving else { return }
     let draft = APIKeyDraft(
       name: name,
       scopes: scopes,
       grants: APIKeyFormRules.grants(for: grantIDs, original: originalGrants),
       expiresAt: expiresAt
     )
+    submitFailureMessage = nil
+    saving = true
+    defer { saving = false }
     do {
       if let key {
         _ = try await app.dependencies.apiKeys.updateAPIKey(id: key.id, draft: draft)
@@ -308,7 +364,11 @@ private struct APIKeyFormView: View {
         dismiss()
         await onSaved(secret)
       }
-    } catch { app.reportFailure(error) }
+    } catch {
+      // The global banner renders behind this sheet, so a failure reported there would read as the
+      // button doing nothing at all. Keep it inline, where the user is looking.
+      submitFailureMessage = DemoError(error).message
+    }
   }
 }
 
