@@ -67,7 +67,7 @@ Optional distributed tracing. Disabled by default; see [`docs/observability.md`]
 | `RENTIVO_WEBAUTHN_RP_ID` | `localhost` | Relying-party ID. Must match the domain users visit; changing it invalidates registered passkeys. |
 | `RENTIVO_WEBAUTHN_RP_NAME` | `Rentivo` | Display name shown in browser passkey prompts. |
 | `RENTIVO_WEBAUTHN_ORIGIN` | `http://localhost:8000` | Expected origin for WebAuthn ceremonies. |
-| `RENTIVO_APPLE_TEAM_ID` | *(empty)* | Apple Developer Team ID. When set, the API serves `/.well-known/apple-app-site-association` declaring `webcredentials` for `<team id>.br.com.rentivo.ios`, which is what lets the iOS app use passkeys registered for `RENTIVO_WEBAUTHN_RP_ID`. Empty makes that path return 404. |
+| `RENTIVO_APPLE_TEAM_ID` | *(empty)* | Apple Developer Team ID. **Required in production.** When set, the API serves `/.well-known/apple-app-site-association` declaring `webcredentials` for `<team id>.br.com.rentivo.ios`, which lets the iOS app use passkeys registered for `RENTIVO_WEBAUTHN_RP_ID`. Empty makes that path return 404 outside production; production startup validation rejects it. |
 
 ## AI content moderation (communication text)
 

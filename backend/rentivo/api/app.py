@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,7 @@ from rentivo.api.authentication import allow_mfa_setup, delete_legacy_session_co
 from rentivo.api.cookies import clear_auth_cookies
 from rentivo.api.errors import Problem, ProblemException, problem, problem_response
 from rentivo.api.routes.api_keys import router as api_keys_router
+from rentivo.api.routes.auth import TARPIT_DEADLINE_HEADER
 from rentivo.api.routes.auth import router as auth_router
 from rentivo.api.routes.billings import router as billings_router
 from rentivo.api.routes.bills import router as bills_router
@@ -73,6 +75,61 @@ class _RequestServicesMiddleware:
         finally:
             if request.state.db_conn is not None:
                 request.state.db_conn.close()
+
+
+async def _tarpit_sleep(seconds: float) -> None:
+    # Single indirection for the native-auth failure tarpit. Tests patch THIS to
+    # observe/collapse the delay, instead of monkeypatching `asyncio.sleep`
+    # process-wide (which would also swallow every unrelated sleep).
+    await asyncio.sleep(max(0.0, seconds))
+
+
+class _MobileAuthTarpitMiddleware:
+    """Delay a marked response until its deadline while holding no DB connection.
+
+    The native-auth handlers stamp a private ``TARPIT_DEADLINE_HEADER`` (an
+    event-loop timestamp) on every credential rejection and on signup success,
+    then return immediately. This middleware sits OUTSIDE
+    ``_RequestServicesMiddleware`` so the per-request pooled connection is
+    already closed by the time control returns here. It buffers the marked
+    response, sleeps the remaining time to the deadline, strips the marker, and
+    only then flushes — turning the tarpit into a fixed wall-clock offset that
+    never pins a pooled connection (findings 1 and 5). Unmarked responses stream
+    straight through untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        deadline: float | None = None
+        buffered: list[Message] = []
+
+        async def buffering_send(message: Message) -> None:
+            nonlocal deadline
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                raw = headers.get(TARPIT_DEADLINE_HEADER)
+                if raw is not None:
+                    del headers[TARPIT_DEADLINE_HEADER]
+                    deadline = float(raw)
+            if deadline is not None:
+                buffered.append(message)
+                return
+            await send(message)
+
+        await self.app(scope, receive, buffering_send)
+        if deadline is None:
+            return
+        # Reached only after the inner middleware's finally has closed the
+        # request's DB connection, so nothing is checked out while we wait.
+        await _tarpit_sleep(deadline - asyncio.get_running_loop().time())
+        for message in buffered:
+            await send(message)
 
 
 class _RequestContextMiddleware:
@@ -200,6 +257,9 @@ def create_app() -> FastAPI:
     app.include_router(compatibility_router)
 
     app.add_middleware(_RequestServicesMiddleware)
+    # Added after _RequestServicesMiddleware so it wraps it (added-later == outer):
+    # the tarpit must sleep only once the per-request DB connection is released.
+    app.add_middleware(_MobileAuthTarpitMiddleware)
     app.add_middleware(_RequestContextMiddleware)
     app.add_middleware(TracingMiddleware)
     app.add_middleware(_LegacySessionCookieExpiryMiddleware)

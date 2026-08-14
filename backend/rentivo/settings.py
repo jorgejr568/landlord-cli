@@ -437,6 +437,12 @@ def validate_production_settings() -> None:
     if configured_webauthn_hostname is not None and settings.webauthn_rp_id != configured_webauthn_hostname:
         errors.append("RENTIVO_WEBAUTHN_RP_ID must match the WebAuthn origin hostname")
 
+    if not settings.apple_team_id.strip():
+        # Empty in production silently makes /.well-known/apple-app-site-association
+        # return 404, which breaks iOS passkeys (associated domains). Require it
+        # explicitly rather than shipping a dead passkey story by omission.
+        errors.append("RENTIVO_APPLE_TEAM_ID is required in production for iOS passkey associated domains")
+
     if not settings.cookie_secure:
         errors.append("RENTIVO_COOKIE_SECURE must be true")
     for variable, name in (

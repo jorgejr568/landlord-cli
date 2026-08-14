@@ -117,7 +117,14 @@ async def apple_app_site_association() -> Response:
     """
     if not settings.apple_team_id:
         raise ProblemException.not_found()
-    return JSONResponse({"webcredentials": {"apps": [f"{settings.apple_team_id}.{IOS_BUNDLE_ID}"]}})
+    # This document is not under ``/api`` so ``_APINoStoreMiddleware`` never
+    # touches it. iOS re-fetches it rarely and it changes only when the team ID
+    # changes, so a short shared cache lifetime is safe and avoids hammering the
+    # origin on every associated-domains check.
+    return JSONResponse(
+        {"webcredentials": {"apps": [f"{settings.apple_team_id}.{IOS_BUNDLE_ID}"]}},
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/robots.txt")
