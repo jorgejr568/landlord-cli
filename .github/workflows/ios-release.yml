@@ -180,19 +180,15 @@ jobs:
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           printf '%s\n' "$ASC_PRIVATE_KEY" \
             > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
-      - name: Archive signed
-        # Sign at archive time (automatic signing + provisioning updates) so the
-        # app's entitlements — notably com.apple.developer.associated-domains,
-        # which iOS passkeys and password-manager autofill both depend on — are
-        # embedded in the archive. An unsigned archive carries no entitlements,
-        # so the later -exportArchive re-signs from the provisioning profile
-        # alone and silently drops them (the bug that shipped passkey-less
-        # builds). Requires the App ID `br.com.rentivo.ios` to have the
-        # Associated Domains capability enabled in the developer portal, or
-        # automatic provisioning here fails rather than shipping a broken build.
-        env:
-          ASC_KEY_ID: ${{ secrets.APPSTORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPSTORE_CONNECT_ISSUER_ID }}
+      - name: Archive unsigned
+        # Archive without signing; distribution signing happens at the export
+        # step below (method app-store-connect), which needs no registered
+        # devices. Signing here with automatic style would make Xcode mint a
+        # *development* profile, which does require devices. The associated-
+        # domains entitlement is applied at export from the App Store profile —
+        # which only carries it once the App ID has the Associated Domains
+        # capability enabled in the developer portal. The verify step after
+        # export fails the release loudly if it did not survive.
         run: |
           set -euo pipefail
           xcodebuild archive \
@@ -202,14 +198,9 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Rentivo.xcarchive" \
             -skipPackagePluginValidation -skipMacroValidation \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
       - name: Write export options
         run: |
           set -euo pipefail
