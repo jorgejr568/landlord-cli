@@ -73,6 +73,22 @@ private struct AuthField<Field: View>: View {
   }
 }
 
+private extension View {
+  /// Renders a placeholder we own, so its colour is deterministic. iOS tints the *native*
+  /// placeholder of an autofill-eligible username field in the system accent once saved
+  /// credentials exist, which reads like pre-filled link text; owning it keeps the placeholder
+  /// the same muted grey as every other field.
+  func authFieldPlaceholder(_ text: String, visible: Bool) -> some View {
+    overlay(alignment: .leading) {
+      if visible {
+        Text(text)
+          .foregroundStyle(RentivoColors.secondaryInk)
+          .allowsHitTesting(false)
+      }
+    }
+  }
+}
+
 /// An inline text action ("Criar conta", "Usar código de recuperação"): a button that reads as a
 /// link instead of taking the primary `RentivoButtonStyle` treatment.
 private struct AuthLinkButton: View {
@@ -150,11 +166,12 @@ private struct SignInForm: View {
     ) {
       VStack(alignment: .leading, spacing: RentivoSpacing.large) {
         AuthField("E-MAIL") {
-          TextField("voce@exemplo.com.br", text: $email)
+          TextField("", text: $email)
             .keyboardType(.emailAddress)
             .textContentType(.username)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .authFieldPlaceholder("voce@exemplo.com.br", visible: email.isEmpty)
             .accessibilityIdentifier("login.email")
         }
         AuthField("SENHA") {
@@ -242,11 +259,12 @@ private struct SignUpForm: View {
     ) {
       VStack(alignment: .leading, spacing: RentivoSpacing.large) {
         AuthField("E-MAIL") {
-          TextField("voce@exemplo.com.br", text: $email)
+          TextField("", text: $email)
             .keyboardType(.emailAddress)
             .textContentType(.username)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .authFieldPlaceholder("voce@exemplo.com.br", visible: email.isEmpty)
             .accessibilityIdentifier("signup.email")
         }
         AuthField("SENHA") {
