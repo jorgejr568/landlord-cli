@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import structlog
 
-from rentivo.models.organization import Organization, OrganizationMember, OrgRole
+from rentivo.models.organization import Organization, OrganizationMember
 from rentivo.observability import traced
-from rentivo.pix import validate_pix_key
+from rentivo.pix import normalize_pix_triple, validate_pix_key
 from rentivo.repositories.base import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
@@ -15,10 +15,29 @@ class OrganizationService:
         self.repo = repo
 
     @traced("organization.create_organization")
-    def create_organization(self, name: str, created_by: int) -> Organization:
-        org = Organization(name=name, created_by=created_by)
-        created = self.repo.create(org)
-        self.repo.add_member(created.id, created_by, OrgRole.ADMIN.value)
+    def create_organization(
+        self,
+        name: str,
+        created_by: int,
+        *,
+        pix_key: str = "",
+        pix_merchant_name: str = "",
+        pix_merchant_city: str = "",
+    ) -> Organization:
+        pix_key, pix_merchant_name, pix_merchant_city = normalize_pix_triple(
+            pix_key,
+            pix_merchant_name,
+            pix_merchant_city,
+        )
+        pix_key = validate_pix_key(pix_key) if pix_key else ""
+        org = Organization(
+            name=name,
+            created_by=created_by,
+            pix_key=pix_key,
+            pix_merchant_name=pix_merchant_name,
+            pix_merchant_city=pix_merchant_city,
+        )
+        created = self.repo.create_with_admin(org, created_by)
         logger.info(
             "organization_created",
             org_id=created.id,
@@ -47,9 +66,12 @@ class OrganizationService:
 
     @traced("organization.update_organization")
     def update_organization(self, org: Organization) -> Organization:
-        org.pix_key = validate_pix_key(org.pix_key) if org.pix_key.strip() else ""
-        org.pix_merchant_name = org.pix_merchant_name.strip()
-        org.pix_merchant_city = org.pix_merchant_city.strip()
+        org.pix_key, org.pix_merchant_name, org.pix_merchant_city = normalize_pix_triple(
+            org.pix_key,
+            org.pix_merchant_name,
+            org.pix_merchant_city,
+        )
+        org.pix_key = validate_pix_key(org.pix_key) if org.pix_key else ""
         result = self.repo.update(org)
         logger.info("organization_updated", org_id=result.id, name=result.name)
         return result

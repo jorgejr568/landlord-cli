@@ -37,6 +37,14 @@ class BillingRepository(ABC):
     def create(self, billing: Billing) -> Billing: ...
 
     @abstractmethod
+    def create_aggregate(
+        self,
+        billing: Billing,
+        recipients: list[Recipient] | None,
+        reply_to: list[Recipient] | None,
+    ) -> Billing: ...
+
+    @abstractmethod
     def get_by_id(self, billing_id: int) -> Billing | None: ...
 
     @abstractmethod
@@ -50,6 +58,22 @@ class BillingRepository(ABC):
 
     @abstractmethod
     def update(self, billing: Billing) -> Billing: ...
+
+    @abstractmethod
+    def update_aggregate(
+        self,
+        billing: Billing,
+        recipients: list[Recipient] | None,
+        reply_to: list[Recipient] | None,
+        *,
+        expected_owner_id: int | None = None,
+        organization_id: int | None = None,
+    ) -> Billing | None: ...
+
+    @abstractmethod
+    def update_and_transfer_personal_to_organization(
+        self, billing: Billing, expected_owner_id: int, organization_id: int
+    ) -> Billing | None: ...
 
     @abstractmethod
     def delete(self, billing_id: int) -> None: ...
@@ -233,6 +257,9 @@ class UserRepository(ABC):
 class OrganizationRepository(ABC):
     @abstractmethod
     def create(self, org: Organization) -> Organization: ...
+
+    @abstractmethod
+    def create_with_admin(self, org: Organization, admin_user_id: int) -> Organization: ...
 
     @abstractmethod
     def get_by_id(self, org_id: int) -> Organization | None: ...
@@ -654,6 +681,9 @@ class CommunicationRepository(ABC):
     def create(self, communication: Communication) -> Communication: ...
 
     @abstractmethod
+    def create_batch(self, communications: list[Communication]) -> list[Communication]: ...
+
+    @abstractmethod
     def get_by_id(self, communication_id: int) -> Communication | None: ...
 
     @abstractmethod
@@ -666,7 +696,13 @@ class CommunicationRepository(ABC):
     def set_job_ulid(self, communication_id: int, job_ulid: str) -> None: ...
 
     @abstractmethod
+    def set_job_ulid_batch(self, communication_ids: list[int], job_ulid: str) -> None: ...
+
+    @abstractmethod
     def mark_sent(self, communication_id: int, sent_at: datetime) -> None: ...
 
     @abstractmethod
     def mark_failed(self, communication_id: int, error: str) -> None: ...
+
+    @abstractmethod
+    def mark_failed_batch(self, communication_ids: list[int], error: str) -> None: ...

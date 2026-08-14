@@ -329,47 +329,26 @@
         "additionalProperties": false,
         "properties": {
           "grants": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/APIKeyGrantRequest"
-                },
-                "minItems": 1,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Grants"
+            "items": {
+              "$ref": "#/components/schemas/APIKeyGrantRequest"
+            },
+            "minItems": 1,
+            "title": "Grants",
+            "type": "array"
           },
           "name": {
-            "anyOf": [
-              {
-                "maxLength": 255,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
           },
           "scopes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scopes"
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Scopes",
+            "type": "array"
           }
         },
         "title": "APIKeyUpdateRequest",
@@ -400,15 +379,43 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           }
         },
         "required": [
           "password"
         ],
         "title": "AccountDeleteRequest",
+        "type": "object"
+      },
+      "AccountDeletionReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "can_delete": {
+            "title": "Can Delete",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "const": "sole_organization_admin",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "can_delete"
+        ],
+        "title": "AccountDeletionReadinessResponse",
         "type": "object"
       },
       "AnalyticsEvent": {
@@ -1224,7 +1231,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/BillingItemInput"
+              "$ref": "#/components/schemas/BillingItemCreateInput"
             },
             "minItems": 1,
             "title": "Items",
@@ -1290,6 +1297,38 @@
           "items"
         ],
         "title": "BillingCreateRequest",
+        "type": "object"
+      },
+      "BillingItemCreateInput": {
+        "additionalProperties": false,
+        "description": "A new template item has no server-issued public identifier yet.",
+        "properties": {
+          "amount": {
+            "minimum": 0.0,
+            "title": "Amount",
+            "type": "integer"
+          },
+          "description": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "item_type": {
+            "enum": [
+              "fixed",
+              "variable"
+            ],
+            "title": "Item Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "amount",
+          "item_type"
+        ],
+        "title": "BillingItemCreateInput",
         "type": "object"
       },
       "BillingItemInput": {
@@ -1770,6 +1809,16 @@
               }
             ],
             "title": "Name"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BillingOwnerRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "pix_key": {
             "anyOf": [
@@ -2930,7 +2979,8 @@
             "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "turnstile_token": {
             "default": "",
@@ -3065,7 +3115,8 @@
             "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           }
         },
         "required": [
@@ -3086,7 +3137,8 @@
             "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           }
         },
         "required": [
@@ -3132,6 +3184,44 @@
             "maxLength": 255,
             "title": "Name",
             "type": "string"
+          },
+          "pix_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "title": "Pix Key"
+          },
+          "pix_merchant_city": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "title": "Pix Merchant City"
+          },
+          "pix_merchant_name": {
+            "anyOf": [
+              {
+                "maxLength": 25,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "title": "Pix Merchant Name"
           }
         },
         "required": [
@@ -3615,51 +3705,23 @@
         "additionalProperties": false,
         "properties": {
           "name": {
-            "anyOf": [
-              {
-                "maxLength": 255,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
+            "maxLength": 255,
+            "title": "Name",
+            "type": "string"
           },
           "pix_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pix Key"
+            "title": "Pix Key",
+            "type": "string"
           },
           "pix_merchant_city": {
-            "anyOf": [
-              {
-                "maxLength": 15,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pix Merchant City"
+            "maxLength": 15,
+            "title": "Pix Merchant City",
+            "type": "string"
           },
           "pix_merchant_name": {
-            "anyOf": [
-              {
-                "maxLength": 25,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pix Merchant Name"
+            "maxLength": 25,
+            "title": "Pix Merchant Name",
+            "type": "string"
           }
         },
         "title": "OrganizationUpdateRequest",
@@ -3828,19 +3890,25 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "current_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Current Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "new_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "New Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           }
         },
         "required": [
@@ -3874,14 +3942,18 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "token": {
             "minLength": 1,
@@ -4063,19 +4135,42 @@
         "additionalProperties": false,
         "properties": {
           "pix_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Key",
-            "type": "string"
+            "title": "Pix Key"
           },
           "pix_merchant_city": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Merchant City",
-            "type": "string"
+            "title": "Pix Merchant City"
           },
           "pix_merchant_name": {
+            "anyOf": [
+              {
+                "maxLength": 25,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Merchant Name",
-            "type": "string"
+            "title": "Pix Merchant Name"
           }
         },
         "title": "PixUpdateRequest",
@@ -4147,19 +4242,42 @@
             "type": "string"
           },
           "pix_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Key",
-            "type": "string"
+            "title": "Pix Key"
           },
           "pix_merchant_city": {
+            "anyOf": [
+              {
+                "maxLength": 15,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Merchant City",
-            "type": "string"
+            "title": "Pix Merchant City"
           },
           "pix_merchant_name": {
+            "anyOf": [
+              {
+                "maxLength": 25,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "",
-            "title": "Pix Merchant Name",
-            "type": "string"
+            "title": "Pix Merchant Name"
           }
         },
         "required": [
@@ -4271,6 +4389,21 @@
             "title": "Skipped",
             "type": "integer"
           },
+          "skipped_reasons": {
+            "default": [],
+            "description": "One reason for each skipped file; valid MIME types are PDF, JPEG, and PNG, with a 10 MiB limit.",
+            "items": {
+              "enum": [
+                "unsupported_mime",
+                "empty_file",
+                "size_limit_exceeded"
+              ],
+              "type": "string"
+            },
+            "title": "Skipped Reasons",
+            "type": "array",
+            "x-rentivo-max-upload-bytes": 10485760
+          },
           "total_bytes": {
             "default": 0,
             "title": "Total Bytes",
@@ -4292,6 +4425,21 @@
             "default": 0,
             "title": "Skipped",
             "type": "integer"
+          },
+          "skipped_reasons": {
+            "default": [],
+            "description": "One reason for each skipped file; valid MIME types are PDF, JPEG, and PNG, with a 10 MiB limit.",
+            "items": {
+              "enum": [
+                "unsupported_mime",
+                "empty_file",
+                "size_limit_exceeded"
+              ],
+              "type": "string"
+            },
+            "title": "Skipped Reasons",
+            "type": "array",
+            "x-rentivo-max-upload-bytes": 10485760
           },
           "total_bytes": {
             "default": 0,
@@ -4443,9 +4591,11 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "credential_transport": {
             "default": "cookie",
@@ -4464,7 +4614,8 @@
             "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           },
           "turnstile_token": {
             "default": "",
@@ -4499,9 +4650,11 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
-            "type": "string"
+            "type": "string",
+            "x-rentivo-max-utf8-bytes": 72
           }
         },
         "required": [
@@ -9362,6 +9515,27 @@
           }
         },
         "summary": "Security Summary",
+        "tags": [
+          "security"
+        ]
+      }
+    },
+    "/api/v1/security/account-deletion-readiness": {
+      "get": {
+        "operationId": "account_deletion_readiness_api_v1_security_account_deletion_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Account Deletion Readiness",
         "tags": [
           "security"
         ]

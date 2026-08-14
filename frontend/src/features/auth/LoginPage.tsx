@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
+import { passwordValidationError } from "../../forms/validators";
 import {
   AuthConfigGate,
   AuthError,
@@ -98,6 +99,11 @@ export function LoginPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    const passwordError = passwordValidationError(password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
     setLoading(true);
     const payload: LoginRequest = {
       credential_transport: "cookie",

@@ -184,19 +184,32 @@ struct OrganizationFormView: View {
   @State private var pixKey: String
   @State private var merchantName: String
   @State private var city: String
+  @State private var usesCustomPix: Bool
   @State private var pixValidationMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var confirmingDiscard = false
+  private let initialDraftState: NativeOrganizationDraftState
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
     self.onSaved = onSaved
-    _name = State(initialValue: organization?.name ?? "")
-    _pixKey = State(initialValue: organization?.pix?.key ?? "")
-    _merchantName = State(initialValue: organization?.pix?.merchantName ?? "")
-    _city = State(initialValue: organization?.pix?.merchantCity ?? "")
+    let name = organization?.name ?? ""
+    let pixKey = organization?.pix?.key ?? ""
+    let merchantName = organization?.pix?.merchantName ?? ""
+    let city = organization?.pix?.merchantCity ?? ""
+    let usesCustomPix = organization?.pix != nil
+    initialDraftState = NativeOrganizationDraftState(
+      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      usesCustomPix: usesCustomPix
+    )
+    _name = State(initialValue: name)
+    _pixKey = State(initialValue: pixKey)
+    _merchantName = State(initialValue: merchantName)
+    _city = State(initialValue: city)
+    _usesCustomPix = State(initialValue: usesCustomPix)
   }
 
   var body: some View {
@@ -205,10 +218,17 @@ struct OrganizationFormView: View {
         TextField("Nome", text: $name)
       }
       Section("PIX") {
-        TextField("Chave", text: $pixKey)
-        TextField("Nome do recebedor", text: $merchantName)
-        TextField("Cidade", text: $city)
-          .textInputAutocapitalization(.characters)
+        Toggle("Usar PIX da organização", isOn: $usesCustomPix)
+        if usesCustomPix {
+          TextField("Chave", text: $pixKey)
+          TextField("Nome do recebedor", text: $merchantName)
+          TextField("Cidade", text: $city)
+            .textInputAutocapitalization(.characters)
+        } else {
+          Text("Sem PIX próprio. Cobranças podem usar o PIX pessoal do responsável.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       if pixValidationMessage != nil || submitErrorMessage != nil {
@@ -230,7 +250,10 @@ struct OrganizationFormView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
+        .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         // The spinner is the only sign the request is still in flight: everything else this form
@@ -243,40 +266,50 @@ struct OrganizationFormView: View {
             Text("Salvar")
           }
         }
-        .disabled(saving || name.isEmpty)
+        .disabled(
+          saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || name.count > NativeFormTextLimits.name
+        )
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeOrganizationDraftState(
+      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      usesCustomPix: usesCustomPix
+    ).hasChanges(from: initialDraftState)
   }
 
   private func save() async {
     guard !saving else { return }
     submitErrorMessage = nil
-    let trimmedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
-    // Mirrors BillingFormView's PIX validation: a blank key means no PIX at all, but once a key
-    // is present the recipient name/city are required, and must respect the server's column
-    // limits (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city`
-    // maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
-    // 422 on data the form already accepted.
-    if trimmedKey.isEmpty {
+    let result = usesCustomPix
+      ? PixFormRules.result(key: pixKey, merchantName: merchantName, merchantCity: city)
+      : .inherit
+    let pix: PixConfiguration?
+    switch result {
+    case .inherit:
+      pix = nil
       pixValidationMessage = nil
-    } else if trimmedMerchantName.isEmpty || trimmedCity.isEmpty {
-      pixValidationMessage = "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-    } else if trimmedMerchantName.count > 25 {
-      pixValidationMessage = "O nome do recebedor deve ter até 25 caracteres."
-    } else if trimmedCity.count > 15 {
-      pixValidationMessage = "A cidade do recebedor deve ter até 15 caracteres."
-    } else {
+    case .custom(let configuration):
+      pix = configuration
       pixValidationMessage = nil
+    case .invalid(let message):
+      pix = nil
+      pixValidationMessage = message
     }
     guard pixValidationMessage == nil else { return }
-    let pix: PixConfiguration? =
-      trimmedKey.isEmpty
-      ? nil
-      : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
-    let draft = OrganizationDraft(name: name, pix: pix)
+    let draft = OrganizationDraft(
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines), pix: pix
+    )
     saving = true
     defer { saving = false }
     do {

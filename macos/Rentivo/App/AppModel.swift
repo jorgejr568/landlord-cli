@@ -75,7 +75,7 @@ final class AppModel {
     return profile
   }
 
-  func updateProfilePIX(_ pix: PixConfiguration) async throws -> UserProfile {
+  func updateProfilePIX(_ pix: PixConfiguration?) async throws -> UserProfile {
     let profile = try await dependencies.profile.updatePix(pix)
     if case .authenticated = session {
       session = .authenticated(profile)

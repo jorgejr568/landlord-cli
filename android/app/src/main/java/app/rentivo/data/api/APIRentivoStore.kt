@@ -23,7 +23,10 @@ import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.APIKeyWorkspaceOption
+import app.rentivo.domain.AccountDeletionReadiness
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.Bill
@@ -34,6 +37,7 @@ import app.rentivo.domain.BillLineItem
 import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
@@ -49,6 +53,7 @@ import app.rentivo.domain.CommunicationTemplate
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.CreatedAPIKeySecret
 import app.rentivo.domain.DateOnly
+import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.Expense
 import app.rentivo.domain.ExpenseCategory
@@ -188,6 +193,13 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     user = UserProfile(id = 0, email = "")
   }
 
+  override suspend fun accountDeletionReadiness(): AccountDeletionReadiness {
+    val response = decode<RemoteAccountDeletionReadiness>(
+      path = "/api/v1/security/account-deletion-readiness",
+    )
+    return AccountDeletionReadiness(canDelete = response.canDelete, reason = response.reason)
+  }
+
   override suspend fun profile(): UserProfile {
     // GET /api/v1/profile only returns `CurrentProfileResponse` ({email}); the pix fields live on
     // `SecuritySummaryResponse.profile` (a full `ProfileResponse`), so fetch security instead.
@@ -201,7 +213,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return user
   }
 
-  override suspend fun updatePix(pix: PixConfiguration): UserProfile {
+  override suspend fun updatePix(pix: PixConfiguration?): UserProfile {
     val response = decode<RemotePixUpdate, RemotePixUpdateResponse>(
       path = "/api/v1/security/pix",
       method = "POST",
@@ -307,7 +319,10 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       path = "/api/v1/billings/${billingID.rawValue}/bills/${billID.rawValue}/receipts",
       files = listOf(MultipartFile(field = "receipt_files", upload = upload)),
     )
-    val receipt = response.items.firstOrNull() ?: throw LiveAPIError.InvalidResponse
+    val receipt = response.items.firstOrNull() ?: response.skippedReasons
+      .takeIf { it.isNotEmpty() }
+      ?.let { throw DemoError(receiptSkippedMessage(it)) }
+      ?: throw LiveAPIError.InvalidResponse
     return Receipt(
       id = ReceiptID(rawValue = receipt.uuid),
       name = receipt.filename,
@@ -509,31 +524,12 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     organization(decode<RemoteOrganization>(path = "/api/v1/organizations/${id.rawValue}"))
 
   override suspend fun createOrganization(draft: OrganizationDraft): Organization {
-    // OrganizationCreateRequest only accepts `name`; PIX has no create-time slot, so when the
-    // draft carries PIX data we follow up with the PATCH that does accept pix fields.
     val response = decode<RemoteOrganizationCreate, RemoteOrganization>(
       path = "/api/v1/organizations",
       method = "POST",
-      body = RemoteOrganizationCreate(name = draft.name),
+      body = RemoteOrganizationCreate.from(draft),
     )
-    if (draft.pix == null) return organization(response)
-    return try {
-      organization(
-        decode<RemoteOrganizationUpdate, RemoteOrganization>(
-          path = "/api/v1/organizations/${response.uuid}",
-          method = "PATCH",
-          body = RemoteOrganizationUpdate.from(draft),
-        )
-      )
-    } catch (error: CancellationException) {
-      throw error
-    } catch (error: Exception) {
-      // The organization already exists on the server from the POST above, so throwing here would
-      // surface as a failure to the caller, who would retry and create a duplicate organization.
-      // Return the created organization (without PIX) instead; the form-side validation makes this
-      // follow-up PATCH fail rarely, and the user can still edit the organization afterward.
-      organization(response)
-    }
+    return organization(response)
   }
 
   override suspend fun updateOrganization(
@@ -714,6 +710,25 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return response.items.filter { it.revokedAt == null }.map(::apiKey)
   }
 
+  override suspend fun apiKeyOptions(): APIKeyOptions {
+    val response = decode<RemoteAPIKeyOptions>(path = "/api/v1/api-keys/options")
+    val workspaces = listOf(response.personalWorkspace) + response.organizations
+    return APIKeyOptions(
+      scopes = response.scopes.mapNotNull(APIKeyScope::fromWire).toSet(),
+      workspaces = workspaces.mapNotNull { workspace ->
+        WorkspaceResourceType.fromWire(workspace.resourceType)?.let { resourceType ->
+          APIKeyWorkspaceOption(
+            resourceType = resourceType,
+            resourceID = WorkspaceID(rawValue = workspace.resourceID),
+            name = workspace.name,
+          )
+        }
+      },
+      defaultExpirationDays = response.defaultExpirationDays,
+      maxExpirationDays = response.maxExpirationDays,
+    )
+  }
+
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {
     val response = decode<RemoteAPIKeyCreate, RemoteCreatedAPIKey>(
       path = "/api/v1/api-keys",
@@ -856,6 +871,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       availableTransitions = remote.availableTransitions.mapNotNull {
         BillStatus.fromWire(it.target)
       },
+      transitionMetadata = remote.availableTransitions.mapNotNull { transition ->
+        BillStatus.fromWire(transition.target)?.let { target ->
+          BillTransition(
+            target = target,
+            label = transition.label,
+            style = transition.style,
+            requiresConfirmation = transition.requiresConfirmation,
+          )
+        }
+      },
       serverTotal = Money(centavos = remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,
       // and an absent capabilities object stays permissive so older payloads keep working.
@@ -869,11 +894,18 @@ class APIRentivoStore(private val client: LiveAPIClient) :
   private fun billCapabilities(remote: RemoteBillCapabilities?): BillCapabilities {
     if (remote == null) return BillCapabilities.permissive
     return BillCapabilities(
+      canEdit = remote.canEdit,
+      canDelete = remote.canDelete,
+      canTransition = remote.canTransition,
       canDownloadInvoice = remote.canDownloadInvoice,
       canDownloadRecibo = remote.canDownloadRecibo,
+      canCompose = remote.canCompose,
       canSendInvoice = remote.canSendInvoice,
       canSendRecibo = remote.canSendRecibo,
       canRegenerate = remote.canRegenerate,
+      canUploadReceipts = remote.canUploadReceipts,
+      canDeleteReceipts = remote.canDeleteReceipts,
+      canReorderReceipts = remote.canReorderReceipts,
     )
   }
 
@@ -898,7 +930,12 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       val email = contact.email ?: return@mapNotNull null
       BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
     },
-    replyTo = remote.replyTo.firstOrNull()?.email,
+    replyTo = remote.replyTo.mapNotNull { contact ->
+      val name = contact.name ?: return@mapNotNull null
+      val email = contact.email ?: return@mapNotNull null
+      BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
+    },
+    pixNeedsSetup = remote.pixNeedsSetup,
     // Templates for communication types this app doesn't model are dropped rather than failing the
     // whole billing decode, the same tolerance applied to bill transitions above.
     communicationTemplates = (remote.communicationTemplates ?: emptyList()).mapNotNull { template ->
@@ -963,6 +1000,11 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         available = grant.available,
       )
     },
+    unavailableGrantCount = remote.grants.count { grant ->
+      !grant.available || grant.resourceID == null ||
+        WorkspaceResourceType.fromWire(grant.resourceType) == null
+    },
+    unavailableScopeCount = remote.scopes.count { APIKeyScope.fromWire(it) == null },
     expiresAt = WireDate.isoDate(remote.expiresAt),
     lastUsedAt = remote.lastUsedAt?.let(WireDate::isoDate),
     createdAt = WireDate.isoDate(remote.createdAt),

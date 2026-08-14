@@ -180,6 +180,7 @@ class FakeOrganizationService:
             ),
         }
         self.created_names: list[tuple[str, int]] = []
+        self.created_pix: list[tuple[str, str, str, int]] = []
         self.updated: list[Organization] = []
         self.deleted_ids: list[int] = []
         self.role_updates: list[tuple[int, int, str]] = []
@@ -208,13 +209,25 @@ class FakeOrganizationService:
     def list_members(self, org_id: int) -> list[OrganizationMember]:
         return [member for (member_org_id, _user_id), member in self.members.items() if member_org_id == org_id]
 
-    def create_organization(self, name: str, created_by: int) -> Organization:
+    def create_organization(
+        self,
+        name: str,
+        created_by: int,
+        *,
+        pix_key: str = "",
+        pix_merchant_name: str = "",
+        pix_merchant_city: str = "",
+    ) -> Organization:
         self.created_names.append((name, created_by))
+        self.created_pix.append((pix_key.lower(), pix_merchant_name, pix_merchant_city, created_by))
         organization = Organization(
             id=99,
             uuid="01JCREATEDORG0000000000000",
             name=name,
             created_by=created_by,
+            pix_key=pix_key.lower(),
+            pix_merchant_name=pix_merchant_name,
+            pix_merchant_city=pix_merchant_city,
             created_at=NOW,
             updated_at=NOW,
         )
@@ -814,6 +827,22 @@ def test_create_organization_normalizes_name_and_audits(organization_harness: Or
     assert organization_harness.organization.created_names == [("Nova Administradora", USER.id)]
     assert organization_harness.audit.calls[-1][0][1] == "organization.create"
     assert organization_harness.job.calls == []
+
+
+def test_create_organization_persists_a_complete_pix_triple(organization_harness: OrganizationHarness) -> None:
+    response = organization_harness.client.post(
+        "/api/v1/organizations",
+        json={
+            "name": "Nova Administradora",
+            "pix_key": " Person@Example.com ",
+            "pix_merchant_name": " Person ",
+            "pix_merchant_city": " Recife ",
+        },
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 201
+    assert organization_harness.organization.created_pix == [("person@example.com", "Person", "Recife", USER.id)]
 
 
 def test_patch_organization_replaces_only_supplied_settings_and_audits(

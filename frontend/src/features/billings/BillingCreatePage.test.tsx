@@ -171,6 +171,7 @@ it("retries organization loading and normalizes body field errors with focus", a
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await user.type(await screen.findByLabelText("Nome do imóvel"), "Casa");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "10,00");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   expect(await screen.findByText("Nome inválido.")).toBeVisible();
   expect(screen.getByText("Valor inválido.")).toBeVisible();
@@ -203,6 +204,7 @@ it("aborts a pending create and ignores its late response after cancellation", a
 
   await user.type(await screen.findByLabelText("Nome do imóvel"), "Casa");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "10,00");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   await waitFor(() => expect(createCalls).toBe(1));
   await user.click(screen.getByRole("link", { name: "Cancelar" }));

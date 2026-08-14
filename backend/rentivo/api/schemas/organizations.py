@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from rentivo.api.schemas.auth import normalize_email
 from rentivo.api.schemas.billings import BillingStatsResponse
+from rentivo.pix import normalize_pix_triple
 
 
 class _StrictModel(BaseModel):
@@ -21,18 +23,43 @@ def _nonblank(value: str, message: str) -> str:
 
 class OrganizationCreateRequest(_StrictModel):
     name: str = Field(max_length=255)
+    pix_key: str | None = ""
+    pix_merchant_name: str | None = Field(default="", max_length=25)
+    pix_merchant_city: str | None = Field(default="", max_length=15)
 
     @field_validator("name")
     @classmethod
     def normalize_name(cls, value: str) -> str:
         return _nonblank(value, "Nome da organização é obrigatório.")
 
+    @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city")
+    @classmethod
+    def normalize_settings(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def normalized_pix_triple(self) -> OrganizationCreateRequest:
+        try:
+            self.pix_key, self.pix_merchant_name, self.pix_merchant_city = normalize_pix_triple(
+                self.pix_key, self.pix_merchant_name, self.pix_merchant_city
+            )
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {"type": "value_error", "loc": (field,), "input": getattr(self, field), "ctx": {"error": exc}}
+                    for field in ("pix_key", "pix_merchant_name", "pix_merchant_city")
+                    if not getattr(self, field)
+                ],
+            ) from None
+        return self
+
 
 class OrganizationUpdateRequest(_StrictModel):
-    name: str | None = Field(default=None, max_length=255)
-    pix_key: str | None = None
-    pix_merchant_name: str | None = Field(default=None, max_length=25)
-    pix_merchant_city: str | None = Field(default=None, max_length=15)
+    name: str = Field(default=None, max_length=255)
+    pix_key: str = None
+    pix_merchant_name: str = Field(default=None, max_length=25)
+    pix_merchant_city: str = Field(default=None, max_length=15)
 
     @model_validator(mode="before")
     @classmethod
@@ -48,8 +75,8 @@ class OrganizationUpdateRequest(_StrictModel):
 
     @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city")
     @classmethod
-    def normalize_settings(cls, value: str | None) -> str | None:
-        return value.strip() if value is not None else None
+    def normalize_settings(cls, value: str) -> str:
+        return value.strip()
 
 
 class OrganizationMemberUpdateRequest(_StrictModel):
@@ -63,13 +90,7 @@ class OrganizationInviteCreateRequest(_StrictModel):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        normalized = _nonblank(value, "Informe o e-mail.").lower()
-        if normalized.count("@") != 1 or any(character.isspace() for character in normalized):
-            raise ValueError("Informe um e-mail válido.")
-        local, domain = normalized.split("@")
-        if not local or not domain:
-            raise ValueError("Informe um e-mail válido.")
-        return normalized
+        return normalize_email(value)
 
 
 class OrganizationMFAPolicyRequest(_StrictModel):

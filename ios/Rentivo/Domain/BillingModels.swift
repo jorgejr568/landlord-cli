@@ -177,7 +177,8 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
   public var items: [BillingItem]
   public var pixOverride: PixConfiguration?
   public var recipients: [BillingRecipient]
-  public var replyTo: String?
+  public var replyTo: [BillingRecipient]
+  public var pixNeedsSetup: Bool
   public var communicationTemplates: [CommunicationTemplate]
   public var capabilities: BillingCapabilities
 
@@ -189,7 +190,8 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     items: [BillingItem],
     pixOverride: PixConfiguration? = nil,
     recipients: [BillingRecipient] = [],
-    replyTo: String? = nil,
+    replyTo: [BillingRecipient] = [],
+    pixNeedsSetup: Bool = false,
     communicationTemplates: [CommunicationTemplate] = [],
     capabilities: BillingCapabilities = .full
   ) {
@@ -201,6 +203,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     self.pixOverride = pixOverride
     self.recipients = recipients
     self.replyTo = replyTo
+    self.pixNeedsSetup = pixNeedsSetup
     self.communicationTemplates = communicationTemplates
     self.capabilities = capabilities
   }
@@ -221,7 +224,7 @@ public struct BillingDraft: Hashable, Sendable {
   public var items: [BillingItem]
   public var pixOverride: PixConfiguration?
   public var recipients: [BillingRecipient]
-  public var replyTo: String?
+  public var replyTo: [BillingRecipient]
 
   public init(
     name: String,
@@ -230,7 +233,7 @@ public struct BillingDraft: Hashable, Sendable {
     items: [BillingItem],
     pixOverride: PixConfiguration? = nil,
     recipients: [BillingRecipient] = [],
-    replyTo: String? = nil
+    replyTo: [BillingRecipient] = []
   ) {
     self.name = name
     self.description = description
@@ -252,6 +255,13 @@ public struct BillingDraft: Hashable, Sendable {
     var issues: [ValidationIssue] = []
     if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       issues.append(ValidationIssue(field: .name, message: "Informe o nome da cobrança."))
+    } else if name.count > NativeFormTextLimits.name {
+      issues.append(ValidationIssue(field: .name, message: "O nome deve ter no máximo 255 caracteres."))
+    }
+    if description.count > NativeFormTextLimits.description {
+      issues.append(
+        ValidationIssue(field: .description, message: "A descrição deve ter no máximo 2000 caracteres.")
+      )
     }
     if items.isEmpty {
       issues.append(
@@ -263,6 +273,10 @@ public struct BillingDraft: Hashable, Sendable {
     }) {
       issues.append(
         ValidationIssue(field: .itemDescription, message: "Descreva todos os itens.")
+      )
+    } else if items.contains(where: { $0.description.count > NativeFormTextLimits.itemDescription }) {
+      issues.append(
+        ValidationIssue(field: .itemDescription, message: "A descrição dos itens deve ter no máximo 255 caracteres.")
       )
     }
     if items.contains(where: { $0.amount.centavos < 0 }) {
@@ -280,6 +294,8 @@ public struct BillingDraft: Hashable, Sendable {
     }
     if recipients.contains(where: {
       $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || $0.name.count > NativeFormTextLimits.name
+        || $0.email.count > NativeFormTextLimits.email
         || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
     }) {
       issues.append(
@@ -300,16 +316,34 @@ public struct BillingDraft: Hashable, Sendable {
         )
       }
     }
+    if replyTo.contains(where: {
+      $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || $0.name.count > NativeFormTextLimits.name
+        || $0.email.count > NativeFormTextLimits.email
+        || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
+      issues.append(
+        ValidationIssue(
+          field: .replyTo,
+          message: "Informe nome e e-mail válidos para todos os endereços de resposta."
+        )
+      )
+    }
     return issues
   }
 }
 
 public enum ValidationField: Hashable, Sendable {
   case name
+  case description
   case items
   case itemDescription
   case itemAmount
   case recipient
+  case replyTo
+  case pix
+  case subject
+  case body
 }
 
 public struct ValidationIssue: Hashable, Sendable {
@@ -417,24 +451,45 @@ public enum PDFRenderStatus: String, Hashable, Codable, Sendable {
 /// Server-authoritative, per-bill action gates. The server folds the pending render state into
 /// these flags, so the UI can treat them as the single source of truth for what is allowed now.
 public struct BillCapabilities: Hashable, Codable, Sendable {
+  public var canEdit: Bool
+  public var canDelete: Bool
+  public var canTransition: Bool
   public var canDownloadInvoice: Bool
   public var canDownloadRecibo: Bool
   public var canSendInvoice: Bool
   public var canSendRecibo: Bool
   public var canRegenerate: Bool
+  public var canUploadReceipts: Bool
+  public var canDeleteReceipts: Bool
+  public var canReorderReceipts: Bool
+  public var canCompose: Bool
 
   public init(
     canDownloadInvoice: Bool,
     canDownloadRecibo: Bool,
     canSendInvoice: Bool,
     canSendRecibo: Bool,
-    canRegenerate: Bool
+    canRegenerate: Bool,
+    canEdit: Bool = true,
+    canDelete: Bool = true,
+    canTransition: Bool = true,
+    canUploadReceipts: Bool = true,
+    canDeleteReceipts: Bool = true,
+    canReorderReceipts: Bool = true,
+    canCompose: Bool = true
   ) {
+    self.canEdit = canEdit
+    self.canDelete = canDelete
+    self.canTransition = canTransition
     self.canDownloadInvoice = canDownloadInvoice
     self.canDownloadRecibo = canDownloadRecibo
     self.canSendInvoice = canSendInvoice
     self.canSendRecibo = canSendRecibo
     self.canRegenerate = canRegenerate
+    self.canUploadReceipts = canUploadReceipts
+    self.canDeleteReceipts = canDeleteReceipts
+    self.canReorderReceipts = canReorderReceipts
+    self.canCompose = canCompose
   }
 
   /// Used when no server capabilities are available (older payloads, the mock store). Gating is a
@@ -443,6 +498,20 @@ public struct BillCapabilities: Hashable, Codable, Sendable {
     canDownloadInvoice: true, canDownloadRecibo: true, canSendInvoice: true,
     canSendRecibo: true, canRegenerate: true
   )
+}
+
+public struct BillTransitionOption: Hashable, Codable, Sendable {
+  public let target: BillStatus
+  public let label: String
+  public let style: String
+  public let requiresConfirmation: Bool
+
+  public init(target: BillStatus, label: String, style: String, requiresConfirmation: Bool) {
+    self.target = target
+    self.label = label
+    self.style = style
+    self.requiresConfirmation = requiresConfirmation
+  }
 }
 
 /// Poll cadence for a bill whose PDF is still rendering.
@@ -478,6 +547,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   /// supplies them. `nil` means "not provided by this response" — callers
   /// should fall back to `status.allowedTransitions` (see `effectiveTransitions`).
   public var availableTransitions: [BillStatus]?
+  public var transitionOptions: [BillTransitionOption]?
   /// Server-authoritative total for this bill, when the API supplies it.
   /// `nil` means "not provided by this response" — callers should fall back
   /// to the locally computed `total` (see `effectiveTotal`).
@@ -500,6 +570,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     lineItems: [BillLineItem],
     receipts: [Receipt],
     availableTransitions: [BillStatus]? = nil,
+    transitionOptions: [BillTransitionOption]? = nil,
     serverTotal: Money? = nil,
     pdfRenderStatus: PDFRenderStatus? = nil,
     hasInvoice: Bool = false,
@@ -516,6 +587,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     self.lineItems = lineItems
     self.receipts = receipts
     self.availableTransitions = availableTransitions
+    self.transitionOptions = transitionOptions
     self.serverTotal = serverTotal
     self.pdfRenderStatus = pdfRenderStatus
     self.hasInvoice = hasInvoice
@@ -560,6 +632,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     merged.hasRecibo = updated.hasRecibo
     merged.status = updated.status
     merged.availableTransitions = updated.availableTransitions
+    merged.transitionOptions = updated.transitionOptions
     return merged
   }
 }

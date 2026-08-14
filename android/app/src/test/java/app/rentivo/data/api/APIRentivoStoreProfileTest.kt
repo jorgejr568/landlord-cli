@@ -56,7 +56,9 @@ class APIRentivoStoreProfileTest {
         """{"items":[{"uuid":"key-1","name":"Ativa","hint":"rntv-v1-ab••cd",""" +
           """"scopes":["profile:read","teleportation:manage"],"grants":[""" +
           """{"resource_type":"user","resource_id":"personal","available":true},""" +
-          """{"resource_type":"user","resource_id":null,"available":true}],""" +
+          """{"resource_type":"user","resource_id":null,"available":true},""" +
+          """{"resource_type":"organization","resource_id":"organization-hidden",""" +
+          """"available":false}],""" +
           """"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at":null,""" +
           """"created_at":"2026-01-01T00:00:00.000000+00:00","revoked_at":null},""" +
           """{"uuid":"key-2","name":"Revogada","hint":"rntv-v1-ef••gh",""" +
@@ -209,12 +211,13 @@ class APIRentivoStoreProfileTest {
     val keys = store.listAPIKeys()
 
     assertEquals(listOf("Ativa"), keys.map { it.name })
-    // Unknown scopes and grants with no resource id are dropped rather than failing the decode.
+    // Unknown scopes and grants with no resource id do not fail the decode. The latter remain
+    // represented by the unavailable count so an edit cannot replace and destroy them.
     assertEquals(setOf(APIKeyScope.PROFILE_READ), keys.first().scopes)
-    assertEquals(
-      listOf(APIKeyGrant(WorkspaceResourceType.USER, WorkspaceID.personal, available = true)),
-      keys.first().grants,
-    )
+    assertEquals(2, keys.first().grants.size)
+    assertEquals(false, keys.first().grants.last().available)
+    assertEquals(2, keys.first().unavailableGrantCount)
+    assertEquals(1, keys.first().unavailableScopeCount)
     assertNull(keys.first().revokedAt)
   }
 
@@ -259,6 +262,34 @@ class APIRentivoStoreProfileTest {
     assertEquals(
       "2026-12-31T23:59:59Z",
       WireInstant.iso8601(Instant.parse("2026-12-31T23:59:59Z")),
+    )
+  }
+
+  @Test
+  fun `api key options use the lightweight picker endpoint`() = runTest {
+    val dispatcher = server.routeWithSession { call ->
+      if (call.route == "GET /api/v1/api-keys/options") {
+        jsonResponse(
+          """{"scopes":["profile:read","billings:read"],""" +
+            """"personal_workspace":{"resource_type":"user","resource_id":"personal"},""" +
+            """"organizations":[{"resource_type":"organization","resource_id":"organization-1",""" +
+            """"name":"Horizonte"}],"default_expiration_days":30,"max_expiration_days":90}"""
+        )
+      } else {
+        unexpected(call)
+      }
+    }
+    val store = authenticatedStore()
+
+    val options = store.apiKeyOptions()
+
+    assertEquals(setOf(APIKeyScope.PROFILE_READ, APIKeyScope.BILLINGS_READ), options.scopes)
+    assertEquals(30, options.defaultExpirationDays)
+    assertEquals(90, options.maxExpirationDays)
+    assertEquals("Horizonte", options.workspaces.single { it.resourceID.rawValue == "organization-1" }.name)
+    assertEquals(
+      listOf("GET /api/v1/auth/session", "GET /api/v1/api-keys/options"),
+      dispatcher.routes,
     )
   }
 

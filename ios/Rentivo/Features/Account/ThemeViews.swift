@@ -7,6 +7,10 @@ struct ThemeEditorView: View {
   @State private var values = ThemeValues.rentivo
   @State private var loadedValues: ThemeValues?
   @State private var error: DemoError?
+  @State private var loadFailed = false
+  @State private var isSaving = false
+  @State private var isResetting = false
+  @State private var confirmingReset = false
 
   /// True once the user has changed a field since the last successful load/save.
   /// Guards against `.task(id:)` reloads (triggered by unrelated `app.dataRevision`
@@ -15,6 +19,9 @@ struct ThemeEditorView: View {
     guard let loadedValues else { return false }
     return values != loadedValues
   }
+
+  private var invalidColorNames: [String] { ThemeFormRules.invalidColorNames(in: values) }
+  private var contrastWarnings: [String] { ThemeFormRules.contrastWarnings(for: values) }
 
   var body: some View {
     Form {
@@ -33,6 +40,17 @@ struct ThemeEditorView: View {
         }
       }
 
+      if record == nil {
+        Section {
+          if loadFailed {
+            Label("Não foi possível carregar a aparência.", systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+            Button("Tentar novamente") { Task { await load() } }
+          } else {
+            HStack { ProgressView(); Text("Carregando aparência…") }
+          }
+        }
+      } else {
       Section("Tipografia") {
         Picker("Fonte de títulos", selection: $values.headerFont) {
           ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -53,24 +71,52 @@ struct ThemeEditorView: View {
 
       Section("Prévia") {
         ThemePreview(values: values)
+        ForEach(contrastWarnings, id: \.self) { warning in
+          Label(warning, systemImage: "exclamationmark.triangle.fill")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.coral)
+        }
+      }
+
+      if !invalidColorNames.isEmpty {
+        Section("Revise as cores") {
+          Label(
+            "Use # seguido de seis dígitos hexadecimais em: \(invalidColorNames.joined(separator: ", ")).",
+            systemImage: "exclamationmark.circle.fill"
+          )
+          .foregroundStyle(RentivoColors.coral)
+        }
+      }
       }
 
       if record?.canReset == true {
         Section {
-          Button("Restaurar herança", role: .destructive) { Task { await reset() } }
+          Button("Restaurar herança", role: .destructive) { confirmingReset = true }
+            .disabled(isSaving || isResetting)
         }
       }
     }
     .navigationTitle("Aparência")
     .toolbar {
       if record?.canEdit == true {
-        Button("Salvar") { Task { await save() } }
+        Button {
+          Task { await save() }
+        } label: {
+          if isSaving { ProgressView() } else { Text("Salvar") }
+        }
+          .disabled(isSaving || isResetting || !invalidColorNames.isEmpty)
           .accessibilityIdentifier("theme.save")
       }
     }
     .task(id: app.dataRevision) {
-      guard !isDirty else { return }
+      guard !isDirty, !isSaving, !isResetting else { return }
       await load()
+    }
+    .confirmationDialog(
+      "Restaurar o tema herdado?", isPresented: $confirmingReset, titleVisibility: .visible
+    ) {
+      Button("Restaurar herança", role: .destructive) { Task { await reset() } }
+      Button("Cancelar", role: .cancel) {}
     }
     .alert(
       "Não foi possível atualizar",
@@ -88,10 +134,17 @@ struct ThemeEditorView: View {
       record = loaded
       values = loaded.stored ?? loaded.effective
       loadedValues = values
-    } catch { self.error = DemoError(error) }
+      loadFailed = false
+    } catch {
+      self.error = DemoError(error)
+      loadFailed = true
+    }
   }
 
   private func save() async {
+    guard !isSaving, !isResetting, invalidColorNames.isEmpty else { return }
+    isSaving = true
+    defer { isSaving = false }
     do {
       try await app.dependencies.themes.updateTheme(target: target, values: values)
       await load()
@@ -100,6 +153,9 @@ struct ThemeEditorView: View {
   }
 
   private func reset() async {
+    guard !isSaving, !isResetting else { return }
+    isResetting = true
+    defer { isResetting = false }
     do {
       try await app.dependencies.themes.resetTheme(target: target)
       await load()

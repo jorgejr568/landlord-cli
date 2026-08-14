@@ -56,3 +56,8 @@ def invoice_downloadable(bill: Bill) -> bool:
 
 def recibo_downloadable(bill: Bill) -> bool:
     return recibo_released(bill) and recibo_state(bill) == "ready"
+
+
+def recibo_download_available(bill: Bill) -> bool:
+    """Whether the direct endpoint can return a recibo, including on-demand rendering."""
+    return recibo_released(bill) and not is_rendering(bill)

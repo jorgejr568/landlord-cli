@@ -26,6 +26,7 @@ function renderPage(handlers: Record<string, (init?: RequestInit) => Response | 
       "/api/v1/api-keys/options": () => jsonResponse(apiKeyOptions),
       "/api/v1/auth/logout": () => new Response(null, { status: 204 }),
       "/api/v1/security": () => jsonResponse(value),
+      "/api/v1/security/account-deletion-readiness": () => jsonResponse({ can_delete: true, reason: null }),
       ...handlers
     },
     path: "/security",
@@ -86,7 +87,7 @@ it("shows incomplete PIX, enforced MFA, disabled TOTP, and low recovery warnings
   const value = {
     ...summary,
     mfa: { organization_enforced: true, setup_required: true },
-    profile: { ...summary.profile, pix_key: "", pix_merchant_city: "", pix_merchant_name: "" },
+    profile: { ...summary.profile, pix_key: null, pix_merchant_city: null, pix_merchant_name: null },
     totp: { enabled: false, recovery_codes_remaining: 0 }
   };
   renderPage({}, value);
@@ -120,6 +121,31 @@ it("updates PIX and changes the password atomically", async () => {
   await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
   expect(await screen.findByText("Senha alterada com sucesso!")).toBeVisible();
   expect(screen.getByLabelText("Senha atual")).toHaveValue("");
+});
+
+it("blocks and focuses every incomplete PIX field before calling the API", async () => {
+  const user = userEvent.setup();
+  let pixPosts = 0;
+  renderPage({ "/api/v1/security/pix": () => { pixPosts += 1; return jsonResponse({ profile: summary.profile }); } });
+  await screen.findByRole("heading", { name: "Segurança" });
+
+  await user.clear(screen.getByLabelText("Chave PIX"));
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(await screen.findByText("Informe a chave PIX.")).toBeVisible();
+  expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
+
+  await user.type(screen.getByLabelText("Chave PIX"), "pix");
+  await user.clear(screen.getByLabelText("Nome do recebedor"));
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(await screen.findByText("Informe o nome do recebedor.")).toBeVisible();
+  expect(screen.getByLabelText("Nome do recebedor")).toHaveFocus();
+
+  await user.type(screen.getByLabelText("Nome do recebedor"), "User");
+  await user.clear(screen.getByLabelText("Cidade do recebedor"));
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(await screen.findByText("Informe a cidade do recebedor.")).toBeVisible();
+  expect(screen.getByLabelText("Cidade do recebedor")).toHaveFocus();
+  expect(pixPosts).toBe(0);
 });
 
 it("routes regenerated recovery codes to their one-time screen", async () => {
@@ -233,6 +259,64 @@ it("reveals the delete-account form and deletes the account", async () => {
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
   expect(window.dataLayer?.at(-1)).toEqual({ event: "rentivo_account_deleted" });
+});
+
+it("keeps an over-72-byte multibyte account-deletion password local", async () => {
+  const user = userEvent.setup();
+  const { fetchMock } = renderPage();
+  await screen.findByRole("heading", { name: "Segurança" });
+  await user.click(screen.getByRole("button", { name: "Excluir conta" }));
+  await user.type(screen.getByLabelText("Confirme sua senha para excluir a conta"), "á".repeat(37));
+  await user.click(screen.getByRole("button", { name: "Excluir minha conta permanentemente" }));
+
+  expect(await screen.findByText("Senha muito longa.")).toBeVisible();
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/security/delete-account")).toBe(false);
+});
+
+it("keeps over-72-byte multibyte passwords local for change-password and TOTP disable", async () => {
+  const user = userEvent.setup();
+  const { fetchMock } = renderPage();
+  await screen.findByRole("heading", { name: "Segurança" });
+  await user.type(screen.getByLabelText("Senha atual"), "á".repeat(37));
+  await user.type(screen.getByLabelText("Nova senha"), "nova-senha");
+  await user.type(screen.getByLabelText("Confirmar nova senha"), "nova-senha");
+  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  expect(await screen.findByText("Senha muito longa.")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
+  await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "á".repeat(37));
+  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+  expect(await screen.findByText("Senha muito longa.")).toBeVisible();
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/security/change-password" || url === "/api/v1/security/totp/disable")).toBe(false);
+});
+
+it("blocks sole organization admins before password entry and retries readiness loading", async () => {
+  const user = userEvent.setup();
+  let readinessAttempts = 0;
+  renderPage({
+    "/api/v1/security/account-deletion-readiness": () => {
+      readinessAttempts += 1;
+      return readinessAttempts === 1
+        ? problemResponse({ code: "offline", detail: "Não foi possível verificar.", fields: {}, request_id: "id", status: 503, title: "Indisponível", type: "problem" })
+        : jsonResponse({ can_delete: false, reason: "sole_organization_admin" });
+    }
+  });
+
+  expect(await screen.findByText("Não foi possível verificar.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Verificar novamente" }));
+  expect(await screen.findByText(/transfira a administração/i)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Excluir conta" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Confirme sua senha para excluir a conta")).not.toBeInTheDocument();
+});
+
+it("shows the generic readiness blocker without offering the password form", async () => {
+  renderPage({
+    "/api/v1/security/account-deletion-readiness": () => jsonResponse({ can_delete: false, reason: null })
+  });
+
+  expect(await screen.findByText("A exclusão da conta não está disponível no momento.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Excluir conta" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Confirme sua senha para excluir a conta")).not.toBeInTheDocument();
 });
 
 it("shows the API problem message when deletion fails", async () => {

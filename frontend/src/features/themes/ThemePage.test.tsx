@@ -322,7 +322,7 @@ it("honors read-only capabilities while retaining preview access", async () => {
   expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
 });
 
-it("debounces changed previews, replaces object URLs, and supports a manual retry", async () => {
+it("previews color changes locally without a request, warns on weak contrast, and supports a manual retry", async () => {
   let previewCalls = 0;
   installFetch({
     "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
@@ -348,8 +348,13 @@ it("debounces changed previews, replaces object URLs, and supports a manual retr
 
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#abcdef" } });
   fireEvent.change(screen.getByLabelText("Secundária"), { target: { value: "#bcdefa" } });
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await new Promise((resolve) => setTimeout(resolve, 350));
   expect(previewCalls).toBe(1);
+  expect(screen.getByLabelText("Amostra local do tema")).toHaveStyle({ backgroundColor: "#abcdef" });
+  fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#abcdef" } });
+  expect(screen.getByText(/contraste entre a cor primária/i)).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Lora" } });
+  fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
   await waitFor(() => expect(screen.getByText("Não foi possível gerar esta prévia.")).toBeVisible());
 
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#fedcba" } });
@@ -362,6 +367,11 @@ it("debounces changed previews, replaces object URLs, and supports a manual retr
   expect(previewCalls).toBe(3);
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
   expect(screen.queryByText("Não foi possível gerar esta prévia.")).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Roboto" } });
+  await waitFor(() => expect(previewCalls).toBe(4));
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#000000" } });
+  fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#ffffff" } });
 });
 
 it("keeps only the latest out-of-order preview and aborts pending work on unmount", async () => {

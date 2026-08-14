@@ -27,8 +27,7 @@ struct CurrencyCentavosField: View {
       .keyboardType(.numberPad)
       .accessibilityLabel(label)
       .onChange(of: text) { _, newValue in
-        let digits = newValue.filter(\.isNumber)
-        let parsed = Int(digits) ?? 0
+        let parsed = MoneyInputRules.centavos(from: newValue)
         if parsed != centavos {
           centavos = parsed
         }
@@ -42,7 +41,7 @@ struct CurrencyCentavosField: View {
         // the value that text encodes; formatting again would only rebuild the identical
         // string. Comparing the digits skips that, leaving only external value changes
         // (a parent rewriting the binding) to reformat.
-        guard (Int(text.filter(\.isNumber)) ?? 0) != newValue else { return }
+        guard MoneyInputRules.centavos(from: text) != newValue else { return }
         text = Self.format(newValue)
       }
   }

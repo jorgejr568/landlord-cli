@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
+import { passwordValidationError, validatePix } from "../../forms/validators";
 import { ApiKeySection } from "../apiKeys/ApiKeySection";
 import { SubmitButton } from "../auth/AuthComponents";
 import { useAuth } from "../auth/AuthProvider";
@@ -11,6 +12,7 @@ import { PasskeyManager } from "./PasskeyManager";
 import { createPasskey } from "./webauthn";
 
 type SecuritySummary = components["schemas"]["SecuritySummaryResponse"];
+type AccountDeletionReadiness = components["schemas"]["AccountDeletionReadinessResponse"];
 
 function messageFor(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
@@ -20,6 +22,8 @@ export function SecurityPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<SecuritySummary | null>(null);
+  const [deletionReadiness, setDeletionReadiness] = useState<AccountDeletionReadiness | null>(null);
+  const [deletionReadinessError, setDeletionReadinessError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -34,6 +38,7 @@ export function SecurityPage() {
   const [pixKey, setPixKey] = useState("");
   const [pixName, setPixName] = useState("");
   const [pixCity, setPixCity] = useState("");
+  const [pixErrors, setPixErrors] = useState<Record<string, string>>({});
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -48,17 +53,25 @@ export function SecurityPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    try {
-      const { data } = await apiRequest(apiClient.GET("/api/v1/security"));
-      setSummary(data);
-      setPixKey(data.profile.pix_key);
-      setPixName(data.profile.pix_merchant_name);
-      setPixCity(data.profile.pix_merchant_city);
-    } catch (caught: unknown) {
-      setLoadError(messageFor(caught, "Não foi possível carregar as configurações de segurança."));
-    } finally {
+    setSummary(null);
+    setDeletionReadiness(null);
+    setDeletionReadinessError(null);
+    const [summaryResult, readinessResult] = await Promise.allSettled([
+      apiRequest(apiClient.GET("/api/v1/security")),
+      apiRequest(apiClient.GET("/api/v1/security/account-deletion-readiness"))
+    ]);
+    if (summaryResult.status === "rejected") {
+      setLoadError(messageFor(summaryResult.reason, "Não foi possível carregar as configurações de segurança."));
       setLoading(false);
+      return;
     }
+    setSummary(summaryResult.value.data);
+    setPixKey(summaryResult.value.data.profile.pix_key ?? "");
+    setPixName(summaryResult.value.data.profile.pix_merchant_name ?? "");
+    setPixCity(summaryResult.value.data.profile.pix_merchant_city ?? "");
+    if (readinessResult.status === "fulfilled") setDeletionReadiness(readinessResult.value.data);
+    else setDeletionReadinessError(messageFor(readinessResult.reason, "Não foi possível verificar se a conta pode ser excluída."));
+    setLoading(false);
   }, []);
 
   useEffect(() => { document.title = "Segurança - Rentivo"; void load(); }, [load]);
@@ -73,14 +86,24 @@ export function SecurityPage() {
   async function updatePix(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(pixRef.current);
+    const validation = validatePix({ city: pixCity, key: pixKey, name: pixName });
+    if ("errors" in validation) {
+      setPixErrors(validation.errors);
+      const first = ["key", "name", "city"].find((field) => validation.errors[field]);
+      /* v8 ignore next -- PIX validation errors always use one of the known fields above */
+      if (!first) return;
+      document.getElementById(`pix_${first === "key" ? "key" : `merchant_${first}`}`)!.focus();
+      return;
+    }
+    setPixErrors({});
     setSavingPix(true);
     try {
       const { data } = await apiRequest(
         apiClient.POST("/api/v1/security/pix", {
           body: {
-            pix_key: pixKey.trim(),
-            pix_merchant_city: pixCity.trim(),
-            pix_merchant_name: pixName.trim()
+            pix_key: validation.value.key,
+            pix_merchant_city: validation.value.city,
+            pix_merchant_name: validation.value.name
           }
         })
       );
@@ -96,6 +119,11 @@ export function SecurityPage() {
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(passwordRef.current);
+    const passwordError = passwordValidationError(currentPassword, newPassword, confirmPassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setActionError("As senhas não coincidem.");
       return;
@@ -137,6 +165,11 @@ export function SecurityPage() {
   async function disableTotp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(disableTotpRef.current);
+    const passwordError = passwordValidationError(disablePassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     setDisablingTotp(true);
     try {
       const { response } = await apiRequest(
@@ -156,6 +189,11 @@ export function SecurityPage() {
   async function deleteAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(deleteAccountRef.current);
+    const passwordError = passwordValidationError(deletePassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     setDeletingAccount(true);
     try {
       const { response } = await apiRequest(
@@ -213,9 +251,9 @@ export function SecurityPage() {
         <p className="field-hint mb-1">Estes dados são usados para gerar o QR Code nas faturas das suas cobranças pessoais. Todos os três campos são obrigatórios para gerar faturas.</p>
         {pixIncomplete ? <div className="toast toast--warning" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
         <form onSubmit={(event) => void updatePix(event)}>
-          <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input className="field-input" id="pix_key" onChange={(event) => setPixKey(event.target.value)} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} /><span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" maxLength={25} onChange={(event) => setPixName(event.target.value)} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" maxLength={15} onChange={(event) => setPixCity(event.target.value)} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-invalid={Boolean(pixErrors.key)} className="field-input" id="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} />{pixErrors.key ? <span className="field-error">{pixErrors.key}</span> : <span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span>}</div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-invalid={Boolean(pixErrors.name)} className="field-input" id="pix_merchant_name" maxLength={25} onChange={(event) => { setPixName(event.target.value); setPixErrors({}); }} style={{ maxWidth: "350px" }} value={pixName} />{pixErrors.name ? <span className="field-error">{pixErrors.name}</span> : <span className="field-hint">Até 25 caracteres.</span>}</div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-invalid={Boolean(pixErrors.city)} className="field-input" id="pix_merchant_city" maxLength={15} onChange={(event) => { setPixCity(event.target.value); setPixErrors({}); }} style={{ maxWidth: "350px" }} value={pixCity} />{pixErrors.city ? <span className="field-error">{pixErrors.city}</span> : <span className="field-hint">Até 15 caracteres, sem acentos.</span>}</div>
           <SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton>
         </form>
       </div></div>
@@ -234,8 +272,10 @@ export function SecurityPage() {
         <div className="panel-head"><h5>Excluir conta</h5></div>
         <div className="panel-body">
           <p>A exclusão é permanente: suas cobranças são removidas e seus dados pessoais são apagados. Registros exigidos por lei podem ser retidos conforme a <Link to="/privacy">Política de Privacidade</Link>. Se você entra apenas com o Google, defina uma senha antes em Esqueci minha senha.</p>
-          {!showDeleteAccount ? <button className="btn btn--sm btn--danger" onClick={() => setShowDeleteAccount(true)} type="button">Excluir conta</button> : null}
-          {showDeleteAccount ? <form onSubmit={(event) => void deleteAccount(event)}>
+          {deletionReadinessError ? <><div className="toast toast--warning" role="alert">{deletionReadinessError}</div><button className="btn btn--sm" onClick={() => void load()} type="button">Verificar novamente</button></> : null}
+          {deletionReadiness && !deletionReadiness.can_delete ? <div className="toast toast--warning" role="alert">{deletionReadiness.reason === "sole_organization_admin" ? "Transfira a administração ou exclua suas organizações antes de excluir a conta." : "A exclusão da conta não está disponível no momento."}</div> : null}
+          {deletionReadiness?.can_delete && !showDeleteAccount ? <button className="btn btn--sm btn--danger" onClick={() => setShowDeleteAccount(true)} type="button">Excluir conta</button> : null}
+          {deletionReadiness?.can_delete && showDeleteAccount ? <form onSubmit={(event) => void deleteAccount(event)}>
             <div className="field"><label className="field-label" htmlFor="delete-account-password">Confirme sua senha para excluir a conta</label><input className="field-input" id="delete-account-password" onChange={(event) => setDeletePassword(event.target.value)} ref={deleteAccountRef} required type="password" value={deletePassword} /></div>
             <SubmitButton className="btn btn--danger btn--sm" loading={deletingAccount}>Excluir minha conta permanentemente</SubmitButton>
           </form> : null}

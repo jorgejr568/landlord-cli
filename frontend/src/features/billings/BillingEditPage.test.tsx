@@ -138,7 +138,7 @@ it("retries loading, normalizes edit errors, focuses controls and handles offlin
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await screen.findByLabelText("Chave PIX");
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
-  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "abc");
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "10,00");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Chave PIX inválida.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();

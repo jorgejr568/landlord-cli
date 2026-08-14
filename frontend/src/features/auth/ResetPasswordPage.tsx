@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
+import { passwordValidationError } from "../../forms/validators";
 import {
   AuthError,
   RentivoTitle,
@@ -41,6 +42,11 @@ export function ResetPasswordPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    const passwordError = passwordValidationError(password, confirmPassword);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
     if (password !== confirmPassword) {
       setError("As senhas não coincidem.");
       return;

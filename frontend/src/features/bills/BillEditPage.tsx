@@ -4,11 +4,12 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
+import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import {
-  formatBrlInput, formatIsoDate, formatMonth, parseBrl, parseDateInput
+  formatBrlInput, formatMonth, parseBrl, parseDateInput
 } from "../../lib/format";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
@@ -39,10 +40,12 @@ export function BillEditPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const nextKey = useRef(0);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const controllerRef = useRef<AbortController | null>(null);
   const mutationControllers = useRef(new Set<AbortController>());
+  const saveInFlight = useRef(false);
   const routeGeneration = useRef(0);
 
   useDocumentTitle("Editar Fatura - Rentivo");
@@ -57,6 +60,8 @@ export function BillEditPage() {
     setRegenerating(false);
     setDeleting(false);
     setDeleteOpen(false);
+    setIsDirty(false);
+    saveInFlight.current = false;
     return () => {
       /* v8 ignore next -- cleanup always runs before the next effect setup */
       if (routeGeneration.current === generation) routeGeneration.current += 1;
@@ -91,8 +96,9 @@ export function BillEditPage() {
       setBilling(billingResult.data);
       setBill(billResult.data);
       setLines(billResult.data.line_items.map((item, index) => ({ amount: formatBrlInput(item.amount), description: item.description, itemType: item.item_type, key: `saved-${item.sort_order}-${index}` })));
-      setDueDate(billResult.data.due_date ? formatIsoDate(billResult.data.due_date) : "");
+      setDueDate(billResult.data.due_date ?? "");
       setNotes(billResult.data.notes);
+      setIsDirty(false);
       setLoading(false);
     } catch (caught) {
       /* v8 ignore next -- an aborted request is intentionally discarded */
@@ -114,23 +120,26 @@ export function BillEditPage() {
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (saveInFlight.current) return;
     /* v8 ignore next -- the form is only rendered after bill loading */
     if (!bill) return;
     setActionError(""); setFieldErrors({}); setSuccess("");
     const parsedDate = parseDateInput(dueDate);
     const errors: Record<string, string> = {};
+    /* v8 ignore next -- a native date control cannot contain a malformed non-empty date */
     if (parsedDate === undefined) errors.due_date = "Informe uma data válida.";
     const lineItems = lines.map((line, index) => {
       const amount = parseBrl(line.amount);
       if (!line.description.trim()) errors[`line_items.${index}.description`] = "Informe a descrição.";
       if (amount === null) errors[`line_items.${index}.amount`] = "Informe um valor válido.";
-      return { amount: amount ?? 0, description: line.description.trim(), item_type: line.itemType };
+      return { amount: amount!, description: line.description.trim(), item_type: line.itemType };
     });
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       focusField(Object.keys(errors)[0]);
       return;
     }
+    saveInFlight.current = true;
     const { controller, generation } = beginMutation();
     setSaving(true);
     try {
@@ -149,6 +158,7 @@ export function BillEditPage() {
       setActionError(errorMessage(caught, "Não foi possível atualizar a fatura."));
       requestAnimationFrame(() => focusField(firstFieldError(apiErrors, ["line_items.0.description", "due_date", "notes"])));
     } finally {
+      saveInFlight.current = false;
       mutationControllers.current.delete(controller);
       if (mutationIsCurrent(controller, generation)) setSaving(false);
     }
@@ -200,21 +210,22 @@ export function BillEditPage() {
 
   return (
     <>
+      <DirtyFormGuard isDirty={isDirty} />
       <h2 className="mb-1">Editar Fatura</h2>
       <p className="text-muted">Cobranca: <strong>{billing.name}</strong> · Referencia: <strong>{formatMonth(bill.reference_month)}</strong></p>
       {bill.pdf_render_status === "pending" && <p className="text-muted">O PDF desta fatura está sendo regenerado em segundo plano.</p>}
       {bill.pdf_render_status === "failed" && <p className="text-muted"><strong>Atenção:</strong> a última tentativa de gerar o PDF falhou. Use "Regenerar PDF" para tentar novamente.</p>}
 
-      {bill.capabilities.can_edit ? <form onSubmit={(event) => void save(event)}>
+      {bill.capabilities.can_edit ? <form onChange={() => setIsDirty(true)} onSubmit={(event) => void save(event)}>
         <div className="panel"><div className="panel-head panel__head"><h5>Itens</h5></div><div className="panel-body panel__body"><div id="items-container">{lines.map((line, index) => <div className="formset-row" key={line.key}><div className="item-grid">
           <div className="field mb-0"><label className="field-label" htmlFor={`line-description-${line.key}`}>Descrição</label><input aria-describedby={fieldErrors[`line_items.${index}.description`] ? `line_items.${index}.description-error` : undefined} className="field-input" id={`line-description-${line.key}`} onChange={(event) => setLines((items) => items.map((item) => item.key === line.key ? { ...item, description: event.target.value } : item))} ref={(node) => { fieldRefs.current[`line_items.${index}.description`] = node; }} value={line.description} /><FieldError id={`line_items.${index}.description-error`} message={fieldErrors[`line_items.${index}.description`]} /></div>
           <div className="field mb-0"><label className="field-label" htmlFor={`line-type-${line.key}`}>Tipo</label><select className="field-select" disabled id={`line-type-${line.key}`} value={line.itemType}><option value="fixed">Fixo</option><option value="variable">Variavel</option><option value="extra">Extra</option></select></div>
           <div className="field mb-0"><label className="field-label" htmlFor={`line-amount-${line.key}`}>Valor (R$)</label><input aria-describedby={fieldErrors[`line_items.${index}.amount`] ? `line_items.${index}.amount-error` : undefined} className="field-input" id={`line-amount-${line.key}`} inputMode="decimal" onChange={(event) => setLines((items) => items.map((item) => item.key === line.key ? { ...item, amount: event.target.value } : item))} ref={(node) => { fieldRefs.current[`line_items.${index}.amount`] = node; }} value={line.amount} /><FieldError id={`line_items.${index}.amount-error`} message={fieldErrors[`line_items.${index}.amount`]} /></div>
-          <div>{line.itemType === "extra" && <button aria-label={`Remover ${line.description}`} className="btn btn--sm btn--danger" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))} type="button"><X aria-hidden="true" size={14} /></button>}</div>
+          <div>{line.itemType === "extra" && <button aria-label={`Remover ${line.description}`} className="btn btn--sm btn--danger" onClick={() => { setLines((items) => items.filter((item) => item.key !== line.key)); setIsDirty(true); }} type="button"><X aria-hidden="true" size={14} /></button>}</div>
         </div></div>)}</div></div></div>
 
-        <div className="panel"><div className="panel-head panel__head"><h5>Despesas Extras</h5><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => setLines((items) => [...items, { amount: "", description: "", itemType: "extra", key: `new-${nextKey.current++}` }])} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div><div className="panel-body panel__body"><p className="text-muted">Adicione despesas pontuais aos itens da fatura.</p></div></div>
-        <div className="panel"><div className="panel-body panel__body"><div className="dates-grid"><div className="field"><label className="field-label" htmlFor="due_date">Vencimento</label><input className="field-input" id="due_date" onChange={(event) => setDueDate(event.target.value)} placeholder="10/03/2025" ref={(node) => { fieldRefs.current.due_date = node; }} value={dueDate} /><FieldError id="due_date-error" message={fieldErrors.due_date} /></div></div><div className="field mb-0"><label className="field-label" htmlFor="notes">Observações</label><textarea className="field-textarea" id="notes" onChange={(event) => setNotes(event.target.value)} ref={(node) => { fieldRefs.current.notes = node; }} rows={3} value={notes} /><FieldError id="notes-error" message={fieldErrors.notes} /></div></div></div>
+        <div className="panel"><div className="panel-head panel__head"><h5>Despesas Extras</h5><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => { setLines((items) => [...items, { amount: "", description: "", itemType: "extra", key: `new-${nextKey.current++}` }]); setIsDirty(true); }} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div><div className="panel-body panel__body"><p className="text-muted">Adicione despesas pontuais aos itens da fatura.</p></div></div>
+        <div className="panel"><div className="panel-body panel__body"><div className="dates-grid"><div className="field"><label className="field-label" htmlFor="due_date">Vencimento</label><input aria-describedby={/* v8 ignore next -- native date controls exclude malformed non-empty values */ fieldErrors.due_date ? "due_date-error" : undefined} className="field-input" id="due_date" onChange={(event) => setDueDate(event.target.value)} ref={(node) => { fieldRefs.current.due_date = node; }} type="date" value={dueDate} /><FieldError id="due_date-error" message={fieldErrors.due_date} /></div></div><div className="field mb-0"><label className="field-label" htmlFor="notes">Observações</label><textarea className="field-textarea" id="notes" onChange={(event) => setNotes(event.target.value)} ref={(node) => { fieldRefs.current.notes = node; }} rows={3} value={notes} /><FieldError id="notes-error" message={fieldErrors.notes} /></div></div></div>
         {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}{success && <div className="toast toast--success" role="status">{success}</div>}
         <div className="btn-group"><button className="btn btn--primary" disabled={saving} type="submit">{saving ? "Salvando..." : "Salvar"}</button><Link className="btn btn--ghost" to={`/billings/${billingUuid}/bills/${bill.uuid}`}>Cancelar</Link></div>
       </form> : <p className="text-muted">Você não possui permissão para editar esta fatura.</p>}

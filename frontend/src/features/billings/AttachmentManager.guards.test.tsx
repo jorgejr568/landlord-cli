@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -36,4 +36,17 @@ it("ignores a stray dialog confirmation when no attachment deletion is pending",
   expect(fetchMock).not.toHaveBeenCalled();
   expect(onChanged).not.toHaveBeenCalled();
   expect(onError).not.toHaveBeenCalled();
+});
+
+it("rejects unsupported attachments before uploading", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  render(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-public" canEdit mode="edit" onChanged={vi.fn()} onError={vi.fn()} /></MemoryRouter>);
+
+  fireEvent.change(screen.getByLabelText("Arquivo"), { target: { files: [new File(["x"], "nota.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.getByText("Envie um arquivo PDF, JPG ou PNG.")).toBeVisible();
 });

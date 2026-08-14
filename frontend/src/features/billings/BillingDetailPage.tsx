@@ -5,10 +5,11 @@ import { Link, useNavigate, useParams } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
+import { validateMoney, validateText } from "../../forms/validators";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
-import { formatBrl, formatMonth, parseBrl } from "../../lib/format";
+import { formatBrl, formatMonth } from "../../lib/format";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { AttachmentManager } from "./AttachmentManager";
@@ -188,12 +189,22 @@ export function BillingDetailPage() {
 
   const addExpense = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const amount = validateMoney(expenseAmount, { minimum: 1 });
+    const description = validateText(expenseDescription, { maxLength: 2000, required: true });
+    if ("error" in amount || "error" in description) {
+      setExpenseErrors({
+        ...("error" in amount ? { amount: amount.error } : {}),
+        ...("error" in description ? { description: description.error } : {})
+      });
+      return;
+    }
     const token = beginAction("expense-create");
+    /* v8 ignore next -- the visible action is disabled while another mutation owns the form */
     if (!token) return;
     setExpenseErrors({}); setMutationError("");
     try {
       const { response } = await apiRequest(apiClient.POST("/api/v1/billings/{billing_uuid}/expenses", {
-        body: { amount: parseBrl(expenseAmount) ?? 0, category: expenseCategory, description: expenseDescription.trim(), incurred_on: expenseDate },
+        body: { amount: amount.value, category: expenseCategory, description: description.value, incurred_on: expenseDate },
         params: { path: { billing_uuid: token.billingUuid } }, signal: token.controller.signal
       }));
       if (!actionIsCurrent(token)) return;
@@ -290,7 +301,7 @@ export function BillingDetailPage() {
 
       {billing.capabilities.can_read_expenses || billing.capabilities.can_write_expenses ? <div className="panel"><div className="panel__head"><h3 ref={expenseHeadingRef} tabIndex={-1}>Despesas</h3><span className="panel__title-eyebrow">Resultado líquido (ano)</span></div><div className="panel__body"><div className="grid-2" style={{ gap: "0.9rem", marginBottom: "1rem" }}><div><div className="field__label">Recebido (ano)</div><div style={{ fontWeight: 600 }}>{formatBrl(billing.stats.received)}</div></div><div><div className="field__label">Despesas</div><div style={{ fontWeight: 600 }}>{formatBrl(billing.stats.total_expenses)}</div></div><div><div className="field__label">Resultado líquido</div><div style={{ fontWeight: 700 }}>{formatBrl(billing.stats.net_income)}</div></div></div>
         {billing.capabilities.can_read_expenses ? expenses.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Descrição</th><th className="center">Categoria</th><th className="center">Data</th><th className="num">Valor</th>{billing.capabilities.can_write_expenses ? <th /> : null}</tr></thead><tbody>{expenses.map((expense) => <tr key={expense.uuid}><td className="table__primary">{expense.description}</td><td className="center">{CATEGORY_LABELS[expense.category]}</td><td className="center mono" style={{ fontSize: "0.85rem" }}>{expense.incurred_on}</td><td className="num">{formatBrl(expense.amount)}</td>{billing.capabilities.can_write_expenses ? <td className="num"><button aria-label={`Remover despesa ${expense.description}`} className="btn btn--danger btn--sm" disabled={activeAction !== null} onClick={() => setPendingExpense(expense)} type="button">Remover</button></td> : null}</tr>)}</tbody></table></div> : <p className="muted mb-2" style={{ fontSize: "0.88rem" }}>Nenhuma despesa registrada.</p> : null}
-        {billing.capabilities.can_write_expenses ? <form onSubmit={addExpense} style={{ marginTop: "1rem" }}><div className="item-grid"><div className="field mb-0"><input aria-label="Descrição da despesa" className="input" name="expense-description" onChange={(event) => setExpenseDescription(event.target.value)} placeholder="Descrição" required type="text" value={expenseDescription} /><FieldError id="expense-description-error" message={expenseErrors.description} /></div><div className="field mb-0"><select aria-label="Categoria da despesa" className="select" name="expense-category" onChange={(event) => setExpenseCategory(event.target.value as ExpenseCategory)} required value={expenseCategory}>{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><FieldError id="expense-category-error" message={expenseErrors.category} /></div><div className="field mb-0"><input aria-label="Data da despesa" className="input" name="expense-incurred_on" onChange={(event) => setExpenseDate(event.target.value)} required type="date" value={expenseDate} /><FieldError id="expense-date-error" message={expenseErrors.incurred_on} /></div><div className="field mb-0"><input aria-label="Valor da despesa (R$)" className="input" name="expense-amount" onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0,00" required type="text" value={expenseAmount} /><FieldError id="expense-amount-error" message={expenseErrors.amount} /></div><div><button className="btn btn--primary" disabled={activeAction !== null} type="submit">Adicionar despesa</button></div></div></form> : null}
+        {billing.capabilities.can_write_expenses ? <form onSubmit={addExpense} style={{ marginTop: "1rem" }}><div className="item-grid"><div className="field mb-0"><input aria-label="Descrição da despesa" className="input" maxLength={2000} name="expense-description" onChange={(event) => setExpenseDescription(event.target.value)} placeholder="Descrição" required type="text" value={expenseDescription} /><FieldError id="expense-description-error" message={expenseErrors.description} /></div><div className="field mb-0"><select aria-label="Categoria da despesa" className="select" name="expense-category" onChange={(event) => setExpenseCategory(event.target.value as ExpenseCategory)} required value={expenseCategory}>{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><FieldError id="expense-category-error" message={expenseErrors.category} /></div><div className="field mb-0"><input aria-label="Data da despesa" className="input" name="expense-incurred_on" onChange={(event) => setExpenseDate(event.target.value)} required type="date" value={expenseDate} /><FieldError id="expense-date-error" message={expenseErrors.incurred_on} /></div><div className="field mb-0"><input aria-label="Valor da despesa (R$)" className="input" name="expense-amount" onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0,00" required type="text" value={expenseAmount} /><FieldError id="expense-amount-error" message={expenseErrors.amount} /></div><div><button className="btn btn--primary" disabled={activeAction !== null} type="submit">Adicionar despesa</button></div></div></form> : null}
       </div></div> : null}
 
       {billing.capabilities.can_read_attachments ? <AttachmentManager attachments={attachments} billingUuid={billingUuid} canEdit={billing.capabilities.can_write_attachments} mode="detail" onChanged={load.bind(null, billingUuid)} onError={setMutationError} /> : null}

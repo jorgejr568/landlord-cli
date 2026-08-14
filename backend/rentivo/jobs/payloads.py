@@ -65,7 +65,28 @@ class EmailSendPayload(JobPayload):
 
 
 class CommunicationSendPayload(JobPayload):
-    communication_id: int
+    # ``communication_id`` keeps jobs written before batch fan-out compatible.
+    # New producers enqueue one job for the whole recipient batch.
+    communication_id: int | None = None
+    communication_ids: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _require_exactly_one_id_shape(self) -> CommunicationSendPayload:
+        if (self.communication_id is None) == (self.communication_ids is None):
+            raise ValueError("exactly one of communication_id or communication_ids is required")
+        if self.communication_ids is not None:
+            if not self.communication_ids:
+                raise ValueError("communication_ids must not be empty")
+            if len(set(self.communication_ids)) != len(self.communication_ids):
+                raise ValueError("communication_ids must be unique")
+        return self
+
+    @property
+    def ids(self) -> list[int]:
+        if self.communication_ids is not None:
+            return self.communication_ids
+        assert self.communication_id is not None  # validated above
+        return [self.communication_id]
 
 
 class ReceiptCleanup(JobPayload):

@@ -21,6 +21,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     snapshot.profile
   }
   public func logout() async {}
+  public func accountDeletionReadiness() async throws -> AccountDeletionReadiness {
+    AccountDeletionReadiness(canDelete: true)
+  }
   public func deleteAccount(password: String) async throws {}
 
   // The demo has no credentials to check and no second factor to enrol, so native sign-in always
@@ -112,11 +115,11 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
   }
 
-  public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
+  public func updatePix(_ pix: PixConfiguration?) async throws -> UserProfile {
     try await prepareOperation()
     guard !viewerMode else { throw DemoError.permissionDenied }
     snapshot.profile.pix = pix
-    recordActivity(kind: .billing, title: "PIX atualizado", detail: pix.key)
+    recordActivity(kind: .billing, title: "PIX atualizado", detail: pix?.key ?? "Removido")
     return snapshot.profile
   }
 
@@ -834,13 +837,29 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     recordActivity(kind: .apiKey, title: "Chave de API criada", detail: metadata.name)
     return CreatedAPIKeySecret(metadata: metadata, secret: "rntv-v1-demo-8K2P-N4M7-X9Q3")
   }
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    try await prepareOperation()
+    let organizations = snapshot.organizations.map {
+      APIKeyWorkspaceOption(
+        resourceType: .organization, resourceID: WorkspaceID(rawValue: $0.id.rawValue),
+        name: $0.name
+      )
+    }
+    return APIKeyOptions(
+      scopes: APIKeyScope.integrationCases,
+      workspaces: [
+        APIKeyWorkspaceOption(resourceType: .user, resourceID: .personal, name: "Conta pessoal")
+      ] + organizations,
+      defaultExpirationDays: 365, maxExpirationDays: 365
+    )
+  }
 
   public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
     try await prepareOperation()
     try requireWriteAccess()
     guard !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       !draft.scopes.isEmpty,
-      !draft.grants.isEmpty
+      !draft.shouldUpdateGrants || !draft.grants.isEmpty
     else {
       throw DemoError.operationFailed
     }
@@ -850,7 +869,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
     snapshot.apiKeys[index].name = draft.name
     snapshot.apiKeys[index].scopes = draft.scopes
-    snapshot.apiKeys[index].grants = draft.grants
+    if draft.shouldUpdateGrants { snapshot.apiKeys[index].grants = draft.grants }
     snapshot.apiKeys[index].expiresAt = draft.expiresAt
     recordActivity(
       kind: .apiKey, title: "Chave de API atualizada", detail: snapshot.apiKeys[index].name

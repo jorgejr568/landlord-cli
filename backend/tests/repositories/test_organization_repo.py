@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import text
 
 from rentivo.models.organization import Organization
 from rentivo.models.user import User
@@ -11,6 +12,36 @@ def _create_user(user_repo, email="admin@example.com"):
 
 
 class TestOrganizationRepoCRUD:
+    def test_create_with_admin_persists_organization_and_membership_atomically(self, org_repo, user_repo):
+        user = _create_user(user_repo)
+
+        org = org_repo.create_with_admin(Organization(name="Atomic Org", created_by=user.id), user.id)
+
+        assert org_repo.get_by_id(org.id) is not None
+        member = org_repo.get_member(org.id, user.id)
+        assert member is not None
+        assert member.role == "admin"
+
+    def test_create_with_admin_rolls_back_organization_when_membership_insert_fails(
+        self, org_repo, user_repo, db_connection
+    ):
+        user = _create_user(user_repo)
+        db_connection.execute(
+            text(
+                "CREATE TRIGGER reject_org_member BEFORE INSERT ON organization_members "
+                "BEGIN SELECT RAISE(ABORT, 'membership failed'); END"
+            )
+        )
+        db_connection.commit()
+
+        with pytest.raises(Exception, match="membership failed"):
+            org_repo.create_with_admin(Organization(name="Orphan must rollback", created_by=user.id), user.id)
+
+        count = db_connection.execute(
+            text("SELECT COUNT(*) FROM organizations WHERE name = 'Orphan must rollback'")
+        ).scalar_one()
+        assert count == 0
+
     def test_create_and_get(self, org_repo, user_repo):
         user = _create_user(user_repo)
         org = org_repo.create(Organization(name="Test Org", created_by=user.id))

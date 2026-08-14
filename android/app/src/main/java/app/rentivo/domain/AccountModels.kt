@@ -168,6 +168,20 @@ data class APIKeyGrant(
   val available: Boolean = true,
 )
 
+/** Lightweight server-provided choice for an API-key grant; no organization detail hydration. */
+data class APIKeyWorkspaceOption(
+  val resourceType: WorkspaceResourceType,
+  val resourceID: WorkspaceID,
+  val name: String?,
+)
+
+data class APIKeyOptions(
+  val scopes: Set<APIKeyScope>,
+  val workspaces: List<APIKeyWorkspaceOption>,
+  val defaultExpirationDays: Int,
+  val maxExpirationDays: Int,
+)
+
 data class APIKeyMetadata(
   val id: APIKeyID,
   val name: String,
@@ -178,6 +192,10 @@ data class APIKeyMetadata(
   val lastUsedAt: Instant?,
   val createdAt: Instant,
   val revokedAt: Instant?,
+  /** Grants the server redacted so their identifiers cannot be safely round-tripped. */
+  val unavailableGrantCount: Int = 0,
+  /** Scopes unknown to this app version, which must remain server-owned during an edit. */
+  val unavailableScopeCount: Int = 0,
 )
 
 data class APIKeyDraft(
@@ -185,6 +203,10 @@ data class APIKeyDraft(
   val scopes: Set<APIKeyScope>,
   val grants: List<APIKeyGrant>,
   val expiresAt: Instant,
+  /** PATCH omits grants unless the edit form explicitly changed the visible selection. */
+  val shouldUpdateGrants: Boolean = true,
+  /** PATCH omits scopes unless the edit form explicitly changed the visible selection. */
+  val shouldUpdateScopes: Boolean = true,
 ) {
   companion object {
     val demo = APIKeyDraft(
@@ -201,10 +223,55 @@ data class APIKeyDraft(
   }
 }
 
+object APIKeyNameRule {
+  fun validationMessage(value: String): String? = when {
+    value.trim().isEmpty() -> "Informe o nome da chave."
+    value.trim().length > 255 -> "O nome deve ter no máximo 255 caracteres."
+    else -> null
+  }
+}
+
+/** Pure form policy that prevents a partial visible grant set from replacing hidden grants. */
+data class APIKeyGrantEditRule(
+  val originalGrantIDs: Set<WorkspaceID>,
+  val unavailableGrantCount: Int,
+) {
+  val canEdit: Boolean get() = unavailableGrantCount == 0
+
+  fun shouldUpdate(selectedGrantIDs: Set<WorkspaceID>): Boolean =
+    canEdit && selectedGrantIDs != originalGrantIDs
+}
+
+/** Pure form policy that prevents known scopes from replacing server scopes this build cannot name. */
+data class APIKeyScopeEditRule(
+  val originalScopes: Set<APIKeyScope>,
+  val unavailableScopeCount: Int,
+) {
+  val canEdit: Boolean get() = unavailableScopeCount == 0
+
+  fun shouldUpdate(selectedScopes: Set<APIKeyScope>): Boolean =
+    canEdit && selectedScopes != originalScopes
+}
+
 data class CreatedAPIKeySecret(
   val metadata: APIKeyMetadata,
   val secret: String,
 )
+
+/** Server-authoritative guard for the irreversible account-deletion flow. */
+data class AccountDeletionReadiness(
+  val canDelete: Boolean,
+  /** A stable backend code; unknown values remain visible rather than being silently treated safe. */
+  val reason: String? = null,
+) {
+  val blockerMessage: String?
+    get() = when (reason) {
+      "sole_organization_admin" ->
+        "Transfira ou remova a administração das organizações antes de excluir sua conta."
+      null -> null
+      else -> "A exclusão da conta está indisponível no momento."
+    }
+}
 
 enum class ThemeFont(val wire: String) {
   MONTSERRAT("Montserrat"),
@@ -248,6 +315,49 @@ data class ThemeValues(
       secondary = "#47324A", secondaryDark = "#2B1D2D",
       textColor = "#2B1D2D", textContrast = "#FFFFFF",
     )
+  }
+}
+
+object ThemeFormRules {
+  private val hexColor = Regex("^#[0-9A-Fa-f]{6}$")
+
+  fun isHexColor(value: String): Boolean = hexColor.matches(value)
+
+  fun invalidColorNames(values: ThemeValues): List<String> = listOf(
+    "Primária" to values.primary,
+    "Primária clara" to values.primaryLight,
+    "Secundária" to values.secondary,
+    "Secundária escura" to values.secondaryDark,
+    "Texto" to values.textColor,
+    "Texto de contraste" to values.textContrast,
+  ).mapNotNull { (name, value) -> name.takeUnless { isHexColor(value) } }
+
+  fun contrastWarnings(values: ThemeValues): List<String> {
+    if (invalidColorNames(values).isNotEmpty()) return emptyList()
+    return buildList {
+      if (contrastRatio(values.textContrast, values.primary) < 4.5) {
+        add("O texto de contraste pode ficar difícil de ler sobre a cor primária.")
+      }
+      if (contrastRatio(values.textColor, values.primaryLight) < 4.5) {
+        add("O texto pode ficar difícil de ler sobre a cor primária clara.")
+      }
+    }
+  }
+
+  private fun contrastRatio(foreground: String, background: String): Double {
+    val first = luminance(foreground)
+    val second = luminance(background)
+    return (maxOf(first, second) + 0.05) / (minOf(first, second) + 0.05)
+  }
+
+  private fun luminance(value: String): Double {
+    val raw = value.drop(1).toLong(radix = 16)
+    val channels = listOf(raw shr 16, (raw shr 8) and 0xFF, raw and 0xFF).map { channel ->
+      val normalized = channel.toDouble() / 255.0
+      if (normalized <= 0.03928) normalized / 12.92
+      else Math.pow((normalized + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
   }
 }
 

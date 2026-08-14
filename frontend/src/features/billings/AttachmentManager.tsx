@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
+import { validateUpload } from "../../forms/validators";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
@@ -78,6 +79,12 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setFileError("Selecione um arquivo.");
+      fileRef.current?.focus();
+      return;
+    }
+    const validation = validateUpload(file);
+    if ("error" in validation) {
+      setFileError(validation.error);
       fileRef.current?.focus();
       return;
     }

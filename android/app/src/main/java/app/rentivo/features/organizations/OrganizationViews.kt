@@ -93,6 +93,7 @@ import app.rentivo.designsystem.ptBRCount
 import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.Billing
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.FormSubmitState
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationDraft
@@ -100,6 +101,7 @@ import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PixConfiguration
+import app.rentivo.domain.PixFormFields
 import app.rentivo.domain.ThemeTarget
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -397,9 +399,11 @@ fun OrganizationFormView(
   var merchantName by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantName ?: "") }
   var city by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantCity ?: "") }
   var pixValidationMessage: String? by remember(existing?.id) { mutableStateOf(null) }
+  var submitState by remember(existing?.id) { mutableStateOf(FormSubmitState.idle) }
 
   suspend fun save() {
-    val trimmedKey = pixKey.trim()
+    if (submitState.isSubmitting) return
+    val pixFields = PixFormFields(key = pixKey, merchantName = merchantName, merchantCity = city)
     val trimmedMerchantName = merchantName.trim()
     val trimmedCity = city.trim()
     // Mirrors BillingFormView's PIX validation: a blank key means no PIX at all, but once a key is
@@ -408,25 +412,16 @@ fun OrganizationFormView(
     // so the follow-up PATCH in `createOrganization`/`updateOrganization` can't 422 on data the form
     // already accepted.
     pixValidationMessage = when {
-      trimmedKey.isEmpty() -> null
-      trimmedMerchantName.isEmpty() || trimmedCity.isEmpty() ->
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+      pixFields.validationMessage != null -> pixFields.validationMessage
 
       trimmedMerchantName.length > 25 -> "O nome do recebedor deve ter até 25 caracteres."
       trimmedCity.length > 15 -> "A cidade do recebedor deve ter até 15 caracteres."
       else -> null
     }
     if (pixValidationMessage != null) return
-    val pix = if (trimmedKey.isEmpty()) {
-      null
-    } else {
-      PixConfiguration(
-        key = trimmedKey,
-        merchantName = trimmedMerchantName,
-        merchantCity = trimmedCity,
-      )
-    }
+    val pix = pixFields.configuration
     val draft = OrganizationDraft(name = name, pix = pix)
+    submitState = submitState.start()
     try {
       if (existing != null) {
         app.dependencies.organizations.updateOrganization(id = existing.id, draft = draft)
@@ -440,6 +435,8 @@ fun OrganizationFormView(
       throw cancellation
     } catch (throwable: Throwable) {
       app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+    } finally {
+      submitState = submitState.finish()
     }
   }
 
@@ -450,7 +447,7 @@ fun OrganizationFormView(
       SheetTopBar(
         title = if (existing == null) "Nova organização" else "Editar organização",
         confirmTitle = "Salvar",
-        confirmEnabled = name.isNotEmpty(),
+        confirmEnabled = name.isNotEmpty() && !submitState.isSubmitting,
         confirmTestTag = "organization.form.save",
         onCancel = onDismiss,
         onConfirm = { scope.launch { save() } },

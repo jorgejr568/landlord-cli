@@ -356,7 +356,8 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
 
   await screen.findByRole("heading", { name: "Editar Fatura" });
-  expect(screen.getByLabelText("Vencimento")).toHaveValue("10/08/2026");
+  expect(screen.getByLabelText("Vencimento")).toHaveAttribute("type", "date");
+  expect(screen.getByLabelText("Vencimento")).toHaveValue("2026-08-10");
   expect(screen.getAllByLabelText("Tipo")[0]).toBeDisabled();
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "edit.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
@@ -385,6 +386,32 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
+});
+
+it("warns before unloading changed bill edit and communication drafts", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  const editView = renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+  await screen.findByRole("heading", { name: "Editar Fatura" });
+  const cleanEditUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(cleanEditUnload);
+  expect(cleanEditUnload.defaultPrevented).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  const dirtyEditUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirtyEditUnload);
+  expect(dirtyEditUnload.defaultPrevented).toBe(true);
+  editView.unmount();
+
+  installFetch(detailHandlers());
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await screen.findByRole("heading", { name: "Enviar fatura" });
+  const cleanComposeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(cleanComposeUnload);
+  expect(cleanComposeUnload.defaultPrevented).toBe(false);
+  await user.type(screen.getByLabelText("Assunto"), " atualizado");
+  const dirtyComposeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirtyComposeUnload);
+  expect(dirtyComposeUnload.defaultPrevented).toBe(true);
 });
 
 it("sends selected recipients and applies templates without requesting a preview", async () => {
@@ -419,6 +446,28 @@ it("sends selected recipients and applies templates without requesting a preview
   }));
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-public-uuid");
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
+});
+
+it("blocks blank subjects and bodies beyond 4096 UTF-8 bytes before sending", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch(detailHandlers());
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await user.clear(screen.getByLabelText("Assunto"));
+  fireEvent.change(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), { target: { value: "á".repeat(2049) } });
+  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Este campo é obrigatório.")).toBeVisible();
+  expect(screen.getByText("A mensagem deve ter no máximo 4096 bytes.")).toBeVisible();
+  expect(screen.getByLabelText("Assunto")).toHaveFocus();
+  expect(screen.getByText("4098 / 4096 bytes")).toBeVisible();
+
+  await user.type(screen.getByLabelText("Assunto"), "Assunto válido");
+  await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
+  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveFocus();
 });
 
 it("shows compose empty, severe moderation, load retry, and body field errors", async () => {
@@ -803,18 +852,17 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   const amount = screen.getByLabelText("Valor (R$)");
   await user.clear(description);
   await user.clear(amount);
+  expect(screen.getByLabelText("Vencimento")).toHaveAttribute("type", "date");
   await user.clear(screen.getByLabelText("Vencimento"));
-  await user.type(screen.getByLabelText("Vencimento"), "31/02/2026");
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor válido.")).toBeVisible();
-  expect(screen.getByText("Informe uma data válida.")).toBeVisible();
-  expect(screen.getByLabelText("Vencimento")).toHaveFocus();
+  expect(screen.queryByText("Informe uma data válida.")).not.toBeInTheDocument();
+  expect(description).toHaveFocus();
 
   await user.type(description, "Aluguel");
   await user.type(amount, "2.500,00");
-  await user.clear(screen.getByLabelText("Vencimento"));
-  await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
+  await user.type(screen.getByLabelText("Vencimento"), "2026-08-10");
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Observações")).toHaveFocus());
@@ -840,6 +888,7 @@ it("reports edit regeneration and deletion failures", async () => {
 
 it.each(["resolve", "reject"] as const)("discards an edit save that %s after the route changes", async (outcome) => {
   const user = userEvent.setup();
+  let patchCalls = 0;
   const mutation = { signal: null as AbortSignal | null };
   let settle!: () => void;
   const pending = new Promise<Response>((resolve, reject) => {
@@ -851,6 +900,7 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
     ...detailHandlers(),
     ...secondDetailHandlers(),
     "PATCH /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": (init) => {
+      patchCalls += 1;
       mutation.signal = init?.signal ?? null;
       return pending;
     }
@@ -858,6 +908,8 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
   await screen.findByRole("heading", { name: "Editar Fatura" });
   await user.click(screen.getByRole("button", { name: "Salvar" }));
+  fireEvent.submit(screen.getByRole("button", { name: "Salvando..." }).closest("form")!);
+  expect(patchCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
   await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
   expect(mutation.signal?.aborted).toBe(true);
@@ -1016,6 +1068,7 @@ it("blocks a direct invoice compose URL when its artifact is not ready", async (
 
 it.each(["resolve", "reject"] as const)("discards a pending send that %s after a route change", async (outcome) => {
   const user = userEvent.setup();
+  let sendCalls = 0;
   let settleSend!: () => void;
   const pendingSend = new Promise<Response>((resolve, reject) => {
     settleSend = outcome === "resolve"
@@ -1032,12 +1085,17 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
       uuid: "billing-second"
     }),
     "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" }),
-    "POST /api/v1/billings/billing-public-uuid/communications/send": () => pendingSend
+    "POST /api/v1/billings/billing-public-uuid/communications/send": () => {
+      sendCalls += 1;
+      return pendingSend;
+    }
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await screen.findByRole("heading", { name: "Enviar fatura" });
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(sendCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
   expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
 

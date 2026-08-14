@@ -75,8 +75,9 @@ struct BillingFormView: View {
   @State private var pixKey: String
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
+  @State private var usesCustomPix: Bool
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
@@ -86,6 +87,8 @@ struct BillingFormView: View {
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded = false
+  @State private var organizationLoadError: String?
+  @State private var confirmingDiscard = false
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -97,8 +100,9 @@ struct BillingFormView: View {
     _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
+    _usesCustomPix = State(initialValue: billing?.pixOverride != nil)
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
   }
 
   var body: some View {
@@ -112,6 +116,12 @@ struct BillingFormView: View {
           ForEach(ownerChoices, id: \.id) { owner in
             Text(owner.name).tag(owner.id)
           }
+        }
+        .disabled(!organizationsLoaded || billing?.owner.isOrganization == true)
+        if billing?.owner.isOrganization == true {
+          Text("O responsável organizacional não pode ser alterado nesta edição.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
 
@@ -151,18 +161,21 @@ struct BillingFormView: View {
         Text("Use valor zero para itens variáveis que serão preenchidos em cada fatura.")
       }
 
-      Section("PIX opcional") {
-        TextField("Chave PIX própria", text: $pixKey)
-          .textInputAutocapitalization(.never)
-          .accessibilityIdentifier("billing.form.pix.key")
-        TextField("Nome do recebedor", text: $pixMerchantName)
-          .accessibilityIdentifier("billing.form.pix.merchantName")
-        TextField("Cidade do recebedor", text: $pixMerchantCity)
-          .textInputAutocapitalization(.characters)
-          .accessibilityIdentifier("billing.form.pix.merchantCity")
-        Text("Deixe em branco para herdar o PIX do responsável.")
-          .font(.caption)
-          .foregroundStyle(RentivoColors.secondaryInk)
+      Section("PIX") {
+        Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
+        if usesCustomPix {
+          TextField("Chave PIX própria", text: $pixKey)
+            .textInputAutocapitalization(.never)
+            .accessibilityIdentifier("billing.form.pix.key")
+          TextField("Nome do recebedor", text: $pixMerchantName)
+            .accessibilityIdentifier("billing.form.pix.merchantName")
+          TextField("Cidade do recebedor", text: $pixMerchantCity)
+            .textInputAutocapitalization(.characters)
+            .accessibilityIdentifier("billing.form.pix.merchantCity")
+        } else {
+          Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       Section {
@@ -184,10 +197,23 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .keyboardType(.emailAddress)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
+        DisclosureGroup("Responder para (opcional)") {
+          ForEach($replyTo) { $contact in
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              TextField("Nome", text: $contact.name)
+              TextField("E-mail", text: $contact.email)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            }
+          }
+          .onDelete { replyTo.remove(atOffsets: $0) }
+          Button {
+            replyTo.append(EditableRecipient())
+          } label: {
+            Label("Adicionar endereço de resposta", systemImage: "plus.circle")
+          }
+        }
       } header: {
         HStack {
           Text("Comunicação")
@@ -199,7 +225,7 @@ struct BillingFormView: View {
       }
 
       if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
-        || submitErrorMessage != nil
+        || submitErrorMessage != nil || organizationLoadError != nil
       {
         Section("Revise os campos") {
           ForEach(validationIssues, id: \.self) { issue in
@@ -217,6 +243,13 @@ struct BillingFormView: View {
               .foregroundStyle(RentivoColors.coral)
               .accessibilityIdentifier("billing.form.validation")
           }
+          if let organizationLoadError {
+            Label(organizationLoadError, systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+            Button("Tentar carregar responsáveis novamente") {
+              Task { await loadOrganizations() }
+            }
+          }
         }
       }
     }
@@ -224,7 +257,9 @@ struct BillingFormView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -232,11 +267,14 @@ struct BillingFormView: View {
           .accessibilityIdentifier("billing.form.save")
       }
     }
-    .interactiveDismissDisabled(saving)
-    .task {
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
-      organizationsLoaded = true
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
     }
+    .task { await loadOrganizations() }
   }
 
   private var ownerChoices: [BillingOwner] {
@@ -257,7 +295,25 @@ struct BillingFormView: View {
     return owners
   }
 
+  private var hasUnsavedChanges: Bool {
+    let currentItems = items.enumerated().map { $0.element.domain(sortOrder: $0.offset) }
+    let currentRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let currentReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
+    guard let billing else {
+      return !name.isEmpty || !billingDescription.isEmpty || !currentItems.isEmpty
+        || usesCustomPix || !currentRecipients.isEmpty || !currentReplyTo.isEmpty
+    }
+    return name != billing.name || billingDescription != billing.description
+      || ownerID != billing.owner.id || currentItems != billing.items
+      || usesCustomPix != (billing.pixOverride != nil)
+      || pixKey != (billing.pixOverride?.key ?? "")
+      || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
+      || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
+      || currentRecipients != billing.recipients || currentReplyTo != billing.replyTo
+  }
+
   private func save() async {
+    guard !saving else { return }
     submitErrorMessage = nil
     guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
       submitErrorMessage = "Não foi possível confirmar o responsável."
@@ -267,27 +323,30 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
-    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    if pix.isEmpty {
+    let pixResult = usesCustomPix
+      ? PixFormRules.result(
+        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
+      : .inherit
+    let pixOverride: PixConfiguration?
+    switch pixResult {
+    case .inherit:
+      pixOverride = nil
       pixRecipientRequiredMessage = nil
-    } else if merchantName.isEmpty || merchantCity.isEmpty {
-      pixRecipientRequiredMessage =
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
-    } else {
+    case .custom(let configuration):
+      pixOverride = configuration
       pixRecipientRequiredMessage = nil
+    case .invalid(let message):
+      pixOverride = nil
+      pixRecipientRequiredMessage = message
     }
     let draft = BillingDraft(
       name: name,
       description: billingDescription,
       owner: owner,
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
-      pixOverride: pix.isEmpty
-        ? nil
-        : PixConfiguration(key: pix, merchantName: merchantName, merchantCity: merchantCity),
+      pixOverride: pixOverride,
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: replyTo.filter { !$0.isBlank }.map { $0.domain() }
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }
@@ -304,6 +363,17 @@ struct BillingFormView: View {
       dismiss()
     } catch {
       submitErrorMessage = DemoError(error).message
+    }
+  }
+
+  private func loadOrganizations() async {
+    organizationsLoaded = false
+    organizationLoadError = nil
+    do {
+      organizations = try await app.dependencies.organizations.listOrganizations()
+      organizationsLoaded = true
+    } catch {
+      organizationLoadError = DemoError(error).message
     }
   }
 }

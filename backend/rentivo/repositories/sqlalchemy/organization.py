@@ -31,6 +31,28 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
             deleted_at=row.get("deleted_at"),
         )
 
+    def _insert_organization(self, org: Organization) -> int:
+        org_uuid = str(ULID())
+        now = _now()
+        result = self.conn.execute(
+            text(
+                "INSERT INTO organizations (uuid, name, created_by, pix_key, pix_merchant_name, pix_merchant_city, "
+                "created_at, updated_at) VALUES (:uuid, :name, :created_by, :pix_key, :pix_merchant_name, "
+                ":pix_merchant_city, :created_at, :updated_at)"
+            ),
+            {
+                "uuid": org_uuid,
+                "name": org.name,
+                "created_by": org.created_by,
+                "pix_key": self.encryption.encrypt(org.pix_key),
+                "pix_merchant_name": self.encryption.encrypt(org.pix_merchant_name),
+                "pix_merchant_city": self.encryption.encrypt(org.pix_merchant_city),
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        return int(result.lastrowid)
+
     @staticmethod
     def _row_to_member(row: RowMapping) -> OrganizationMember:
         return OrganizationMember(
@@ -43,20 +65,37 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
 
     @traced("organization_repo.create")
     def create(self, org: Organization) -> Organization:
-        org_uuid = str(ULID())
-        now = _now()
-        result = self.conn.execute(
-            text(
-                "INSERT INTO organizations (uuid, name, created_by, created_at, updated_at) "
-                "VALUES (:uuid, :name, :created_by, :created_at, :updated_at)"
-            ),
-            {"uuid": org_uuid, "name": org.name, "created_by": org.created_by, "created_at": now, "updated_at": now},
-        )
-        org_id = result.lastrowid
+        org_id = self._insert_organization(org)
         self.conn.commit()
         created = self.get_by_id(org_id)
         if created is None:
             raise RuntimeError(f"Failed to retrieve org after create (id={org_id})")
+        return created
+
+    @traced("organization_repo.create_with_admin")
+    def create_with_admin(self, org: Organization, admin_user_id: int) -> Organization:
+        """Create the organization and creator membership in one database transaction."""
+        try:
+            org_id = self._insert_organization(org)
+            self.conn.execute(
+                text(
+                    "INSERT INTO organization_members (organization_id, user_id, role, created_at) "
+                    "VALUES (:org_id, :user_id, :role, :created_at)"
+                ),
+                {
+                    "org_id": org_id,
+                    "user_id": admin_user_id,
+                    "role": "admin",
+                    "created_at": _now(),
+                },
+            )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        created = self.get_by_id(org_id)
+        if created is None:  # pragma: no cover - committed row cannot disappear on this connection
+            raise RuntimeError(f"Failed to retrieve org after atomic create (id={org_id})")
         return created
 
     @traced("organization_repo.get_by_id")

@@ -217,6 +217,40 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
 });
 
+it("keeps invalid expense money local instead of posting a zero-centavo expense", async () => {
+  const user = userEvent.setup();
+  let expensePosts = 0;
+  installFetch((key) => {
+    if (key === "POST /api/v1/billings/billing-public/expenses") expensePosts += 1;
+    return dataResponse(key);
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Despesas" });
+
+  await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
+  fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "invalido");
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa" }));
+
+  expect(expensePosts).toBe(0);
+  expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
+  expect(screen.getByLabelText("Valor da despesa (R$)")).toHaveFocus();
+
+  await user.clear(screen.getByLabelText("Valor da despesa (R$)"));
+  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "1,00");
+  await user.clear(screen.getByLabelText("Descrição da despesa"));
+  fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
+  expect(expensePosts).toBe(0);
+  expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
+
+  const description = screen.getByLabelText("Descrição da despesa");
+  expect(description).toHaveAttribute("maxLength", "2000");
+  fireEvent.change(description, { target: { value: "x".repeat(2001) } });
+  fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
+  expect(expensePosts).toBe(0);
+  expect(await screen.findByText("Informe no máximo 2000 caracteres.")).toBeVisible();
+});
+
 it("confirms transfer and uses the public organization UUID before navigating", async () => {
   const user = userEvent.setup();
   let transferCalls = 0;
@@ -342,7 +376,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
   await screen.findByLabelText("Valor da despesa (R$)");
   await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
-  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "abc");
+  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "1,00");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa" }));
   expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
   expect(screen.getByLabelText("Valor da despesa (R$)")).toHaveFocus();
@@ -587,6 +621,9 @@ it("ignores an expense creation response after the billing route changes", async
   </Routes></MemoryRouter>);
 
   await screen.findByRole("button", { name: "Adicionar despesa" });
+  await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
+  fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "1,00");
   fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
@@ -769,7 +806,12 @@ const staleMutationFailures: Array<{
     endpoint: "POST /api/v1/billings/billing-public/expenses",
     errorText: "Não foi possível adicionar a despesa.",
     mutation: "expense creation",
-    run: async () => { fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!); }
+    run: async (user) => {
+      await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
+      fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+      await user.type(screen.getByLabelText("Valor da despesa (R$)"), "1,00");
+      fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
+    }
   },
   {
     endpoint: "DELETE /api/v1/billings/billing-public/expenses/expense-public",

@@ -135,7 +135,10 @@ data class Billing(
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  /** Full reply-to contacts from the API; never collapse this server-owned collection to one e-mail. */
+  val replyTo: List<BillingRecipient> = emptyList(),
+  /** The billing's effective PIX configuration cannot currently generate a bill. */
+  val pixNeedsSetup: Boolean = false,
   val communicationTemplates: List<CommunicationTemplate> = emptyList(),
   val capabilities: BillingCapabilities = BillingCapabilities.full,
 ) {
@@ -154,18 +157,29 @@ data class BillingDraft(
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  val replyTo: List<BillingRecipient> = emptyList(),
 ) {
   fun validate(): List<ValidationIssue> {
     val issues = mutableListOf<ValidationIssue>()
     if (name.trim().isEmpty()) {
       issues.add(ValidationIssue(ValidationField.NAME, "Informe o nome da cobrança."))
+    } else if (name.trim().length > 255) {
+      issues.add(ValidationIssue(ValidationField.NAME, "O nome deve ter no máximo 255 caracteres."))
+    }
+    if (description.trim().length > 2_000) {
+      issues.add(
+        ValidationIssue(ValidationField.DESCRIPTION, "A descrição deve ter no máximo 2000 caracteres.")
+      )
     }
     if (items.isEmpty()) {
       issues.add(ValidationIssue(ValidationField.ITEMS, "Adicione ao menos um item recorrente."))
     }
     if (items.any { it.description.trim().isEmpty() }) {
       issues.add(ValidationIssue(ValidationField.ITEM_DESCRIPTION, "Descreva todos os itens."))
+    } else if (items.any { it.description.trim().length > 255 }) {
+      issues.add(
+        ValidationIssue(ValidationField.ITEM_DESCRIPTION, "As descrições dos itens devem ter no máximo 255 caracteres.")
+      )
     }
     if (items.any { it.amount.centavos < 0 }) {
       issues.add(
@@ -180,9 +194,11 @@ data class BillingDraft(
         )
       )
     }
-    if (
-      recipients.any { it.name.trim().isEmpty() || !EmailAddress.isValid(it.email.trim()) }
-    ) {
+    val contacts = recipients + replyTo
+    if (contacts.any {
+        it.name.trim().isEmpty() || it.name.trim().length > 255 ||
+          it.email.trim().length > 320 || !EmailAddress.isValid(it.email.trim())
+      }) {
       issues.add(
         ValidationIssue(
           ValidationField.RECIPIENT,
@@ -192,7 +208,7 @@ data class BillingDraft(
     } else {
       // The send endpoint requires distinct recipient uuids and the server keys contacts by
       // email, so duplicates here would break the communication flow later.
-      val emails = recipients.map { it.email.trim().lowercase() }
+      val emails = contacts.map { it.email.trim().lowercase() }
       if (emails.toSet().size != emails.size) {
         issues.add(
           ValidationIssue(ValidationField.RECIPIENT, "Remova os destinatários repetidos.")
@@ -214,6 +230,7 @@ data class BillingDraft(
 
 enum class ValidationField {
   NAME,
+  DESCRIPTION,
   ITEMS,
   ITEM_DESCRIPTION,
   ITEM_AMOUNT,
@@ -326,11 +343,18 @@ enum class PDFRenderStatus(val wire: String) {
  * these flags, so the UI can treat them as the single source of truth for what is allowed now.
  */
 data class BillCapabilities(
+  val canEdit: Boolean = false,
+  val canDelete: Boolean = false,
+  val canTransition: Boolean = false,
   val canDownloadInvoice: Boolean,
   val canDownloadRecibo: Boolean,
+  val canCompose: Boolean = false,
   val canSendInvoice: Boolean,
   val canSendRecibo: Boolean,
   val canRegenerate: Boolean,
+  val canUploadReceipts: Boolean = false,
+  val canDeleteReceipts: Boolean = false,
+  val canReorderReceipts: Boolean = false,
 ) {
   companion object {
     /**
@@ -338,11 +362,21 @@ data class BillCapabilities(
      * a server concern; without an answer the client must not invent restrictions of its own.
      */
     val permissive = BillCapabilities(
+      canEdit = true, canDelete = true, canTransition = true,
       canDownloadInvoice = true, canDownloadRecibo = true, canSendInvoice = true,
-      canSendRecibo = true, canRegenerate = true,
+      canSendRecibo = true, canRegenerate = true, canCompose = true,
+      canUploadReceipts = true, canDeleteReceipts = true, canReorderReceipts = true,
     )
   }
 }
+
+/** Server-authored presentation and confirmation requirements for a bill status transition. */
+data class BillTransition(
+  val target: BillStatus,
+  val label: String,
+  val style: String,
+  val requiresConfirmation: Boolean,
+)
 
 /** Poll cadence for a bill whose PDF is still rendering. */
 object BillPDFPolling {
@@ -375,6 +409,11 @@ data class Bill(
    * (see [effectiveTransitions]).
    */
   val availableTransitions: List<BillStatus>? = null,
+  /**
+   * Full server transition information. [availableTransitions] stays as the compact compatibility
+   * projection used by existing call sites; this collection retains presentation metadata.
+   */
+  val transitionMetadata: List<BillTransition> = emptyList(),
   /**
    * Server-authoritative total for this bill, when the API supplies it. `null` means "not
    * provided by this response" — callers fall back to the computed [total] (see [effectiveTotal]).
@@ -423,6 +462,7 @@ data class Bill(
     hasRecibo = updated.hasRecibo,
     status = updated.status,
     availableTransitions = updated.availableTransitions,
+    transitionMetadata = updated.transitionMetadata,
   )
 }
 
@@ -465,6 +505,20 @@ data class BillDraft(
   }
 }
 
+/** UI editability derived from what the create and update endpoints can actually persist. */
+data class BillFormEditRule(val isEditing: Boolean) {
+  val canEditReferenceMonth: Boolean get() = !isEditing
+
+  fun canEditDescription(kind: BillLineItemKind): Boolean =
+    isEditing || kind == BillLineItemKind.EXTRA
+
+  fun canEditAmount(kind: BillLineItemKind): Boolean =
+    isEditing || kind != BillLineItemKind.FIXED
+
+  fun canDelete(kind: BillLineItemKind): Boolean =
+    kind != BillLineItemKind.FIXED && (isEditing || kind == BillLineItemKind.EXTRA)
+}
+
 enum class ExpenseCategory(val wire: String) {
   PROPERTY_TAX("iptu"),
   CONDOMINIUM("condominio"),
@@ -495,6 +549,38 @@ data class Expense(
   val category: ExpenseCategory,
   val incurredOn: DateOnly,
 )
+
+data class ExpenseFormInput(val description: String, val centavos: Int) {
+  val normalizedDescription: String get() = description.trim()
+
+  val validationMessage: String?
+    get() = when {
+      normalizedDescription.isEmpty() -> "Informe a descrição da despesa."
+      normalizedDescription.length > 2_000 -> "A descrição deve ter no máximo 2000 caracteres."
+      centavos <= 0 -> "Informe um valor maior que zero."
+      else -> null
+    }
+}
+
+data class CommunicationFormInput(val subject: String, val body: String) {
+  val normalizedSubject: String get() = subject.trim()
+  val normalizedBody: String get() = body.trim()
+  val bodyUTF8ByteCount: Int get() = body.toByteArray(Charsets.UTF_8).size
+
+  val validationMessage: String?
+    get() = when {
+      normalizedSubject.isEmpty() -> "Informe o assunto."
+      normalizedSubject.length > 998 -> "O assunto deve ter no máximo 998 caracteres."
+      normalizedBody.isEmpty() -> "Informe o corpo da mensagem."
+      bodyUTF8ByteCount > 4_096 -> "A mensagem deve ter no máximo 4096 bytes UTF-8."
+      else -> null
+    }
+}
+
+fun communicationTypes(capabilities: BillCapabilities): List<CommunicationType> = buildList {
+  if (capabilities.canSendInvoice) add(CommunicationType.BILL_READY)
+  if (capabilities.canSendRecibo) add(CommunicationType.PAYMENT_RECEIPT)
+}
 
 enum class CommunicationType(val wire: String) {
   BILL_READY("bill_ready"),

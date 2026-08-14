@@ -30,3 +30,8 @@ class AccountDeletionService:
         if not self.users.delete_account(user_id):
             raise ValueError("Usuário não encontrado.")
         logger.info("account_deleted", user_id=user_id)
+
+    @traced("account.deletion_readiness")
+    def can_delete_account(self, user_id: int) -> bool:
+        """Whether deletion can proceed without orphaning a staffed organization."""
+        return not self.organizations.list_blocking_account_deletion(user_id)

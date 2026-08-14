@@ -109,15 +109,18 @@ import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.CommunicationSaveScope
+import app.rentivo.domain.CommunicationFormInput
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.Expense
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.ExpenseFormInput
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Money
 import app.rentivo.domain.RecipientID
+import app.rentivo.domain.communicationTypes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -309,18 +312,33 @@ private fun ExpenseFormSheet(
   var category by remember { mutableStateOf(ExpenseCategory.MAINTENANCE) }
   var incurredOn by remember { mutableStateOf(LocalDate.now()) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  var isSaving by remember { mutableStateOf(false) }
+  var validationMessage by remember { mutableStateOf<String?>(null) }
 
-  suspend fun save() {
-    app.mutate {
-      app.dependencies.expenses.createExpense(
-        billingID = billingID,
-        description = description,
-        category = category,
-        incurredOn = DateOnly.from(incurredOn),
-        amount = Money(centavos = centavos),
-      )
-      onSaved()
-      onDismiss()
+  fun submit() {
+    if (isSaving) return
+    val input = ExpenseFormInput(description = description, centavos = centavos)
+    validationMessage = input.validationMessage
+    if (validationMessage != null) return
+    isSaving = true
+    scope.launch {
+      try {
+        app.dependencies.expenses.createExpense(
+          billingID = billingID,
+          description = input.normalizedDescription,
+          category = category,
+          incurredOn = DateOnly.from(incurredOn),
+          amount = Money(centavos = centavos),
+        )
+        onSaved()
+        onDismiss()
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (failure: Throwable) {
+        validationMessage = DemoError.from(failure).message
+      } finally {
+        isSaving = false
+      }
     }
   }
 
@@ -329,8 +347,9 @@ private fun ExpenseFormSheet(
   FormSheet(
     title = "",
     onDismiss = onDismiss,
-    saveEnabled = description.isNotEmpty() && centavos > 0,
-    onSave = { scope.launch { save() } },
+    dismissEnabled = !isSaving,
+    saveEnabled = !isSaving && description.isNotEmpty() && centavos > 0,
+    onSave = ::submit,
   ) {
     Text(
       text = "Nova despesa",
@@ -341,7 +360,10 @@ private fun ExpenseFormSheet(
     RentivoCard {
       RentivoListField(
         value = description,
-        onValueChange = { description = it },
+        onValueChange = {
+          description = it
+          validationMessage = null
+        },
         modifier = Modifier.padding(vertical = FormRowPadding),
         placeholder = "Descrição",
       )
@@ -379,6 +401,14 @@ private fun ExpenseFormSheet(
           color = RentivoColors.secondaryInk,
         )
       }
+    }
+    validationMessage?.let { message ->
+      Text(
+        text = message,
+        style = RentivoTypography.subheadline,
+        color = RentivoColors.coral,
+        modifier = Modifier.padding(top = RentivoSpacing.small),
+      )
     }
   }
 
@@ -585,15 +615,26 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var format by remember { mutableStateOf("CSV") }
+  var isRequesting by remember { mutableStateOf(false) }
 
-  suspend fun requestExport() {
-    app.mutate {
-      app.dependencies.exports.requestExport(billingID = billing.id, format = format.lowercase())
-      app.showNotice("Exportação $format enfileirada.")
+  fun requestExport() {
+    if (isRequesting) return
+    isRequesting = true
+    scope.launch {
+      try {
+        app.dependencies.exports.requestExport(billingID = billing.id, format = format.lowercase())
+        app.showNotice("Exportação $format enfileirada.")
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (failure: Throwable) {
+        app.warn(failure)
+      } finally {
+        isRequesting = false
+      }
     }
   }
 
-  OperationScaffold(title = "Exportar", onBack = onBack) {
+  OperationScaffold(title = "Exportar", onBack = { if (!isRequesting) onBack() }) {
     Column(
       modifier = Modifier
         .fillMaxSize()
@@ -622,7 +663,8 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
       Spacer(modifier = Modifier.height(RentivoSpacing.section - RentivoSpacing.large))
       RentivoButton(
         text = "Solicitar exportação",
-        onClick = { scope.launch { requestExport() } },
+        onClick = ::requestExport,
+        enabled = !isRequesting,
         color = RentivoColors.blue,
       )
     }
@@ -693,7 +735,12 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
             )
           }
         } else {
-          ComposerForm(state = state, onSend = { scope.launch { state.send(onDismiss) } })
+          ComposerForm(
+            state = state,
+            onSend = {
+              if (state.claimSend()) scope.launch { state.sendClaimed(onDismiss) }
+            },
+          )
         }
       }
     }
@@ -702,6 +749,15 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
 
 @Composable
 private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) {
+  if (state.availableTypes.isEmpty()) {
+    FormSection {
+      Text(
+        text = "O servidor ainda não liberou o envio da fatura ou do recibo deste mês.",
+        style = RentivoTypography.body,
+        color = RentivoColors.secondaryInk,
+      )
+    }
+  }
   if (state.availableTypes.size > 1) {
     val typeLabels = state.availableTypes.map { it.label }
     RentivoCard(flat = true, contentPadding = PaddingValues(RentivoSpacing.small)) {
@@ -754,6 +810,11 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
       modifier = Modifier.padding(vertical = FormRowPadding),
       placeholder = "Assunto",
     )
+    Text(
+      text = "${state.subjectLength}/998 caracteres",
+      style = RentivoTypography.caption,
+      color = if (state.subjectLength > 998) RentivoColors.coral else RentivoColors.secondaryInk,
+    )
     FormRowDivider()
     // The body's full title is a caption under the field rather than a label inside it: as a
     // floating label it stole a line of an already narrow multi-line editor, and it explains the
@@ -773,6 +834,15 @@ private fun ComposerForm(state: CommunicationComposerState, onSend: () -> Unit) 
       style = RentivoTypography.caption,
       color = RentivoColors.secondaryInk,
     )
+    Text(
+      text = "${state.bodyUTF8ByteCount}/4096 bytes UTF-8",
+      style = RentivoTypography.caption,
+      color = if (state.bodyUTF8ByteCount > 4_096) RentivoColors.coral else RentivoColors.secondaryInk,
+    )
+  }
+
+  state.validationMessage?.let { message ->
+    Text(text = message, style = RentivoTypography.subheadline, color = RentivoColors.coral)
   }
 
   FormSection(footer = "O modelo salvo preenche automaticamente as próximas comunicações.") {
@@ -819,7 +889,9 @@ private class CommunicationComposerState(
   val billing: Billing,
   private val bill: Bill,
 ) {
-  var commType by mutableStateOf(CommunicationType.BILL_READY)
+  var commType by mutableStateOf(
+    communicationTypes(bill.capabilities).firstOrNull() ?: CommunicationType.BILL_READY
+  )
   var subject by mutableStateOf(billing.template(CommunicationType.BILL_READY)?.subject.orEmpty())
     private set
   var message by mutableStateOf(billing.template(CommunicationType.BILL_READY)?.body.orEmpty())
@@ -832,11 +904,14 @@ private class CommunicationComposerState(
   private var appliedTemplateType = CommunicationType.BILL_READY
 
   val availableTypes: List<CommunicationType>
-    get() = if (bill.status == BillStatus.PAID) {
-      CommunicationType.entries.toList()
-    } else {
-      listOf(CommunicationType.BILL_READY)
-    }
+    get() = communicationTypes(bill.capabilities)
+
+  private val formInput: CommunicationFormInput
+    get() = CommunicationFormInput(subject = subject, body = message)
+
+  val bodyUTF8ByteCount: Int get() = formInput.bodyUTF8ByteCount
+  val subjectLength: Int get() = subject.length
+  val validationMessage: String? get() = formInput.validationMessage
 
   val attachmentDescription: String
     get() = if (commType == CommunicationType.PAYMENT_RECEIPT) "recibo" else "PDF da fatura"
@@ -850,7 +925,7 @@ private class CommunicationComposerState(
       isSending = isSending,
       hasSelectedRecipients = selectedRecipients.isNotEmpty(),
       isRenderingPDF = bill.isRenderingPDF,
-    )
+    ) || validationMessage != null || availableTypes.none { it == commType }
 
   val saveScopeOptions: List<CommunicationSaveScope?>
     get() = buildList {
@@ -896,13 +971,13 @@ private class CommunicationComposerState(
     message = template?.body.orEmpty()
   }
 
-  suspend fun send(onDismiss: () -> Unit) {
-    if (isSending) return
-    if (selectedRecipients.isEmpty()) {
-      app.showNotice("Selecione ao menos um destinatário.", AppNotice.Kind.WARNING)
-      return
-    }
+  fun claimSend(): Boolean {
+    if (sendDisabled) return false
     isSending = true
+    return true
+  }
+
+  suspend fun sendClaimed(onDismiss: () -> Unit) {
     try {
       val orderedIDs = billing.recipients.map { it.id }.filter(selectedRecipients::contains)
       app.dependencies.communications.sendCommunication(
@@ -910,8 +985,8 @@ private class CommunicationComposerState(
         billID = bill.id,
         commType = commType,
         recipientIDs = orderedIDs,
-        subject = subject,
-        message = message,
+        subject = formInput.normalizedSubject,
+        message = formInput.normalizedBody,
         acknowledgeWarning = false,
         saveScope = saveScope,
       )
@@ -956,15 +1031,16 @@ private fun OperationScaffold(
 private fun FormSheet(
   title: String,
   onDismiss: () -> Unit,
+  dismissEnabled: Boolean = true,
   saveEnabled: Boolean,
   onSave: () -> Unit,
   content: @Composable ColumnScope.() -> Unit,
 ) {
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = dismissEnabled) {
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        SheetTopBar(title = title, onCancel = onDismiss) {
+        SheetTopBar(title = title, onCancel = onDismiss, cancelEnabled = dismissEnabled) {
           TopBarChip {
             TextButton(onClick = onSave, enabled = saveEnabled) { Text(text = "Salvar") }
           }
@@ -1090,11 +1166,13 @@ internal fun CurrencyRowField(
   centavos: Int,
   onCentavosChange: (Int) -> Unit,
   modifier: Modifier = Modifier,
+  enabled: Boolean = true,
 ) {
   RentivoListField(
     value = displayText(centavos),
     onValueChange = { onCentavosChange(centavosFromInput(it)) },
     modifier = modifier.semantics { contentDescription = "Valor em centavos" },
+    enabled = enabled,
     monospace = true,
     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
   )

@@ -9,15 +9,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -113,12 +116,14 @@ import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillDraft
+import app.rentivo.domain.BillFormEditRule
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
 import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillPDFPolling
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingItem
@@ -268,6 +273,7 @@ fun BillFormSheet(
   var saving by remember { mutableStateOf(false) }
   var monthMenuExpanded by remember { mutableStateOf(false) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  val editRule = BillFormEditRule(isEditing = existing != null)
 
   fun syncDueDateWithReferenceMonth(nextYear: Int, nextMonth: Int) {
     if (dueDateEdited) return
@@ -284,7 +290,10 @@ fun BillFormSheet(
     dueDateEdited = true
   }
 
-  suspend fun save() {
+  fun submit() {
+    // Claim the submission before launching so rapid queued taps cannot enqueue two requests
+    // before the coroutine gets its first turn on the main dispatcher.
+    if (saving) return
     val draft = BillDraft(
       billingID = billing.id,
       referenceMonth = ReferenceMonth(year = year, month = month),
@@ -295,27 +304,29 @@ fun BillFormSheet(
     issues = draft.validate()
     if (issues.isNotEmpty()) return
     saving = true
-    try {
-      if (existing != null) {
-        app.dependencies.bills.updateBill(
-          billingID = billing.id,
-          billID = existing.id,
-          draft = draft,
+    scope.launch {
+      try {
+        if (existing != null) {
+          app.dependencies.bills.updateBill(
+            billingID = billing.id,
+            billID = existing.id,
+            draft = draft,
+          )
+        } else {
+          app.dependencies.bills.createBill(draft = draft)
+        }
+        onSaved()
+        app.showNotice(
+          if (existing == null) "Fatura criada como rascunho." else "Fatura atualizada.",
         )
-      } else {
-        app.dependencies.bills.createBill(draft = draft)
+        onDismiss()
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (throwable: Throwable) {
+        app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+      } finally {
+        saving = false
       }
-      onSaved()
-      app.showNotice(
-        if (existing == null) "Fatura criada como rascunho." else "Fatura atualizada.",
-      )
-      onDismiss()
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (throwable: Throwable) {
-      app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
-    } finally {
-      saving = false
     }
   }
 
@@ -336,7 +347,7 @@ fun BillFormSheet(
         ) {
           TopBarChip {
             TextButton(
-              onClick = { scope.launch { save() } },
+              onClick = ::submit,
               enabled = !saving,
               modifier = Modifier.testTag("bill.form.save"),
             ) {
@@ -346,17 +357,26 @@ fun BillFormSheet(
         }
       },
     ) { padding ->
-      Column(
+      LazyColumn(
         modifier = Modifier
           .fillMaxSize()
           .padding(padding)
-          .verticalScroll(rememberScrollState())
-          .padding(RentivoSpacing.page),
+          .imePadding(),
+        contentPadding = PaddingValues(RentivoSpacing.page),
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
       ) {
-        FormSectionColumn(header = "Competência") {
+        item(key = "reference") { FormSectionColumn(header = "Competência") {
           RentivoListGroup {
-            Box {
+            if (!editRule.canEditReferenceMonth) {
+              FormRow(label = "Competência") {
+                Text(
+                  text = reference.displayFormatted,
+                  style = RentivoTypography.subheadlineEmphasized,
+                  color = RentivoColors.secondaryInk,
+                  modifier = Modifier.testTag("bill.form.referenceMonth.readonly"),
+                )
+              }
+            } else Box {
               FormRow(
                 label = "Mês",
                 modifier = Modifier
@@ -390,27 +410,29 @@ fun BillFormSheet(
                 }
               }
             }
-            RentivoListDivider()
-            FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
-              YearStepper(
-                canDecrease = year > YEAR_RANGE.first,
-                canIncrease = year < YEAR_RANGE.last,
-                onDecrease = {
-                  val next = year - 1
-                  year = next
-                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-                },
-                onIncrease = {
-                  val next = year + 1
-                  year = next
-                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-                },
-              )
+            if (editRule.canEditReferenceMonth) {
+              RentivoListDivider()
+              FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
+                YearStepper(
+                  canDecrease = year > YEAR_RANGE.first,
+                  canIncrease = year < YEAR_RANGE.last,
+                  onDecrease = {
+                    val next = year - 1
+                    year = next
+                    syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                  },
+                  onIncrease = {
+                    val next = year + 1
+                    year = next
+                    syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                  },
+                )
+              }
             }
           }
-        }
+        } }
 
-        FormSectionColumn(header = "Vencimento") {
+        item(key = "due-date") { FormSectionColumn(header = "Vencimento") {
           RentivoListGroup {
             FormRow(label = "Definir vencimento") {
               Switch(
@@ -440,10 +462,10 @@ fun BillFormSheet(
               modifier = Modifier.padding(horizontal = RentivoSpacing.medium),
             )
           }
-        }
+        } }
 
         BillLineItemKind.entries.forEach { kind ->
-          FormSectionColumn(header = kind.sectionTitle) {
+          item(key = "lines-${kind.wire}") { FormSectionColumn(header = kind.sectionTitle) {
             val kindLines = lines.filter { it.kind == kind }
             // Only extras get an "add new line" affordance here: extras are the server's mechanism
             // for ad-hoc per-bill lines. Variable items are defined by the billing (cobrança)
@@ -464,6 +486,8 @@ fun BillFormSheet(
                   key(line.id.rawValue) {
                     BillLineRow(
                       line = line,
+                      descriptionEditable = editRule.canEditDescription(kind),
+                      amountEditable = editRule.canEditAmount(kind),
                       onDescriptionChange = { description ->
                         lines.updateLine(line.id) { it.copy(description = description) }
                       },
@@ -472,7 +496,7 @@ fun BillFormSheet(
                       },
                       // Fixed lines mirror the billing's own recurring items and aren't deletable
                       // here; only user-added variable/extra lines can be removed.
-                      onDelete = if (kind == BillLineItemKind.FIXED) {
+                      onDelete = if (!editRule.canDelete(kind)) {
                         null
                       } else {
                         {
@@ -493,10 +517,10 @@ fun BillFormSheet(
                 }
               }
             }
-          }
+          } }
         }
 
-        FormSectionColumn(header = "Observações") {
+        item(key = "notes") { FormSectionColumn(header = "Observações") {
           RentivoListGroup {
             FormPlate {
               RentivoListField(
@@ -511,16 +535,16 @@ fun BillFormSheet(
               )
             }
           }
-        }
+        } }
 
-        FormSectionColumn(header = "Total") {
+        item(key = "total") { FormSectionColumn(header = "Total") {
           RentivoListGroup {
             FormPlate { MoneyText(money = total) }
           }
-        }
+        } }
 
         if (issues.isNotEmpty()) {
-          FormSectionColumn(header = "Revise a fatura") {
+          item(key = "issues") { FormSectionColumn(header = "Revise a fatura") {
             RentivoListGroup {
               issues.forEachIndexed { position, issue ->
                 if (position > 0) RentivoListDivider()
@@ -534,7 +558,7 @@ fun BillFormSheet(
                 }
               }
             }
-          }
+          } }
         }
       }
     }
@@ -579,6 +603,8 @@ private val LineDeleteGlyphSize = 20.dp
 @Composable
 private fun BillLineRow(
   line: EditableBillLine,
+  descriptionEditable: Boolean,
+  amountEditable: Boolean,
   onDescriptionChange: (String) -> Unit,
   onCentavosChange: (Int) -> Unit,
   onDelete: (() -> Unit)?,
@@ -600,6 +626,7 @@ private fun BillLineRow(
         onValueChange = onDescriptionChange,
         modifier = Modifier.weight(1f),
         placeholder = "Descrição",
+        enabled = descriptionEditable,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
       )
       if (onDelete != null) {
@@ -618,7 +645,11 @@ private fun BillLineRow(
         )
       }
     }
-    CurrencyRowField(centavos = line.centavos, onCentavosChange = onCentavosChange)
+    CurrencyRowField(
+      centavos = line.centavos,
+      onCentavosChange = onCentavosChange,
+      enabled = amountEditable,
+    )
   }
 }
 
@@ -744,6 +775,7 @@ fun BillDetailScreen(
   var showingCommunication by remember { mutableStateOf(false) }
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  var pendingTransition by remember { mutableStateOf<BillTransition?>(null) }
   /**
    * Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when the
    * bill was already `pending`.
@@ -876,7 +908,7 @@ fun BillDetailScreen(
         title = "Fatura",
         onBack = onBack,
         actions = {
-          if (loaded?.status == BillStatus.DRAFT && currentBilling.capabilities.canManageBills) {
+          if (loaded?.status == BillStatus.DRAFT && loaded.capabilities.canEdit) {
             TopBarChip {
               TextButton(
                 onClick = { showingEdit = true },
@@ -899,7 +931,10 @@ fun BillDetailScreen(
         billing = currentBilling,
         bill = bill,
         modifier = Modifier.padding(padding),
-        onTransition = { status -> scope.launch { transition(status) } },
+        onTransition = { transition ->
+          if (transition.requiresConfirmation) pendingTransition = transition
+          else scope.launch { transition(transition.target) }
+        },
         onOpenInvoice = { scope.launch { downloadInvoice() } },
         onOpenRecibo = { scope.launch { downloadRecibo() } },
         onRegenerate = { scope.launch { regenerate(bill) } },
@@ -951,6 +986,24 @@ fun BillDetailScreen(
       containerColor = RentivoColors.surface,
     )
   }
+
+  pendingTransition?.let { transition ->
+    AlertDialog(
+      onDismissRequest = { pendingTransition = null },
+      title = { Text(text = "Confirmar transição") },
+      text = { Text(text = "Deseja ${transition.label.lowercase()}?") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            pendingTransition = null
+            scope.launch { transition(transition.target) }
+          },
+        ) { Text(text = "Confirmar") }
+      },
+      dismissButton = { TextButton(onClick = { pendingTransition = null }) { Text("Cancelar") } },
+      containerColor = RentivoColors.surface,
+    )
+  }
 }
 
 @Composable
@@ -958,7 +1011,7 @@ private fun BillDetailContent(
   billing: Billing,
   bill: Bill,
   modifier: Modifier = Modifier,
-  onTransition: (BillStatus) -> Unit,
+  onTransition: (BillTransition) -> Unit,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1015,7 +1068,7 @@ private fun BillDetailContent(
 
     BillLineItemsSection(bill = bill)
 
-    if (billing.capabilities.canManageBills) {
+    if (bill.capabilities.canTransition) {
       BillLifecycleSection(bill = bill, onTransition = onTransition)
     } else {
       IconLabel(
@@ -1027,7 +1080,7 @@ private fun BillDetailContent(
 
     BillDocumentSection(
       bill = bill,
-      canManageBills = billing.capabilities.canManageBills,
+      canRegenerate = bill.capabilities.canRegenerate,
       onOpenInvoice = onOpenInvoice,
       onOpenRecibo = onOpenRecibo,
       onRegenerate = onRegenerate,
@@ -1036,11 +1089,14 @@ private fun BillDetailContent(
     ReceiptManagerSection(
       billingID = billing.id,
       bill = bill,
-      canWrite = billing.capabilities.canUploadBillReceipts,
+      canUpload = bill.capabilities.canUploadReceipts,
+      canDelete = bill.capabilities.canDeleteReceipts,
+      canReorder = bill.capabilities.canReorderReceipts,
       onMutation = onMutation,
     )
 
-    if (billing.capabilities.canManageBills) {
+    if (bill.capabilities.canCompose || bill.capabilities.canDelete) {
+      if (bill.capabilities.canCompose) {
       RentivoButton(
         onClick = onCompose,
         enabled = !bill.isRenderingPDF,
@@ -1058,9 +1114,10 @@ private fun BillDetailContent(
           modifier = Modifier.padding(start = RentivoSpacing.small),
         )
       }
+      }
       // Tinted, not destructive-red: iOS renders this as a plain `.bordered` button, and the
       // confirmation dialog behind it is what carries the destructive weight.
-      RentivoTonalButton(
+      if (bill.capabilities.canDelete) RentivoTonalButton(
         onClick = onDelete,
         modifier = Modifier
           .fillMaxWidth()
@@ -1110,7 +1167,7 @@ private fun BillLineItemsSection(bill: Bill) {
 }
 
 @Composable
-private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit) {
+private fun BillLifecycleSection(bill: Bill, onTransition: (BillTransition) -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
     SectionTitle(title = "Ciclo da fatura", icon = Icons.Filled.Autorenew)
     // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
@@ -1122,18 +1179,23 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit)
         style = RentivoTypography.body,
       )
     } else {
-      bill.effectiveTransitions.sortedBy { it.wire }.forEach { status ->
+      val transitions = bill.transitionMetadata.ifEmpty {
+        bill.effectiveTransitions.map { status ->
+          BillTransition(status, "Marcar como ${status.label.lowercase()}", "default", false)
+        }
+      }
+      transitions.sortedBy { it.target.wire }.forEach { transition ->
         // `.borderedProminent`, not the brutalist plate: the lifecycle actions are a stack of
         // equally weighted system buttons, and outlining each one turned the section into a wall.
         RentivoProminentButton(
-          onClick = { onTransition(status) },
+          onClick = { onTransition(transition) },
           modifier = Modifier
             .fillMaxWidth()
-            .testTag("bill.transition.${status.wire}"),
+            .testTag("bill.transition.${transition.target.wire}"),
         ) {
-          Icon(imageVector = status.icon, contentDescription = null)
+          Icon(imageVector = transition.target.icon, contentDescription = null)
           Text(
-            text = "Marcar como ${status.label.lowercase()}",
+            text = transition.label,
             style = RentivoTypography.body,
           )
         }
@@ -1145,7 +1207,7 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit)
 @Composable
 private fun BillDocumentSection(
   bill: Bill,
-  canManageBills: Boolean,
+  canRegenerate: Boolean,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1203,19 +1265,16 @@ private fun BillDocumentSection(
       RentivoTonalButton(
         text = "Regenerar documento",
         onClick = onRegenerate,
-        enabled = canManageBills,
+        enabled = canRegenerate,
         modifier = Modifier
           .weight(1f)
           .testTag("bill.pdf.regenerate"),
       )
       if (bill.status == BillStatus.PAID) {
-        // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
-        // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
-        // would disable a button the endpoint would have served.
         RentivoTonalButton(
           text = "Abrir recibo",
           onClick = onOpenRecibo,
-          enabled = !bill.isRenderingPDF,
+          enabled = !bill.isRenderingPDF && bill.capabilities.canDownloadRecibo,
           modifier = Modifier
             .weight(1f)
             .testTag("bill.recibo.open"),
@@ -1239,7 +1298,9 @@ private fun BillDocumentSection(
 private fun ReceiptManagerSection(
   billingID: BillingID,
   bill: Bill,
-  canWrite: Boolean,
+  canUpload: Boolean,
+  canDelete: Boolean,
+  canReorder: Boolean,
   onMutation: suspend () -> Unit,
 ) {
   val app = LocalAppModel.current
@@ -1399,7 +1460,7 @@ private fun ReceiptManagerSection(
                       }
                     },
                   )
-                  if (canWrite) {
+                  if (canDelete) {
                     DropdownMenuItem(
                       text = { Text(text = "Excluir", color = RentivoColors.coral) },
                       onClick = {
@@ -1415,7 +1476,7 @@ private fun ReceiptManagerSection(
           // Drag-to-reorder would need these rows hosted in a reorderable list, but this section
           // renders inside a `RentivoCard` on a scrolling column. Kept as an explicit action
           // instead of restructuring the whole detail screen's layout.
-          if (bill.receipts.size > 1 && canWrite) {
+          if (bill.receipts.size > 1 && canReorder) {
             RentivoTonalButton(
               text = "Inverter ordem",
               onClick = {
@@ -1440,7 +1501,7 @@ private fun ReceiptManagerSection(
         }
       }
     }
-    if (canWrite) {
+    if (canUpload) {
       // The three sources hang off the button that opens them, like the per-receipt menu above:
       // tapping outside or pressing back dismisses without choosing one.
       Box {

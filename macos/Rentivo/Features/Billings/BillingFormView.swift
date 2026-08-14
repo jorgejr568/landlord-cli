@@ -126,14 +126,17 @@ struct BillingFormView: View {
   @State private var pixKey: String
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
+  @State private var usesCustomPix: Bool
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   @State private var submitFailureMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded = false
+  @State private var organizationLoadError: String?
+  @State private var confirmingDiscard = false
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -145,8 +148,9 @@ struct BillingFormView: View {
     _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
+    _usesCustomPix = State(initialValue: billing?.pixOverride != nil)
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
   }
 
   var body: some View {
@@ -168,7 +172,12 @@ struct BillingFormView: View {
             Text(owner.name).tag(owner.id)
           }
         }
-        .disabled(!organizationsLoaded)
+        .disabled(!organizationsLoaded || billing?.owner.isOrganization == true)
+        if billing?.owner.isOrganization == true {
+          Text("O responsável organizacional não pode ser alterado nesta edição.")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
         if !organizationsLoaded {
           // Salvar is disabled until the organizations arrive, because until then the list of
           // responsáveis is incomplete and the cobrança could be filed under the wrong one. That
@@ -226,17 +235,20 @@ struct BillingFormView: View {
         Text("Use valor zero para itens variáveis que serão preenchidos em cada fatura.")
       }
 
-      RentivoSection("PIX opcional") {
-        TextField("Chave PIX própria", text: $pixKey)
-          .autocorrectionDisabled()
-          .accessibilityIdentifier("billing.form.pix.key")
-        TextField("Nome do recebedor", text: $pixMerchantName)
-          .accessibilityIdentifier("billing.form.pix.merchantName")
-        TextField("Cidade do recebedor", text: $pixMerchantCity)
-          .accessibilityIdentifier("billing.form.pix.merchantCity")
-        Text("Deixe em branco para herdar o PIX do responsável.")
-          .font(RentivoTypography.caption)
-          .foregroundStyle(RentivoColors.secondaryInk)
+      RentivoSection("PIX") {
+        Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
+        if usesCustomPix {
+          TextField("Chave PIX própria", text: $pixKey)
+            .autocorrectionDisabled()
+            .accessibilityIdentifier("billing.form.pix.key")
+          TextField("Nome do recebedor", text: $pixMerchantName)
+            .accessibilityIdentifier("billing.form.pix.merchantName")
+          TextField("Cidade do recebedor", text: $pixMerchantCity)
+            .accessibilityIdentifier("billing.form.pix.merchantCity")
+        } else {
+          Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       Section {
@@ -264,8 +276,20 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .autocorrectionDisabled()
+        DisclosureGroup("Responder para (opcional)") {
+          ForEach($replyTo) { $contact in
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              TextField("Nome", text: $contact.name)
+              TextField("E-mail", text: $contact.email)
+                .autocorrectionDisabled()
+            }
+          }
+          Button {
+            replyTo.append(EditableRecipient())
+          } label: {
+            Label("Adicionar endereço de resposta", systemImage: "plus.circle")
+          }
+        }
       } header: {
         Text("Comunicação")
       } footer: {
@@ -273,7 +297,7 @@ struct BillingFormView: View {
       }
 
       if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
-        || submitFailureMessage != nil
+        || submitFailureMessage != nil || organizationLoadError != nil
       {
         RentivoSection("Revise os campos") {
           ForEach(validationIssues, id: \.self) { issue in
@@ -294,6 +318,13 @@ struct BillingFormView: View {
               .foregroundStyle(RentivoColors.coral)
               .accessibilityIdentifier("billing.form.submitFailure")
           }
+          if let organizationLoadError {
+            Label(organizationLoadError, systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(RentivoColors.coral)
+            Button("Tentar carregar responsáveis novamente") {
+              Task { await loadOrganizations() }
+            }
+          }
         }
       }
     }
@@ -303,7 +334,9 @@ struct BillingFormView: View {
       ToolbarItem(placement: .cancellationAction) {
         // Dismissing mid-save would leave the request running with no screen to report it, so
         // Cancelar goes down with the sheet's other exits while `saving`.
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
           .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
@@ -312,11 +345,14 @@ struct BillingFormView: View {
           .accessibilityIdentifier("billing.form.save")
       }
     }
-    .interactiveDismissDisabled(saving)
-    .task {
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
-      organizationsLoaded = true
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
     }
+    .task { await loadOrganizations() }
   }
 
   private var ownerChoices: [BillingOwner] {
@@ -325,6 +361,23 @@ struct BillingFormView: View {
       existingOwner: billing?.owner,
       organizations: organizations
     )
+  }
+
+  private var hasUnsavedChanges: Bool {
+    let currentItems = items.enumerated().map { $0.element.domain(sortOrder: $0.offset) }
+    let currentRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let currentReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
+    guard let billing else {
+      return !name.isEmpty || !billingDescription.isEmpty || !currentItems.isEmpty
+        || usesCustomPix || !currentRecipients.isEmpty || !currentReplyTo.isEmpty
+    }
+    return name != billing.name || billingDescription != billing.description
+      || ownerID != billing.owner.id || currentItems != billing.items
+      || usesCustomPix != (billing.pixOverride != nil)
+      || pixKey != (billing.pixOverride?.key ?? "")
+      || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
+      || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
+      || currentRecipients != billing.recipients || currentReplyTo != billing.replyTo
   }
 
   /// Every element's position, keyed by its id.
@@ -362,18 +415,30 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
-    let pix = BillingPixOverride.resolve(
-      key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity
-    )
-    pixRecipientRequiredMessage = pix.message
+    let pixResult = usesCustomPix
+      ? PixFormRules.result(
+        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
+      : .inherit
+    let pix: PixConfiguration?
+    switch pixResult {
+    case .inherit:
+      pix = nil
+      pixRecipientRequiredMessage = nil
+    case .custom(let configuration):
+      pix = configuration
+      pixRecipientRequiredMessage = nil
+    case .invalid(let message):
+      pix = nil
+      pixRecipientRequiredMessage = message
+    }
     let draft = BillingDraft(
       name: name,
       description: billingDescription,
       owner: owner,
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
-      pixOverride: pix.configuration,
+      pixOverride: pix,
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: replyTo.filter { !$0.isBlank }.map { $0.domain() }
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }
@@ -390,6 +455,17 @@ struct BillingFormView: View {
       dismiss()
     } catch {
       submitFailureMessage = DemoError(error).message
+    }
+  }
+
+  private func loadOrganizations() async {
+    organizationsLoaded = false
+    organizationLoadError = nil
+    do {
+      organizations = try await app.dependencies.organizations.listOrganizations()
+      organizationsLoaded = true
+    } catch {
+      organizationLoadError = DemoError(error).message
     }
   }
 }

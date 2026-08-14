@@ -48,7 +48,9 @@ import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.FormSubmitState
 import app.rentivo.domain.ThemeFont
+import app.rentivo.domain.ThemeFormRules
 import app.rentivo.domain.ThemeRecord
 import app.rentivo.domain.ThemeSource
 import app.rentivo.domain.ThemeTarget
@@ -80,11 +82,14 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
   var values by remember { mutableStateOf(ThemeValues.rentivo) }
   var loadedValues by remember { mutableStateOf<ThemeValues?>(null) }
   var error by remember { mutableStateOf<DemoError?>(null) }
+  var submitState by remember { mutableStateOf(FormSubmitState.idle) }
 
   // True once the user has changed a field since the last successful load/save. Guards against
   // `dataRevision` reloads (triggered by unrelated bumps) silently overwriting in-progress,
   // unsaved color edits.
   val isDirty = loadedValues != null && values != loadedValues
+  val invalidColorNames = ThemeFormRules.invalidColorNames(values)
+  val contrastWarnings = ThemeFormRules.contrastWarnings(values)
 
   suspend fun load() {
     try {
@@ -101,27 +106,39 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
     }
   }
 
-  suspend fun save() {
-    try {
-      app.dependencies.themes.updateTheme(target, values)
-      load()
-      app.showNotice("Tema atualizado.")
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (failure: Throwable) {
-      error = DemoError.from(failure)
+  fun save() {
+    if (submitState.isSubmitting || invalidColorNames.isNotEmpty()) return
+    submitState = submitState.start()
+    scope.launch {
+      try {
+        app.dependencies.themes.updateTheme(target, values)
+        load()
+        app.showNotice("Tema atualizado.")
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (failure: Throwable) {
+        error = DemoError.from(failure)
+      } finally {
+        submitState = submitState.finish()
+      }
     }
   }
 
-  suspend fun reset() {
-    try {
-      app.dependencies.themes.resetTheme(target)
-      load()
-      app.showNotice("Herança de tema restaurada.")
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (failure: Throwable) {
-      error = DemoError.from(failure)
+  fun reset() {
+    if (submitState.isSubmitting) return
+    submitState = submitState.start()
+    scope.launch {
+      try {
+        app.dependencies.themes.resetTheme(target)
+        load()
+        app.showNotice("Herança de tema restaurada.")
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (failure: Throwable) {
+        error = DemoError.from(failure)
+      } finally {
+        submitState = submitState.finish()
+      }
     }
   }
 
@@ -137,7 +154,8 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       if (record?.canEdit == true) {
         AccountToolbarAction {
           TextButton(
-            onClick = { scope.launch { save() } },
+            onClick = ::save,
+            enabled = !submitState.isSubmitting && invalidColorNames.isEmpty(),
             modifier = Modifier.testTag("theme.save"),
           ) {
             Text(text = "Salvar", color = RentivoColors.emerald)
@@ -250,17 +268,32 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
 
       AccountSection(
         title = "Prévia",
-        rows = listOf({
-          Box(
-            modifier = Modifier.padding(
-              horizontal = RentivoSpacing.large,
-              vertical = RentivoSpacing.medium,
-            ),
-          ) {
-            ThemePreview(values = values)
+        rows = buildList {
+          add({
+            Box(
+              modifier = Modifier.padding(
+                horizontal = RentivoSpacing.large,
+                vertical = RentivoSpacing.medium,
+              ),
+            ) { ThemePreview(values = values) }
+          })
+          contrastWarnings.forEach { warning ->
+            add({ AccountFootnote(text = warning) })
           }
-        }),
+        },
       )
+
+      if (invalidColorNames.isNotEmpty()) {
+        AccountSection(
+          title = "Revise as cores",
+          rows = listOf({
+            AccountFootnote(
+              text = "Use # seguido de seis dígitos hexadecimais em: " +
+                invalidColorNames.joinToString(", ") + ".",
+            )
+          }),
+        )
+      }
 
       if (record?.canReset == true) {
         AccountSection(
@@ -269,7 +302,7 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
               title = "Restaurar herança",
               destructive = true,
               modifier = Modifier.testTag("theme.reset"),
-              onClick = { scope.launch { reset() } },
+              onClick = ::reset,
             )
           }),
         )

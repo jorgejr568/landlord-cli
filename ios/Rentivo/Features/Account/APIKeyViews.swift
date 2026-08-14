@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct APIKeyListView: View {
   @Environment(AppModel.self) private var app
@@ -182,12 +183,16 @@ private struct APIKeyFormView: View {
   @State private var scopes: Set<APIKeyScope>
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
-  @State private var organizations: [Organization] = []
+  @State private var options: APIKeyOptions?
+  @State private var optionsError: String?
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var confirmingDiscard = false
+  @State private var expiresAtEdited = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
+  private let initialDraftState: NativeAPIKeyDraftState
 
   init(
     key: APIKeyMetadata? = nil,
@@ -196,10 +201,16 @@ private struct APIKeyFormView: View {
     self.key = key
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
+    let name = key?.name ?? "Nova integração"
+    let scopes = key?.scopes ?? [.profileRead, .billingsRead]
+    let grantIDs = Set(grants.map(\.resourceID))
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
-    _name = State(initialValue: key?.name ?? "Nova integração")
-    _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
-    _grantIDs = State(initialValue: Set(grants.map(\.resourceID)))
+    initialDraftState = NativeAPIKeyDraftState(
+      name: name, scopes: scopes, resourceIDs: grantIDs
+    )
+    _name = State(initialValue: name)
+    _scopes = State(initialValue: scopes)
+    _grantIDs = State(initialValue: grantIDs)
     _expiresAt = State(initialValue: key?.expiresAt ?? Date(timeIntervalSinceNow: 31_536_000))
   }
 
@@ -207,7 +218,15 @@ private struct APIKeyFormView: View {
     Form {
       Section("Identificação") { TextField("Nome", text: $name) }
       Section("Escopos seguros") {
-        ForEach(APIKeyScope.integrationCases, id: \.self) { scope in
+        if let key, key.unsupportedScopeCount > 0 {
+          Label(
+            "Há \(key.unsupportedScopeCount) escopo novo que esta versão ainda não reconhece. Os escopos ficam preservados e não podem ser alterados.",
+            systemImage: "lock.fill"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
+        ForEach(options?.scopes ?? scopes.sorted { $0.rawValue < $1.rawValue }, id: \.self) { scope in
           Toggle(
             scope.label,
             isOn: Binding(
@@ -217,16 +236,42 @@ private struct APIKeyFormView: View {
               }
             )
           )
+          .disabled((key?.unsupportedScopeCount ?? 0) > 0)
         }
       }
       Section("Acesso") {
-        resourceToggle("Conta pessoal", id: .personal)
-        ForEach(organizations) { organization in
-          resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+        if let key, key.unavailableGrantCount > 0 {
+          Label(
+            "Há \(key.unavailableGrantCount) acesso oculto. Os acessos ficam preservados e não podem ser alterados enquanto estiverem indisponíveis.",
+            systemImage: "lock.fill"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
+        ForEach(options?.workspaces ?? []) { workspace in
+          resourceToggle(workspace.name, id: workspace.resourceID)
+            .disabled((key?.unavailableGrantCount ?? 0) > 0)
         }
       }
       Section("Validade") {
-        DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
+        DatePicker("Expira em", selection: expiresAtBinding, displayedComponents: .date)
+          .disabled(key != nil)
+        if key != nil {
+          Text("A validade não pode ser alterada depois que a chave é criada.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        } else if let options {
+          Text("Prazo máximo: \(options.maxExpirationDays) dias.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
+      }
+      if let optionsError {
+        Section {
+          Label(optionsError, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(RentivoColors.coral)
+          Button("Tentar novamente") { Task { await loadOptions() } }
+        }
       }
       if let submitErrorMessage {
         Section {
@@ -239,7 +284,10 @@ private struct APIKeyFormView: View {
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
+        .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         // The spinner is the only sign the request is still in flight: everything else this form
@@ -252,13 +300,37 @@ private struct APIKeyFormView: View {
             Text(key == nil ? "Criar" : "Salvar")
           }
         }
-        .disabled(saving || name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
+        .disabled(
+          saving || options == nil
+            || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || name.count > NativeFormTextLimits.name
+            || scopes.isEmpty || grantIDs.isEmpty
+        )
       }
     }
-    .interactiveDismissDisabled(saving)
-    .task {
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
     }
+    .task { await loadOptions() }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeAPIKeyDraftState(name: name, scopes: scopes, resourceIDs: grantIDs)
+      .hasChanges(from: initialDraftState, expirationEdited: expiresAtEdited)
+  }
+
+  private var expiresAtBinding: Binding<Date> {
+    Binding(
+      get: { expiresAt },
+      set: { value in
+        expiresAt = value
+        expiresAtEdited = true
+      }
+    )
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -290,7 +362,11 @@ private struct APIKeyFormView: View {
       name: name,
       scopes: scopes,
       grants: grants,
-      expiresAt: expiresAt
+      expiresAt: expiresAt,
+      shouldUpdateGrants: key == nil
+        || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != Set(originalGrants.keys)),
+      shouldUpdateScopes: key == nil
+        || ((key?.unsupportedScopeCount ?? 0) == 0 && scopes != key?.scopes)
     )
     saving = true
     defer { saving = false }
@@ -306,6 +382,22 @@ private struct APIKeyFormView: View {
         await onSaved(secret)
       }
     } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private func loadOptions() async {
+    optionsError = nil
+    do {
+      let loaded = try await app.dependencies.apiKeys.apiKeyOptions()
+      options = loaded
+      if key == nil, !expiresAtEdited {
+        expiresAt = Calendar.current.date(
+          byAdding: .day, value: loaded.defaultExpirationDays, to: Date()
+        ) ?? expiresAt
+      }
+    } catch {
+      options = nil
+      optionsError = DemoError(error).message
+    }
   }
 }
 
@@ -327,6 +419,16 @@ private struct APIKeySecretView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(RentivoColors.surface)
           .clipShape(RoundedRectangle(cornerRadius: 12))
+        HStack {
+          Button {
+            UIPasteboard.general.string = created.secret
+          } label: {
+            Label("Copiar segredo", systemImage: "doc.on.doc")
+          }
+          ShareLink(item: created.secret) {
+            Label("Compartilhar", systemImage: "square.and.arrow.up")
+          }
+        }
         Spacer()
         Button("Já copiei") { dismiss() }
           .buttonStyle(RentivoButtonStyle())

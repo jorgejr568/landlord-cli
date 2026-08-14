@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -49,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -68,10 +71,15 @@ import app.rentivo.designsystem.ptBRCount
 import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
+import app.rentivo.domain.APIKeyGrantEditRule
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyNameRule
+import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.APIKeyScopeEditRule
 import app.rentivo.domain.CreatedAPIKeySecret
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.FormSubmitState
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
 import app.rentivo.domain.WorkspaceID
@@ -229,7 +237,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = null,
       onDismiss = { showingCreate = false },
-      onSubmit = { draft -> scope.launch { create(draft) } },
+      onSubmit = ::create,
     )
   }
 
@@ -237,7 +245,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = key,
       onDismiss = { editingKey = null },
-      onSubmit = { draft -> scope.launch { update(key, draft) } },
+      onSubmit = { draft -> update(key, draft) },
     )
   }
 
@@ -341,7 +349,11 @@ private fun APIKeyCard(
         modifier = Modifier.size(16.dp),
       )
       Text(
-        text = ptBRCount(key.grants.size, singular = "acesso", plural = "acessos"),
+        text = ptBRCount(
+          key.grants.size + key.unavailableGrantCount,
+          singular = "acesso",
+          plural = "acessos",
+        ),
         style = RentivoTypography.caption.copy(fontWeight = FontWeight.SemiBold),
         color = RentivoColors.secondaryInk,
       )
@@ -391,9 +403,10 @@ private fun DateColumn(title: String, value: Instant, alignment: Alignment.Horiz
 private fun APIKeyFormScreen(
   existing: APIKeyMetadata?,
   onDismiss: () -> Unit,
-  onSubmit: (APIKeyDraft) -> Unit,
+  onSubmit: suspend (APIKeyDraft) -> Unit,
 ) {
   val app = LocalAppModel.current
+  val scope = rememberCoroutineScope()
   val originalGrants = remember(existing) {
     val grants = existing?.grants
       ?: listOf(
@@ -404,7 +417,18 @@ private fun APIKeyFormScreen(
       )
     grants.associateBy { it.resourceID }
   }
-  var name by remember(existing) { mutableStateOf(existing?.name ?: "Nova integração") }
+  val grantEditRule = APIKeyGrantEditRule(
+    originalGrantIDs = originalGrants.keys,
+    unavailableGrantCount = existing?.unavailableGrantCount ?: 0,
+  )
+  val scopeEditRule = APIKeyScopeEditRule(
+    originalScopes = existing?.scopes.orEmpty(),
+    unavailableScopeCount = existing?.unavailableScopeCount ?: 0,
+  )
+  var name by rememberSaveable(existing?.id?.rawValue) {
+    mutableStateOf(existing?.name ?: "Nova integração")
+  }
+  val nameValidationMessage = APIKeyNameRule.validationMessage(name)
   val scopes: SnapshotStateList<APIKeyScope> = remember(existing) {
     mutableStateListOf<APIKeyScope>().apply {
       addAll(existing?.scopes ?: setOf(APIKeyScope.PROFILE_READ, APIKeyScope.BILLINGS_READ))
@@ -418,21 +442,32 @@ private fun APIKeyFormScreen(
       existing?.expiresAt ?: Instant.now().plusSeconds(DEFAULT_VALIDITY_SECONDS)
     )
   }
-  var organizations by remember { mutableStateOf<List<Organization>>(emptyList()) }
+  var options by remember { mutableStateOf<APIKeyOptions?>(null) }
+  var optionsLoadError by remember { mutableStateOf<String?>(null) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  var submitState by remember(existing) { mutableStateOf(FormSubmitState.idle) }
 
   // The sheet installs its own back handler, but this one is registered later and therefore wins;
   // either way back dismisses only the form, never the API-key screen underneath it.
-  BackHandler { onDismiss() }
+  BackHandler { if (!submitState.isSubmitting) onDismiss() }
 
   LaunchedEffect(Unit) {
-    // Mirrors the iOS `try?`: an unreachable organization list degrades to "personal account only"
-    // rather than blocking the form.
-    organizations = runCatching { app.dependencies.organizations.listOrganizations() }
-      .getOrDefault(emptyList())
+    try {
+      val loaded = app.dependencies.apiKeys.apiKeyOptions()
+      options = loaded
+      if (existing == null) {
+        expiresAt = Instant.now().plusSeconds(loaded.defaultExpirationDays.toLong() * 86_400L)
+      }
+    } catch (cancellation: CancellationException) {
+      throw cancellation
+    } catch (error: Throwable) {
+      optionsLoadError = DemoError.from(error).message
+    }
   }
 
   fun submit() {
+    if (submitState.isSubmitting) return
+    if (nameValidationMessage != null) return
     val grants = grantIDs.sortedBy { it.rawValue }.map { resourceID ->
       originalGrants[resourceID]
         ?: APIKeyGrant(
@@ -444,17 +479,25 @@ private fun APIKeyFormScreen(
           resourceID = resourceID,
         )
     }
-    onSubmit(
-      APIKeyDraft(
-        name = name,
-        scopes = scopes.toSet(),
-        grants = grants,
-        expiresAt = expiresAt,
-      )
+    val draft = APIKeyDraft(
+      name = name.trim(),
+      scopes = scopes.toSet(),
+      grants = grants,
+      expiresAt = expiresAt,
+      shouldUpdateGrants = existing == null || grantEditRule.shouldUpdate(grantIDs.toSet()),
+      shouldUpdateScopes = existing == null || scopeEditRule.shouldUpdate(scopes.toSet()),
     )
+    submitState = submitState.start()
+    scope.launch {
+      try {
+        onSubmit(draft)
+      } finally {
+        submitState = submitState.finish()
+      }
+    }
   }
 
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !submitState.isSubmitting) {
     RentivoLargeTopBarScaffold(
       title = if (existing == null) "Nova chave" else "Editar chave",
       navigationIcon = {
@@ -468,7 +511,9 @@ private fun APIKeyFormScreen(
         AccountToolbarAction {
           TextButton(
             onClick = { submit() },
-            enabled = name.isNotEmpty() && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
+            enabled = !submitState.isSubmitting && options != null && nameValidationMessage == null &&
+              (scopes.isNotEmpty() || !scopeEditRule.canEdit) &&
+              (grantIDs.isNotEmpty() || !grantEditRule.canEdit),
             modifier = Modifier.testTag("api-key.submit"),
           ) {
             Text(text = if (existing == null) "Criar" else "Salvar")
@@ -495,14 +540,24 @@ private fun APIKeyFormScreen(
             )
           }),
         )
+        nameValidationMessage?.let { AccountFootnote(text = it) }
 
         AccountSection(
           title = "Escopos seguros",
-          rows = APIKeyScope.integrationCases.map { scope ->
-            {
+          rows = buildList {
+            if (!scopeEditRule.canEdit) {
+              add({
+                AccountFootnote(
+                  text = "Há ${existing?.unavailableScopeCount} escopo(s) desconhecido(s). " +
+                    "Os escopos serão preservados e não podem ser alterados nesta versão.",
+                )
+              })
+            }
+            options.orEmptyScopes().forEach { scope -> add({
               ToggleRow(
                 label = scope.label,
                 checked = scopes.contains(scope),
+                enabled = scopeEditRule.canEdit,
                 onCheckedChange = { enabled ->
                   if (enabled) {
                     if (!scopes.contains(scope)) scopes.add(scope)
@@ -511,26 +566,37 @@ private fun APIKeyFormScreen(
                   }
                 },
               )
-            }
+            }) }
           },
         )
 
         AccountSection(
           title = "Acesso",
           rows = buildList {
+            if (!grantEditRule.canEdit) {
+              add({
+                AccountFootnote(
+                  text = "Há ${existing?.unavailableGrantCount} acesso(s) oculto(s). " +
+                    "Os acessos serão preservados e não podem ser alterados enquanto estiverem " +
+                    "indisponíveis.",
+                )
+              })
+            }
             add({
               ResourceToggle(
                 label = "Conta pessoal",
                 id = WorkspaceID.personal,
                 grantIDs = grantIDs,
+                enabled = grantEditRule.canEdit,
               )
             })
-            organizations.forEach { organization ->
+            options.orEmptyWorkspaces().filter { it.resourceID != WorkspaceID.personal }.forEach { workspace ->
               add({
                 ResourceToggle(
-                  label = organization.name,
-                  id = WorkspaceID(rawValue = organization.id.rawValue),
+                  label = workspace.name ?: "Conta pessoal",
+                  id = workspace.resourceID,
                   grantIDs = grantIDs,
+                  enabled = grantEditRule.canEdit,
                 )
               })
             }
@@ -540,17 +606,23 @@ private fun APIKeyFormScreen(
         AccountSection(
           title = "Validade",
           rows = listOf({
-            ExpiryRow(
-              value = expiresAt,
-              onClick = { showingDatePicker = true },
-            )
+            if (existing == null) {
+              ExpiryRow(value = expiresAt, onClick = { showingDatePicker = true })
+            } else {
+              // PATCH does not accept `expires_at`; presenting this as editable would silently
+              // discard the user's selection. Existing keys therefore expose it as read-only.
+              AccountLabeledRow(label = "Expira em", value = expiresAt.formattedPTBR())
+            }
           }),
         )
+        optionsLoadError?.let { message ->
+          AccountFootnote(text = "Não foi possível carregar as opções da chave: $message")
+        }
       }
     }
   }
 
-  if (showingDatePicker) {
+  if (existing == null && showingDatePicker) {
     ExpiryDatePicker(
       initial = expiresAt,
       onDismiss = { showingDatePicker = false },
@@ -622,10 +694,12 @@ private fun ResourceToggle(
   label: String,
   id: WorkspaceID,
   grantIDs: SnapshotStateList<WorkspaceID>,
+  enabled: Boolean = true,
 ) {
   ToggleRow(
     label = label,
     checked = grantIDs.contains(id),
+    enabled = enabled,
     onCheckedChange = { enabled ->
       if (enabled) {
         if (!grantIDs.contains(id)) grantIDs.add(id)
@@ -638,7 +712,12 @@ private fun ResourceToggle(
 
 /** One iOS `Toggle` row: label on the left, a scaled-down switch on the right. */
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+  label: String,
+  checked: Boolean,
+  enabled: Boolean = true,
+  onCheckedChange: (Boolean) -> Unit,
+) {
   Row(
     modifier = Modifier
       .fillMaxWidth()
@@ -655,6 +734,7 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
     Switch(
       checked = checked,
       onCheckedChange = onCheckedChange,
+      enabled = enabled,
       colors = rentivoSwitchColors(),
       modifier = Modifier.scale(SWITCH_SCALE),
     )
@@ -667,9 +747,11 @@ private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Un
   // Without this the system back press reaches the enclosing tab's handler and pops the entire
   // API-key screen, destroying the one-time secret before the user has copied it. Back dismisses
   // only this overlay — the same thing "Já copiei" does, matching the iOS sheet-dismiss semantics.
-  BackHandler { onDismiss() }
+  var acknowledged by remember { mutableStateOf(false) }
+  val clipboard = LocalClipboardManager.current
+  BackHandler { if (acknowledged) onDismiss() }
 
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = acknowledged) {
     AccountScaffold(title = "Segredo da chave", onBack = null) { padding ->
       Column(
         modifier = Modifier
@@ -711,10 +793,16 @@ private fun APIKeySecretScreen(created: CreatedAPIKeySecret, onDismiss: () -> Un
               .testTag("api-key.secret"),
           )
         }
+        TextButton(
+          onClick = { clipboard.setText(AnnotatedString(created.secret)) },
+          modifier = Modifier.testTag("api-key.secret.copy"),
+        ) { Text("Copiar segredo") }
         Spacer(modifier = Modifier.weight(1f))
         RentivoButton(
-          text = "Já copiei",
-          onClick = onDismiss,
+          text = if (acknowledged) "Concluir" else "Confirmo que guardei o segredo",
+          onClick = {
+            if (acknowledged) onDismiss() else acknowledged = true
+          },
           modifier = Modifier.testTag("api-key.secret.dismiss"),
         )
       }
@@ -746,3 +834,8 @@ private val APIKeyScope.label: String
     APIKeyScope.THEMES_WRITE -> "Alterar temas"
     APIKeyScope.EXPORTS_CREATE -> "Criar exportações"
   }
+
+private fun APIKeyOptions?.orEmptyScopes(): List<APIKeyScope> =
+  this?.scopes?.sortedBy(APIKeyScope::wire).orEmpty()
+
+private fun APIKeyOptions?.orEmptyWorkspaces() = this?.workspaces.orEmpty()

@@ -29,6 +29,17 @@ const val JPEG_MEDIA_TYPE: String = "image/jpeg"
 /** Shown when the file is over the server's limit; names the limit so the user can act on it. */
 const val RECEIPT_TOO_LARGE_MESSAGE: String = "O comprovante excede o limite de 10 MB."
 
+const val RECEIPT_EMPTY_MESSAGE: String = "O comprovante está vazio."
+
+fun receiptSkippedMessage(reasons: List<String>): String = reasons.joinToString(" ") { reason ->
+  when (reason) {
+    "unsupported_mime" -> "Formato não aceito (use PDF, JPEG ou PNG)."
+    "empty_file" -> RECEIPT_EMPTY_MESSAGE
+    "size_limit_exceeded" -> RECEIPT_TOO_LARGE_MESSAGE
+    else -> "O servidor recusou o comprovante."
+  }
+}
+
 /** Shown when an image in an unsupported format could not be re-encoded to JPEG. */
 const val RECEIPT_UNSUPPORTED_MESSAGE: String =
   "Não foi possível usar este arquivo como comprovante. Envie um PDF, JPEG ou PNG."
@@ -72,6 +83,7 @@ fun exceedsReceiptSizeLimit(byteCount: Int): Boolean = byteCount > MAX_RECEIPT_U
  * does not, so an oversized receipt is refused before a pointless multipart round-trip.
  */
 fun requireReceiptWithinSizeLimit(upload: FileUpload): FileUpload {
+  if (upload.byteCount == 0) throw DemoError(RECEIPT_EMPTY_MESSAGE)
   if (exceedsReceiptSizeLimit(upload.byteCount)) throw DemoError(RECEIPT_TOO_LARGE_MESSAGE)
   return upload
 }
@@ -145,7 +157,11 @@ suspend fun fileUploadFromCapture(
   file: File,
   ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): FileUpload = withContext(ioDispatcher) {
-  val data = if (file.isFile) file.readBytes() else ByteArray(0)
+  val data = if (file.isFile) {
+    file.inputStream().use { it.readAtMost(MAX_CLIENT_UPLOAD_BYTES) }
+  } else {
+    ByteArray(0)
+  }
   if (data.isEmpty()) {
     throw DemoError("Não foi possível ler a foto capturada. Tente novamente.")
   }

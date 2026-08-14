@@ -417,7 +417,12 @@ async def test_malformed_model_output_falls_back_to_the_lexicon_result(payload: 
     ],
 )
 @pytest.mark.asyncio
-async def test_incomplete_response_falls_back_to_the_lexicon_result(payload: Any, expected_reason: str | None):
+async def test_incomplete_response_falls_back_to_the_lexicon_result(
+    payload: Any,
+    expected_reason: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(mod.settings, "cache_ttl_seconds", 600)
     cache = FakeCache()
     client = _client(payload)
 

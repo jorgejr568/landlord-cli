@@ -20,7 +20,7 @@ function createBody(values: BillingFormValues): CreateRequest {
   const replyTo = values.replyTo.map(({ email, name }) => ({ email: email.trim(), name: name.trim() }));
   return {
     description: values.description.trim(),
-    items: values.items.map((item) => ({ amount: item.itemType === "variable" ? 0 : (parseBrl(item.amount) ?? 0), description: item.description.trim(), item_type: item.itemType })),
+    items: values.items.map((item) => ({ amount: item.itemType === "variable" ? 0 : parseBrl(item.amount)!, description: item.description.trim(), item_type: item.itemType })),
     name: values.name.trim(),
     owner: values.ownerType === "organization" ? { type: "organization", uuid: values.ownerUuid } : { type: "user" },
     pix_key: values.pixKey.trim(),
@@ -76,6 +76,7 @@ export function BillingCreatePage() {
       pushAnalyticsFromResponse(response);
       navigate(`/billings/${data.uuid}`);
     } catch (caught) {
+      /* v8 ignore next -- aborting an unmounted request intentionally suppresses its error */
       if (!isCurrent()) return;
       if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFieldErrors(caught));
       else setError(caught instanceof ApiError ? caught.message : "Não foi possível criar a cobrança.");

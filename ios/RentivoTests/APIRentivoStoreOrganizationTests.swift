@@ -161,9 +161,9 @@ private final class FailingInvitePostURLProtocol: URLProtocol, @unchecked Sendab
 }
 
 @MainActor
-@Test func liveCreateOrganizationFollowsUpWithAPatchWhenTheDraftIncludesPix() async throws {
-  // Regression test: OrganizationCreateRequest only accepts `name`, so PIX collected on the
-  // creation form used to be silently dropped.
+@Test func liveCreateOrganizationSendsPixAtomicallyInThePost() async throws {
+  OrganizationURLProtocol.createBody = nil
+  OrganizationURLProtocol.patchRequests = 0
   let credentials = MemoryCredentialStore(token: "stored-token")
   let client = LiveAPIClient(session: organizationSession(), credentials: credentials)
   let store = APIRentivoStore(client: client)
@@ -177,13 +177,16 @@ private final class FailingInvitePostURLProtocol: URLProtocol, @unchecked Sendab
 
   #expect(organization.id == OrganizationID(rawValue: "organization-2"))
   #expect(organization.pix == PixConfiguration(key: "chave-pix", merchantName: "Nova Org", merchantCity: "Sao Paulo"))
+  #expect(OrganizationURLProtocol.patchRequests == 0)
+  let body = try #require(OrganizationURLProtocol.createBody)
+  let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+  #expect(json["pix_key"] as? String == "chave-pix")
+  #expect(json["pix_merchant_name"] as? String == "Nova Org")
+  #expect(json["pix_merchant_city"] as? String == "Sao Paulo")
 }
 
 @MainActor
-@Test func liveCreateOrganizationReturnsTheCreatedOrganizationWhenTheFollowUpPixPatchFails() async throws {
-  // Regression test: the org already exists on the server once the POST above succeeds, so a
-  // failing follow-up PATCH must not throw — throwing here used to surface as a failure to the
-  // caller, who would retry `createOrganization` and create a duplicate organization.
+@Test func liveCreateOrganizationDoesNotAttemptAFollowUpPixPatch() async throws {
   let credentials = MemoryCredentialStore(token: "stored-token")
   let client = LiveAPIClient(session: failingPixPatchSession(), credentials: credentials)
   let store = APIRentivoStore(client: client)
@@ -196,7 +199,7 @@ private final class FailingInvitePostURLProtocol: URLProtocol, @unchecked Sendab
   let organization = try await store.createOrganization(draft)
 
   #expect(organization.id == OrganizationID(rawValue: "organization-3"))
-  #expect(organization.pix == nil)
+  #expect(organization.pix == PixConfiguration(key: "chave-pix", merchantName: "Nova Org", merchantCity: "Sao Paulo"))
 }
 
 private func organizationSession() -> URLSession {
@@ -206,6 +209,8 @@ private func organizationSession() -> URLSession {
 }
 
 private final class OrganizationURLProtocol: URLProtocol, @unchecked Sendable {
+  nonisolated(unsafe) static var createBody: Data?
+  nonisolated(unsafe) static var patchRequests = 0
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
@@ -222,8 +227,10 @@ private final class OrganizationURLProtocol: URLProtocol, @unchecked Sendable {
     case ("POST", "/api/v1/organizations/organization-1/invites"):
       body = #"{"uuid":"invite-1","invited_email":"bruno@rentivo.com.br","role":"viewer","status":"pending"}"#
     case ("POST", "/api/v1/organizations"):
-      body = #"{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true}}"#
+      Self.createBody = Self.requestBody(from: request)
+      body = #"{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"},"members":[]}"#
     case ("PATCH", "/api/v1/organizations/organization-2"):
+      Self.patchRequests += 1
       body = #"{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"},"members":[{"user_id":7,"email":"ana@rentivo.com.br","role":"admin"}]}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(request.httpMethod ?? "?") \#(path ?? "nil")"}"#
@@ -238,6 +245,21 @@ private final class OrganizationURLProtocol: URLProtocol, @unchecked Sendable {
   }
 
   override func stopLoading() {}
+
+  static func requestBody(from request: URLRequest) -> Data? {
+    if let body = request.httpBody { return body }
+    guard let stream = request.httpBodyStream else { return nil }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4_096)
+    while stream.hasBytesAvailable {
+      let read = stream.read(&buffer, maxLength: buffer.count)
+      if read <= 0 { break }
+      data.append(buffer, count: read)
+    }
+    return data
+  }
 }
 
 private func failingPixPatchSession() -> URLSession {
@@ -246,8 +268,7 @@ private func failingPixPatchSession() -> URLSession {
   return URLSession(configuration: configuration)
 }
 
-/// Simulates the org-create POST succeeding but the follow-up PIX PATCH 500ing, so
-/// `createOrganization` must fall back to the created organization instead of throwing.
+/// Simulates a server that would fail any obsolete follow-up PATCH. The atomic POST returns PIX.
 private final class FailingPixPatchURLProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -262,7 +283,7 @@ private final class FailingPixPatchURLProtocol: URLProtocol, @unchecked Sendable
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
     case ("POST", "/api/v1/organizations"):
       statusCode = 200
-      body = #"{"uuid":"organization-3","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true}}"#
+      body = #"{"uuid":"organization-3","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"},"members":[]}"#
     case ("PATCH", "/api/v1/organizations/organization-3"):
       statusCode = 500
       body = #"{"detail":"Falha ao salvar as configurações de PIX."}"#

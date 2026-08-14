@@ -180,7 +180,7 @@ fun BillingDetailView(
         BillingDetail(
           data = data,
           modifier = Modifier.padding(padding),
-          onCreateBill = { showingCreateBill = true },
+          onCreateBill = { if (!data.billing.pixNeedsSetup) showingCreateBill = true },
           onOpenBill = { billID -> onOpenBill(data.billing, billID) },
           onOpenExpenses = { onOpenExpenses(data.billing) },
           onOpenAttachments = { onOpenAttachments(data.billing) },
@@ -404,7 +404,7 @@ private fun BillsSection(
         icon = Icons.Filled.Description,
         modifier = Modifier.weight(1f),
       )
-      if (data.billing.capabilities.canCreateBills) {
+      if (data.billing.capabilities.canCreateBills && !data.billing.pixNeedsSetup) {
         IconButton(onClick = onCreateBill, modifier = Modifier.testTag("bill.create")) {
           Icon(
             imageVector = Icons.Filled.AddCircle,
@@ -414,6 +414,14 @@ private fun BillsSection(
           )
         }
       }
+    }
+    if (data.billing.capabilities.canCreateBills && data.billing.pixNeedsSetup) {
+      IconLabel(
+        icon = Icons.Filled.QrCode2,
+        text = "Configure um PIX completo antes de gerar uma fatura.",
+        style = RentivoTypography.subheadline,
+        tint = RentivoColors.secondaryInk,
+      )
     }
     if (data.bills.isEmpty()) {
       Text(
@@ -517,13 +525,15 @@ private fun RecipientsSection(billing: Billing) {
             color = RentivoColors.secondaryInk,
           )
         }
-        billing.replyTo?.let { replyTo ->
+        if (billing.replyTo.isNotEmpty()) {
           RentivoListDivider(indent = 0.dp)
-          IconLabel(
-            text = "Respostas para $replyTo",
-            icon = Icons.AutoMirrored.Filled.Reply,
-            style = RentivoTypography.caption,
-          )
+          billing.replyTo.forEach { replyTo ->
+            IconLabel(
+              text = "Respostas para ${replyTo.name} <${replyTo.email}>",
+              icon = Icons.AutoMirrored.Filled.Reply,
+              style = RentivoTypography.caption,
+            )
+          }
         }
       }
     }

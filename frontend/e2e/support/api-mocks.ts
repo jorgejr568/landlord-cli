@@ -19,6 +19,7 @@ export interface CapturedRequest {
 // the fixtures drift away from the committed contract.
 type Schemas = components["schemas"];
 type SecuritySummary = Schemas["SecuritySummaryResponse"];
+type AccountDeletionReadiness = Schemas["AccountDeletionReadinessResponse"];
 type ApiKeyRecord = Schemas["APIKeyResponse"];
 type ApiKeyGrant = Schemas["APIKeyGrantResponse"];
 
@@ -101,6 +102,11 @@ export const defaultSecuritySummary: SecuritySummary = {
     pix_merchant_name: "ANA SILVA"
   },
   totp: { enabled: true, recovery_codes_remaining: 6 }
+};
+
+export const defaultAccountDeletionReadiness: AccountDeletionReadiness = {
+  can_delete: true,
+  reason: null
 };
 
 export const apiKeyOptions: Schemas["APIKeyOptionsResponse"] = {
@@ -384,6 +390,10 @@ export async function installApiMocks(
     }
     if (path === "/security" && method === "GET") {
       await fulfillJson(route, security);
+      return;
+    }
+    if (path === "/security/account-deletion-readiness" && method === "GET") {
+      await fulfillJson(route, defaultAccountDeletionReadiness);
       return;
     }
     if (path === "/security/pix" && method === "POST") {

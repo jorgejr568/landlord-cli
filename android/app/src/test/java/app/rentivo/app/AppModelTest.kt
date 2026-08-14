@@ -682,6 +682,9 @@ private class FakeAuthRepository(
     onLogout()
   }
 
+  override suspend fun accountDeletionReadiness() =
+    app.rentivo.domain.AccountDeletionReadiness(canDelete = true)
+
   override suspend fun deleteAccount(password: String) {
     deletedPassword = password
     onDeleteAccount()

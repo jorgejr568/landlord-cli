@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +61,7 @@ import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.TopBarChip
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.EmailAddress
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
@@ -226,24 +228,37 @@ fun InviteMemberView(
 ) {
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
-  var email by remember { mutableStateOf("") }
+  var email by rememberSaveable(organization.id.rawValue) { mutableStateOf("") }
   var role by remember { mutableStateOf(OrganizationRole.VIEWER) }
   var roleMenuExpanded by remember { mutableStateOf(false) }
+  var isSending by remember { mutableStateOf(false) }
+  var validationMessage by remember { mutableStateOf<String?>(null) }
 
-  suspend fun invite() {
-    try {
-      app.dependencies.organizations.inviteMember(
-        organizationID = organization.id,
-        email = email,
-        role = role,
-      )
-      onSent()
-      app.showNotice("Convite enviado.")
-      onDismiss()
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (throwable: Throwable) {
-      app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+  fun invite() {
+    if (isSending) return
+    val normalizedEmail = email.trim()
+    if (normalizedEmail.length > 320 || !EmailAddress.isValid(normalizedEmail)) {
+      validationMessage = "Informe um e-mail válido de até 320 caracteres."
+      return
+    }
+    isSending = true
+    scope.launch {
+      try {
+        app.dependencies.organizations.inviteMember(
+          organizationID = organization.id,
+          email = normalizedEmail,
+          role = role,
+        )
+        onSent()
+        app.showNotice("Convite enviado.")
+        onDismiss()
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (throwable: Throwable) {
+        validationMessage = DemoError.from(throwable).message
+      } finally {
+        isSending = false
+      }
     }
   }
 
@@ -255,10 +270,10 @@ fun InviteMemberView(
         confirmTitle = "Convidar",
         // Deliberately weaker than `EmailAddress.isValid`: the iOS form gates only on an "@" being
         // present and lets the server reject anything else, so the ported button matches it exactly.
-        confirmEnabled = email.contains("@"),
+        confirmEnabled = email.isNotBlank() && !isSending,
         confirmTestTag = "invitation.send",
-        onCancel = onDismiss,
-        onConfirm = { scope.launch { invite() } },
+        onCancel = { if (!isSending) onDismiss() },
+        onConfirm = ::invite,
       )
     },
   ) { padding ->
@@ -277,7 +292,10 @@ fun InviteMemberView(
         FormFieldRow(
           placeholder = "E-mail",
           value = email,
-          onValueChange = { email = it },
+          onValueChange = {
+            email = it
+            validationMessage = null
+          },
           modifier = Modifier.testTag("invitation.email"),
           keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.None,
@@ -341,6 +359,9 @@ fun InviteMemberView(
               .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
           )
         }
+      }
+      validationMessage?.let { message ->
+        Text(message, style = RentivoTypography.caption, color = RentivoColors.coral)
       }
     }
   }

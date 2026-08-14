@@ -10,10 +10,14 @@ import app.rentivo.domain.BillingItem
 import app.rentivo.domain.BillingItemID
 import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.BillingRecipient
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
+import app.rentivo.domain.DemoError
+import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Money
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.RecipientID
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
@@ -87,6 +91,7 @@ class APIRentivoStoreBillingTest {
           """"recipients":[{"uuid":"contact-1","name":"Bruno","email":"bruno@rentivo.com.br"},""" +
           """{"uuid":"contact-2","name":null,"email":null}],""" +
           """"reply_to":[{"uuid":"contact-9","name":"Resposta","email":"ana@rentivo.com.br"}],""" +
+          """"pix_needs_setup":true,""" +
           """"capabilities":$FULL_BILLING_CAPABILITIES}"""
       )
 
@@ -172,9 +177,19 @@ class APIRentivoStoreBillingTest {
     )
     // A contact missing a name or an e-mail is dropped rather than failing the decode.
     assertEquals(listOf("Bruno"), billing.recipients.map { it.name })
-    assertEquals("ana@rentivo.com.br", billing.replyTo)
+    assertEquals(
+      listOf(
+        BillingRecipient(
+          id = RecipientID(rawValue = "contact-9"),
+          name = "Resposta",
+          email = "ana@rentivo.com.br",
+        )
+      ),
+      billing.replyTo,
+    )
     // One non-empty field is enough for the override to exist.
     assertEquals("chave", billing.pixOverride?.key)
+    assertTrue(billing.pixNeedsSetup)
     assertEquals(BillingCapabilities.full, billing.capabilities)
   }
 
@@ -239,6 +254,42 @@ class APIRentivoStoreBillingTest {
     }
 
   @Test
+  fun `updating a billing preserves the selected owner on the patch payload`() = runTest {
+    val dispatcher = server.routeWithSession { call ->
+      if (call.route == "PATCH /api/v1/billings/billing-1") {
+        jsonResponse(
+          """{"uuid":"billing-1","name":"Casa","description":"",""" +
+            """"owner":{"type":"organization","uuid":"organization-1","name":"Horizonte"},""" +
+            """"items":[],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"",""" +
+            """"recipients":[],"reply_to":[],"capabilities":$FULL_BILLING_CAPABILITIES}"""
+        )
+      } else {
+        unexpected(call)
+      }
+    }
+    val store = authenticatedStore()
+
+    store.updateBilling(
+      id = BillingID(rawValue = "billing-1"),
+      draft = BillingDraft(
+        name = "Casa",
+        description = "",
+        owner = BillingOwner.Organization(
+          id = app.rentivo.domain.OrganizationID(rawValue = "organization-1"),
+          name = "Horizonte",
+        ),
+        items = emptyList(),
+      ),
+    )
+
+    val owner = apiJson.parseToJsonElement(
+      dispatcher.bodyOf("PATCH /api/v1/billings/billing-1")
+    ).jsonObject["owner"]!!.jsonObject
+    assertEquals("organization", owner["type"]!!.jsonPrimitive.content)
+    assertEquals("organization-1", owner["uuid"]!!.jsonPrimitive.content)
+  }
+
+  @Test
   fun `a billing draft flattens pix and encodes reply-to as a single named contact`() = runTest {
     val dispatcher = server.routeWithSession { call ->
       if (call.route == "POST /api/v1/billings") {
@@ -262,7 +313,13 @@ class APIRentivoStoreBillingTest {
           name = "Horizonte",
         ),
         items = emptyList(),
-        replyTo = "ana@rentivo.com.br",
+        replyTo = listOf(
+          BillingRecipient(
+            id = RecipientID(rawValue = "contact-9"),
+            name = "Resposta",
+            email = "ana@rentivo.com.br",
+          )
+        ),
       )
     )
 
@@ -285,8 +342,10 @@ class APIRentivoStoreBillingTest {
           """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[],""" +
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
-          """"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,""" +
-          """"can_send_recibo":true,"can_regenerate":true},"available_transitions":[""" +
+          """"can_download_recibo":false,"can_compose":true,"can_edit":true,"can_delete":true,""" +
+          """"can_transition":true,"can_upload_receipts":true,"can_delete_receipts":false,""" +
+          """"can_reorder_receipts":false,"can_send_invoice":false,"can_send_recibo":true,""" +
+          """"can_regenerate":true},"available_transitions":[""" +
           """{"target":"paid","label":"Marcar como paga","style":"primary",""" +
           """"requires_confirmation":false},{"target":"delayed_payment","label":"Atrasada",""" +
           """"style":"secondary","requires_confirmation":true},{"target":"teleported"}]}"""
@@ -330,6 +389,13 @@ class APIRentivoStoreBillingTest {
 
     // An unrecognized transition target is dropped, not fatal.
     assertEquals(listOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.availableTransitions)
+    assertEquals("Marcar como paga", bill.transitionMetadata.single { it.target == BillStatus.PAID }.label)
+    assertEquals("primary", bill.transitionMetadata.single { it.target == BillStatus.PAID }.style)
+    assertFalse(bill.transitionMetadata.single { it.target == BillStatus.PAID }.requiresConfirmation)
+    assertTrue(
+      bill.transitionMetadata.single { it.target == BillStatus.DELAYED_PAYMENT }
+        .requiresConfirmation
+    )
     assertEquals(Money(centavos = 10_000), bill.serverTotal)
     assertEquals(Money(centavos = 10_000), bill.effectiveTotal)
     assertEquals(setOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.effectiveTransitions)
@@ -351,6 +417,13 @@ class APIRentivoStoreBillingTest {
     assertFalse(bill.capabilities.canSendInvoice)
     assertTrue(bill.capabilities.canSendRecibo)
     assertTrue(bill.capabilities.canRegenerate)
+    assertTrue(bill.capabilities.canEdit)
+    assertTrue(bill.capabilities.canDelete)
+    assertTrue(bill.capabilities.canTransition)
+    assertTrue(bill.capabilities.canUploadReceipts)
+    assertFalse(bill.capabilities.canDeleteReceipts)
+    assertFalse(bill.capabilities.canReorderReceipts)
+    assertTrue(bill.capabilities.canCompose)
   }
 
   @Test
@@ -465,5 +538,25 @@ class APIRentivoStoreBillingTest {
     val bill = store.bill(BillingID(rawValue = "billing-1"), BillID(rawValue = "bill-1"))
 
     assertEquals(BillStatus.DRAFT, bill.status)
+  }
+
+  @Test
+  fun `an all-skipped receipt response surfaces the server reasons`() = runTest {
+    server.routeWithSession {
+      jsonResponse(
+        """{"items":[],"attached":0,"skipped":1,"total_bytes":0,"skipped_reasons":["unsupported_mime"]}"""
+      )
+    }
+    val store = authenticatedStore()
+
+    val error = runCatching {
+      store.addReceipt(
+        billingID = BillingID("billing-1"),
+        billID = BillID("bill-1"),
+        upload = FileUpload(byteArrayOf(1), "nota.gif", "image/gif"),
+      )
+    }.exceptionOrNull()
+
+    assertEquals(DemoError("Formato não aceito (use PDF, JPEG ou PNG)."), error)
   }
 }

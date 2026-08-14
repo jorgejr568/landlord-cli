@@ -6,6 +6,9 @@ struct AccountView: View {
   @Environment(AppModel.self) private var app
   @State private var showDeleteAccountAlert = false
   @State private var deleteAccountPassword = ""
+  @State private var deletionReadiness: AccountDeletionReadiness?
+  @State private var deletionReadinessError: String?
+  @State private var loadingDeletionReadiness = false
 
   var body: some View {
     List {
@@ -111,7 +114,23 @@ struct AccountView: View {
         Button(role: .destructive) { showDeleteAccountAlert = true } label: {
           Label("Excluir conta", systemImage: "trash.fill").frame(maxWidth: .infinity)
         }
-        .disabled(app.isDeletingAccount)
+        .disabled(
+          app.isDeletingAccount || loadingDeletionReadiness
+            || deletionReadiness?.canDelete == false
+            || (app.usesLiveAPI && deletionReadiness == nil))
+        if deletionReadiness?.reason == .soleOrganizationAdmin {
+          Label(
+            "Transfira a administração das organizações em que você é o único administrador antes de excluir a conta.",
+            systemImage: "person.2.badge.gearshape"
+          )
+          .font(RentivoTypography.caption)
+          .foregroundStyle(RentivoColors.coral)
+        } else if deletionReadinessError != nil {
+          Button("Verificar se a conta pode ser excluída") {
+            Task { await loadDeletionReadiness() }
+          }
+          .font(RentivoTypography.caption)
+        }
       }
     }
     .scrollContentBackground(.hidden)
@@ -125,8 +144,22 @@ struct AccountView: View {
         deleteAccountPassword = ""
         Task { await app.deleteAccount(password: password) }
       }
+      .disabled(!BcryptPasswordRules.isAccepted(deleteAccountPassword))
     } message: {
       Text("Essa ação é permanente. Suas cobranças e seus dados pessoais serão excluídos.")
+    }
+    .task { await loadDeletionReadiness() }
+  }
+
+  private func loadDeletionReadiness() async {
+    guard !loadingDeletionReadiness else { return }
+    loadingDeletionReadiness = true
+    deletionReadinessError = nil
+    defer { loadingDeletionReadiness = false }
+    do {
+      deletionReadiness = try await app.dependencies.auth.accountDeletionReadiness()
+    } catch {
+      deletionReadinessError = DemoError(error).message
     }
   }
 }
@@ -180,6 +213,10 @@ struct ProfilePixView: View {
             TextField("Chave PIX", text: $form.key)
             TextField("Nome do recebedor", text: $form.merchantName)
             TextField("Cidade", text: $form.merchantCity)
+            if let message = form.validationMessage {
+              Label(message, systemImage: "exclamationmark.circle.fill")
+                .foregroundStyle(RentivoColors.coral)
+            }
           }
           .disabled(isDemoViewerLocked)
         } else if let loadFailureMessage {
@@ -220,7 +257,7 @@ struct ProfilePixView: View {
               Text("Salvar")
             }
           }
-          .disabled(!hasLoaded || isSaving || !form.configuration.isComplete)
+          .disabled(!hasLoaded || isSaving || form.validationMessage != nil)
           .accessibilityIdentifier("profile.pix.save")
         }
       }
@@ -249,7 +286,7 @@ struct ProfilePixView: View {
     defer { isSaving = false }
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
-      app.showNotice("PIX pessoal atualizado.")
+      app.showNotice(form.configuration == nil ? "PIX pessoal removido." : "PIX pessoal atualizado.")
       // This screen is pushed rather than presented, so the global banner is visible here.
     } catch { app.reportFailure(error) }
   }

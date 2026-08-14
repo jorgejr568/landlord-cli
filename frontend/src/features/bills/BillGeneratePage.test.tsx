@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -108,7 +108,8 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
   expect(screen.getByDisplayValue("2.500,00")).toBeDisabled();
   await user.type(screen.getByLabelText("Água"), "123,45");
   await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
-  await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
+  expect(screen.getByLabelText("Vencimento")).toHaveAttribute("type", "date");
+  await user.type(screen.getByLabelText("Vencimento"), "2026-08-10");
   await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
   await user.type(screen.getByPlaceholderText("Descrição"), "Gás");
@@ -176,9 +177,17 @@ it("renders backend-denied and fresh-template nested states", async () => {
       capabilities: { ...billing.capabilities, can_manage_bills: false }
     })
   });
-  renderPage();
+  const deniedView = renderPage();
   expect(await screen.findByRole("heading", { name: "Geração indisponível" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Gerar Fatura" })).not.toBeInTheDocument();
+  deniedView.unmount();
+
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({ ...billing, pix_needs_setup: true })
+  });
+  renderPage();
+  expect(await screen.findByRole("heading", { name: "PIX necessário" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "Configurar PIX" })).toHaveAttribute("href", "/billings/billing-public-uuid/edit");
 });
 
 it("keeps bill generation available but omits receipt files without files:write", async () => {
@@ -208,6 +217,40 @@ it("keeps bill generation available but omits receipt files without files:write"
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-without-receipt"));
 });
 
+it("rejects an unsupported receipt before generating a bill", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.type(screen.getByLabelText("Água"), "10,00");
+  fireEvent.change(screen.getByLabelText("Anexar comprovantes"), { target: { files: [new File(["x"], "nota.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("Envie um arquivo PDF, JPG ou PNG.")).toBeVisible();
+});
+
+it("warns before unloading after the generation draft changes", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+
+  const cleanUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(cleanUnload);
+  expect(cleanUnload.defaultPrevented).toBe(false);
+
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  const dirtyUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirtyUnload);
+  expect(dirtyUnload.defaultPrevented).toBe(true);
+});
+
 it("validates dates and extras locally, removes rows, and focuses nested API errors", async () => {
   const user = userEvent.setup();
   let attempts = 0;
@@ -226,12 +269,6 @@ it("validates dates and extras locally, removes rows, and focuses nested API err
   await screen.findByRole("heading", { name: "Gerar Fatura" });
   await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
   await user.type(screen.getByLabelText("Água"), "10,00");
-  await user.type(screen.getByLabelText("Vencimento"), "31/02/2026");
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
-  expect(await screen.findByText("Informe uma data válida.")).toBeVisible();
-  expect(screen.getByLabelText("Vencimento")).toHaveFocus();
-
-  await user.clear(screen.getByLabelText("Vencimento"));
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
@@ -296,6 +333,7 @@ it("rejects an unparsable variable amount and tolerates an unknown backend UUID 
 
 it.each(["resolve", "reject"] as const)("resets every resource when a stale generation mutation %s after the billing route changes", async (outcome) => {
   const user = userEvent.setup();
+  let generationPosts = 0;
   let settleGeneration!: () => void;
   const pendingGeneration = new Promise<Response>((resolve, reject) => {
     settleGeneration = outcome === "resolve"
@@ -310,7 +348,10 @@ it.each(["resolve", "reject"] as const)("resets every resource when a stale gene
       name: "Residencial Lua",
       uuid: "billing-second"
     }),
-    "POST /api/v1/billings/billing-public-uuid/bills": () => pendingGeneration
+    "POST /api/v1/billings/billing-public-uuid/bills": () => {
+      generationPosts += 1;
+      return pendingGeneration;
+    }
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
@@ -319,6 +360,8 @@ it.each(["resolve", "reject"] as const)("resets every resource when a stale gene
   await user.type(screen.getByLabelText("Observações"), "Não pode vazar");
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(screen.getByRole("button", { name: "Gerando..." })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("button", { name: "Gerando..." }).closest("form")!);
+  expect(generationPosts).toBe(1);
 
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(await screen.findByText("Residencial Lua")).toBeVisible();

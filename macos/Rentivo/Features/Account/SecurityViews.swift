@@ -131,6 +131,7 @@ struct SecurityView: View {
     .alert("Desativar autenticação em duas etapas", isPresented: $showingDisableTOTP) {
       SecureField("Senha atual", text: $password)
       Button("Desativar", role: .destructive) { Task { await disableTOTP() } }
+        .disabled(!BcryptPasswordRules.isAccepted(password))
       Button("Cancelar", role: .cancel) { password = "" }
     } message: {
       Text("Confirme sua senha para desativar o aplicativo autenticador.")
@@ -265,7 +266,10 @@ private struct ChangePasswordView: View {
             Text("Salvar nova senha")
           }
         }
-        .disabled(isSaving || currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty)
+        .disabled(
+          isSaving || !BcryptPasswordRules.isAccepted(currentPassword)
+            || !BcryptPasswordRules.isAccepted(newPassword) || newPassword != confirmPassword
+        )
       }
     }
     .formStyle(.grouped)
@@ -273,6 +277,12 @@ private struct ChangePasswordView: View {
   }
 
   private func save() {
+    guard BcryptPasswordRules.isAccepted(currentPassword),
+      BcryptPasswordRules.isAccepted(newPassword)
+    else {
+      validationMessage = BcryptPasswordRules.limitMessage
+      return
+    }
     guard newPassword == confirmPassword else {
       validationMessage = "As senhas não coincidem."
       return
@@ -388,6 +398,9 @@ private struct TOTPEnrollmentView: View {
         }
         TextField("Código do autenticador", text: $code)
           .textContentType(.oneTimeCode)
+          .onChange(of: code) { _, value in
+            code = String(value.filter(\.isNumber).prefix(6))
+          }
         if let failureMessage {
           Label(failureMessage, systemImage: "exclamationmark.circle.fill")
             .foregroundStyle(RentivoColors.coral)
@@ -406,7 +419,7 @@ private struct TOTPEnrollmentView: View {
           }
         }
         .buttonStyle(RentivoButtonStyle())
-        .disabled(isConfirming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(isConfirming || code.count != 6)
         Spacer()
       }
       .rentivoSheetIntro()

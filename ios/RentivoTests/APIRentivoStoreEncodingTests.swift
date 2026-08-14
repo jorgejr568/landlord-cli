@@ -7,6 +7,45 @@ import Testing
   @testable import Rentivo
 #endif
 
+@Test func apiKeyUpdateOmitsUnchangedGrantsSoRedactedAccessesSurvive() throws {
+  let draft = APIKeyDraft(
+    name: "Automação", scopes: [.profileRead],
+    grants: [APIKeyGrant(resourceType: .user, resourceID: .personal)],
+    expiresAt: Date(), shouldUpdateGrants: false
+  )
+
+  let data = try JSONEncoder().encode(RemoteAPIKeyUpdate(draft: draft))
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+  #expect(json["grants"] == nil)
+}
+
+@Test func apiKeyUpdateOmitsUnrecognizedScopesSoForwardCompatibleValuesSurvive() throws {
+  let draft = APIKeyDraft(
+    name: "Automação", scopes: [.profileRead],
+    grants: [APIKeyGrant(resourceType: .user, resourceID: .personal)],
+    expiresAt: Date(), shouldUpdateGrants: false, shouldUpdateScopes: false
+  )
+
+  let data = try JSONEncoder().encode(RemoteAPIKeyUpdate(draft: draft))
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+  #expect(json["scopes"] == nil)
+}
+
+@Test func apiKeyUpdateIncludesGrantsWhenTheVisibleSelectionChanged() throws {
+  let draft = APIKeyDraft(
+    name: "Automação", scopes: [.profileRead],
+    grants: [APIKeyGrant(resourceType: .user, resourceID: .personal)],
+    expiresAt: Date(), shouldUpdateGrants: true
+  )
+
+  let data = try JSONEncoder().encode(RemoteAPIKeyUpdate(draft: draft))
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+  #expect((json["grants"] as? [[String: Any]])?.count == 1)
+}
+
 @MainActor
 @Test func liveCreateBillEncodesVariableAmountsForMatchingULIDsAndOmitsClientMintedIDs() async throws {
   // Regression test: createBill used to send only `extras`, silently dropping user-edited

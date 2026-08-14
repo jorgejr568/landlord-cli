@@ -204,7 +204,13 @@ async def create_organization(
     _csrf: None = Depends(require_csrf),
     services: RequestServices = Depends(get_services),
 ) -> OrganizationResponse:
-    organization = services.organization.create_organization(payload.name, principal.user.id)
+    organization = services.organization.create_organization(
+        payload.name,
+        principal.user.id,
+        pix_key=payload.pix_key,
+        pix_merchant_name=payload.pix_merchant_name,
+        pix_merchant_city=payload.pix_merchant_city,
+    )
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ORGANIZATION_CREATE,

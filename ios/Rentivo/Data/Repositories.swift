@@ -41,13 +41,14 @@ public protocol AuthRepository: AnyObject {
   /// local state afterwards.
   func logout() async
 
+  func accountDeletionReadiness() async throws -> AccountDeletionReadiness
   func deleteAccount(password: String) async throws
 }
 
 @MainActor
 public protocol ProfileRepository: AnyObject {
   func profile() async throws -> UserProfile
-  func updatePix(_ pix: PixConfiguration) async throws -> UserProfile
+  func updatePix(_ pix: PixConfiguration?) async throws -> UserProfile
 }
 
 @MainActor
@@ -173,6 +174,7 @@ public protocol SecurityRepository: AnyObject {
 
 @MainActor
 public protocol APIKeyRepository: AnyObject {
+  func apiKeyOptions() async throws -> APIKeyOptions
   func listAPIKeys() async throws -> [APIKeyMetadata]
   func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret
   func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata

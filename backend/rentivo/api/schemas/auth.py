@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
 
 
 class _StrictModel(BaseModel):
@@ -31,6 +31,33 @@ def _reject_oversized_password(value: str) -> str:
     return value
 
 
+def normalize_email(value: str) -> str:
+    """Normalize the shared email transport representation used by auth and forms."""
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ValueError("E-mail obrigatório.")
+    if normalized.count("@") != 1 or any(character.isspace() for character in normalized):
+        raise ValueError("Informe um e-mail válido.")
+    local, domain = normalized.split("@")
+    if not local or not domain:
+        raise ValueError("Informe um e-mail válido.")
+    return normalized
+
+
+# A bcrypt input is limited by encoded bytes, not Unicode code points.  Keep
+# this annotation at every public password boundary so validation is identical
+# before any service can reach bcrypt.
+BcryptPassword = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=_BCRYPT_MAX_PASSWORD_BYTES,
+        json_schema_extra={"x-rentivo-max-utf8-bytes": _BCRYPT_MAX_PASSWORD_BYTES},
+    ),
+    AfterValidator(_reject_oversized_password),
+]
+
+
 CredentialTransport = Literal["cookie", "body"]
 
 
@@ -55,22 +82,14 @@ class _BodyMFAChallengeRequest(_AuthRequest):
 
 class SignupRequest(_CredentialTransportRequest):
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
-    confirm_password: str = Field(min_length=1)
+    password: BcryptPassword
+    confirm_password: BcryptPassword
     turnstile_token: str = ""
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
-
-    @field_validator("password")
-    @classmethod
-    def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return normalize_email(value)
 
     @model_validator(mode="after")
     def matching_passwords(self) -> SignupRequest:
@@ -81,21 +100,13 @@ class SignupRequest(_CredentialTransportRequest):
 
 class LoginRequest(_CredentialTransportRequest):
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
+    password: BcryptPassword
     turnstile_token: str = ""
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
-
-    @field_validator("password")
-    @classmethod
-    def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return normalize_email(value)
 
 
 class _MobileCredentialsRequest(_AuthRequest):
@@ -106,20 +117,12 @@ class _MobileCredentialsRequest(_AuthRequest):
     """
 
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
+    password: BcryptPassword
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
-
-    @field_validator("password")
-    @classmethod
-    def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return normalize_email(value)
 
 
 class MobileLoginRequest(_MobileCredentialsRequest):
@@ -150,16 +153,13 @@ class PasswordForgotRequest(_AuthRequest):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
+        return normalize_email(value)
 
 
 class PasswordResetRequest(_AuthRequest):
     token: str = Field(min_length=1)
-    password: str = Field(min_length=1)
-    confirm_password: str = Field(min_length=1)
+    password: BcryptPassword
+    confirm_password: BcryptPassword
 
     @model_validator(mode="after")
     def matching_passwords(self) -> PasswordResetRequest:

@@ -87,6 +87,21 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     user = UserProfile(id: 0, email: "")
   }
 
+  public func accountDeletionReadiness() async throws -> AccountDeletionReadiness {
+    struct Response: Decodable {
+      let canDelete: Bool
+      let reason: AccountDeletionReadiness.BlockingReason?
+
+      enum CodingKeys: String, CodingKey {
+        case canDelete = "can_delete"
+        case reason
+      }
+    }
+    let response: Response = try await decode(
+      path: "/api/v1/security/account-deletion-readiness")
+    return AccountDeletionReadiness(canDelete: response.canDelete, reason: response.reason)
+  }
+
   public func profile() async throws -> UserProfile {
     // GET /api/v1/profile only returns `CurrentProfileResponse` ({email}); the pix fields live on
     // `SecuritySummaryResponse.profile` (a full `ProfileResponse`), so fetch security instead.
@@ -95,7 +110,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     user = UserProfile(id: user.id, email: remote.email, pix: pix(key: remote.pixKey, name: remote.pixMerchantName, city: remote.pixMerchantCity))
     return user
   }
-  public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
+  public func updatePix(_ pix: PixConfiguration?) async throws -> UserProfile {
     let response: RemotePixUpdateResponse = try await decode(
       path: "/api/v1/security/pix", method: "POST", body: RemotePixUpdate(pix: pix)
     )
@@ -172,7 +187,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/receipts",
       files: [(field: "receipt_files", upload: upload)]
     )
-    guard let receipt = response.items.first else { throw LiveAPIError.invalidResponse }
+    guard let receipt = response.items.first else {
+      throw LiveAPIError.server(
+        message: response.rejectionMessage ?? "O comprovante não foi aceito pelo Rentivo."
+      )
+    }
     return Receipt(id: ReceiptID(rawValue: receipt.uuid), name: receipt.filename, sortOrder: receipt.sortOrder)
   }
   public func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws {
@@ -318,23 +337,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return organization(from: response)
   }
   public func createOrganization(_ draft: OrganizationDraft) async throws -> Organization {
-    // OrganizationCreateRequest only accepts `name`; PIX has no create-time slot, so when the
-    // draft carries PIX data we follow up with the PATCH that does accept pix fields.
-    let response: RemoteOrganization = try await decode(path: "/api/v1/organizations", method: "POST", body: RemoteOrganizationCreate(name: draft.name))
-    guard draft.pix != nil else { return organization(from: response) }
-    do {
-      let updated: RemoteOrganization = try await decode(
-        path: "/api/v1/organizations/\(response.uuid)", method: "PATCH", body: RemoteOrganizationUpdate(draft: draft)
-      )
-      return organization(from: updated)
-    } catch {
-      // The organization already exists on the server from the POST above, so throwing here
-      // would surface as a failure to the caller, who would retry and create a duplicate
-      // organization. Return the created organization (without PIX) instead; the form-side
-      // validation makes this follow-up PATCH fail rarely, and the user can still edit the
-      // organization afterward to add PIX.
-      return organization(from: response)
-    }
+    let response: RemoteOrganization = try await decode(
+      path: "/api/v1/organizations", method: "POST", body: RemoteOrganizationCreate(draft: draft)
+    )
+    return organization(from: response)
   }
   public func updateOrganization(id: OrganizationID, draft: OrganizationDraft) async throws -> Organization {
     let response: RemoteOrganization = try await decode(path: "/api/v1/organizations/\(id.rawValue)", method: "PATCH", body: RemoteOrganizationUpdate(draft: draft))
@@ -406,6 +412,24 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     let response: RemoteAPIKeyList = try await decode(path: "/api/v1/api-keys")
     // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
     return try response.items.filter { $0.revokedAt == nil }.map(apiKey(from:))
+  }
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    let response: RemoteAPIKeyOptions = try await decode(path: "/api/v1/api-keys/options")
+    let personal = APIKeyWorkspaceOption(
+      resourceType: .user, resourceID: .personal, name: "Conta pessoal"
+    )
+    let organizations = response.organizations.map {
+      APIKeyWorkspaceOption(
+        resourceType: .organization, resourceID: WorkspaceID(rawValue: $0.resourceID),
+        name: $0.name
+      )
+    }
+    return APIKeyOptions(
+      scopes: response.scopes.compactMap(APIKeyScope.init(rawValue:)),
+      workspaces: [personal] + organizations,
+      defaultExpirationDays: response.defaultExpirationDays,
+      maxExpirationDays: response.maxExpirationDays
+    )
   }
   public func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret {
     let response: RemoteCreatedAPIKey = try await decode(
@@ -598,6 +622,13 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.
       availableTransitions: remote.availableTransitions.compactMap { BillStatus(rawValue: $0.target) },
+      transitionOptions: remote.availableTransitions.compactMap { transition in
+        guard let target = BillStatus(rawValue: transition.target) else { return nil }
+        return BillTransitionOption(
+          target: target, label: transition.label, style: transition.style,
+          requiresConfirmation: transition.requiresConfirmation
+        )
+      },
       serverTotal: Money(centavos: remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,
       // and an absent capabilities object stays permissive so older payloads keep working.
@@ -612,7 +643,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return BillCapabilities(
       canDownloadInvoice: remote.canDownloadInvoice, canDownloadRecibo: remote.canDownloadRecibo,
       canSendInvoice: remote.canSendInvoice, canSendRecibo: remote.canSendRecibo,
-      canRegenerate: remote.canRegenerate
+      canRegenerate: remote.canRegenerate, canEdit: remote.canEdit, canDelete: remote.canDelete,
+      canTransition: remote.canTransition, canUploadReceipts: remote.canUploadReceipts,
+      canDeleteReceipts: remote.canDeleteReceipts,
+      canReorderReceipts: remote.canReorderReceipts, canCompose: remote.canCompose
     )
   }
 
@@ -630,7 +664,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
         guard let name = contact.name, let email = contact.email else { return nil }
         return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
       },
-      replyTo: remote.replyTo.first?.email,
+      replyTo: remote.replyTo.compactMap { contact in
+        guard let name = contact.name, let email = contact.email else { return nil }
+        return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
+      },
+      pixNeedsSetup: remote.pixNeedsSetup ?? false,
       // Templates for communication types this app doesn't model are dropped rather than failing
       // the whole billing decode, the same tolerance applied to bill transitions above.
       communicationTemplates: (remote.communicationTemplates ?? []).compactMap { template in
@@ -680,7 +718,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
         )
       },
       expiresAt: try WireDate.isoDate(remote.expiresAt), lastUsedAt: try remote.lastUsedAt.map(WireDate.isoDate),
-      createdAt: try WireDate.isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(WireDate.isoDate)
+      createdAt: try WireDate.isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(WireDate.isoDate),
+      unavailableGrantCount: remote.grants.filter {
+        !$0.available || $0.resourceID == nil || WorkspaceResourceType(rawValue: $0.resourceType) == nil
+      }.count,
+      unsupportedScopeCount: remote.scopes.filter { APIKeyScope(rawValue: $0) == nil }.count
     )
   }
 

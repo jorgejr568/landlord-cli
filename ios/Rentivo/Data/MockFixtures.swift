@@ -341,7 +341,11 @@ public struct MockFixtures: Sendable {
           email: "fiadora@example.com"
         ),
       ],
-      replyTo: "ana@example.com",
+      replyTo: [
+        BillingRecipient(
+          id: RecipientID(rawValue: "reply-ana"), name: "Ana", email: "ana@example.com"
+        )
+      ],
       communicationTemplates: defaultCommunicationTemplates
     )
   }

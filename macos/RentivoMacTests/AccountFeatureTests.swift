@@ -23,20 +23,23 @@ struct AccountProfilePIXTests {
     #expect(saved.merchantName == "JORGE JUNIOR")
     #expect(saved.merchantCity == "SALVADOR")
     // The screen's Salvar button is gated on this, and a reload has to agree with what was sent.
-    #expect(saved.configuration.isComplete)
+    #expect(saved.configuration?.isComplete == true)
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
   @Test("a partially filled PIX form is incomplete, so Salvar stays disabled")
   func partiallyFilledPIXFormIsIncomplete() {
     var form = ProfilePIXForm()
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
+    #expect(form.validationMessage == nil)
     form.key = "jorge@example.com"
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
+    #expect(form.validationMessage != nil)
     form.merchantName = "JORGE JUNIOR"
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
+    #expect(form.validationMessage != nil)
     form.merchantCity = "SALVADOR"
-    #expect(form.configuration.isComplete)
+    #expect(form.configuration?.isComplete == true)
   }
 
   @Test("demo viewer mode locks the PIX section but still reads the profile")
@@ -68,6 +71,11 @@ struct APIKeyFormRulesTests {
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [], resourceIDs: [.personal]) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: []) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: [.personal]))
+    #expect(
+      APIKeyFormRules.isSavable(
+        name: String(repeating: "x", count: 256), scopes: [.profileRead], resourceIDs: [.personal]
+      ) == false
+    )
   }
 
   @Test("existing grants are reused, new ones are typed by resource, and the order is stable")

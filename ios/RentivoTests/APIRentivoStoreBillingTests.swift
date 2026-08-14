@@ -59,6 +59,19 @@ import Testing
 }
 
 @MainActor
+@Test func liveBillingDetailPreservesEveryReplyToContactAndPixReadiness() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: billingSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let billing = try await store.billing(id: BillingID(rawValue: "billing-1"))
+
+  #expect(billing.replyTo.map(\.email) == ["financeiro@example.com", "contato@example.com"])
+  #expect(billing.pixNeedsSetup)
+}
+
+@MainActor
 @Test func liveBillingDetailWithoutTemplatesDecodesAnEmptyTemplateList() async throws {
   // A billing payload that omits `communication_templates` must still decode: the field is absent
   // from list items and from any older response shape.
@@ -74,9 +87,8 @@ import Testing
 }
 
 @MainActor
-@Test func liveCreateBillingNullsClientMintedItemUUIDsButKeepsServerIssuedULIDs() async throws {
-  // Regression test for the 422 bug: BillingItemInput.uuid only accepts a 26-char ULID or null,
-  // but freshly-added items carry a 36-char client UUID. Uses its own dedicated URLProtocol
+@Test func liveCreateBillingOmitsEveryItemUUID() async throws {
+  // Create item ids are server-issued and are not writable. Uses its own dedicated URLProtocol
   // (rather than the shared BillingURLProtocol) so the captured body can't race with other tests.
   let configuration = URLSessionConfiguration.ephemeral
   configuration.protocolClasses = [CapturingBillingCreateURLProtocol.self]
@@ -102,8 +114,8 @@ import Testing
   let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
   let items = try #require(json["items"] as? [[String: Any]])
   #expect(items.count == 2)
-  #expect(items[0]["uuid"] == nil || items[0]["uuid"] is NSNull)
-  #expect(items[1]["uuid"] as? String == serverULID)
+  #expect(items[0]["uuid"] == nil)
+  #expect(items[1]["uuid"] == nil)
 }
 
 @MainActor
@@ -143,6 +155,10 @@ import Testing
   #expect(!bill.capabilities.canSendInvoice)
   #expect(bill.capabilities.canSendRecibo)
   #expect(bill.capabilities.canRegenerate)
+  #expect(bill.capabilities.canEdit)
+  #expect(bill.capabilities.canUploadReceipts)
+  #expect(bill.transitionOptions?.last?.requiresConfirmation == true)
+  #expect(bill.transitionOptions?.last?.label == "Marcar como atrasada")
 }
 
 @MainActor
@@ -221,7 +237,7 @@ private final class BillingURLProtocol: URLProtocol, @unchecked Sendable {
     case "/api/v1/billings":
       body = #"{"items":[{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}],"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":50000,"pending":20000,"overdue":5000,"paid_count":3,"pending_count":1,"overdue_count":1,"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":42000}}"#
     case "/api/v1/billings/billing-1":
-      body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"communication_templates":[{"comm_type":"bill_ready","subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}","body":"Recebemos {{total}}"},{"comm_type":"telepathy","subject":"Ignorado","body":"Ignorado"}],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
+      body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","pix_needs_setup":true,"recipients":[],"reply_to":[{"uuid":"reply-1","name":"Financeiro","email":"financeiro@example.com"},{"uuid":"reply-2","name":"Contato","email":"contato@example.com"}],"communication_templates":[{"comm_type":"bill_ready","subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}","body":"Recebemos {{total}}"},{"comm_type":"telepathy","subject":"Ignorado","body":"Ignorado"}],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
     case "/api/v1/billings/billing-2":
       // Deliberately omits `communication_templates`.
       body = #"{"uuid":"billing-2","name":"Kitnet","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#

@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from rentivo.api.schemas.auth import WebAuthnCredentialDescriptor, WebAuthnModel
+from rentivo.api.schemas.auth import BcryptPassword, WebAuthnCredentialDescriptor, WebAuthnModel
+from rentivo.pix import normalize_pix_triple
 
 
 class _StrictModel(BaseModel):
@@ -14,9 +15,9 @@ class _StrictModel(BaseModel):
 
 class ProfileResponse(_StrictModel):
     email: str
-    pix_key: str = ""
-    pix_merchant_name: str = ""
-    pix_merchant_city: str = ""
+    pix_key: str | None = ""
+    pix_merchant_name: str | None = Field(default="", max_length=25)
+    pix_merchant_city: str | None = Field(default="", max_length=15)
 
 
 class CurrentProfileResponse(_StrictModel):
@@ -24,9 +25,33 @@ class CurrentProfileResponse(_StrictModel):
 
 
 class PixUpdateRequest(_StrictModel):
-    pix_key: str = ""
-    pix_merchant_name: str = ""
-    pix_merchant_city: str = ""
+    pix_key: str | None = ""
+    pix_merchant_name: str | None = Field(default="", max_length=25)
+    pix_merchant_city: str | None = Field(default="", max_length=15)
+
+    @model_validator(mode="after")
+    def normalized_triple(self) -> PixUpdateRequest:
+        try:
+            self.pix_key, self.pix_merchant_name, self.pix_merchant_city = normalize_pix_triple(
+                self.pix_key,
+                self.pix_merchant_name,
+                self.pix_merchant_city,
+            )
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {
+                        "type": "value_error",
+                        "loc": (field,),
+                        "input": getattr(self, field),
+                        "ctx": {"error": exc},
+                    }
+                    for field in ("pix_key", "pix_merchant_name", "pix_merchant_city")
+                    if not getattr(self, field)
+                ],
+            ) from None
+        return self
 
 
 class PixUpdateResponse(_StrictModel):
@@ -34,9 +59,9 @@ class PixUpdateResponse(_StrictModel):
 
 
 class PasswordChangeRequest(_StrictModel):
-    current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=1)
-    confirm_password: str = Field(min_length=1)
+    current_password: BcryptPassword
+    new_password: BcryptPassword
+    confirm_password: BcryptPassword
 
 
 class TOTPStatusResponse(_StrictModel):
@@ -78,11 +103,16 @@ class TOTPConfirmRequest(_StrictModel):
 
 
 class TOTPDisableRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: BcryptPassword
 
 
 class AccountDeleteRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: BcryptPassword
+
+
+class AccountDeletionReadinessResponse(_StrictModel):
+    can_delete: bool
+    reason: Literal["sole_organization_admin"] | None = None
 
 
 class RecoveryCodesResponse(_StrictModel):

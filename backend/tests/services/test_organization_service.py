@@ -12,10 +12,14 @@ class TestOrganizationService:
         self.service = OrganizationService(self.mock_repo)
 
     def test_create_organization(self):
-        self.mock_repo.create.return_value = Organization(id=1, name="Test Org", created_by=5)
+        self.mock_repo.create_with_admin.return_value = Organization(id=1, name="Test Org", created_by=5)
         org = self.service.create_organization("Test Org", 5)
-        self.mock_repo.create.assert_called_once()
-        self.mock_repo.add_member.assert_called_once_with(1, 5, "admin")
+        self.mock_repo.create_with_admin.assert_called_once()
+        created, admin_user_id = self.mock_repo.create_with_admin.call_args.args
+        assert created.name == "Test Org"
+        assert admin_user_id == 5
+        self.mock_repo.create.assert_not_called()
+        self.mock_repo.add_member.assert_not_called()
         assert org.name == "Test Org"
 
     def test_get_by_id(self):

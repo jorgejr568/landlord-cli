@@ -161,6 +161,14 @@ struct BillingDetailView: View {
 
   private func bills(_ data: BillingDetailData) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+      if data.billing.pixNeedsSetup && data.billing.capabilities.canCreateBills {
+        Label(
+          "Configure a chave, o nome e a cidade do recebedor antes de gerar uma fatura.",
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.footnote)
+        .foregroundStyle(RentivoColors.coral)
+      }
       HStack {
         SectionTitle(title: "Faturas", symbol: "doc.text.fill")
         Spacer()
@@ -172,6 +180,7 @@ struct BillingDetailView: View {
           }
           .accessibilityLabel("Gerar fatura")
           .accessibilityIdentifier("bill.create")
+          .disabled(data.billing.pixNeedsSetup)
         }
       }
       if data.bills.isEmpty {
@@ -247,9 +256,12 @@ struct BillingDetailView: View {
               .font(.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
-          if let replyTo = billing.replyTo {
+          if !billing.replyTo.isEmpty {
             Divider()
-            Label("Respostas para \(replyTo)", systemImage: "arrowshape.turn.up.left")
+            Label(
+              "Respostas para \(billing.replyTo.map(\.email).joined(separator: ", "))",
+              systemImage: "arrowshape.turn.up.left"
+            )
               .font(.caption)
           }
         }

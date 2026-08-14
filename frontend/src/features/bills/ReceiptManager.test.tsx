@@ -137,6 +137,19 @@ it("shows a fresh empty state and omits every action denied by backend capabilit
   expect(sortable.create).not.toHaveBeenCalled();
 });
 
+it("rejects unsupported receipt files before making an upload request", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={vi.fn()} receipts={[]} />);
+
+  fireEvent.change(screen.getByLabelText("Anexar comprovantes"), { target: { files: [new File(["x"], "nota.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.getByText("Envie um arquivo PDF, JPG ou PNG.")).toBeVisible();
+});
+
 it("focuses empty uploads and surfaces upload, delete, and reorder failures", async () => {
   const user = userEvent.setup();
   installFetch({
@@ -189,12 +202,21 @@ it("deduplicates uploads, shows progress and skipped counts, merges latest state
   expect(screen.getByRole("progressbar", { name: "Progresso do envio" })).toBeVisible();
   expect(uploadBody?.getAll("receipt_files")).toEqual([file]);
   view.rerender(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={[...receipts, external]} />);
-  resolveUpload(jsonResponse({ attached: 1, items: [uploaded], skipped: 1, total_bytes: 3 }, 201, {
+  resolveUpload(jsonResponse({
+    attached: 1,
+    items: [uploaded],
+    skipped: 3,
+    skipped_reasons: ["unsupported_mime", "empty_file", "size_limit_exceeded"],
+    total_bytes: 3
+  }, 201, {
     "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded"
   }));
 
   const success = await screen.findByRole("status");
-  expect(success).toHaveTextContent("1 comprovante(s) anexado(s). 1 arquivo(s) ignorado(s).");
+  expect(success).toHaveTextContent("1 comprovante(s) anexado(s). 3 arquivo(s) ignorado(s).");
+  expect(success).toHaveTextContent("tipo de arquivo não suportado");
+  expect(success).toHaveTextContent("arquivo vazio");
+  expect(success).toHaveTextContent("arquivo acima do limite de tamanho");
   await waitFor(() => expect(success).toHaveFocus());
   expect(onChange).toHaveBeenLastCalledWith([...receipts, external, uploaded]);
 });

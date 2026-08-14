@@ -2,6 +2,7 @@ package app.rentivo.data.api
 
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.FileUpload
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -112,6 +113,38 @@ class ReceiptUploadTest {
     )
 
     assertTrue(upload === requireReceiptWithinSizeLimit(upload))
+  }
+
+  @Test
+  fun `an empty receipt is rejected locally`() {
+    val empty = FileUpload(data = ByteArray(0), filename = "vazio.pdf", mediaType = "application/pdf")
+
+    val thrown = runCatching { requireReceiptWithinSizeLimit(empty) }.exceptionOrNull()
+
+    assertEquals(DemoError(RECEIPT_EMPTY_MESSAGE), thrown)
+  }
+
+  @Test
+  fun `upload response decodes every skipped reason with localized detail`() {
+    val response = apiJson.decodeFromString<RemoteReceiptUpload>(
+      """{"items":[],"attached":0,"skipped":3,"total_bytes":0,"skipped_reasons":["unsupported_mime","empty_file","size_limit_exceeded"]}"""
+    )
+
+    assertEquals(3, response.skippedReasons.size)
+    assertEquals(
+      "Formato não aceito (use PDF, JPEG ou PNG). O comprovante está vazio. O comprovante excede o limite de 10 MB.",
+      receiptSkippedMessage(response.skippedReasons),
+    )
+  }
+
+  @Test
+  fun `the bounded reader rejects a stream before allocating beyond the API limit`() {
+    val error = runCatching {
+      ByteArrayInputStream(ByteArray(5)).readAtMost(maxBytes = 4)
+    }.exceptionOrNull()
+
+    assertEquals(DemoError(UPLOAD_TOO_LARGE_MESSAGE), error)
+    assertEquals(10 * 1024 * 1024, MAX_CLIENT_UPLOAD_BYTES)
   }
 
   @Test

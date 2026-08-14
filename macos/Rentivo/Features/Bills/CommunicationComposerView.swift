@@ -14,19 +14,28 @@ struct CommunicationComposerView: View {
   @State private var saveScope: CommunicationSaveScope?
   @State private var isSending = false
   @State private var appliedTemplateType: CommunicationType
+  @State private var confirmingDiscard = false
   /// Anything that stops a send, shown inside the sheet. Both the empty-recipient refusal and a
   /// server rejection used to go to `app.showNotice`, whose banner renders *behind* this sheet —
   /// so the button appeared to do nothing at all. The success notice still goes to the banner,
   /// because it fires after `dismiss()`, when there is no sheet left to hide it.
   @State private var sendError: String?
+  private let initialDraftState: NativeCommunicationDraftState
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
     self.bill = bill
-    _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
+    let selectedRecipients = Set(billing.recipients.map(\.id))
     let template = billing.template(for: .billReady)
-    _subject = State(initialValue: template?.subject ?? "")
-    _message = State(initialValue: template?.body ?? "")
+    let subject = template?.subject ?? ""
+    let message = template?.body ?? ""
+    initialDraftState = NativeCommunicationDraftState(
+      commType: .billReady, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: nil
+    )
+    _selectedRecipients = State(initialValue: selectedRecipients)
+    _subject = State(initialValue: subject)
+    _message = State(initialValue: message)
     _appliedTemplateType = State(initialValue: .billReady)
   }
 
@@ -41,7 +50,16 @@ struct CommunicationComposerView: View {
       isSending: isSending,
       hasSelectedRecipients: !selectedRecipients.isEmpty,
       isRenderingPDF: bill.isRenderingPDF
-    )
+    ) || !bill.capabilities.canCompose || !canSendSelectedType || !formIssues.isEmpty
+  }
+
+  private var canSendSelectedType: Bool {
+    commType == .paymentReceipt
+      ? bill.capabilities.canSendRecibo : bill.capabilities.canSendInvoice
+  }
+
+  private var formIssues: [ValidationIssue] {
+    CommunicationFormRules.issues(subject: subject, body: message)
   }
 
   private var attachmentDescription: String {
@@ -88,10 +106,21 @@ struct CommunicationComposerView: View {
           TextField("Assunto", text: $subject)
           TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
             .lineLimit(5...12)
+          ForEach(formIssues, id: \.self) { issue in
+            Label(issue.message, systemImage: "exclamationmark.circle.fill")
+              .font(RentivoTypography.caption)
+              .foregroundStyle(RentivoColors.coral)
+          }
         } header: {
           Text("Mensagem")
         } footer: {
-          Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+          VStack(alignment: .leading) {
+            Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+            Text(
+              "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+            )
+            .monospacedDigit()
+          }
         }
 
         Section {
@@ -138,12 +167,27 @@ struct CommunicationComposerView: View {
     .navigationTitle("Enviar \(commType.label.lowercased())")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
           .disabled(isSending)
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .interactiveDismissDisabled(isSending)
+    .interactiveDismissDisabled(isSending || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeCommunicationDraftState(
+      commType: commType, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: saveScope
+    ).hasChanges(from: initialDraftState)
   }
 
   private var ownerScopeLabel: String {
@@ -175,6 +219,10 @@ struct CommunicationComposerView: View {
     sendError = nil
     guard !selectedRecipients.isEmpty else {
       sendError = "Selecione ao menos um destinatário."
+      return
+    }
+    guard formIssues.isEmpty, bill.capabilities.canCompose, canSendSelectedType else {
+      sendError = formIssues.first?.message ?? "Esta comunicação não está disponível agora."
       return
     }
     isSending = true

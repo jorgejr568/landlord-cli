@@ -220,8 +220,18 @@ public struct ProfilePIXForm: Equatable, Sendable {
     merchantCity = profile?.pix?.merchantCity ?? ""
   }
 
-  public var configuration: PixConfiguration {
-    PixConfiguration(key: key, merchantName: merchantName, merchantCity: merchantCity)
+  public var validationResult: PixFormResult {
+    PixFormRules.result(key: key, merchantName: merchantName, merchantCity: merchantCity)
+  }
+
+  public var configuration: PixConfiguration? {
+    if case .custom(let configuration) = validationResult { return configuration }
+    return nil
+  }
+
+  public var validationMessage: String? {
+    if case .invalid(let message) = validationResult { return message }
+    return nil
   }
 }
 

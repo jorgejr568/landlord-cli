@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private class SampleLocalizedError(
@@ -172,6 +173,15 @@ class ModelsTest {
   }
 
   @Test
+  fun profilePixFormDistinguishesClearFromAnInvalidPartialTriple() {
+    val clear = ProfilePIXForm(key = "  ", merchantName = "", merchantCity = " ")
+    assertNull(clear.configuration)
+
+    val partial = ProfilePIXForm(key = "ana@pix.com", merchantName = "Ana", merchantCity = "")
+    assertNull(partial.configuration)
+  }
+
+  @Test
   fun workspaceIdentifierForPersonalOwnershipIsTheLiteralPersonal() {
     assertEquals("personal", WorkspaceID.personal.rawValue)
     assertEquals(
@@ -185,5 +195,115 @@ class ModelsTest {
         name = "Horizonte",
       ).workspaceID,
     )
+  }
+
+  @Test
+  fun `form submit state admits one submission until it is finished`() {
+    val idle = FormSubmitState.idle
+    val submitting = idle.start()
+
+    assertTrue(submitting.isSubmitting)
+    assertEquals(submitting, submitting.start())
+    assertEquals(idle, submitting.finish())
+  }
+
+  @Test
+  fun `api key grant edit rule locks hidden grants and only marks visible changes`() {
+    val original = setOf(WorkspaceID.personal)
+    val hidden = APIKeyGrantEditRule(originalGrantIDs = original, unavailableGrantCount = 1)
+    val visible = APIKeyGrantEditRule(originalGrantIDs = original, unavailableGrantCount = 0)
+
+    assertFalse(hidden.canEdit)
+    assertFalse(hidden.shouldUpdate(setOf(WorkspaceID("organization-1"))))
+    assertTrue(visible.canEdit)
+    assertFalse(visible.shouldUpdate(original))
+    assertTrue(visible.shouldUpdate(setOf(WorkspaceID("organization-1"))))
+  }
+
+  @Test
+  fun `api key name validation matches the 255 character API limit`() {
+    assertEquals(null, APIKeyNameRule.validationMessage("a".repeat(255)))
+    assertEquals("O nome deve ter no máximo 255 caracteres.", APIKeyNameRule.validationMessage("a".repeat(256)))
+  }
+
+  @Test
+  fun `api key scope edit rule locks unknown scopes and only marks visible changes`() {
+    val original = setOf(APIKeyScope.PROFILE_READ)
+    val hidden = APIKeyScopeEditRule(originalScopes = original, unavailableScopeCount = 1)
+    val visible = APIKeyScopeEditRule(originalScopes = original, unavailableScopeCount = 0)
+
+    assertFalse(hidden.canEdit)
+    assertFalse(hidden.shouldUpdate(setOf(APIKeyScope.BILLINGS_READ)))
+    assertFalse(visible.shouldUpdate(original))
+    assertTrue(visible.shouldUpdate(setOf(APIKeyScope.BILLINGS_READ)))
+  }
+
+  @Test
+  fun `bill form rules keep unsupported create and edit fields read only`() {
+    val create = BillFormEditRule(isEditing = false)
+    val edit = BillFormEditRule(isEditing = true)
+
+    assertTrue(create.canEditReferenceMonth)
+    assertFalse(edit.canEditReferenceMonth)
+    assertFalse(create.canEditDescription(BillLineItemKind.FIXED))
+    assertFalse(create.canEditDescription(BillLineItemKind.VARIABLE))
+    assertTrue(create.canEditDescription(BillLineItemKind.EXTRA))
+    assertFalse(create.canEditAmount(BillLineItemKind.FIXED))
+    assertTrue(create.canEditAmount(BillLineItemKind.VARIABLE))
+    assertFalse(create.canDelete(BillLineItemKind.FIXED))
+    assertFalse(create.canDelete(BillLineItemKind.VARIABLE))
+    assertTrue(create.canDelete(BillLineItemKind.EXTRA))
+  }
+
+  @Test
+  fun `expense form trims descriptions and enforces the API length`() {
+    val valid = ExpenseFormInput(description = "  Troca de fechadura  ", centavos = 1_000)
+    val blank = ExpenseFormInput(description = "   ", centavos = 1_000)
+    val long = ExpenseFormInput(description = "a".repeat(2_001), centavos = 1_000)
+
+    assertEquals("Troca de fechadura", valid.normalizedDescription)
+    assertEquals(null, valid.validationMessage)
+    assertEquals("Informe a descrição da despesa.", blank.validationMessage)
+    assertEquals("A descrição deve ter no máximo 2000 caracteres.", long.validationMessage)
+  }
+
+  @Test
+  fun `communication form enforces nonblank fields and UTF-8 byte body limit`() {
+    val valid = CommunicationFormInput(subject = "  Fatura pronta  ", body = "á".repeat(2_048))
+    val blank = CommunicationFormInput(subject = " ", body = "\n")
+    val longSubject = CommunicationFormInput(subject = "a".repeat(999), body = "ok")
+    val longBody = CommunicationFormInput(subject = "ok", body = "á".repeat(2_049))
+
+    assertEquals("Fatura pronta", valid.normalizedSubject)
+    assertEquals(4_096, valid.bodyUTF8ByteCount)
+    assertEquals(null, valid.validationMessage)
+    assertEquals("Informe o assunto.", blank.validationMessage)
+    assertEquals("O assunto deve ter no máximo 998 caracteres.", longSubject.validationMessage)
+    assertEquals("A mensagem deve ter no máximo 4096 bytes UTF-8.", longBody.validationMessage)
+  }
+
+  @Test
+  fun `communication type options follow the per-document capabilities`() {
+    val invoiceOnly = BillCapabilities.permissive.copy(canSendRecibo = false)
+    val none = BillCapabilities.permissive.copy(canSendInvoice = false, canSendRecibo = false)
+
+    assertEquals(listOf(CommunicationType.BILL_READY), communicationTypes(invoiceOnly))
+    assertTrue(communicationTypes(none).isEmpty())
+  }
+
+  @Test
+  fun `theme form requires strict hex colors and reports contrast warnings`() {
+    assertTrue(ThemeFormRules.isHexColor("#Aa09Ff"))
+    assertFalse(ThemeFormRules.isHexColor("Aa09Ff"))
+    assertFalse(ThemeFormRules.isHexColor("#GG0000"))
+    assertEquals(listOf("Primária"), ThemeFormRules.invalidColorNames(ThemeValues.rentivo.copy(primary = "#123")))
+
+    val lowContrast = ThemeValues.rentivo.copy(
+      primary = "#FFFFFF",
+      textContrast = "#FFFFFF",
+      primaryLight = "#000000",
+      textColor = "#000000",
+    )
+    assertEquals(2, ThemeFormRules.contrastWarnings(lowContrast).size)
   }
 }

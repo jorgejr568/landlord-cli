@@ -98,6 +98,7 @@ import Testing
   let keys = try await store.listAPIKeys()
 
   #expect(keys.map(\.name) == ["Ativa"])
+  #expect(keys.first?.unavailableGrantCount == 1)
 }
 
 private func profileSession() -> URLSession {
@@ -174,7 +175,7 @@ private final class ProfileURLProtocol: URLProtocol, @unchecked Sendable {
     case "/api/v1/api-keys":
       body = #"""
       {"items": [
-        {"uuid":"key-1","name":"Ativa","hint":"rntv-v1-ab••cd","scopes":["profile:read"],"grants":[{"resource_type":"user","resource_id":"personal","available":true}],"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at": null,"created_at":"2026-01-01T00:00:00.000000+00:00","revoked_at": null},
+        {"uuid":"key-1","name":"Ativa","hint":"rntv-v1-ab••cd","scopes":["profile:read"],"grants":[{"resource_type":"user","resource_id":"personal","available":true},{"resource_type":"organization","resource_id":null,"available":false}],"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at": null,"created_at":"2026-01-01T00:00:00.000000+00:00","revoked_at": null},
         {"uuid":"key-2","name":"Revogada","hint":"rntv-v1-ef••gh","scopes":["profile:read"],"grants":[{"resource_type":"user","resource_id":"personal","available":true}],"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at": null,"created_at":"2026-01-01T00:00:00.000000+00:00","revoked_at":"2026-02-01T00:00:00.000000+00:00"}
       ]}
       """#

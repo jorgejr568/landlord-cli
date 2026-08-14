@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
+import java.io.InputStream
 
 /**
  * Reads a user-picked document into a [FileUpload].
@@ -23,7 +24,7 @@ import java.io.FileNotFoundException
  * back to the filename extension and finally to `application/octet-stream`, which is what the iOS
  * version does for an unknown extension.
  *
- * Suspends on [ioDispatcher]: both the provider query and reading the whole document are blocking,
+ * Suspends on [ioDispatcher]: both the provider query and bounded document read are blocking,
  * and every caller is a picker callback running on the main dispatcher.
  *
  * Throws (typically [FileNotFoundException] or [SecurityException]) when the URI cannot be opened,
@@ -36,13 +37,39 @@ suspend fun fileUploadFromUri(
 ): FileUpload = withContext(ioDispatcher) {
   val mediaType = resolver.getType(uri)
   val filename = displayName(resolver, uri, mediaType)
-  val data = resolver.openInputStream(uri)?.use { it.readBytes() }
+  val metadataSize = declaredSize(resolver, uri)
+  if (metadataSize != null && metadataSize > MAX_CLIENT_UPLOAD_BYTES) {
+    throw DemoError(UPLOAD_TOO_LARGE_MESSAGE)
+  }
+  val data = resolver.openInputStream(uri)?.use { it.readAtMost(MAX_CLIENT_UPLOAD_BYTES) }
     ?: throw FileNotFoundException("Não foi possível abrir o arquivo selecionado.")
   FileUpload(
     data = data,
     filename = filename,
     mediaType = mediaType ?: mediaTypeFromExtension(filename) ?: DEFAULT_MEDIA_TYPE,
   )
+}
+
+/** Both attachment and receipt server endpoints cap uploads at 10 MiB. */
+internal const val MAX_CLIENT_UPLOAD_BYTES: Int = 10 * 1024 * 1024
+internal const val UPLOAD_TOO_LARGE_MESSAGE: String = "O arquivo excede o limite de 10 MB."
+
+/**
+ * Reads no more than [maxBytes] into memory. Providers may omit or lie about metadata, so this
+ * guard remains authoritative even after [declaredSize] preflight succeeds.
+ */
+internal fun InputStream.readAtMost(maxBytes: Int): ByteArray {
+  val output = ByteArrayOutputStream(minOf(maxBytes, DEFAULT_BUFFER_SIZE))
+  val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+  var total = 0
+  while (true) {
+    val read = read(buffer)
+    if (read < 0) break
+    total += read
+    if (total > maxBytes) throw DemoError(UPLOAD_TOO_LARGE_MESSAGE)
+    output.write(buffer, 0, read)
+  }
+  return output.toByteArray()
 }
 
 /**
@@ -114,6 +141,14 @@ private fun displayName(resolver: ContentResolver, uri: Uri, mediaType: String?)
   return name?.takeIf { it.isNotBlank() }
     ?: uri.lastPathSegment?.takeIf { it.isNotBlank() }
     ?: fallbackFilename(mediaType)
+}
+
+private fun declaredSize(resolver: ContentResolver, uri: Uri): Long? {
+  val projection = arrayOf(OpenableColumns.SIZE)
+  return resolver.query(uri, projection, null, null, null)?.use { cursor ->
+    val column = cursor.getColumnIndex(OpenableColumns.SIZE)
+    if (column >= 0 && cursor.moveToFirst() && !cursor.isNull(column)) cursor.getLong(column) else null
+  }
 }
 
 private fun fallbackFilename(mediaType: String?): String {

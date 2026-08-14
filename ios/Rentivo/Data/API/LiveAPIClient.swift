@@ -395,8 +395,10 @@ public actor LiveAPIClient {
   private nonisolated static func adopt(_ staged: URL, at destination: URL) throws {
     let manager = FileManager.default
     try manager.moveItem(at: staged, to: destination)
-    try? manager.setAttributes(
-      [.protectionKey: FileProtectionType.completeUnlessOpen], ofItemAtPath: destination.path)
+    #if os(iOS)
+      try? manager.setAttributes(
+        [.protectionKey: FileProtectionType.completeUnlessOpen], ofItemAtPath: destination.path)
+    #endif
   }
 
   private func fileExtension(for mediaType: String) -> String {

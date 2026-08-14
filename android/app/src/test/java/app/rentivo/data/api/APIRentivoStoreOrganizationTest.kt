@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -60,7 +61,9 @@ class APIRentivoStoreOrganizationTest {
 
       "POST /api/v1/organizations" -> jsonResponse(
         """{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,""" +
-          """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES}"""
+          """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES,""" +
+          """"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org",""" +
+          """"pix_merchant_city":"Sao Paulo"}}"""
       )
 
       "PATCH /api/v1/organizations/organization-2" -> jsonResponse(
@@ -130,9 +133,7 @@ class APIRentivoStoreOrganizationTest {
   }
 
   @Test
-  fun `creating an organization follows up with a patch when the draft includes pix`() = runTest {
-    // Regression test: OrganizationCreateRequest only accepts `name`, so PIX collected on the
-    // creation form used to be silently dropped.
+  fun `creating an organization includes its pix in the atomic post`() = runTest {
     val dispatcher = organizationRoutes()
     val store = authenticatedStore()
 
@@ -152,55 +153,51 @@ class APIRentivoStoreOrganizationTest {
       PixConfiguration(key = "chave-pix", merchantName = "Nova Org", merchantCity = "Sao Paulo"),
       organization.pix,
     )
-    assertEquals("""{"name":"Nova Org"}""", dispatcher.bodyOf("POST /api/v1/organizations"))
+    assertEquals(
+      """{"name":"Nova Org","pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"}""",
+      dispatcher.bodyOf("POST /api/v1/organizations"),
+    )
   }
 
   @Test
-  fun `creating an organization without pix skips the follow-up patch entirely`() = runTest {
+  fun `creating an organization without pix writes explicit pix clears`() = runTest {
     val dispatcher = organizationRoutes()
     val store = authenticatedStore()
 
     store.createOrganization(OrganizationDraft(name = "Nova Org", pix = null))
 
-    assertEquals(
-      listOf("GET /api/v1/auth/session", "POST /api/v1/organizations"),
-      dispatcher.routes,
-    )
+    assertEquals("""{"name":"Nova Org","pix_key":"","pix_merchant_name":"","pix_merchant_city":""}""",
+      dispatcher.bodyOf("POST /api/v1/organizations"))
   }
 
   @Test
-  fun `a failing pix patch still returns the organization that was created`() = runTest {
-    // Regression test: the org already exists on the server once the POST succeeds, so a failing
-    // follow-up PATCH must not throw — throwing used to surface as a failure to the caller, who
-    // would retry `createOrganization` and create a duplicate organization.
+  fun `a failed atomic organization creation surfaces the server error`() = runTest {
     server.routeWithSession { call ->
       when (call.route) {
         "POST /api/v1/organizations" -> jsonResponse(
-          """{"uuid":"organization-3","name":"Nova Org","enforce_mfa":false,""" +
-            """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES}"""
-        )
-
-        else -> jsonResponse(
           """{"detail":"Falha ao salvar as configurações de PIX."}""",
           code = 500,
         )
+
+        else -> unexpected(call)
       }
     }
     val store = authenticatedStore()
 
-    val organization = store.createOrganization(
-      OrganizationDraft(
-        name = "Nova Org",
-        pix = PixConfiguration(
-          key = "chave-pix",
-          merchantName = "Nova Org",
-          merchantCity = "Sao Paulo",
-        ),
+    val error = runCatching {
+      store.createOrganization(
+        OrganizationDraft(
+          name = "Nova Org",
+          pix = PixConfiguration(
+            key = "chave-pix",
+            merchantName = "Nova Org",
+            merchantCity = "Sao Paulo",
+          ),
+        )
       )
-    )
+    }.exceptionOrNull()
 
-    assertEquals(OrganizationID(rawValue = "organization-3"), organization.id)
-    assertNull(organization.pix)
+    assertTrue(error is LiveAPIError.Server)
   }
 
   @Test

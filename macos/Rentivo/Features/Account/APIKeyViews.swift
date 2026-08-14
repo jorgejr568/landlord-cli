@@ -24,7 +24,9 @@ enum APIKeyFormRules {
   /// A key needs a name, at least one scope, and at least one resource to act on; anything less
   /// is a key that either can't be identified later or can't do anything.
   static func isSavable(name: String, scopes: Set<APIKeyScope>, resourceIDs: Set<WorkspaceID>) -> Bool {
-    !name.isEmpty && !scopes.isEmpty && !resourceIDs.isEmpty
+    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && name.count <= NativeFormTextLimits.name
+      && !scopes.isEmpty && !resourceIDs.isEmpty
   }
 }
 
@@ -225,10 +227,13 @@ private struct APIKeyFormView: View {
   /// The organizations the key can be granted access to. Modelled as a load state rather than a
   /// silent `try?`: until it settles the "Acesso" section can't offer the organization toggles,
   /// and saving early would persist a key missing every grant the user was never shown.
-  @State private var resources: LoadState<[Organization]> = .idle
+  @State private var resources: LoadState<APIKeyOptions> = .idle
   @State private var saving = false
   @State private var submitFailureMessage: String?
+  @State private var confirmingDiscard = false
+  @State private var expiresAtEdited = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
+  private let initialDraftState: NativeAPIKeyDraftState
 
   init(
     key: APIKeyMetadata? = nil,
@@ -237,10 +242,16 @@ private struct APIKeyFormView: View {
     self.key = key
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
+    let name = key?.name ?? "Nova integração"
+    let scopes = key?.scopes ?? [.profileRead, .billingsRead]
+    let grantIDs = Set(grants.map(\.resourceID))
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
-    _name = State(initialValue: key?.name ?? "Nova integração")
-    _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
-    _grantIDs = State(initialValue: Set(grants.map(\.resourceID)))
+    initialDraftState = NativeAPIKeyDraftState(
+      name: name, scopes: scopes, resourceIDs: grantIDs
+    )
+    _name = State(initialValue: name)
+    _scopes = State(initialValue: scopes)
+    _grantIDs = State(initialValue: grantIDs)
     _expiresAt = State(initialValue: key?.expiresAt ?? Date(timeIntervalSinceNow: 31_536_000))
   }
 
@@ -248,7 +259,17 @@ private struct APIKeyFormView: View {
     Form {
       RentivoSection("Identificação") { TextField("Nome", text: $name) }
       RentivoSection("Escopos seguros") {
-        ForEach(APIKeyScope.integrationCases, id: \.self) { scope in
+        if let key, key.unsupportedScopeCount > 0 {
+          Label(
+            "Há \(key.unsupportedScopeCount) escopo novo que esta versão ainda não reconhece. Os escopos ficam preservados e não podem ser alterados.",
+            systemImage: "lock.fill"
+          )
+          .font(RentivoTypography.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
+        ForEach(
+          resources.value?.scopes ?? scopes.sorted { $0.rawValue < $1.rawValue }, id: \.self
+        ) { scope in
           Toggle(
             scope.label,
             isOn: Binding(
@@ -258,10 +279,18 @@ private struct APIKeyFormView: View {
               }
             )
           )
+          .disabled((key?.unsupportedScopeCount ?? 0) > 0)
         }
       }
       RentivoSection("Acesso") {
-        resourceToggle("Conta pessoal", id: .personal)
+        if let key, key.unavailableGrantCount > 0 {
+          Label(
+            "Há \(key.unavailableGrantCount) acesso oculto. Os acessos ficam preservados e não podem ser alterados enquanto estiverem indisponíveis.",
+            systemImage: "lock.fill"
+          )
+          .font(RentivoTypography.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
         switch resources {
         case .idle, .loading:
           HStack(spacing: RentivoSpacing.small) {
@@ -269,9 +298,10 @@ private struct APIKeyFormView: View {
             Text("Carregando organizações…")
               .foregroundStyle(RentivoColors.secondaryInk)
           }
-        case .loaded(let organizations):
-          ForEach(organizations) { organization in
-            resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+        case .loaded(let options):
+          ForEach(options.workspaces) { workspace in
+            resourceToggle(workspace.name, id: workspace.resourceID)
+              .disabled((key?.unavailableGrantCount ?? 0) > 0)
           }
         case .empty:
           // `loadResources()` never settles on `.empty`: an account that belongs to no
@@ -287,7 +317,17 @@ private struct APIKeyFormView: View {
         }
       }
       RentivoSection("Validade") {
-        DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
+        DatePicker("Expira em", selection: expiresAtBinding, displayedComponents: .date)
+          .disabled(key != nil)
+        if key != nil {
+          Text("A validade não pode ser alterada depois que a chave é criada.")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        } else if let options = resources.value {
+          Text("Prazo máximo: \(options.maxExpirationDays) dias.")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       if let submitFailureMessage {
@@ -302,7 +342,10 @@ private struct APIKeyFormView: View {
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
+        .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
@@ -312,15 +355,42 @@ private struct APIKeyFormView: View {
           )
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
     .task { await loadResources() }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeAPIKeyDraftState(name: name, scopes: scopes, resourceIDs: grantIDs)
+      .hasChanges(from: initialDraftState, expirationEdited: expiresAtEdited)
+  }
+
+  private var expiresAtBinding: Binding<Date> {
+    Binding(
+      get: { expiresAt },
+      set: { value in
+        expiresAt = value
+        expiresAtEdited = true
+      }
+    )
   }
 
   private func loadResources() async {
     resources.prepareForRefresh()
     do {
       // Always `.loaded`, never `.empty` — see the "Acesso" section.
-      resources = .loaded(try await app.dependencies.organizations.listOrganizations())
+      let options = try await app.dependencies.apiKeys.apiKeyOptions()
+      if key == nil, !expiresAtEdited {
+        expiresAt = Calendar.current.date(
+          byAdding: .day, value: options.defaultExpirationDays, to: Date()
+        ) ?? expiresAt
+      }
+      resources = .loaded(options)
     } catch {
       // Failing into the section rather than through `settleFailure`: this form is a sheet, and
       // the global banner renders behind it.
@@ -348,7 +418,11 @@ private struct APIKeyFormView: View {
       name: name,
       scopes: scopes,
       grants: APIKeyFormRules.grants(for: grantIDs, original: originalGrants),
-      expiresAt: expiresAt
+      expiresAt: expiresAt,
+      shouldUpdateGrants: key == nil
+        || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != Set(originalGrants.keys)),
+      shouldUpdateScopes: key == nil
+        || ((key?.unsupportedScopeCount ?? 0) == 0 && scopes != key?.scopes)
     )
     submitFailureMessage = nil
     saving = true

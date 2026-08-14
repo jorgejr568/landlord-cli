@@ -3,6 +3,10 @@ package app.rentivo.data
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
+import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.APIKeyWorkspaceOption
+import app.rentivo.domain.AccountDeletionReadiness
 import app.rentivo.domain.ActivityKind
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
@@ -56,6 +60,8 @@ import app.rentivo.domain.ThemeSource
 import app.rentivo.domain.ThemeTarget
 import app.rentivo.domain.ThemeValues
 import app.rentivo.domain.UserProfile
+import app.rentivo.domain.WorkspaceID
+import app.rentivo.domain.WorkspaceResourceType
 import java.text.Normalizer
 import java.time.Instant
 import java.util.Locale
@@ -182,6 +188,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun logout() = Unit
 
+  override suspend fun accountDeletionReadiness(): AccountDeletionReadiness =
+    AccountDeletionReadiness(canDelete = true)
+
   override suspend fun deleteAccount(password: String) = Unit
 
   override fun failNextOperation() {
@@ -238,11 +247,11 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     }
   }
 
-  override suspend fun updatePix(pix: PixConfiguration): UserProfile {
+  override suspend fun updatePix(pix: PixConfiguration?): UserProfile {
     prepareOperation()
     if (viewerModeEnabled) throw DemoError.permissionDenied
     profileState = profileState.copy(pix = pix)
-    recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = pix.key)
+    recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = pix?.key.orEmpty())
     return profileState
   }
 
@@ -959,6 +968,33 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return apiKeysState.filter { it.revokedAt == null }
   }
 
+  override suspend fun apiKeyOptions(): APIKeyOptions {
+    prepareOperation()
+    return APIKeyOptions(
+      scopes = APIKeyScope.integrationCases.toSet(),
+      workspaces = buildList {
+        add(
+          APIKeyWorkspaceOption(
+            resourceType = WorkspaceResourceType.USER,
+            resourceID = WorkspaceID.personal,
+            name = null,
+          )
+        )
+        organizationsState.forEach { organization ->
+          add(
+            APIKeyWorkspaceOption(
+              resourceType = WorkspaceResourceType.ORGANIZATION,
+              resourceID = WorkspaceID(rawValue = organization.id.rawValue),
+              name = organization.name,
+            )
+          )
+        }
+      },
+      defaultExpirationDays = 30,
+      maxExpirationDays = 365,
+    )
+  }
+
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {
     prepareOperation()
     requireWriteAccess()
@@ -985,15 +1021,16 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata {
     prepareOperation()
     requireWriteAccess()
-    if (draft.name.trim().isEmpty() || draft.scopes.isEmpty() || draft.grants.isEmpty()) {
+    if (draft.name.trim().isEmpty() || (draft.shouldUpdateScopes && draft.scopes.isEmpty()) ||
+      (draft.shouldUpdateGrants && draft.grants.isEmpty())) {
       throw DemoError.operationFailed
     }
     val index = apiKeysState.indexOfFirst { it.id == id && it.revokedAt == null }
     if (index < 0) throw DemoError.resourceNotFound
     apiKeysState[index] = apiKeysState[index].copy(
       name = draft.name,
-      scopes = draft.scopes,
-      grants = draft.grants,
+      scopes = if (draft.shouldUpdateScopes) draft.scopes else apiKeysState[index].scopes,
+      grants = if (draft.shouldUpdateGrants) draft.grants else apiKeysState[index].grants,
       expiresAt = draft.expiresAt,
     )
     recordActivity(

@@ -517,7 +517,8 @@ def test_communication_capabilities_require_both_scopes_and_ready_artifacts(api:
 
     assert missing_response.json()["capabilities"]["can_compose"] is True
     assert missing_response.json()["capabilities"]["can_send_invoice"] is True
-    assert missing_response.json()["capabilities"]["can_download_recibo"] is False
+    # The direct download endpoint renders a paid recibo on demand when no stored artifact exists.
+    assert missing_response.json()["capabilities"]["can_download_recibo"] is True
     assert missing_response.json()["capabilities"]["can_send_recibo"] is False
     assert ready_response.json()["capabilities"]["can_download_recibo"] is True
     assert ready_response.json()["capabilities"]["can_send_recibo"] is True
@@ -548,7 +549,7 @@ def test_document_capabilities_are_disabled_only_while_the_pdf_renders(
     assert capabilities["can_send_recibo"] is available
 
 
-def test_capabilities_still_require_stored_documents_when_no_render_is_pending(api: BillsAPI) -> None:
+def test_capabilities_allow_on_demand_recibo_but_still_require_stored_documents_for_send(api: BillsAPI) -> None:
     bill = _updated_bill(BILL, status="paid", pdf_path=None, recibo_pdf_path=None, pdf_render_status="succeeded")
     api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: bill if uuid == BILL.uuid else None
 
@@ -556,7 +557,7 @@ def test_capabilities_still_require_stored_documents_when_no_render_is_pending(a
 
     assert capabilities["can_download_invoice"] is False
     assert capabilities["can_send_invoice"] is False
-    assert capabilities["can_download_recibo"] is False
+    assert capabilities["can_download_recibo"] is True
     assert capabilities["can_send_recibo"] is False
 
 
@@ -638,7 +639,12 @@ def test_create_bill_with_receipts_audits_create_first_and_still_renders_once(ap
     )
 
     assert response.status_code == 201
-    assert response.json()["receipt_upload"] == {"attached": 2, "skipped": 1, "total_bytes": 14}
+    assert response.json()["receipt_upload"] == {
+        "attached": 2,
+        "skipped": 1,
+        "total_bytes": 14,
+        "skipped_reasons": ["unsupported_mime"],
+    }
     assert api.services.bill.add_receipt.call_count == 2
     assert all(call.kwargs["render"] is False for call in api.services.bill.add_receipt.call_args_list)
     api.services.bill.regenerate_pdf.assert_called_once()
@@ -1352,6 +1358,7 @@ def test_receipt_upload_validates_each_file_audits_and_renders_once(api: BillsAP
     assert response.status_code == 201
     assert response.json()["attached"] == 1
     assert response.json()["skipped"] == 3
+    assert response.json()["skipped_reasons"] == ["unsupported_mime", "empty_file", "size_limit_exceeded"]
     assert response.json()["total_bytes"] == 7
     api.services.bill.add_receipt.assert_called_once()
     assert api.services.bill.add_receipt.call_args.kwargs["render"] is False
@@ -1371,12 +1378,12 @@ def test_receipt_batch_reads_and_validates_every_file_before_first_mutation(api:
         SimpleNamespace(
             filename="a.pdf",
             content_type="application/pdf",
-            read=AsyncMock(side_effect=lambda: events.append("read-a") or b"a"),
+            read=AsyncMock(side_effect=lambda _limit: events.append("read-a") or b"a"),
         ),
         SimpleNamespace(
             filename="b.pdf",
             content_type="application/pdf",
-            read=AsyncMock(side_effect=lambda: events.append("read-b") or b"b"),
+            read=AsyncMock(side_effect=lambda _limit: events.append("read-b") or b"b"),
         ),
     ]
     api.services.bill.add_receipt.side_effect = lambda **_kwargs: (

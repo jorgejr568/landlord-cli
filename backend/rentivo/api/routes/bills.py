@@ -17,6 +17,7 @@ from rentivo.api.bill_documents import (
     has_recibo,
     invoice_downloadable,
     is_rendering,
+    recibo_download_available,
     recibo_downloadable,
     recibo_released,
     recibo_state,
@@ -192,7 +193,7 @@ def _capabilities(access: BillAccess, services: RequestServices) -> BillCapabili
         APIScope.COMMUNICATIONS_SEND,
     )
     return BillCapabilitiesResponse(
-        can_edit=can_manage_bills,
+        can_edit=can_manage_bills and pix_ready,
         can_delete=access.allows(APIScope.BILLS_WRITE, roles=_DELETE_ROLES),
         can_transition=can_manage_bills,
         can_regenerate=can_manage_bills and pix_ready,
@@ -200,7 +201,7 @@ def _capabilities(access: BillAccess, services: RequestServices) -> BillCapabili
         can_delete_receipts=can_manage_files,
         can_reorder_receipts=can_manage_files,
         can_download_invoice=files_read and invoice_downloadable(bill),
-        can_download_recibo=files_read and recibo_downloadable(bill),
+        can_download_recibo=files_read and recibo_download_available(bill),
         can_compose=can_compose,
         can_send_invoice=can_compose and invoice_downloadable(bill),
         can_send_recibo=can_compose and recibo_downloadable(bill),
@@ -361,14 +362,22 @@ class _ValidatedReceiptUpload:
 
 async def _validate_receipt_uploads(
     uploads: Sequence[UploadFile],
-) -> tuple[tuple[_ValidatedReceiptUpload, ...], int]:
+) -> tuple[tuple[_ValidatedReceiptUpload, ...], tuple[str, ...]]:
     valid: list[_ValidatedReceiptUpload] = []
-    skipped = 0
+    skipped_reasons: list[str] = []
     for upload in uploads:
-        file_bytes = await upload.read()
+        # Read at most one byte past the contract limit. A hostile multipart body must not be
+        # fully buffered in memory before we decide that it is too large.
+        file_bytes = await upload.read(MAX_RECEIPT_SIZE + 1)
         content_type = upload.content_type or ""
-        if content_type not in ALLOWED_RECEIPT_TYPES or not file_bytes or len(file_bytes) > MAX_RECEIPT_SIZE:
-            skipped += 1
+        if content_type not in ALLOWED_RECEIPT_TYPES:
+            skipped_reasons.append("unsupported_mime")
+            continue
+        if not file_bytes:
+            skipped_reasons.append("empty_file")
+            continue
+        if len(file_bytes) > MAX_RECEIPT_SIZE:
+            skipped_reasons.append("size_limit_exceeded")
             continue
         valid.append(
             _ValidatedReceiptUpload(
@@ -377,7 +386,7 @@ async def _validate_receipt_uploads(
                 content_type=content_type,
             )
         )
-    return tuple(valid), skipped
+    return tuple(valid), tuple(skipped_reasons)
 
 
 def _audit_receipt_uploads(
@@ -402,7 +411,7 @@ def _audit_receipt_uploads(
 
 def _attach_receipts(
     uploads: Sequence[_ValidatedReceiptUpload],
-    skipped: int,
+    skipped_reasons: Sequence[str],
     access: BillAccess,
     services: RequestServices,
     *,
@@ -434,8 +443,9 @@ def _attach_receipts(
     return (
         ReceiptUploadResponse(
             attached=len(receipts),
-            skipped=skipped,
+            skipped=len(skipped_reasons),
             total_bytes=total_bytes,
+            skipped_reasons=tuple(skipped_reasons),
             items=tuple(_receipt_response(receipt) for receipt in receipts),
         ),
         receipts,
@@ -449,10 +459,10 @@ async def _upload_receipts(
     *,
     regenerate: bool,
 ) -> ReceiptUploadResponse:
-    valid, skipped = await _validate_receipt_uploads(uploads)
+    valid, skipped_reasons = await _validate_receipt_uploads(uploads)
     response, _receipts = _attach_receipts(
         valid,
-        skipped,
+        skipped_reasons,
         access,
         services,
         regenerate=regenerate,
@@ -502,7 +512,7 @@ async def create_bill(
             "Informe o valor de todos os itens variáveis.",
             "variable_amounts",
         )
-    valid_uploads, skipped = await _validate_receipt_uploads(receipt_files or ())
+    valid_uploads, skipped_reasons = await _validate_receipt_uploads(receipt_files or ())
     try:
         bill = services.bill.generate_bill(
             billing=access.billing,
@@ -520,7 +530,7 @@ async def create_bill(
     try:
         upload, attached_receipts = _attach_receipts(
             valid_uploads,
-            skipped,
+            skipped_reasons,
             bill_access,
             services,
             regenerate=False,
@@ -556,6 +566,7 @@ async def create_bill(
             attached=upload.attached,
             skipped=upload.skipped,
             total_bytes=upload.total_bytes,
+            skipped_reasons=upload.skipped_reasons,
         ),
     )
 

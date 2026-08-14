@@ -135,7 +135,10 @@ struct InviteMemberView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Convidar") { Task { await invite() } }
-          .disabled(saving || !email.contains("@"))
+          .disabled(
+            saving || email.count > NativeFormTextLimits.email
+              || !EmailAddress.isValid(email.trimmingCharacters(in: .whitespacesAndNewlines))
+          )
       }
     }
     .interactiveDismissDisabled(saving)

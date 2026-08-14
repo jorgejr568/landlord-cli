@@ -201,7 +201,10 @@ struct InviteMemberView: View {
             Text("Convidar")
           }
         }
-        .disabled(saving || !email.contains("@"))
+        .disabled(
+          saving || email.count > NativeFormTextLimits.email
+            || !EmailAddress.isValid(email.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
       }
     }
     .interactiveDismissDisabled(saving)

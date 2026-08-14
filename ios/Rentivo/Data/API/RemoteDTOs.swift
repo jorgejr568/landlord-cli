@@ -14,8 +14,36 @@ struct RemoteOrganization: Decodable {
 struct RemoteOrganizationCapabilities: Decodable { let canManage, canInvite, canCreateBilling, canViewBillingStats: Bool; enum CodingKeys: String, CodingKey { case canManage = "can_manage"; case canInvite = "can_invite"; case canCreateBilling = "can_create_billing"; case canViewBillingStats = "can_view_billing_stats" } }
 struct RemoteOrganizationSettings: Decodable { let pixKey, pixMerchantName, pixMerchantCity: String; enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" } }
 struct RemoteOrganizationMember: Decodable { let userID: Int; let email, role: String; enum CodingKeys: String, CodingKey { case email, role; case userID = "user_id" } }
-struct RemoteOrganizationCreate: Encodable { let name: String }
-struct RemoteOrganizationUpdate: Encodable { let name, pixKey, pixMerchantName, pixMerchantCity: String?; enum CodingKeys: String, CodingKey { case name; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }; init(draft: OrganizationDraft) { name = draft.name; pixKey = draft.pix?.key; pixMerchantName = draft.pix?.merchantName; pixMerchantCity = draft.pix?.merchantCity } }
+struct RemoteOrganizationCreate: Encodable {
+  let name, pixKey, pixMerchantName, pixMerchantCity: String
+  enum CodingKeys: String, CodingKey {
+    case name
+    case pixKey = "pix_key"
+    case pixMerchantName = "pix_merchant_name"
+    case pixMerchantCity = "pix_merchant_city"
+  }
+  init(draft: OrganizationDraft) {
+    name = draft.name
+    pixKey = draft.pix?.key ?? ""
+    pixMerchantName = draft.pix?.merchantName ?? ""
+    pixMerchantCity = draft.pix?.merchantCity ?? ""
+  }
+}
+struct RemoteOrganizationUpdate: Encodable {
+  let name, pixKey, pixMerchantName, pixMerchantCity: String
+  enum CodingKeys: String, CodingKey {
+    case name
+    case pixKey = "pix_key"
+    case pixMerchantName = "pix_merchant_name"
+    case pixMerchantCity = "pix_merchant_city"
+  }
+  init(draft: OrganizationDraft) {
+    name = draft.name
+    pixKey = draft.pix?.key ?? ""
+    pixMerchantName = draft.pix?.merchantName ?? ""
+    pixMerchantCity = draft.pix?.merchantCity ?? ""
+  }
+}
 struct RemoteMemberRole: Encodable { let role: String }
 struct RemoteInviteCreate: Encodable { let email, role: String }
 struct RemoteMFAPolicy: Encodable { let enforceMFA: Bool; enum CodingKeys: String, CodingKey { case enforceMFA = "enforce_mfa" } }
@@ -92,7 +120,23 @@ struct RemoteCommunicationSendRequest: Encodable {
 struct RemoteCommunicationSend: Decodable { let queuedCount: Int; enum CodingKeys: String, CodingKey { case queuedCount = "queued_count" } }
 struct RemoteExportRequest: Encodable { let format: String }
 struct RemoteExport: Decodable { let format, status: String }
-struct RemoteReceiptUpload: Decodable { let items: [RemoteReceipt] }
+struct RemoteReceiptUpload: Decodable {
+  let items: [RemoteReceipt]
+  let skippedReasons: [String]?
+  enum CodingKeys: String, CodingKey { case items; case skippedReasons = "skipped_reasons" }
+
+  var rejectionMessage: String? {
+    let messages = (skippedReasons ?? []).compactMap { reason in
+      switch reason {
+      case "unsupported_mime": "Envie um comprovante PDF, JPG ou PNG."
+      case "empty_file": "O arquivo selecionado está vazio."
+      case "size_limit_exceeded": "O comprovante excede o limite de 10 MB."
+      default: nil
+      }
+    }
+    return messages.isEmpty ? nil : messages.joined(separator: " ")
+  }
+}
 struct RemoteReceiptList: Decodable { let items: [RemoteReceipt] }
 struct RemoteReceiptOrder: Encodable { let order: [String] }
 struct RemoteReceipt: Decodable {
@@ -116,6 +160,33 @@ struct RemoteAttachment: Decodable {
   }
 }
 struct RemoteAPIKeyList: Decodable { let items: [RemoteAPIKey] }
+struct RemoteAPIKeyOptions: Decodable {
+  let scopes: [String]
+  let personalWorkspace: RemoteAPIKeyWorkspace
+  let organizations: [RemoteOrganizationWorkspace]
+  let defaultExpirationDays, maxExpirationDays: Int
+  enum CodingKeys: String, CodingKey {
+    case scopes, organizations
+    case personalWorkspace = "personal_workspace"
+    case defaultExpirationDays = "default_expiration_days"
+    case maxExpirationDays = "max_expiration_days"
+  }
+}
+struct RemoteAPIKeyWorkspace: Decodable {
+  let resourceType, resourceID: String
+  enum CodingKeys: String, CodingKey {
+    case resourceType = "resource_type"
+    case resourceID = "resource_id"
+  }
+}
+struct RemoteOrganizationWorkspace: Decodable {
+  let resourceType, resourceID, name: String
+  enum CodingKeys: String, CodingKey {
+    case name
+    case resourceType = "resource_type"
+    case resourceID = "resource_id"
+  }
+}
 struct RemoteAPIKey: Decodable {
   let uuid, name, hint, expiresAt, createdAt: String
   let scopes: [String]
@@ -169,12 +240,12 @@ struct RemoteAPIKeyCreate: Encodable {
 }
 struct RemoteAPIKeyUpdate: Encodable {
   let name: String
-  let scopes: [String]
-  let grants: [RemoteAPIKeyGrantInput]
+  let scopes: [String]?
+  let grants: [RemoteAPIKeyGrantInput]?
   init(draft: APIKeyDraft) {
     name = draft.name
-    scopes = draft.scopes.map(\.rawValue).sorted()
-    grants = draft.grants.map(RemoteAPIKeyGrantInput.init)
+    scopes = draft.shouldUpdateScopes ? draft.scopes.map(\.rawValue).sorted() : nil
+    grants = draft.shouldUpdateGrants ? draft.grants.map(RemoteAPIKeyGrantInput.init) : nil
   }
 }
 struct RemoteAPIKeyGrantInput: Encodable {
@@ -229,28 +300,30 @@ extension ThemeValues {
 }
 
 struct RemoteBillingDraft: Encodable {
-  let name: String; let description: String; let owner: RemoteOwnerInput; let items: [RemoteBillingItemInput]
+  let name: String; let description: String; let owner: RemoteOwnerInput; let items: [RemoteBillingCreateItemInput]
   let pixKey: String; let pixMerchantName: String; let pixMerchantCity: String
   let recipients, replyTo: [RemoteContactInput]
   enum CodingKeys: String, CodingKey { case name, description, owner, items, recipients; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
   init(draft: BillingDraft) {
-    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
+    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingCreateItemInput.init)
     pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
     recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
+    replyTo = draft.replyTo.map(RemoteContactInput.init)
     switch draft.owner { case .user: owner = RemoteOwnerInput(type: "user", uuid: nil); case .organization(let id, _): owner = RemoteOwnerInput(type: "organization", uuid: id.rawValue) }
   }
 }
 struct RemoteBillingUpdate: Encodable {
   let name, description, pixKey, pixMerchantName, pixMerchantCity: String
-  let items: [RemoteBillingItemInput]
+  let owner: RemoteOwnerInput
+  let items: [RemoteBillingUpdateItemInput]
   let recipients, replyTo: [RemoteContactInput]
-  enum CodingKeys: String, CodingKey { case name, description, items, recipients; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
+  enum CodingKeys: String, CodingKey { case name, description, owner, items, recipients; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
   init(draft: BillingDraft) {
-    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
+    name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingUpdateItemInput.init)
     pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
     recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
+    replyTo = draft.replyTo.map(RemoteContactInput.init)
+    switch draft.owner { case .user: owner = RemoteOwnerInput(type: "user", uuid: nil); case .organization(let id, _): owner = RemoteOwnerInput(type: "organization", uuid: id.rawValue) }
   }
 }
 struct RemoteOwnerInput: Encodable { let type: String; let uuid: String? }
@@ -262,7 +335,14 @@ private let ulidAllowedCharacters = Set("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
 private func isULID(_ value: String) -> Bool {
   value.count == 26 && value.allSatisfy(ulidAllowedCharacters.contains)
 }
-struct RemoteBillingItemInput: Encodable {
+struct RemoteBillingCreateItemInput: Encodable {
+  let description: String; let amount: Int; let itemType: String
+  enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" }
+  init(_ item: BillingItem) {
+    description = item.description; amount = item.amount.centavos; itemType = item.type.rawValue
+  }
+}
+struct RemoteBillingUpdateItemInput: Encodable {
   let uuid: String?; let description: String; let amount: Int; let itemType: String
   enum CodingKeys: String, CodingKey { case uuid, description, amount; case itemType = "item_type" }
   init(_ item: BillingItem) {
@@ -343,7 +423,11 @@ struct RemoteProfile: Decodable {
 struct RemotePixUpdate: Encodable {
   let pixKey, pixMerchantName, pixMerchantCity: String
   enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-  init(pix: PixConfiguration) { pixKey = pix.key; pixMerchantName = pix.merchantName; pixMerchantCity = pix.merchantCity }
+  init(pix: PixConfiguration?) {
+    pixKey = pix?.key ?? ""
+    pixMerchantName = pix?.merchantName ?? ""
+    pixMerchantCity = pix?.merchantCity ?? ""
+  }
 }
 struct RemotePixUpdateResponse: Decodable { let profile: RemoteProfile }
 struct RemoteBillingListItem: Decodable { let uuid, name, description: String; let owner: RemoteOwner; let capabilities: RemoteBillingCapabilities }
@@ -353,11 +437,12 @@ struct RemoteBilling: Decodable {
   let items: [RemoteBillingItem]
   let pixKey, pixMerchantName, pixMerchantCity: String
   let recipients, replyTo: [RemoteBillingContact]
+  let pixNeedsSetup: Bool?
   // Optional so a payload without the field keeps decoding; the live billing detail contract
   // always includes it.
   let communicationTemplates: [RemoteCommunicationTemplate]?
   let capabilities: RemoteBillingCapabilities
-  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case communicationTemplates = "communication_templates" }
+  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case pixNeedsSetup = "pix_needs_setup"; case communicationTemplates = "communication_templates" }
 }
 struct RemoteBillingContact: Decodable { let uuid: String; let name, email: String? }
 struct RemoteCommunicationTemplate: Decodable {
@@ -399,8 +484,13 @@ struct RemoteBill: Decodable {
 // `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that
 // gate a button in the app are decoded; the rest follow the billing-level capabilities today.
 struct RemoteBillCapabilities: Decodable {
+  let canEdit, canDelete, canTransition: Bool
+  let canUploadReceipts, canDeleteReceipts, canReorderReceipts, canCompose: Bool
   let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
   enum CodingKeys: String, CodingKey {
+    case canEdit = "can_edit"; case canDelete = "can_delete"; case canTransition = "can_transition"
+    case canUploadReceipts = "can_upload_receipts"; case canDeleteReceipts = "can_delete_receipts"
+    case canReorderReceipts = "can_reorder_receipts"; case canCompose = "can_compose"
     case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
     case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
     case canRegenerate = "can_regenerate"
@@ -408,7 +498,14 @@ struct RemoteBillCapabilities: Decodable {
 }
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,
 // but the domain only models the allowed target statuses today, so only `target` is decoded.
-struct RemoteAvailableTransition: Decodable { let target: String }
+struct RemoteAvailableTransition: Decodable {
+  let target, label, style: String
+  let requiresConfirmation: Bool
+  enum CodingKeys: String, CodingKey {
+    case target, label, style
+    case requiresConfirmation = "requires_confirmation"
+  }
+}
 struct RemoteBillLine: Decodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" } }
 struct RemoteExpenseList: Decodable { let items: [RemoteExpense] }
 struct RemoteExpense: Decodable { let uuid, description, category, incurredOn: String; let amount: Int; enum CodingKeys: String, CodingKey { case uuid, description, category, amount; case incurredOn = "incurred_on" } }

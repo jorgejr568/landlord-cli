@@ -174,6 +174,7 @@ private struct ExpenseFormView: View {
   var body: some View {
     Form {
       TextField("Descrição", text: $description)
+        .textInputAutocapitalization(.sentences)
       CurrencyCentavosField("Valor em centavos", centavos: $centavos)
       Picker("Categoria", selection: $category) {
         ForEach(ExpenseCategory.allCases, id: \.self) { category in
@@ -203,7 +204,10 @@ private struct ExpenseFormView: View {
             Text("Salvar")
           }
         }
-        .disabled(saving || description.isEmpty || centavos <= 0)
+        .disabled(
+          saving || description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || description.count > NativeFormTextLimits.description || centavos <= 0
+        )
       }
     }
     .interactiveDismissDisabled(saving)
@@ -217,7 +221,7 @@ private struct ExpenseFormView: View {
     do {
       _ = try await app.dependencies.expenses.createExpense(
         billingID: billingID,
-        description: description,
+        description: description.trimmingCharacters(in: .whitespacesAndNewlines),
         category: category,
         incurredOn: selectedDate,
         amount: Money(centavos: centavos)
@@ -330,9 +334,9 @@ struct AttachmentListView: View {
 
   private func add(fileURL: URL) async {
     do {
-      let accessGranted = fileURL.startAccessingSecurityScopedResource()
-      defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
-      let upload = try FileUpload.from(url: fileURL)
+      let upload = try await FileUpload.fromSecurityScoped(
+        url: fileURL, policy: .rentivoDocument
+      )
       _ = try await app.dependencies.attachments.addAttachment(
         billingID: billingID,
         upload: upload
@@ -402,14 +406,23 @@ struct CommunicationComposerView: View {
   /// message has to stay inline.
   @State private var sendErrorMessage: String?
   @State private var appliedTemplateType: CommunicationType
+  @State private var confirmingDiscard = false
+  private let initialDraftState: NativeCommunicationDraftState
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
     self.bill = bill
-    _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
+    let selectedRecipients = Set(billing.recipients.map(\.id))
     let template = billing.template(for: .billReady)
-    _subject = State(initialValue: template?.subject ?? "")
-    _message = State(initialValue: template?.body ?? "")
+    let subject = template?.subject ?? ""
+    let message = template?.body ?? ""
+    initialDraftState = NativeCommunicationDraftState(
+      commType: .billReady, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: nil
+    )
+    _selectedRecipients = State(initialValue: selectedRecipients)
+    _subject = State(initialValue: subject)
+    _message = State(initialValue: message)
     _appliedTemplateType = State(initialValue: .billReady)
   }
 
@@ -424,7 +437,16 @@ struct CommunicationComposerView: View {
       isSending: isSending,
       hasSelectedRecipients: !selectedRecipients.isEmpty,
       isRenderingPDF: bill.isRenderingPDF
-    )
+    ) || !bill.capabilities.canCompose || !canSendSelectedType || !formIssues.isEmpty
+  }
+
+  private var canSendSelectedType: Bool {
+    commType == .paymentReceipt
+      ? bill.capabilities.canSendRecibo : bill.capabilities.canSendInvoice
+  }
+
+  private var formIssues: [ValidationIssue] {
+    CommunicationFormRules.issues(subject: subject, body: message)
   }
 
   private var attachmentDescription: String {
@@ -469,12 +491,25 @@ struct CommunicationComposerView: View {
 
         Section {
           TextField("Assunto", text: $subject)
+            .accessibilityIdentifier("comm.subject")
           TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
             .lineLimit(5...12)
+            .accessibilityIdentifier("comm.body")
+          ForEach(formIssues, id: \.self) { issue in
+            Label(issue.message, systemImage: "exclamationmark.circle.fill")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.coral)
+          }
         } header: {
           Text("Mensagem")
         } footer: {
-          Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+          VStack(alignment: .leading) {
+            Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+            Text(
+              "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+            )
+            .monospacedDigit()
+          }
         }
 
         Section {
@@ -522,12 +557,27 @@ struct CommunicationComposerView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
           .disabled(isSending)
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .interactiveDismissDisabled(isSending)
+    .interactiveDismissDisabled(isSending || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeCommunicationDraftState(
+      commType: commType, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: saveScope
+    ).hasChanges(from: initialDraftState)
   }
 
   private var ownerScopeLabel: String {
@@ -559,6 +609,10 @@ struct CommunicationComposerView: View {
     sendErrorMessage = nil
     guard !selectedRecipients.isEmpty else {
       sendErrorMessage = "Selecione ao menos um destinatário."
+      return
+    }
+    guard formIssues.isEmpty else {
+      sendErrorMessage = "Revise o assunto e a mensagem antes de enviar."
       return
     }
     isSending = true

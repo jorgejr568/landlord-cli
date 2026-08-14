@@ -26,6 +26,7 @@ from rentivo.api.errors import ProblemException
 from rentivo.api.principal import Principal
 from rentivo.api.schemas.security import (
     AccountDeleteRequest,
+    AccountDeletionReadinessResponse,
     MFAStatusResponse,
     PasskeyListResponse,
     PasskeyRegistrationBeginResponse,
@@ -145,6 +146,18 @@ async def security_summary(
     services: RequestServices = Depends(get_services),
 ) -> SecuritySummaryResponse:
     return _summary(principal, services)
+
+
+@router.get("/account-deletion-readiness", response_model=AccountDeletionReadinessResponse)
+async def account_deletion_readiness(
+    principal: Principal = Depends(_account_principal),
+    services: RequestServices = Depends(get_services),
+) -> AccountDeletionReadinessResponse:
+    can_delete = services.account_deletion.can_delete_account(principal.user.id)
+    return AccountDeletionReadinessResponse(
+        can_delete=can_delete,
+        reason=None if can_delete else "sole_organization_admin",
+    )
 
 
 @router.post("/pix", response_model=PixUpdateResponse)

@@ -145,7 +145,8 @@ private struct SignInForm: View {
   @State private var isAuthenticating = false
 
   private var canSubmit: Bool {
-    !isAuthenticating && !email.trimmed.isEmpty && !password.isEmpty
+    !isAuthenticating && EmailAddress.isValid(email.trimmed)
+      && BcryptPasswordRules.isAccepted(password)
   }
 
   var body: some View {
@@ -230,7 +231,8 @@ private struct SignUpForm: View {
   @State private var isAuthenticating = false
 
   private var canSubmit: Bool {
-    !isAuthenticating && !email.trimmed.isEmpty && !password.isEmpty && !confirmPassword.isEmpty
+    !isAuthenticating && EmailAddress.isValid(email.trimmed)
+      && BcryptPasswordRules.isAccepted(password) && password == confirmPassword
   }
 
   var body: some View {

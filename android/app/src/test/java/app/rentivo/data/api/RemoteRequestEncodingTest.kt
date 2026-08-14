@@ -1,10 +1,16 @@
 package app.rentivo.data.api
 
+import app.rentivo.domain.APIKeyDraft
+import app.rentivo.domain.APIKeyGrant
+import app.rentivo.domain.APIKeyScope
 import app.rentivo.domain.BillingRecipient
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.RecipientID
 import app.rentivo.domain.ThemeValues
+import app.rentivo.domain.WorkspaceID
+import app.rentivo.domain.WorkspaceResourceType
+import java.time.Instant
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -59,6 +65,48 @@ class RemoteRequestEncodingTest {
   }
 
   @Test
+  fun `an unchanged api key update omits grants but create always sends them`() {
+    val draft = APIKeyDraft(
+      name = "Painel",
+      scopes = setOf(APIKeyScope.PROFILE_READ),
+      grants = listOf(APIKeyGrant(WorkspaceResourceType.USER, WorkspaceID.personal)),
+      expiresAt = Instant.parse("2026-12-31T23:59:59Z"),
+      shouldUpdateGrants = false,
+      shouldUpdateScopes = false,
+    )
+
+    val update = apiJson.parseToJsonElement(
+      apiJson.encodeToString(RemoteAPIKeyUpdate.from(draft))
+    ).jsonObject
+    val create = apiJson.parseToJsonElement(
+      apiJson.encodeToString(RemoteAPIKeyCreate.from(draft))
+    ).jsonObject
+
+    assertFalse(update.containsKey("grants"))
+    assertFalse(update.containsKey("scopes"))
+    assertEquals(1, create["grants"]!!.let { it as kotlinx.serialization.json.JsonArray }.size)
+    assertEquals(1, create["scopes"]!!.let { it as kotlinx.serialization.json.JsonArray }.size)
+  }
+
+  @Test
+  fun `an explicitly changed api key update sends the visible grants`() {
+    val draft = APIKeyDraft(
+      name = "Painel",
+      scopes = setOf(APIKeyScope.PROFILE_READ),
+      grants = listOf(APIKeyGrant(WorkspaceResourceType.USER, WorkspaceID.personal)),
+      expiresAt = Instant.parse("2026-12-31T23:59:59Z"),
+      shouldUpdateGrants = true,
+    )
+
+    val update = apiJson.parseToJsonElement(
+      apiJson.encodeToString(RemoteAPIKeyUpdate.from(draft))
+    ).jsonObject
+
+    assertEquals("personal", update["grants"]!!.let { it as kotlinx.serialization.json.JsonArray }
+      .first().jsonObject["resource_id"]!!.jsonPrimitive.content)
+  }
+
+  @Test
   fun `a contact input carries only the name and the email`() {
     val recipient = BillingRecipient(
       id = RecipientID(rawValue = "contact-1"),
@@ -73,14 +121,17 @@ class RemoteRequestEncodingTest {
   }
 
   @Test
-  fun `an organization update without pix omits the pix fields rather than nulling them`() {
-    // Omitting means "leave unchanged"; writing explicit nulls would clear the stored PIX.
+  fun `an organization update without pix writes explicit empty fields to clear it`() {
+    // `null` means there is no override in the draft, which the organization PATCH represents as
+    // an explicit all-empty PIX triple rather than an ambiguous omitted field set.
     val encoded = apiJson.encodeToString(
       RemoteOrganizationUpdate.from(OrganizationDraft(name = "Horizonte", pix = null))
     )
 
-    assertEquals("""{"name":"Horizonte"}""", encoded)
-    assertFalse(encoded.contains("pix_key"))
+    assertEquals(
+      """{"name":"Horizonte","pix_key":"","pix_merchant_name":"","pix_merchant_city":""}""",
+      encoded,
+    )
   }
 
   @Test
