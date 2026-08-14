@@ -54,6 +54,7 @@ enum HomeDashboard {
 struct HomeView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<HomeData> = .idle
+  @State private var refresh = RefreshActivity()
 
   var body: some View {
     PageStateView(state: state) { data in
@@ -64,17 +65,14 @@ struct HomeView: View {
     .rentivoPage()
     .navigationTitle("Início")
     .toolbar {
-      // macOS has no pull-to-refresh, so the reload iOS gets from `.refreshable` is a toolbar
-      // command here (and ⌘R, the platform-standard refresh shortcut).
       ToolbarItem(placement: .primaryAction) {
-        Button {
-          Task { await load() }
-        } label: {
-          Label("Atualizar", systemImage: "arrow.clockwise")
+        RefreshToolbarButton(
+          activity: refresh,
+          help: "Atualizar o painel",
+          accessibilityIdentifier: "home.refresh"
+        ) {
+          await load()
         }
-        .keyboardShortcut("r", modifiers: .command)
-        .help("Atualizar o painel")
-        .accessibilityIdentifier("home.refresh")
       }
       ToolbarItem(placement: .primaryAction) {
         BrandMark(compact: true)
@@ -86,8 +84,14 @@ struct HomeView: View {
   private func load() async {
     state.prepareForRefresh()
     do {
-      let summary = try await app.dependencies.dashboard.dashboardSummary()
-      let billings = try await app.dependencies.billings.listBillings()
+      // The summary and the portfolio are independent requests, so the dashboard waits for the
+      // slower of the two rather than for their sum. `RepositoryBox` is what carries a
+      // main-actor repository into the child tasks.
+      let dashboard = RepositoryBox(app.dependencies.dashboard)
+      let billingsRepository = RepositoryBox(app.dependencies.billings)
+      async let summaryRequest = dashboard.repository.dashboardSummary()
+      async let billingsRequest = billingsRepository.repository.listBillings()
+      let (summary, billings) = try await (summaryRequest, billingsRequest)
       let bills = try await BillLoading.billsByBilling(
         for: billings, using: app.dependencies.bills
       ).flatMap(\.bills)

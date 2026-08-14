@@ -68,10 +68,13 @@ struct RentivoMacApp: App {
         // No keyboard shortcut: ⌘⇧Q is the system chord for logging out of the macOS user
         // account, and shadowing it would make signing out of Rentivo look like the far more
         // destructive system action. The menu item is the whole affordance.
-        Button("Sair da conta") {
+        //
+        // The title reports the wait as well, because a menu can be reopened while the request is
+        // still running and the window banner behind it is not what the user is looking at then.
+        Button(app.isSigningOut ? "Saindo da conta…" : "Sair da conta") {
           Task { await app.signOut() }
         }
-        .disabled(!app.isAuthenticated || app.isSigningOut)
+        .disabled(!app.isAuthenticated || app.isSigningOut || app.isDeletingAccount)
       }
     }
   }

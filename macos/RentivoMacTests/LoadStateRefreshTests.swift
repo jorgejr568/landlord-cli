@@ -95,6 +95,95 @@ struct LoadStateSettleFailureTests {
   }
 }
 
+/// A refresh whose completion the test decides, so `isRefreshing` can be observed while one is
+/// genuinely in flight rather than inferred from a finished call.
+@MainActor
+private final class GatedRefresh {
+  private(set) var startedRuns = 0
+  private(set) var finishedRuns = 0
+  private var resume: CheckedContinuation<Void, Never>?
+  private var pendingFinish = false
+
+  func run() async {
+    startedRuns += 1
+    if pendingFinish {
+      pendingFinish = false
+    } else {
+      await withCheckedContinuation { resume = $0 }
+    }
+    finishedRuns += 1
+  }
+
+  /// Releases the refresh that is waiting, or the next one to start. Remembering the signal is
+  /// what keeps a test from hanging forever if it gets here a beat before the load suspends.
+  func finish() {
+    if let resume {
+      self.resume = nil
+      resume.resume()
+    } else {
+      pendingFinish = true
+    }
+  }
+}
+
+@Suite("macOS RefreshActivity")
+@MainActor
+struct RefreshActivityTests {
+  @Test("a screen that has not refreshed anything reports nothing in flight")
+  func startsIdle() {
+    #expect(RefreshActivity().isRefreshing == false)
+  }
+
+  @Test("a refresh reports itself while it runs and clears when it finishes")
+  func isRefreshingFollowsTheLoad() async {
+    let activity = RefreshActivity()
+    let gated = GatedRefresh()
+
+    let refresh = Task { await activity.run { await gated.run() } }
+    while !activity.isRefreshing { await Task.yield() }
+
+    gated.finish()
+    await refresh.value
+
+    #expect(activity.isRefreshing == false)
+    #expect(gated.finishedRuns == 1)
+  }
+
+  @Test("a second press while a refresh is in flight is dropped instead of racing it")
+  func reentrantRefreshIsDropped() async {
+    let activity = RefreshActivity()
+    let gated = GatedRefresh()
+
+    let refresh = Task { await activity.run { await gated.run() } }
+    while !activity.isRefreshing { await Task.yield() }
+
+    await activity.run { await gated.run() }
+    // The dropped press must not start a second load: two loads in flight would both assign the
+    // screen's state on completion, and the older one could land last.
+    #expect(gated.startedRuns == 1)
+
+    gated.finish()
+    await refresh.value
+    #expect(gated.finishedRuns == 1)
+  }
+
+  @Test("the control works again once the previous refresh finished")
+  func sequentialRefreshesBothRun() async {
+    let activity = RefreshActivity()
+    let gated = GatedRefresh()
+
+    for _ in 0..<2 {
+      let refresh = Task { await activity.run { await gated.run() } }
+      while !activity.isRefreshing { await Task.yield() }
+      gated.finish()
+      await refresh.value
+    }
+
+    #expect(gated.finishedRuns == 2)
+    #expect(activity.isRefreshing == false)
+  }
+}
+
 /// The `load()` skeleton every screen now shares, standing in for a SwiftUI view (whose `load()` is
 /// private and unreachable from a unit test) so the idiom is exercised end to end against a real
 /// store.

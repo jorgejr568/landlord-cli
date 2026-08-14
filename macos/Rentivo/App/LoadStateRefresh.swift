@@ -41,3 +41,60 @@ extension LoadState {
     }
   }
 }
+
+/// The other half of that policy: a refresh that keeps content on screen has nothing to say for
+/// itself, so the control that started it says it instead.
+///
+/// A screen holds one of these in `@State` and routes its refresh control through `run(_:)`. While
+/// a refresh is in flight `isRefreshing` is true — the control spins and is disabled — and a second
+/// press is dropped rather than starting a load that would race the first one to assign `state`.
+///
+/// Only the refresh control goes through here. A `.task(id:)` re-run and the reloads a mutation
+/// triggers still call `load()` directly: those carry data the screen must not miss, so dropping
+/// one because a manual refresh happened to be running would leave the user looking at a stale
+/// screen.
+@MainActor
+@Observable
+final class RefreshActivity {
+  private(set) var isRefreshing = false
+
+  init() {}
+
+  /// Runs `load` unless one is already running.
+  func run(_ load: () async -> Void) async {
+    guard !isRefreshing else { return }
+    isRefreshing = true
+    defer { isRefreshing = false }
+    await load()
+  }
+}
+
+/// The toolbar refresh control, shared by every screen that has one.
+///
+/// macOS has no pull-to-refresh, so the reload iOS gets from `.refreshable` is a toolbar command
+/// here — and ⌘R, the platform-standard refresh shortcut. The label becomes a spinner while the
+/// load is in flight so a refresh over already-loaded content is visibly happening.
+struct RefreshToolbarButton: View {
+  let activity: RefreshActivity
+  var help: String?
+  var accessibilityIdentifier: String?
+  let load: () async -> Void
+
+  var body: some View {
+    Button {
+      Task { await activity.run(load) }
+    } label: {
+      if activity.isRefreshing {
+        ProgressView()
+          .controlSize(.small)
+      } else {
+        Label("Atualizar", systemImage: "arrow.clockwise")
+      }
+    }
+    .disabled(activity.isRefreshing)
+    .keyboardShortcut("r", modifiers: .command)
+    .help(help ?? "Atualizar")
+    .accessibilityLabel("Atualizar")
+    .accessibilityIdentifier(accessibilityIdentifier ?? "page.refresh")
+  }
+}
