@@ -166,6 +166,10 @@ private struct ExpenseFormView: View {
   @State private var centavos = 0
   @State private var category: ExpenseCategory = .maintenance
   @State private var incurredOn = Date()
+  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
+  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var submitErrorMessage: String?
+  @State private var saving = false
 
   var body: some View {
     Form {
@@ -177,18 +181,30 @@ private struct ExpenseFormView: View {
         }
       }
       DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
+      if let submitErrorMessage {
+        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+          .foregroundStyle(RentivoColors.coral)
+          .accessibilityIdentifier("expense.form.error")
+      }
     }
     .navigationTitle("Nova despesa")
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
-          .disabled(description.isEmpty || centavos <= 0)
+          .disabled(saving || description.isEmpty || centavos <= 0)
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   private func save() async {
+    guard !saving else { return }
+    submitErrorMessage = nil
+    saving = true
+    defer { saving = false }
     do {
       _ = try await app.dependencies.expenses.createExpense(
         billingID: billingID,
@@ -199,7 +215,7 @@ private struct ExpenseFormView: View {
       )
       await onSaved()
       dismiss()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { submitErrorMessage = DemoError(error).message }
   }
 
   private var selectedDate: DateOnly { DateOnly(from: incurredOn) }
@@ -372,6 +388,10 @@ struct CommunicationComposerView: View {
   @State private var message: String
   @State private var saveScope: CommunicationSaveScope?
   @State private var isSending = false
+  /// Why the last send attempt failed, be it the local recipient check or a server rejection.
+  /// The composer is presented in a sheet and the global notice banner renders behind it, so the
+  /// message has to stay inline.
+  @State private var sendErrorMessage: String?
   @State private var appliedTemplateType: CommunicationType
 
   init(billing: Billing, bill: Bill) {
@@ -460,6 +480,14 @@ struct CommunicationComposerView: View {
           Text("O modelo salvo preenche automaticamente as próximas comunicações.")
         }
 
+        if let sendErrorMessage {
+          Section {
+            Label(sendErrorMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("comm.error")
+          }
+        }
+
         Section {
           Button {
             Task { await send() }
@@ -519,8 +547,9 @@ struct CommunicationComposerView: View {
 
   private func send() async {
     guard !isSending else { return }
+    sendErrorMessage = nil
     guard !selectedRecipients.isEmpty else {
-      app.showNotice("Selecione ao menos um destinatário.", kind: .warning)
+      sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
     isSending = true
@@ -539,7 +568,7 @@ struct CommunicationComposerView: View {
       )
       dismiss()
       app.showNotice("Comunicação enfileirada para envio.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { sendErrorMessage = DemoError(error).message }
   }
 }
 

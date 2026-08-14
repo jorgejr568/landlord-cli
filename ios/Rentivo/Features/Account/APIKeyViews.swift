@@ -183,6 +183,10 @@ private struct APIKeyFormView: View {
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
   @State private var organizations: [Organization] = []
+  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
+  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var submitErrorMessage: String?
+  @State private var saving = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
 
   init(
@@ -224,15 +228,25 @@ private struct APIKeyFormView: View {
       Section("Validade") {
         DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
       }
+      if let submitErrorMessage {
+        Section {
+          Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("api-key.form.error")
+        }
+      }
     }
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
         Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
-          .disabled(name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
+          .disabled(saving || name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
       }
     }
+    .interactiveDismissDisabled(saving)
     .task {
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
     }
@@ -251,6 +265,8 @@ private struct APIKeyFormView: View {
   }
 
   private func save() async {
+    guard !saving else { return }
+    submitErrorMessage = nil
     let grants =
       grantIDs
       .sorted { $0.rawValue < $1.rawValue }
@@ -267,6 +283,8 @@ private struct APIKeyFormView: View {
       grants: grants,
       expiresAt: expiresAt
     )
+    saving = true
+    defer { saving = false }
     do {
       if let key {
         _ = try await app.dependencies.apiKeys.updateAPIKey(id: key.id, draft: draft)
@@ -278,7 +296,7 @@ private struct APIKeyFormView: View {
         dismiss()
         await onSaved(secret)
       }
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { submitErrorMessage = DemoError(error).message }
   }
 }
 

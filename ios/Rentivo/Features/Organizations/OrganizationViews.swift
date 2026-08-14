@@ -185,6 +185,10 @@ struct OrganizationFormView: View {
   @State private var merchantName: String
   @State private var city: String
   @State private var pixValidationMessage: String?
+  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
+  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var submitErrorMessage: String?
+  @State private var saving = false
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
@@ -207,25 +211,37 @@ struct OrganizationFormView: View {
           .textInputAutocapitalization(.characters)
       }
 
-      if let pixValidationMessage {
+      if pixValidationMessage != nil || submitErrorMessage != nil {
         Section("Revise os campos") {
-          Label(pixValidationMessage, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(RentivoColors.coral)
-            .accessibilityIdentifier("organization.form.validation")
+          if let pixValidationMessage {
+            Label(pixValidationMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("organization.form.validation")
+          }
+          if let submitErrorMessage {
+            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("organization.form.validation")
+          }
         }
       }
     }
     .navigationTitle(organization == nil ? "Nova organização" : "Editar organização")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancelar") { dismiss() }.disabled(saving)
+      }
       ToolbarItem(placement: .confirmationAction) {
-        Button("Salvar") { Task { await save() } }.disabled(name.isEmpty)
+        Button("Salvar") { Task { await save() } }.disabled(saving || name.isEmpty)
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   private func save() async {
+    guard !saving else { return }
+    submitErrorMessage = nil
     let trimmedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,6 +267,8 @@ struct OrganizationFormView: View {
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    saving = true
+    defer { saving = false }
     do {
       if let organization {
         _ = try await app.dependencies.organizations.updateOrganization(
@@ -261,7 +279,7 @@ struct OrganizationFormView: View {
       await onSaved()
       dismiss()
       app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { submitErrorMessage = DemoError(error).message }
   }
 }
 
