@@ -218,22 +218,57 @@ struct ReceiptIntakeTests {
     #expect(ReceiptUploadLimit.exceedsLimit(byteCount: ReceiptUploadLimit.maxByteCount + 1))
   }
 
-  @Test("the early gate refuses exactly what the server would, and nothing more")
-  func theEarlyGateMatchesTheServerLimit() {
+  @Test("a format uploaded as it is meets the server limit before it is read")
+  func theEarlyGateMatchesTheServerLimitForPassthroughFormats() {
+    for mediaType in ReceiptMediaDescriptor.allowedMediaTypes {
+      #expect(
+        !ReceiptIntake.exceedsLimitBeforeReading(
+          declaredByteCount: ReceiptUploadLimit.maxByteCount, mediaType: mediaType))
+      #expect(
+        ReceiptIntake.exceedsLimitBeforeReading(
+          declaredByteCount: ReceiptUploadLimit.maxByteCount + 1, mediaType: mediaType))
+      #expect(
+        !ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: 0, mediaType: mediaType))
+    }
+  }
+
+  @Test("a format that will be transcoded is judged by the read ceiling, not the server limit")
+  func theEarlyGateLetsTranscodableFormatsThrough() {
+    // The case the clamp exists for: a 14 MB TIFF scan uploads as a JPEG of about 1 MB, so the
+    // server's limit says nothing about its weight on disk and must not refuse it here.
     #expect(
       !ReceiptIntake.exceedsLimitBeforeReading(
-        declaredByteCount: ReceiptUploadLimit.maxByteCount))
+        declaredByteCount: 14 * 1024 * 1024, mediaType: "image/tiff"))
+    #expect(
+      !ReceiptIntake.exceedsLimitBeforeReading(
+        declaredByteCount: ReceiptIntake.transcodeReadCeiling, mediaType: "image/heic"))
+    // Past the ceiling the file is no longer worth paging into memory to find out.
     #expect(
       ReceiptIntake.exceedsLimitBeforeReading(
-        declaredByteCount: ReceiptUploadLimit.maxByteCount + 1))
-    #expect(!ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: 0))
+        declaredByteCount: ReceiptIntake.transcodeReadCeiling + 1, mediaType: "image/heic"))
+    #expect(ReceiptIntake.transcodeReadCeiling > ReceiptUploadLimit.maxByteCount)
   }
 
   @Test("a size the filesystem will not report is never treated as a rejection")
   func anUnknownSizePassesTheEarlyGate() {
     // Silence has to mean "read it and judge the bytes", not "refuse it": a URL whose attributes
     // are unreadable is still very often a perfectly good receipt.
-    #expect(!ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: nil))
+    #expect(
+      !ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: nil, mediaType: "image/png"))
+    #expect(
+      !ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: nil, mediaType: "image/tiff"))
+  }
+
+  @Test("the gate reads a file's type the same way the upload itself will")
+  func theEarlyGateTypesFilesLikeTheRead() throws {
+    #expect(
+      ReceiptIntake.mediaType(of: URL(fileURLWithPath: "/tmp/fatura.pdf")) == "application/pdf")
+    #expect(ReceiptIntake.mediaType(of: URL(fileURLWithPath: "/tmp/scan.tiff")) == "image/tiff")
+    // An extension nothing claims still has to produce a type, and it must not be an accepted one:
+    // unknown bytes belong on the transcode path, where the decoder decides.
+    let unknown = ReceiptIntake.mediaType(of: URL(fileURLWithPath: "/tmp/notas.rentivo"))
+    #expect(unknown == "application/octet-stream")
+    #expect(!ReceiptMediaDescriptor.isAllowed(mediaType: unknown))
   }
 
   @Test("the declared size is the file's own, and unreadable URLs report nothing")
@@ -262,6 +297,20 @@ struct ReceiptIntakeTests {
     #expect(
       ReceiptIntakeError.exceedsSizeLimit.message
         == "O comprovante excede o limite de \(ReceiptUploadLimit.label).")
+  }
+
+  @Test("a large scan in a transcodable format is read rather than refused unseen")
+  func anOversizeTranscodableFileStillReachesTheDecoder() async throws {
+    let oversize = Data(count: ReceiptUploadLimit.maxByteCount + 1)
+    let url = try writeTemporaryFile(oversize, named: "scan.tiff")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    // The same weight that gets a PNG refused before the read gets a TIFF read, because the JPEG
+    // it becomes is what the limit is actually about. These particular bytes are not a decodable
+    // image, so the read ends in `nil` — but it ends *after* the gate, which is the point.
+    let upload = try await ReceiptIntake.upload(from: url)
+
+    #expect(upload == nil)
   }
 
   @Test("an arquivo is read as it is, with no clamping and no receipt size rule")

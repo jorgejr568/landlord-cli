@@ -296,7 +296,10 @@ struct BillingFormView: View {
     .navigationTitle(billing == nil ? "Nova cobrança" : "Editar cobrança")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
+        // Dismissing mid-save would leave the request running with no screen to report it, so
+        // Cancelar goes down with the sheet's other exits while `saving`.
         Button("Cancelar") { dismiss() }
+          .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -340,6 +343,9 @@ struct BillingFormView: View {
   }
 
   private func save() async {
+    // Salvar is disabled while `saving`, but a second click can land before the first `Task`
+    // suspends and the flag is set, which used to create the cobrança twice.
+    guard !saving else { return }
     // Every issue from the previous attempt is re-derived below, so the section never mixes a
     // fresh validation run with a stale server error.
     submitFailureMessage = nil

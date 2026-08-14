@@ -9,7 +9,9 @@ import UniformTypeIdentifiers
 /// exists, so each case carries the PT-BR sentence the screen shows for it. Letting `DemoError`
 /// translate them instead would put generic network copy on a file the app itself refused.
 enum ReceiptIntakeError: Error, Equatable {
-  /// The filesystem already reports the file as larger than the server accepts.
+  /// The file weighs more than can end well: either the filesystem already reports it as larger
+  /// than the server accepts, or it is so far past that limit that transcoding it could not bring
+  /// it back under.
   case exceedsSizeLimit
 
   var message: String {
@@ -41,9 +43,21 @@ enum ReceiptIntake {
     urls.first(where: \.isFileURL)
   }
 
+  /// The ceiling for a file that still has to be transcoded before it can be uploaded.
+  ///
+  /// A TIFF or HEIC scan is routinely several times the weight of the JPEG it becomes, so the
+  /// server's 10 MB rule says nothing useful about its bytes on disk — a 14 MB TIFF is an ordinary
+  /// receipt that uploads as about 1 MB. This is not that rule: it is only the line past which a
+  /// file is not worth paging into memory to find out, which is what the pre-read gate exists for.
+  /// `nonisolated` because the gate that consults it runs off the main actor, like the read it
+  /// guards.
+  nonisolated static let transcodeReadCeiling = 100 * 1024 * 1024
+
   /// Reads `url` off the main actor and clamps it to a format the server stores. Returns `nil` when
   /// the bytes are neither an accepted format nor a decodable image, and throws
-  /// `ReceiptIntakeError.exceedsSizeLimit` for a file the filesystem already reports as too large.
+  /// `ReceiptIntakeError.exceedsSizeLimit` for a file the filesystem already reports as too large
+  /// for the path it is on — see `exceedsLimitBeforeReading(declaredByteCount:mediaType:)` for the
+  /// two tiers that phrase covers.
   ///
   /// `nonisolated` plus `async` is what moves the work off the window: such a function never
   /// inherits its caller's actor, so everything below runs on the cooperative pool even though
@@ -58,7 +72,10 @@ enum ReceiptIntake {
   nonisolated static func upload(from url: URL) async throws -> FileUpload? {
     let accessGranted = url.startAccessingSecurityScopedResource()
     defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
-    guard !exceedsLimitBeforeReading(declaredByteCount: declaredByteCount(of: url)) else {
+    guard
+      !exceedsLimitBeforeReading(
+        declaredByteCount: declaredByteCount(of: url), mediaType: mediaType(of: url))
+    else {
       throw ReceiptIntakeError.exceedsSizeLimit
     }
     return try FileUpload.from(url: url).clampedToAcceptedReceiptFormat()
@@ -79,14 +96,32 @@ enum ReceiptIntake {
     (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
   }
 
-  /// Whether a receipt can be refused before a single byte is read.
+  /// The media type the read would give `url`, decided from its name exactly as
+  /// `FileUpload.from(url:)` does. The pre-read gate needs it to know which path the bytes are
+  /// heading down, and deriving it the same way is what keeps the two in step.
+  nonisolated static func mediaType(of url: URL) -> String {
+    UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+  }
+
+  /// Whether a receipt can be refused before a single byte is read, in two tiers.
   ///
-  /// This is the difference between a 200 MB video rejected instantly and one paged into memory
-  /// only to be rejected afterwards. It does not replace the check on the bytes actually produced:
-  /// an unknown size skips this gate entirely, and re-encoding moves the count either way, so both
-  /// sides of the read keep their own guard.
-  nonisolated static func exceedsLimitBeforeReading(declaredByteCount: Int?) -> Bool {
+  /// A file the server already accepts as it is — PDF, JPEG, PNG — is uploaded byte-for-byte, so
+  /// its declared size *is* the size that will be sent and the 10 MB rule applies to it directly.
+  /// Anything else is transcoded to JPEG first, and its size on disk predicts nothing about the
+  /// result: a 14 MB TIFF scan becomes a ~1 MB JPEG, and refusing it here would refuse the exact
+  /// case `clampedToAcceptedReceiptFormat()` exists to handle. Those formats get only
+  /// `transcodeReadCeiling`, which keeps the memory protection this gate was written for and
+  /// leaves the verdict on the bytes to the post-encode check in `ReceiptManagerView.send()`.
+  ///
+  /// Either way this does not replace that check: an unknown size skips the gate entirely, and
+  /// re-encoding moves the count in both directions, so both sides of the read keep their guard.
+  nonisolated static func exceedsLimitBeforeReading(
+    declaredByteCount: Int?, mediaType: String
+  ) -> Bool {
     guard let declaredByteCount else { return false }
+    guard ReceiptMediaDescriptor.isAllowed(mediaType: mediaType) else {
+      return declaredByteCount > transcodeReadCeiling
+    }
     return ReceiptUploadLimit.exceedsLimit(byteCount: declaredByteCount)
   }
 }

@@ -357,7 +357,11 @@ struct AttachmentListView: View {
       if canWrite {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
           .strokeBorder(RentivoColors.emerald, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-          .opacity(isDropTargeted ? 1 : 0)
+          // `isDropTargeted` records only where the pointer is; whether the drop would be taken is
+          // decided here, at render time. Folding `!isUploading` into the callback instead latched
+          // a `false` for the whole of a drag that began during an upload, so the border stayed
+          // dark even after the upload finished and the drop became available again.
+          .opacity(isDropTargeted && !isUploading ? 1 : 0)
           .allowsHitTesting(false)
           .padding(RentivoSpacing.small)
       }
@@ -369,7 +373,7 @@ struct AttachmentListView: View {
       }
       Task { await add(fileURL: url) }
       return true
-    } isTargeted: { isDropTargeted = $0 && !isUploading }
+    } isTargeted: { isDropTargeted = $0 }
     .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,

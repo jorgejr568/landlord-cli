@@ -178,7 +178,10 @@ struct BillFormView: View {
     .navigationTitle(bill == nil ? "Gerar fatura" : "Editar fatura")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
+        // Dismissing mid-save would leave the request running with no screen to report it, so
+        // Cancelar goes down with the sheet's other exits while `saving`.
         Button("Cancelar") { dismiss() }
+          .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -186,6 +189,7 @@ struct BillFormView: View {
           .accessibilityIdentifier("bill.form.save")
       }
     }
+    .interactiveDismissDisabled(saving)
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain

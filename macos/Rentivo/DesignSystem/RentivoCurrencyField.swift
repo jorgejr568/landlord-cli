@@ -45,6 +45,10 @@ struct CurrencyCentavosField: View {
         // the value that text encodes; formatting again would only rebuild the identical
         // string. Comparing the digits skips that, leaving only external value changes
         // (a parent rewriting the binding) to reformat.
+        // This leans on the invariant maintained by the `onChange(of: text)` closure above:
+        // `text` is always left holding `format(parsed)`, so its digits are exactly the
+        // digits of the bound value and comparing them decides whether this write is an echo
+        // of that formatting or a genuinely new value from outside.
         guard (Int(text.filter(\.isNumber)) ?? 0) != newValue else { return }
         text = Self.format(newValue)
       }

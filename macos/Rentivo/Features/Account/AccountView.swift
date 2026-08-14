@@ -172,13 +172,21 @@ struct ProfilePixView: View {
       }
       RentivoSection("PIX pessoal") {
         if hasLoaded {
-          TextField("Chave PIX", text: $form.key)
-          TextField("Nome do recebedor", text: $form.merchantName)
-          TextField("Cidade", text: $form.merchantCity)
+          // The viewer lock sits on the fields rather than on the whole section, because the
+          // section also holds the retry below. SwiftUI's `disabled` only accumulates — a
+          // descendant cannot re-enable itself — so a lock at section level took the retry with
+          // it, and a load that failed in viewer mode had no way back.
+          Group {
+            TextField("Chave PIX", text: $form.key)
+            TextField("Nome do recebedor", text: $form.merchantName)
+            TextField("Cidade", text: $form.merchantCity)
+          }
+          .disabled(isDemoViewerLocked)
         } else if let loadFailureMessage {
           VStack(alignment: .leading, spacing: RentivoSpacing.small) {
             Label(loadFailureMessage, systemImage: "exclamationmark.triangle.fill")
               .foregroundStyle(RentivoColors.coral)
+            // Re-reading the configuration is not editing it, so this stays live in viewer mode.
             Button("Tentar novamente") { Task { await load() } }
           }
           .accessibilityIdentifier("profile.pix.error")
@@ -190,7 +198,6 @@ struct ProfilePixView: View {
           }
         }
       }
-      .disabled(isDemoViewerLocked)
       Section {
         Label(
           "Cobranças pessoais sem PIX próprio herdam esta configuração.",

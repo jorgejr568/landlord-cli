@@ -79,13 +79,16 @@ private struct DownloadedFileDocument: FileDocument {
 /// things a user actually wants — save it somewhere, or just look at it — are direct buttons, and
 /// sharing stays as the third option rather than the only one.
 struct DownloadShareView: View {
-  @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let file: DownloadedFile
 
   @State private var exportDocument: DownloadedFileDocument?
   @State private var showingExporter = false
   @State private var isPreparingExport = false
+  /// A failed save, reported under the button rather than through the global banner: that banner
+  /// is overlaid on the window this sheet covers, so the message would only appear after the sheet
+  /// closes — long after it meant anything. Cleared on the next attempt.
+  @State private var exportError: String?
 
   var body: some View {
     NavigationStack { content }
@@ -115,6 +118,14 @@ struct DownloadShareView: View {
         .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
         .disabled(isPreparingExport)
         .accessibilityIdentifier("download.save")
+
+        if let exportError {
+          Label(exportError, systemImage: "exclamationmark.circle.fill")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.coral)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("download.save.error")
+        }
 
         Button {
           NSWorkspace.shared.open(file.fileURL)
@@ -149,7 +160,7 @@ struct DownloadShareView: View {
       defaultFilename: DownloadedFileExport.defaultFilename(for: file)
     ) { result in
       if case .failure(let error) = result {
-        app.reportFailure(error)
+        exportError = DemoError(error).message
       }
     }
   }
@@ -163,6 +174,7 @@ struct DownloadShareView: View {
   private func prepareExport() {
     guard !isPreparingExport else { return }
     isPreparingExport = true
+    exportError = nil
     Task {
       defer { isPreparingExport = false }
       do {
@@ -170,7 +182,7 @@ struct DownloadShareView: View {
         exportDocument = DownloadedFileDocument(data: data)
         showingExporter = true
       } catch {
-        app.showNotice("Não foi possível ler o arquivo baixado.", kind: .warning)
+        exportError = "Não foi possível ler o arquivo baixado."
       }
     }
   }

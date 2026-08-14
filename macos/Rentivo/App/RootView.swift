@@ -29,23 +29,24 @@ struct RootView: View {
     .opacity(app.globalActivityMessage == nil ? 1 : 0.55)
     .disabled(app.globalActivityMessage != nil)
     .task { await app.restoreSessionIfNeeded() }
+    // One overlay for both banners, not one each: as two overlays with the same alignment and the
+    // same padding they landed on top of each other, and signing out — which raises the activity
+    // banner — would bury a notice that was still on screen, dismiss button and all.
     .overlay(alignment: .top) {
-      if let notice = app.notice {
-        NoticeBanner(notice: notice) {
-          withAnimation { app.notice = nil }
-        }
-        .padding(.horizontal, RentivoSpacing.page)
-        .padding(.top, RentivoSpacing.small)
-        .transition(.rentivoNotice)
-      }
-    }
-    .overlay(alignment: .top) {
-      if let message = app.globalActivityMessage {
-        GlobalActivityBanner(message: message)
-          .padding(.horizontal, RentivoSpacing.page)
-          .padding(.top, RentivoSpacing.small)
+      VStack(spacing: RentivoSpacing.small) {
+        if let notice = app.notice {
+          NoticeBanner(notice: notice) {
+            withAnimation { app.notice = nil }
+          }
           .transition(.rentivoNotice)
+        }
+        if let message = app.globalActivityMessage {
+          GlobalActivityBanner(message: message)
+            .transition(.rentivoNotice)
+        }
       }
+      .padding(.horizontal, RentivoSpacing.page)
+      .padding(.top, RentivoSpacing.small)
     }
     // The banner is the app's only global overlay, so animating on the notice identity here
     // covers both arrival and replacement (a second notice while the first is still showing).
