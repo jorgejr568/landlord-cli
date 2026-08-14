@@ -65,11 +65,12 @@ it("preserves the create form structure and filters owners by capability instead
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.850,00");
   expect(screen.getByText("R$ 2.850,00")).toBeVisible();
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
-  expect(screen.getByLabelText("Valor do item 1 (R$)")).toBeDisabled();
-  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveClass("input--disabled");
+  expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
   expect(screen.getByText("R$ 0,00")).toBeVisible();
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "fixed");
+  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("");
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
+  expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   expect(screen.getByLabelText("Descrição do item 2")).toBeVisible();

@@ -5,6 +5,12 @@ public enum BillingItemType: String, CaseIterable, Codable, Sendable {
   case variable
 
   public var label: String { self == .fixed ? "Fixo" : "Variável" }
+
+  public var showsTemplateAmount: Bool { self == .fixed }
+
+  public func normalizedTemplateAmount(_ centavos: Int) -> Int {
+    self == .variable ? 0 : centavos
+  }
 }
 
 public struct BillingItem: Identifiable, Hashable, Codable, Sendable {
@@ -262,6 +268,14 @@ public struct BillingDraft: Hashable, Sendable {
     if items.contains(where: { $0.amount.centavos < 0 }) {
       issues.append(
         ValidationIssue(field: .itemAmount, message: "Os valores não podem ser negativos.")
+      )
+    }
+    if items.contains(where: { $0.type == .variable && $0.amount.centavos != 0 }) {
+      issues.append(
+        ValidationIssue(
+          field: .itemAmount,
+          message: "Itens variáveis devem ter valor zero no modelo."
+        )
       )
     }
     if recipients.contains(where: {

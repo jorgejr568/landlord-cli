@@ -67,6 +67,41 @@ class ValidationTest {
   }
 
   @Test
+  fun variableBillingItemTypeHidesAndClearsTheTemplateAmount() {
+    assertFalse(BillingItemType.VARIABLE.showsTemplateAmount)
+    assertEquals(0, BillingItemType.VARIABLE.normalizedTemplateAmount(5_000))
+    assertTrue(BillingItemType.FIXED.showsTemplateAmount)
+    assertEquals(5_000, BillingItemType.FIXED.normalizedTemplateAmount(5_000))
+  }
+
+  @Test
+  fun billingRejectsNonZeroVariableTemplateAmounts() {
+    val draft = BillingDraft(
+      name = "Apt 101",
+      description = "Contrato mensal",
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "Água",
+          amount = Money(centavos = 5_000),
+          type = BillingItemType.VARIABLE,
+          sortOrder = 0,
+        )
+      ),
+    )
+
+    assertEquals(
+      listOf(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "Itens variáveis devem ter valor zero no modelo.",
+        )
+      ),
+      draft.validate(),
+    )
+  }
+
+  @Test
   fun billingKeepsEveryRecipientItIsGiven() {
     // A billing update replaces the whole recipient set server-side, so a draft carrying several
     // recipients must validate as-is instead of being narrowed to the first one.

@@ -9,7 +9,7 @@ private struct EditableBillingItem: Identifiable {
   init(item: BillingItem) {
     id = item.id
     description = item.description
-    centavos = item.amount.centavos
+    centavos = item.type.normalizedTemplateAmount(item.amount.centavos)
     type = item.type
   }
 
@@ -125,7 +125,12 @@ struct BillingFormView: View {
               }
             }
             .pickerStyle(.segmented)
-            CurrencyCentavosField("Valor do item", centavos: $item.centavos)
+            .onChange(of: item.type) { _, type in
+              item.centavos = type.normalizedTemplateAmount(item.centavos)
+            }
+            if item.type.showsTemplateAmount {
+              CurrencyCentavosField("Valor do item", centavos: $item.centavos)
+            }
           }
           .padding(.vertical, RentivoSpacing.tiny)
         }

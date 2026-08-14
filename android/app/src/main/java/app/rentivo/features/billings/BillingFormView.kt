@@ -107,7 +107,7 @@ private data class EditableBillingItem(
     fun from(item: BillingItem): EditableBillingItem = EditableBillingItem(
       id = item.id,
       description = item.description,
-      centavos = item.amount.centavos,
+      centavos = item.type.normalizedTemplateAmount(item.amount.centavos),
       type = item.type,
     )
 
@@ -483,16 +483,22 @@ private fun ItemsSection(items: SnapshotStateList<EditableBillingItem>) {
           options = BillingItemType.entries.map { it.label },
           selectedIndex = BillingItemType.entries.indexOf(item.type),
           onSelect = { typeIndex ->
-            items[index] = items[index].copy(type = BillingItemType.entries[typeIndex])
+            val type = BillingItemType.entries[typeIndex]
+            items[index] = item.copy(
+              centavos = type.normalizedTemplateAmount(item.centavos),
+              type = type,
+            )
           },
         )
       }
-      RentivoListDivider()
-      FormCurrencyRow(
-        label = "Valor do item",
-        centavos = item.centavos,
-        onCentavosChange = { items[index] = items[index].copy(centavos = it) },
-      )
+      if (item.type.showsTemplateAmount) {
+        RentivoListDivider()
+        FormCurrencyRow(
+          label = "Valor do item",
+          centavos = item.centavos,
+          onCentavosChange = { items[index] = items[index].copy(centavos = it) },
+        )
+      }
       if (editing) {
         RentivoListDivider()
         FormRow {
