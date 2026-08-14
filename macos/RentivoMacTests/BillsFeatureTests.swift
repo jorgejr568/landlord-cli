@@ -176,12 +176,12 @@ struct ReceiptIntakeTests {
   }
 
   @Test("reading a picked PNG produces an upload the server accepts as it is")
-  func readingAPickedPNGKeepsItsBytes() throws {
+  func readingAPickedPNGKeepsItsBytes() async throws {
     let png = try sampleImageData(.png)
     let url = try writeTemporaryFile(png, named: "comprovante.png")
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let upload = try #require(try ReceiptIntake.upload(from: url))
+    let upload = try #require(try await ReceiptIntake.upload(from: url))
 
     #expect(upload.filename == "comprovante.png")
     #expect(upload.mediaType == "image/png")
@@ -190,15 +190,25 @@ struct ReceiptIntakeTests {
   }
 
   @Test("reading a dropped TIFF clamps it before it reaches the upload")
-  func readingADroppedTIFFClampsIt() throws {
+  func readingADroppedTIFFClampsIt() async throws {
     let tiff = try sampleImageData(.tiff)
     let url = try writeTemporaryFile(tiff, named: "recibo.tiff")
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let upload = try #require(try ReceiptIntake.upload(from: url))
+    let upload = try #require(try await ReceiptIntake.upload(from: url))
 
     #expect(upload.filename == "recibo.jpg")
     #expect(upload.mediaType == ReceiptMediaDescriptor.jpeg.mediaType)
+  }
+
+  @Test("a file that is neither an accepted format nor an image is refused on read too")
+  func readingAnUndecodableFileYieldsNoUpload() async throws {
+    let url = try writeTemporaryFile(Data("nem imagem nem PDF".utf8), named: "notas.txt")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    let upload = try await ReceiptIntake.upload(from: url)
+
+    #expect(upload == nil)
   }
 
   @Test("the size gate matches the server's 10 MB receipt limit")
@@ -206,6 +216,67 @@ struct ReceiptIntakeTests {
     #expect(ReceiptUploadLimit.label == "10 MB")
     #expect(!ReceiptUploadLimit.exceedsLimit(byteCount: ReceiptUploadLimit.maxByteCount))
     #expect(ReceiptUploadLimit.exceedsLimit(byteCount: ReceiptUploadLimit.maxByteCount + 1))
+  }
+
+  @Test("the early gate refuses exactly what the server would, and nothing more")
+  func theEarlyGateMatchesTheServerLimit() {
+    #expect(
+      !ReceiptIntake.exceedsLimitBeforeReading(
+        declaredByteCount: ReceiptUploadLimit.maxByteCount))
+    #expect(
+      ReceiptIntake.exceedsLimitBeforeReading(
+        declaredByteCount: ReceiptUploadLimit.maxByteCount + 1))
+    #expect(!ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: 0))
+  }
+
+  @Test("a size the filesystem will not report is never treated as a rejection")
+  func anUnknownSizePassesTheEarlyGate() {
+    // Silence has to mean "read it and judge the bytes", not "refuse it": a URL whose attributes
+    // are unreadable is still very often a perfectly good receipt.
+    #expect(!ReceiptIntake.exceedsLimitBeforeReading(declaredByteCount: nil))
+  }
+
+  @Test("the declared size is the file's own, and unreadable URLs report nothing")
+  func declaredSizeComesFromTheFilesystem() throws {
+    let png = try sampleImageData(.png)
+    let url = try writeTemporaryFile(png, named: "comprovante.png")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    #expect(ReceiptIntake.declaredByteCount(of: url) == png.count)
+    #expect(
+      ReceiptIntake.declaredByteCount(
+        of: url.deletingLastPathComponent().appendingPathComponent("ausente.png")) == nil)
+  }
+
+  @Test("an oversize receipt is refused with the PT-BR limit message")
+  func anOversizeReceiptIsRefusedBeforeItIsRead() async throws {
+    let oversize = Data(count: ReceiptUploadLimit.maxByteCount + 1)
+    let url = try writeTemporaryFile(oversize, named: "video.png")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    await #expect(throws: ReceiptIntakeError.exceedsSizeLimit) {
+      _ = try await ReceiptIntake.upload(from: url)
+    }
+    // The screens show this sentence verbatim, and it must keep naming the same limit the gate
+    // enforces.
+    #expect(
+      ReceiptIntakeError.exceedsSizeLimit.message
+        == "O comprovante excede o limite de \(ReceiptUploadLimit.label).")
+  }
+
+  @Test("an arquivo is read as it is, with no clamping and no receipt size rule")
+  func rawUploadKeepsTheBytesItWasGiven() async throws {
+    let tiff = try sampleImageData(.tiff)
+    let url = try writeTemporaryFile(tiff, named: "planta.tiff")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    let upload = try await ReceiptIntake.rawUpload(from: url)
+
+    // Attachments are stored exactly as uploaded, so the TIFF that a comprovante would have been
+    // re-encoded into JPEG stays a TIFF here.
+    #expect(upload.filename == "planta.tiff")
+    #expect(upload.mediaType == "image/tiff")
+    #expect(upload.data == tiff)
   }
 }
 

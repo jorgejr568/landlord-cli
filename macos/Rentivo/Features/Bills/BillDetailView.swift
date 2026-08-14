@@ -17,6 +17,13 @@ struct BillDetailView: View {
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
   @State private var pollGeneration = 0
+  /// Which document is being fetched, so its own button shows the wait and a second click cannot
+  /// queue a duplicate download of a PDF the server has to render or sign again.
+  @State private var downloadingDocument: BillDocumentDownload?
+  /// The status a lifecycle transition is moving towards, or `nil` when none is in flight. Every
+  /// transition button is disabled while one runs: they are mutually exclusive server-side, and a
+  /// second one fired mid-flight would be judged against a status that is already gone.
+  @State private var transitioningTo: BillStatus?
 
   private var pollKey: String {
     "\(app.dataRevision)-\(pollGeneration)-\(state.value?.isRenderingPDF == true)"
@@ -140,10 +147,18 @@ struct BillDetailView: View {
       Button {
         Task { await downloadInvoice() }
       } label: {
-        Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
+        HStack(spacing: RentivoSpacing.small) {
+          if downloadingDocument == .invoice {
+            ProgressView()
+              .controlSize(.small)
+              .tint(.white)
+          }
+          Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
+        }
       }
       .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
-      .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice)
+      .disabled(
+        bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice || downloadingDocument != nil)
       HStack {
         // Regenerating stays available while a render is pending: a re-trigger supersedes the
         // in-flight render server-side.
@@ -153,8 +168,18 @@ struct BillDetailView: View {
           // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
           // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
           // would disable a button the endpoint would have served.
-          Button("Abrir recibo") { Task { await downloadRecibo() } }
-            .disabled(bill.isRenderingPDF)
+          Button {
+            Task { await downloadRecibo() }
+          } label: {
+            HStack(spacing: RentivoSpacing.small) {
+              if downloadingDocument == .recibo {
+                ProgressView()
+                  .controlSize(.small)
+              }
+              Text("Abrir recibo")
+            }
+          }
+          .disabled(bill.isRenderingPDF || downloadingDocument != nil)
         }
       }
       .buttonStyle(.bordered)
@@ -243,10 +268,18 @@ struct BillDetailView: View {
           Button {
             Task { await transition(to: status) }
           } label: {
-            Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
-              .frame(maxWidth: .infinity)
+            HStack(spacing: RentivoSpacing.small) {
+              if transitioningTo == status {
+                ProgressView()
+                  .controlSize(.small)
+                  .tint(.white)
+              }
+              Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
+            }
+            .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .disabled(transitioningTo != nil)
           .accessibilityIdentifier("bill.transition.\(status.rawValue)")
         }
       }
@@ -256,11 +289,15 @@ struct BillDetailView: View {
   private func load() async {
     state.prepareForRefresh()
     do {
-      let loadedBilling = try await app.dependencies.billings.billing(id: billingID)
-      let loadedBill = try await app.dependencies.bills.bill(billingID: billingID, id: billID)
-      billing = loadedBilling
+      let pair = try await BillDetailLoading.billingAndBill(
+        billingID: billingID,
+        billID: billID,
+        billings: app.dependencies.billings,
+        bills: app.dependencies.bills
+      )
+      billing = pair.billing
       withAnimation(BillingsMotion.load) {
-        state = .loaded(loadedBill)
+        state = .loaded(pair.bill)
       }
     } catch {
       state.settleFailure(error, reportingTo: app)
@@ -269,12 +306,15 @@ struct BillDetailView: View {
 
   /// Re-fetches the bill without ever entering `.loading`, so a poll tick can never replace the
   /// screen the user is reading with `PageStateView`'s spinner.
+  ///
+  /// Only the bill: the loop exists to watch `pdf_render_status`, which lives on the fatura. The
+  /// cobrança's name and capabilities cannot change as a side effect of a PDF render, so refetching
+  /// it every tick doubled the polling traffic for an answer that was already on screen. It stays
+  /// whatever `load()` last resolved.
   private func refreshQuietly() async {
     do {
-      let refreshedBilling = try await app.dependencies.billings.billing(id: billingID)
       let refreshedBill = try await app.dependencies.bills.bill(billingID: billingID, id: billID)
       guard !Task.isCancelled else { return }
-      billing = refreshedBilling
       state = .loaded(refreshedBill)
     } catch {
       // A failed silent refresh leaves the current state untouched; the loop retries on the next
@@ -299,6 +339,9 @@ struct BillDetailView: View {
   }
 
   private func transition(to status: BillStatus) async {
+    guard transitioningTo == nil else { return }
+    transitioningTo = status
+    defer { transitioningTo = nil }
     do {
       try await app.dependencies.bills.transitionBill(
         billingID: billingID, billID: billID, to: status)
@@ -334,6 +377,9 @@ struct BillDetailView: View {
   }
 
   private func downloadInvoice() async {
+    guard downloadingDocument == nil else { return }
+    downloadingDocument = .invoice
+    defer { downloadingDocument = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadInvoice(
         billingID: billingID, billID: billID)
@@ -341,11 +387,21 @@ struct BillDetailView: View {
   }
 
   private func downloadRecibo() async {
+    guard downloadingDocument == nil else { return }
+    downloadingDocument = .recibo
+    defer { downloadingDocument = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadRecibo(
         billingID: billingID, billID: billID)
     } catch { app.reportFailure(error) }
   }
+}
+
+/// Which of the fatura's two documents is being fetched. Both open the same download sheet, so the
+/// screen needs to know *which* button to leave spinning while the bytes are on their way.
+private enum BillDocumentDownload: Hashable {
+  case invoice
+  case recibo
 }
 
 extension BillStatus {

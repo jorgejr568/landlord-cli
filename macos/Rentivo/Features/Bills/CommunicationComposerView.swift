@@ -14,6 +14,11 @@ struct CommunicationComposerView: View {
   @State private var saveScope: CommunicationSaveScope?
   @State private var isSending = false
   @State private var appliedTemplateType: CommunicationType
+  /// Anything that stops a send, shown inside the sheet. Both the empty-recipient refusal and a
+  /// server rejection used to go to `app.showNotice`, whose banner renders *behind* this sheet —
+  /// so the button appeared to do nothing at all. The success notice still goes to the banner,
+  /// because it fires after `dismiss()`, when there is no sheet left to hide it.
+  @State private var sendError: String?
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -101,6 +106,14 @@ struct CommunicationComposerView: View {
           Text("O modelo salvo preenche automaticamente as próximas comunicações.")
         }
 
+        if let sendError {
+          Section {
+            Label(sendError, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("comm.error")
+          }
+        }
+
         Section {
           Button {
             Task { await send() }
@@ -159,8 +172,9 @@ struct CommunicationComposerView: View {
 
   private func send() async {
     guard !isSending else { return }
+    sendError = nil
     guard !selectedRecipients.isEmpty else {
-      app.showNotice("Selecione ao menos um destinatário.", kind: .warning)
+      sendError = "Selecione ao menos um destinatário."
       return
     }
     isSending = true
@@ -179,6 +193,6 @@ struct CommunicationComposerView: View {
       )
       dismiss()
       app.showNotice("Comunicação enfileirada para envio.")
-    } catch { app.reportFailure(error) }
+    } catch { sendError = DemoError(error).message }
   }
 }
