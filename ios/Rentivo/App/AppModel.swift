@@ -39,14 +39,23 @@ final class AppModel {
   var dataRevision = 0
   let dependencies: AppDependencies
   private let mobileWebAuthenticator = MobileWebAuthenticator()
+  /// Replaces the shared-browser cookie logout in tests, which cannot present an
+  /// `ASWebAuthenticationSession`. `nil` — every production path — uses
+  /// `mobileWebAuthenticator`.
+  private let browserLogoutOverride: (@MainActor () async throws -> Void)?
 
   init(store: MockRentivoStore = MockRentivoStore(fixtures: .canonical)) {
     dependencies = .mock(store: store)
     demoSettings = store.demoSettings
+    browserLogoutOverride = nil
   }
 
-  init(dependencies: AppDependencies) {
+  init(
+    dependencies: AppDependencies,
+    browserLogout: (@MainActor () async throws -> Void)? = nil
+  ) {
     self.dependencies = dependencies
+    browserLogoutOverride = browserLogout
     demoSettings = dependencies.demo.demoSettings
     if dependencies.auth.usesLiveAPI {
       session = .restoring
@@ -126,18 +135,9 @@ final class AppModel {
     // token, nor stuck signed in locally because a later step failed.
     await dependencies.auth.logout()
     completeSignOut()
-    // The browser-cookie logout is best-effort and must never block sign-out
-    // (which already happened above). Cancelling that sheet is an expected,
-    // silent outcome, not a failure worth reporting.
-    do {
-      try await mobileWebAuthenticator.logout()
-    } catch {
-      guard !MobileWebAuthenticator.isUserCancellation(error) else { return }
-      notice = AppNotice(
-        kind: .warning,
-        message: "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador."
-      )
-    }
+    await closeBrowserSession(
+      warning: "Você saiu do Rentivo, mas não foi possível encerrar a sessão do navegador."
+    )
   }
 
   func deleteAccount(password: String) async {
@@ -153,9 +153,32 @@ final class AppModel {
     do {
       try await dependencies.auth.deleteAccount(password: password)
       completeSignOut()
+      // After `completeSignOut()`, which clears the notice the deletion needs to report.
       notice = AppNotice(kind: .success, message: "Sua conta foi excluída.")
+      // The deleted account's web cookies would otherwise survive in the shared browser and
+      // open the next login sheet into a half-authenticated session.
+      await closeBrowserSession(
+        warning: "Sua conta foi excluída, mas não foi possível encerrar a sessão do navegador."
+      )
     } catch {
       notice = AppNotice(kind: .warning, message: error.localizedDescription)
+    }
+  }
+
+  /// Closes the shared browser (cookie) session after the local session is already gone.
+  /// Best-effort by design: it must never block the sign-out or deletion that already
+  /// happened, and dismissing the sheet is an expected, silent outcome, not a failure worth
+  /// reporting — so only a real failure replaces the caller's notice with `warning`.
+  private func closeBrowserSession(warning: String) async {
+    do {
+      if let browserLogoutOverride {
+        try await browserLogoutOverride()
+      } else {
+        try await mobileWebAuthenticator.logout()
+      }
+    } catch {
+      guard !MobileWebAuthenticator.isUserCancellation(error) else { return }
+      notice = AppNotice(kind: .warning, message: warning)
     }
   }
 
