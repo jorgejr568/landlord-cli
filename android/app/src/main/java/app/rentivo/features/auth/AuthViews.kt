@@ -30,11 +30,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillNode
+import androidx.compose.ui.autofill.AutofillType
+import androidx.compose.ui.composed
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
@@ -143,7 +153,16 @@ private fun AuthScaffold(
   }
 }
 
-/** A labelled credential field, drawn with the ink outline the cards and buttons use. */
+/**
+ * A labelled credential field, drawn with the ink outline the cards and buttons use.
+ *
+ * [autofillTypes] declares what an Android Autofill service (the system framework, 1Password, and
+ * other password managers) should read this field as. It threads through to the inner
+ * [OutlinedTextField] so callers describe the field's role once, next to its other input options,
+ * rather than each duplicating the autofill wiring. An empty list means the field opts out (the MFA
+ * code field), matching the default.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun AuthField(
   label: String,
@@ -154,6 +173,7 @@ private fun AuthField(
   keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
   keyboardActions: KeyboardActions = KeyboardActions.Default,
   visualTransformation: VisualTransformation = VisualTransformation.None,
+  autofillTypes: List<AutofillType> = emptyList(),
 ) {
   Column(
     verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
@@ -163,7 +183,9 @@ private fun AuthField(
     OutlinedTextField(
       value = value,
       onValueChange = onValueChange,
-      modifier = Modifier.fillMaxWidth(),
+      modifier = Modifier
+        .fillMaxWidth()
+        .autofill(autofillTypes = autofillTypes, onFill = onValueChange),
       singleLine = true,
       placeholder = {
         Text(text = placeholder, style = RentivoTypography.body, color = RentivoColors.secondaryInk)
@@ -173,6 +195,39 @@ private fun AuthField(
       keyboardActions = keyboardActions,
       visualTransformation = visualTransformation,
     )
+  }
+}
+
+/**
+ * Exposes an Autofill node for the field so the platform's Autofill framework can identify and fill
+ * it. Compose UI 1.7 (the version this app pins through the Compose BOM) has no stable
+ * `ContentType` semantics API yet, so this is the built-in interop path: register an [AutofillNode]
+ * with its content types, keep its bounding box current, and request or cancel autofill as focus
+ * moves. When [autofillTypes] is empty the field opts out and the modifier is a no-op.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+private fun Modifier.autofill(
+  autofillTypes: List<AutofillType>,
+  onFill: (String) -> Unit,
+): Modifier {
+  if (autofillTypes.isEmpty()) return this
+  return composed {
+    val autofill = LocalAutofill.current
+    // The node holds onto its onFill for the lifetime of the composition, but the caller passes a
+    // fresh lambda each recomposition; route through the latest one so a fill lands in current state.
+    val currentOnFill by rememberUpdatedState(onFill)
+    val autofillNode = remember(autofillTypes) {
+      AutofillNode(autofillTypes = autofillTypes, onFill = { currentOnFill(it) })
+    }
+    LocalAutofillTree.current += autofillNode
+    this
+      .onGloballyPositioned { autofillNode.boundingBox = it.boundsInWindow() }
+      .onFocusChanged { focusState ->
+        autofill?.run {
+          if (focusState.isFocused) requestAutofillForNode(autofillNode)
+          else cancelAutofillForNode(autofillNode)
+        }
+      }
   }
 }
 
@@ -227,6 +282,7 @@ private fun SubmitButton(
   }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SignInForm(
   email: String,
@@ -275,6 +331,7 @@ private fun SignInForm(
           keyboardType = KeyboardType.Email,
           imeAction = ImeAction.Next,
         ),
+        autofillTypes = listOf(AutofillType.Username, AutofillType.EmailAddress),
         modifier = Modifier.testTag("login.email"),
       )
       AuthField(
@@ -288,6 +345,7 @@ private fun SignInForm(
         ),
         keyboardActions = KeyboardActions(onGo = { submit() }),
         visualTransformation = PasswordVisualTransformation(),
+        autofillTypes = listOf(AutofillType.Password),
         modifier = Modifier.testTag("login.password"),
       )
       validationMessage?.let { AuthErrorLabel(it, modifier = Modifier.testTag("login.error")) }
@@ -313,6 +371,7 @@ private fun SignInForm(
   }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun SignUpForm(onSignIn: () -> Unit) {
   val app = LocalAppModel.current
@@ -363,6 +422,9 @@ private fun SignUpForm(onSignIn: () -> Unit) {
           keyboardType = KeyboardType.Email,
           imeAction = ImeAction.Next,
         ),
+        // Email-as-username product: matching the login field's hints lets a manager offer the same
+        // stored credential and save the pair it captures here against that identity.
+        autofillTypes = listOf(AutofillType.Username, AutofillType.EmailAddress),
         modifier = Modifier.testTag("signup.email"),
       )
       AuthField(
@@ -375,6 +437,7 @@ private fun SignUpForm(onSignIn: () -> Unit) {
           imeAction = ImeAction.Next,
         ),
         visualTransformation = PasswordVisualTransformation(),
+        autofillTypes = listOf(AutofillType.NewPassword),
         modifier = Modifier.testTag("signup.password"),
       )
       AuthField(
@@ -388,6 +451,7 @@ private fun SignUpForm(onSignIn: () -> Unit) {
         ),
         keyboardActions = KeyboardActions(onGo = { submit() }),
         visualTransformation = PasswordVisualTransformation(),
+        autofillTypes = listOf(AutofillType.NewPassword),
         modifier = Modifier.testTag("signup.confirm"),
       )
       validationMessage?.let { AuthErrorLabel(it, modifier = Modifier.testTag("signup.error")) }
@@ -423,6 +487,7 @@ private enum class CodeKind(val label: String, val placeholder: String) {
   RECOVERY("CÓDIGO DE RECUPERAÇÃO", "XXXX-XXXX"),
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun MFAChallengeForm(challenge: MFAChallenge, onCancel: () -> Unit) {
   val app = LocalAppModel.current
