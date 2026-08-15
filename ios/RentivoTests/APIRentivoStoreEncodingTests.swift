@@ -15,6 +15,22 @@ import Testing
   #expect(json == ["current_status": "sent", "target": "paid"])
 }
 
+@Test func organizationCreateEncodingCarriesPixInTheAtomicRequest() throws {
+  let draft = OrganizationDraft(
+    name: "Nova Org",
+    pix: PixConfiguration(key: "chave-pix", merchantName: "Nova Org", merchantCity: "Sao Paulo")
+  )
+  let data = try JSONEncoder().encode(RemoteOrganizationCreate(draft: draft))
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+  #expect(json == [
+    "name": "Nova Org",
+    "pix_key": "chave-pix",
+    "pix_merchant_name": "Nova Org",
+    "pix_merchant_city": "Sao Paulo",
+  ])
+}
+
 @MainActor
 @Test func liveCreateBillEncodesVariableAmountsForMatchingULIDsAndOmitsClientMintedIDs() async throws {
   // Regression test: createBill used to send only `extras`, silently dropping user-edited

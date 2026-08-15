@@ -15,8 +15,22 @@ class OrganizationService:
         self.repo = repo
 
     @traced("organization.create_organization")
-    def create_organization(self, name: str, created_by: int) -> Organization:
-        org = Organization(name=name, created_by=created_by)
+    def create_organization(
+        self,
+        name: str,
+        created_by: int,
+        *,
+        pix_key: str = "",
+        pix_merchant_name: str = "",
+        pix_merchant_city: str = "",
+    ) -> Organization:
+        org = Organization(
+            name=name,
+            created_by=created_by,
+            pix_key=validate_pix_key(pix_key) if pix_key else "",
+            pix_merchant_name=pix_merchant_name.strip(),
+            pix_merchant_city=pix_merchant_city.strip(),
+        )
         created = self.repo.create(org)
         self.repo.add_member(created.id, created_by, OrgRole.ADMIN.value)
         logger.info(

@@ -18,6 +18,29 @@ class TestOrganizationService:
         self.mock_repo.add_member.assert_called_once_with(1, 5, "admin")
         assert org.name == "Test Org"
 
+    def test_create_organization_validates_and_persists_pix_before_the_insert(self):
+        self.mock_repo.create.side_effect = lambda org: org.model_copy(update={"id": 1})
+
+        org = self.service.create_organization(
+            "Test Org",
+            5,
+            pix_key="owner@example.com",
+            pix_merchant_name="  Teste  ",
+            pix_merchant_city="  Recife  ",
+        )
+
+        persisted = self.mock_repo.create.call_args.args[0]
+        assert persisted.pix_key == "owner@example.com"
+        assert persisted.pix_merchant_name == "Teste"
+        assert persisted.pix_merchant_city == "Recife"
+        assert org.pix_key == "owner@example.com"
+
+    def test_create_organization_rejects_invalid_pix_before_the_insert(self):
+        with pytest.raises(ValueError):
+            self.service.create_organization("Test Org", 5, pix_key="invalid pix")
+
+        self.mock_repo.create.assert_not_called()
+
     def test_get_by_id(self):
         self.mock_repo.get_by_id.return_value = Organization(id=1, name="Test Org")
         result = self.service.get_by_id(1)

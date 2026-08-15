@@ -91,7 +91,21 @@ data class RemoteOrganizationMember(
 )
 
 @Serializable
-data class RemoteOrganizationCreate(val name: String)
+data class RemoteOrganizationCreate(
+  val name: String,
+  @SerialName("pix_key") val pixKey: String,
+  @SerialName("pix_merchant_name") val pixMerchantName: String,
+  @SerialName("pix_merchant_city") val pixMerchantCity: String,
+) {
+  companion object {
+    fun from(draft: OrganizationDraft): RemoteOrganizationCreate = RemoteOrganizationCreate(
+      name = draft.name,
+      pixKey = draft.pix?.key.orEmpty(),
+      pixMerchantName = draft.pix?.merchantName.orEmpty(),
+      pixMerchantCity = draft.pix?.merchantCity.orEmpty(),
+    )
+  }
+}
 
 @Serializable
 data class RemoteOrganizationUpdate(

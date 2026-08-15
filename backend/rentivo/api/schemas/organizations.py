@@ -21,11 +21,26 @@ def _nonblank(value: str, message: str) -> str:
 
 class OrganizationCreateRequest(_StrictModel):
     name: str = Field(max_length=255)
+    pix_key: str = ""
+    pix_merchant_name: str = Field(default="", max_length=25)
+    pix_merchant_city: str = Field(default="", max_length=15)
 
     @field_validator("name")
     @classmethod
     def normalize_name(cls, value: str) -> str:
         return _nonblank(value, "Nome da organização é obrigatório.")
+
+    @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city")
+    @classmethod
+    def normalize_settings(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def require_complete_or_empty_pix(self) -> OrganizationCreateRequest:
+        fields = (self.pix_key, self.pix_merchant_name, self.pix_merchant_city)
+        if any(fields) and not all(fields):
+            raise ValueError("Preencha todos os dados PIX ou deixe todos os campos vazios.")
+        return self
 
 
 class OrganizationUpdateRequest(_StrictModel):

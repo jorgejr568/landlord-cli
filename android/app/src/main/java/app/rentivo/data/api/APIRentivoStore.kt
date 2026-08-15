@@ -523,31 +523,12 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     organization(decode<RemoteOrganization>(path = "/api/v1/organizations/${id.rawValue}"))
 
   override suspend fun createOrganization(draft: OrganizationDraft): Organization {
-    // OrganizationCreateRequest only accepts `name`; PIX has no create-time slot, so when the
-    // draft carries PIX data we follow up with the PATCH that does accept pix fields.
     val response = decode<RemoteOrganizationCreate, RemoteOrganization>(
       path = "/api/v1/organizations",
       method = "POST",
-      body = RemoteOrganizationCreate(name = draft.name),
+      body = RemoteOrganizationCreate.from(draft),
     )
-    if (draft.pix == null) return organization(response)
-    return try {
-      organization(
-        decode<RemoteOrganizationUpdate, RemoteOrganization>(
-          path = "/api/v1/organizations/${response.uuid}",
-          method = "PATCH",
-          body = RemoteOrganizationUpdate.from(draft),
-        )
-      )
-    } catch (error: CancellationException) {
-      throw error
-    } catch (error: Exception) {
-      // The organization already exists on the server from the POST above, so throwing here would
-      // surface as a failure to the caller, who would retry and create a duplicate organization.
-      // Return the created organization (without PIX) instead; the form-side validation makes this
-      // follow-up PATCH fail rarely, and the user can still edit the organization afterward.
-      organization(response)
-    }
+    return organization(response)
   }
 
   override suspend fun updateOrganization(

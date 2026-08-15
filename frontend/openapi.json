@@ -3138,6 +3138,23 @@
             "maxLength": 255,
             "title": "Name",
             "type": "string"
+          },
+          "pix_key": {
+            "default": "",
+            "title": "Pix Key",
+            "type": "string"
+          },
+          "pix_merchant_city": {
+            "default": "",
+            "maxLength": 15,
+            "title": "Pix Merchant City",
+            "type": "string"
+          },
+          "pix_merchant_name": {
+            "default": "",
+            "maxLength": 25,
+            "title": "Pix Merchant Name",
+            "type": "string"
           }
         },
         "required": [
@@ -8773,7 +8790,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationResponse"
+                  "$ref": "#/components/schemas/OrganizationLoginDetailResponse"
                 }
               }
             },

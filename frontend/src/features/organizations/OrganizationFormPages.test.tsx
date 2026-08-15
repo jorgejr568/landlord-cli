@@ -130,7 +130,12 @@ it("creates an organization from the exact legacy form and forwards analytics", 
   const user = userEvent.setup();
   const fetchMock = installFetch({
     "POST /api/v1/organizations": (init) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ name: "Ribeiro Imóveis" });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: "Ribeiro Imóveis",
+        pix_key: "",
+        pix_merchant_city: "",
+        pix_merchant_name: ""
+      });
       return jsonResponse({
         capabilities: { can_create_billing: true, can_invite: true, can_manage: true, can_view_billing_stats: true },
         created_at: null,
