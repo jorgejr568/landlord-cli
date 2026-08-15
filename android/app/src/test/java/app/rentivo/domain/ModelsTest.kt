@@ -183,6 +183,12 @@ class ModelsTest {
     assertFalse(form.isSavable)
     form.merchantCity = "RECIFE"
     assertTrue(form.isSavable)
+
+    form.merchantName = "N".repeat(26)
+    assertFalse(form.isSavable)
+    form.merchantName = "ANA"
+    form.merchantCity = "C".repeat(16)
+    assertFalse(form.isSavable)
   }
 
   @Test

@@ -219,7 +219,13 @@ data class ProfilePIXForm(
     get() = PixConfiguration(key = key, merchantName = merchantName, merchantCity = merchantCity)
 
   val isSavable: Boolean
-    get() = configuration.isEmpty || configuration.isComplete
+    get() {
+      val normalizedName = merchantName.trim()
+      val normalizedCity = merchantCity.trim()
+      return (configuration.isEmpty || configuration.isComplete) &&
+        normalizedName.codePointCount(0, normalizedName.length) <= 25 &&
+        normalizedCity.codePointCount(0, normalizedCity.length) <= 15
+    }
 
   companion object {
     fun from(profile: UserProfile? = null): ProfilePIXForm = ProfilePIXForm(

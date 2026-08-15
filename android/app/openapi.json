@@ -4075,11 +4075,13 @@
           },
           "pix_merchant_city": {
             "default": "",
+            "maxLength": 15,
             "title": "Pix Merchant City",
             "type": "string"
           },
           "pix_merchant_name": {
             "default": "",
+            "maxLength": 25,
             "title": "Pix Merchant Name",
             "type": "string"
           }

@@ -122,6 +122,33 @@ it("updates PIX and changes the password atomically", async () => {
   expect(screen.getByLabelText("Senha atual")).toHaveValue("");
 });
 
+it("requires a complete personal PIX configuration and exposes the API limits", async () => {
+  const user = userEvent.setup();
+  let updates = 0;
+  renderPage({
+    "/api/v1/security/pix": () => {
+      updates += 1;
+      return jsonResponse({ profile: summary.profile });
+    }
+  });
+  await screen.findByRole("heading", { name: "Segurança" });
+
+  const key = screen.getByLabelText("Chave PIX");
+  const name = screen.getByLabelText("Nome do recebedor");
+  const city = screen.getByLabelText("Cidade do recebedor");
+  expect(name).toHaveAttribute("maxLength", "25");
+  expect(city).toHaveAttribute("maxLength", "15");
+  await user.clear(key);
+  await user.clear(name);
+  await user.clear(city);
+  await user.type(key, "person@example.com");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+
+  expect(await screen.findByText("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.")).toBeVisible();
+  expect(updates).toBe(0);
+  expect(name).toHaveFocus();
+});
+
 it("routes regenerated recovery codes to their one-time screen", async () => {
   const user = userEvent.setup();
   renderPage({ "/api/v1/security/recovery-codes/regenerate": () => jsonResponse({ recovery_codes: ["one"] }, 200, { "X-Rentivo-Analytics-Event": "rentivo_recovery_codes_regenerated" }) });

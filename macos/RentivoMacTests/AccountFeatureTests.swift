@@ -41,6 +41,11 @@ struct AccountProfilePIXTests {
     form.merchantCity = "SALVADOR"
     #expect(form.isSavable)
     #expect(form.configuration.isComplete)
+    form.merchantName = String(repeating: "N", count: 26)
+    #expect(form.isSavable == false)
+    form.merchantName = "JORGE JUNIOR"
+    form.merchantCity = String(repeating: "C", count: 16)
+    #expect(form.isSavable == false)
   }
 
   @Test("demo viewer mode locks the PIX section but still reads the profile")

@@ -228,7 +228,11 @@ public struct ProfilePIXForm: Equatable, Sendable {
   }
 
   public var isSavable: Bool {
-    configuration.isEmpty || configuration.isComplete
+    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (configuration.isEmpty || configuration.isComplete)
+      && normalizedName.unicodeScalars.count <= 25
+      && normalizedCity.unicodeScalars.count <= 15
   }
 }
 

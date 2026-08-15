@@ -40,6 +40,8 @@ export function SecurityPage() {
   const [disablePassword, setDisablePassword] = useState("");
   const actionRef = useRef<HTMLElement | null>(null);
   const pixRef = useRef<HTMLInputElement>(null);
+  const pixNameRef = useRef<HTMLInputElement>(null);
+  const pixCityRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const recoveryRef = useRef<HTMLButtonElement>(null);
   const disableTotpRef = useRef<HTMLInputElement>(null);
@@ -72,15 +74,25 @@ export function SecurityPage() {
 
   async function updatePix(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    startAction(pixRef.current);
+    const normalizedPixKey = pixKey.trim();
+    const normalizedPixName = pixName.trim();
+    const normalizedPixCity = pixCity.trim();
+    const pixFields = [normalizedPixKey, normalizedPixName, normalizedPixCity];
+    const pixIsPartial = pixFields.some(Boolean) && !pixFields.every(Boolean);
+    const missingField = !normalizedPixKey ? pixRef.current : !normalizedPixName ? pixNameRef.current : pixCityRef.current;
+    startAction(pixIsPartial ? missingField : pixRef.current);
+    if (pixIsPartial) {
+      setActionError("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.");
+      return;
+    }
     setSavingPix(true);
     try {
       const { data } = await apiRequest(
         apiClient.POST("/api/v1/security/pix", {
           body: {
-            pix_key: pixKey.trim(),
-            pix_merchant_city: pixCity.trim(),
-            pix_merchant_name: pixName.trim()
+            pix_key: normalizedPixKey,
+            pix_merchant_city: normalizedPixCity,
+            pix_merchant_name: normalizedPixName
           }
         })
       );
@@ -214,8 +226,8 @@ export function SecurityPage() {
         {pixIncomplete ? <div className="toast toast--warning" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
         <form onSubmit={(event) => void updatePix(event)}>
           <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input className="field-input" id="pix_key" onChange={(event) => setPixKey(event.target.value)} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} /><span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" maxLength={25} onChange={(event) => setPixName(event.target.value)} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" maxLength={15} onChange={(event) => setPixCity(event.target.value)} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" maxLength={25} onChange={(event) => setPixName(event.target.value)} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" maxLength={15} onChange={(event) => setPixCity(event.target.value)} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
           <SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton>
         </form>
       </div></div>

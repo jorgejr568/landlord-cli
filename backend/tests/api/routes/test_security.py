@@ -845,6 +845,39 @@ def test_pix_update_normalizes_profile_and_writes_redacted_audit_state(
     assert LOGIN_SECRET not in repr(security_harness.audit.calls)
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"pix_key": "person@example.com", "pix_merchant_name": "", "pix_merchant_city": ""},
+        {"pix_key": "person@example.com", "pix_merchant_name": "N" * 26, "pix_merchant_city": "Recife"},
+        {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "C" * 16},
+    ],
+)
+def test_pix_update_rejects_partial_or_oversized_configuration_before_services(
+    security_harness: SecurityHarness,
+    payload: dict[str, str],
+) -> None:
+    response = security_harness.request("POST", "/api/v1/security/pix", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert security_harness.user.pix_calls == []
+    assert security_harness.audit.calls == []
+
+
+def test_pix_update_allows_clearing_every_field(
+    security_harness: SecurityHarness,
+) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/pix",
+        json={"pix_key": " ", "pix_merchant_name": " ", "pix_merchant_city": " "},
+    )
+
+    assert response.status_code == 200
+    assert security_harness.user.pix_calls == [(USER.id, "", "", "")]
+
+
 def test_invalid_pix_returns_stable_pt_br_field_problem_without_audit(
     security_harness: SecurityHarness,
 ) -> None:
