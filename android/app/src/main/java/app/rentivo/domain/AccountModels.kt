@@ -38,7 +38,7 @@ data class OrganizationCapabilities(
     )
 
     val manager = OrganizationCapabilities(
-      canManage = false, canInvite = true, canCreateBilling = true, canViewBillingStats = true,
+      canManage = false, canInvite = false, canCreateBilling = true, canViewBillingStats = true,
     )
 
     val viewer = OrganizationCapabilities(

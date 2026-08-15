@@ -151,6 +151,23 @@ import Testing
   }
 }
 
+@Test @MainActor func acceptedManagerCannotInviteOrganizationMembers() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let invitation = try #require(try await store.listPendingInvitations().first)
+  try await store.acceptInvitation(id: invitation.id)
+
+  do {
+    _ = try await store.inviteMember(
+      organizationID: invitation.organizationID,
+      email: "novo-membro@rentivo.com.br",
+      role: .viewer
+    )
+    Issue.record("Expected manager invitation to be denied")
+  } catch let error as DemoError {
+    #expect(error == .permissionDenied)
+  }
+}
+
 @Test @MainActor func acceptedManagerCannotMutateOrganizationTheme() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let invitation = try #require(try await store.listPendingInvitations().first)

@@ -36,7 +36,7 @@ public struct OrganizationCapabilities: Hashable, Codable, Sendable {
   )
 
   public static let manager = OrganizationCapabilities(
-    canManage: false, canInvite: true, canCreateBilling: true, canViewBillingStats: true
+    canManage: false, canInvite: false, canCreateBilling: true, canViewBillingStats: true
   )
 
   public static let viewer = OrganizationCapabilities(

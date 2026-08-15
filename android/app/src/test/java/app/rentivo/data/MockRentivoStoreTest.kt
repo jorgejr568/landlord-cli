@@ -181,6 +181,23 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun acceptedManagerCannotInviteOrganizationMembers() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val invitation = store.listPendingInvitations().first()
+    store.acceptInvitation(id = invitation.id)
+
+    val error = assertDemoError {
+      store.inviteMember(
+        organizationID = invitation.organizationID,
+        email = "novo-membro@rentivo.com.br",
+        role = OrganizationRole.VIEWER,
+      )
+    }
+
+    assertEquals(DemoError.permissionDenied, error)
+  }
+
+  @Test
   fun acceptedManagerCannotMutateOrganizationTheme() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val invitation = store.listPendingInvitations().first()
