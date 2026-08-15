@@ -34,13 +34,11 @@ struct BillingDetailView: View {
         }
       }
     }
-    .sheet(isPresented: $showingEdit) {
+    .rentivoFullScreenWizard(isPresented: $showingEdit) {
       if let billing = state.value?.billing {
-        NavigationStack {
-          BillingFormView(billing: billing) {
-            await load()
-            await onMutation()
-          }
+        BillingFormView(billing: billing) {
+          await load()
+          await onMutation()
         }
       }
     }

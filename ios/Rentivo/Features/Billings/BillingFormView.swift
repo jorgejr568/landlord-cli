@@ -63,6 +63,24 @@ private struct EditableRecipient: Identifiable {
 }
 
 struct BillingFormView: View {
+  private enum Step: CaseIterable {
+    case essentials
+    case items
+    case pix
+    case communication
+    case review
+
+    var title: String {
+      switch self {
+      case .essentials: "Essenciais"
+      case .items: "Itens recorrentes"
+      case .pix: "PIX"
+      case .communication: "Comunicação"
+      case .review: "Revisão"
+      }
+    }
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   private let billing: Billing?
@@ -77,6 +95,7 @@ struct BillingFormView: View {
   @State private var pixMerchantCity: String
   @State private var recipients: [EditableRecipient]
   @State private var replyTo: [EditableRecipient]
+  @State private var step: Step = .essentials
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
@@ -103,8 +122,31 @@ struct BillingFormView: View {
   }
 
   var body: some View {
-    Form {
-      Section("Identificação") {
+    RentivoFormWizard(
+      title: billing == nil ? "Nova cobrança" : "Editar cobrança",
+      descriptors: Step.allCases.map { RentivoWizardStepDescriptor(id: $0, title: $0.title) },
+      selectedStep: $step,
+      isDirty: isDirty,
+      isBusy: saving,
+      primaryTitle: step == .review ? "Salvar cobrança" : "Continuar",
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: { Task { await save() } }
+    ) { step in
+      stepContent(step)
+    }
+    .interactiveDismissDisabled(saving)
+    .task {
+      guard billing == nil else { return }
+      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
+      organizationsLoaded = true
+    }
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .essentials:
+      RentivoWizardSection("Identificação", subtitle: "Defina a cobrança e seu responsável.") {
         TextField("Nome", text: $name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
@@ -116,144 +158,180 @@ struct BillingFormView: View {
             }
           }
         }
+        validationPanel
       }
 
-      Section {
-        ForEach($items) { $item in
+    case .items:
+      RentivoWizardSection(
+        "Itens recorrentes",
+        subtitle: "Use valor zero para itens variáveis que serão preenchidos em cada fatura."
+      ) {
+        ForEach(Array(items.indices), id: \.self) { index in
           VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            TextField("Descrição do item", text: $item.description)
-            Picker("Tipo", selection: $item.type) {
+            HStack {
+              Text("Item \(index + 1)")
+                .font(.subheadline.weight(.semibold))
+              Spacer()
+              Button("Remover", role: .destructive) {
+                items.remove(at: index)
+              }
+              .accessibilityIdentifier("billing.form.item.\(index).remove")
+            }
+            TextField("Descrição do item", text: $items[index].description)
+              .accessibilityIdentifier("billing.form.item.\(index).description")
+            Picker("Tipo", selection: $items[index].type) {
               ForEach(BillingItemType.allCases, id: \.self) { type in
                 Text(type.label).tag(type)
               }
             }
             .pickerStyle(.segmented)
-            .onChange(of: item.type) { _, type in
-              item.centavos = type.normalizedTemplateAmount(item.centavos)
+            .accessibilityIdentifier("billing.form.item.\(index).type")
+            .onChange(of: items[index].type) { _, type in
+              items[index].centavos = type.normalizedTemplateAmount(items[index].centavos)
             }
-            if item.type.showsTemplateAmount {
-              CurrencyCentavosField("Valor do item", centavos: $item.centavos)
+            if items[index].type.showsTemplateAmount {
+              CurrencyCentavosField("Valor do item", centavos: $items[index].centavos)
+                .accessibilityIdentifier("billing.form.item.\(index).amount")
             }
           }
           .padding(.vertical, RentivoSpacing.tiny)
         }
-        .onDelete { items.remove(atOffsets: $0) }
-        .onMove { items.move(fromOffsets: $0, toOffset: $1) }
         Button {
           items.append(EditableBillingItem())
         } label: {
           Label("Adicionar item", systemImage: "plus.circle.fill")
         }
-      } header: {
+        .accessibilityIdentifier("billing.form.items.add")
         HStack {
-          Text("Itens recorrentes")
+          Text("Subtotal fixo")
+            .foregroundStyle(RentivoColors.secondaryInk)
           Spacer()
-          EditButton()
+          MoneyText(money: fixedSubtotal)
         }
-      } footer: {
-        Text("Use valor zero para itens variáveis que serão preenchidos em cada fatura.")
+        validationPanel
       }
 
-      Section("PIX opcional") {
+    case .pix:
+      RentivoWizardSection("PIX opcional", subtitle: "Deixe em branco para herdar o PIX do responsável.") {
         TextField("Chave PIX própria", text: $pixKey)
           .textInputAutocapitalization(.never)
           .accessibilityIdentifier("billing.form.pix.key")
-        TextField("Nome do recebedor", text: $pixMerchantName)
-          .accessibilityIdentifier("billing.form.pix.merchantName")
-        TextField("Cidade do recebedor", text: $pixMerchantCity)
-          .textInputAutocapitalization(.characters)
-          .accessibilityIdentifier("billing.form.pix.merchantCity")
-        Text("Deixe em branco para herdar o PIX do responsável.")
-          .font(.caption)
-          .foregroundStyle(RentivoColors.secondaryInk)
+        if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          TextField("Nome do recebedor", text: $pixMerchantName)
+            .accessibilityIdentifier("billing.form.pix.merchantName")
+          TextField("Cidade do recebedor", text: $pixMerchantCity)
+            .textInputAutocapitalization(.characters)
+            .accessibilityIdentifier("billing.form.pix.merchantCity")
+        }
+        validationPanel
       }
 
-      Section {
-        ForEach($recipients) { $recipient in
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            TextField("Nome do destinatário", text: $recipient.name)
-            TextField("E-mail do destinatário", text: $recipient.email)
-              .keyboardType(.emailAddress)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
+    case .communication:
+      Group {
+        RentivoWizardSection("Destinatários", subtitle: "Todos os destinatários recebem as comunicações desta cobrança.") {
+          ForEach(Array(recipients.indices), id: \.self) { index in
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              HStack {
+                Text("Destinatário \(index + 1)")
+                  .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("Remover", role: .destructive) {
+                  recipients.remove(at: index)
+                }
+                .accessibilityIdentifier("billing.form.recipient.\(index).remove")
+              }
+              TextField("Nome do destinatário", text: $recipients[index].name)
+                .accessibilityIdentifier("billing.form.recipient.\(index).name")
+              TextField("E-mail do destinatário", text: $recipients[index].email)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("billing.form.recipient.\(index).email")
+            }
+            .padding(.vertical, RentivoSpacing.tiny)
           }
-          .padding(.vertical, RentivoSpacing.tiny)
-        }
-        .onDelete { recipients.remove(atOffsets: $0) }
-        .onMove { recipients.move(fromOffsets: $0, toOffset: $1) }
-        Button {
-          recipients.append(EditableRecipient())
-        } label: {
-          Label("Adicionar destinatário", systemImage: "plus.circle.fill")
-        }
-        .accessibilityIdentifier("billing.form.recipients.add")
-        ForEach($replyTo) { $contact in
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            TextField("Nome para resposta", text: $contact.name)
-            TextField("E-mail para resposta", text: $contact.email)
-              .keyboardType(.emailAddress)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
+          Button {
+            recipients.append(EditableRecipient())
+          } label: {
+            Label("Adicionar destinatário", systemImage: "plus.circle.fill")
           }
-          .padding(.vertical, RentivoSpacing.tiny)
+          .accessibilityIdentifier("billing.form.recipients.add")
         }
-        .onDelete { replyTo.remove(atOffsets: $0) }
-        .onMove { replyTo.move(fromOffsets: $0, toOffset: $1) }
-        Button {
-          replyTo.append(EditableRecipient())
-        } label: {
-          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+
+        RentivoWizardSection("Responder para", subtitle: "Opcionalmente, defina contatos que receberão as respostas.") {
+          ForEach(Array(replyTo.indices), id: \.self) { index in
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              HStack {
+                Text("Contato de resposta \(index + 1)")
+                  .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("Remover", role: .destructive) {
+                  replyTo.remove(at: index)
+                }
+                .accessibilityIdentifier("billing.form.reply-to.\(index).remove")
+              }
+              TextField("Nome para resposta", text: $replyTo[index].name)
+                .accessibilityIdentifier("billing.form.reply-to.\(index).name")
+              TextField("E-mail para resposta", text: $replyTo[index].email)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("billing.form.reply-to.\(index).email")
+            }
+            .padding(.vertical, RentivoSpacing.tiny)
+          }
+          Button {
+            replyTo.append(EditableRecipient())
+          } label: {
+            Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+          }
+          .accessibilityIdentifier("billing.form.reply-to.add")
+          validationPanel
         }
-      } header: {
-        HStack {
-          Text("Comunicação")
-          Spacer()
-          EditButton()
-        }
-      } footer: {
-        Text("Todos os destinatários listados recebem as comunicações desta cobrança.")
       }
 
-      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
-        || submitErrorMessage != nil
-      {
-        Section("Revise os campos") {
-          ForEach(validationIssues, id: \.self) { issue in
-            Label(issue.message, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
-          if let pixRecipientRequiredMessage {
-            Label(pixRecipientRequiredMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
-          if let submitErrorMessage {
-            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
+    case .review:
+      RentivoWizardSection("Revise sua cobrança") {
+        RentivoWizardReviewRow(label: "Nome", value: displayName)
+        RentivoWizardReviewRow(label: "Responsável", value: selectedOwner?.name ?? "Não informado")
+        RentivoWizardReviewRow(label: "Itens", value: ptBRCount(items.count, singular: "item", plural: "itens"))
+        RentivoWizardReviewRow(label: "Subtotal fixo", value: fixedSubtotal.formatted())
+        RentivoWizardReviewRow(
+          label: "PIX",
+          value: pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Herdado" : "Próprio"
+        )
+        RentivoWizardReviewRow(
+          label: "Destinatários",
+          value: ptBRCount(nonBlankRecipients.count, singular: "destinatário", plural: "destinatários")
+        )
+        RentivoWizardReviewRow(
+          label: "Responder para",
+          value: ptBRCount(nonBlankReplyTo.count, singular: "contato", plural: "contatos")
+        )
+        validationPanel
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var validationPanel: some View {
+    if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil || submitErrorMessage != nil {
+      VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+        Text("Revise os campos")
+          .font(.subheadline.weight(.semibold))
+        ForEach(validationIssues, id: \.self) { issue in
+          validationMessage(issue.message)
         }
+        if let pixRecipientRequiredMessage { validationMessage(pixRecipientRequiredMessage) }
+        if let submitErrorMessage { validationMessage(submitErrorMessage) }
       }
     }
-    .navigationTitle(billing == nil ? "Nova cobrança" : "Editar cobrança")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
-      }
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Salvar") { Task { await save() } }
-          .disabled(saving || !organizationsLoaded)
-          .accessibilityIdentifier("billing.form.save")
-      }
-    }
-    .interactiveDismissDisabled(saving)
-    .task {
-      guard billing == nil else { return }
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
-      organizationsLoaded = true
-    }
+  }
+
+  private func validationMessage(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("billing.form.validation")
   }
 
   private var ownerChoices: [BillingOwner] {
@@ -266,6 +344,112 @@ struct BillingFormView: View {
       .filter { !existingIDs.contains($0.id) }
     owners.append(contentsOf: organizationOwners)
     return owners
+  }
+
+  private var selectedOwner: BillingOwner? {
+    billing?.owner ?? ownerChoices.first(where: { $0.id == ownerID })
+  }
+
+  private var fixedSubtotal: Money {
+    items.lazy
+      .filter { $0.type == .fixed }
+      .map { Money(centavos: $0.centavos) }
+      .reduce(.zero, +)
+  }
+
+  private var nonBlankRecipients: [EditableRecipient] { recipients.filter { !$0.isBlank } }
+  private var nonBlankReplyTo: [EditableRecipient] { replyTo.filter { !$0.isBlank } }
+
+  private var displayName: String {
+    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? "Não informado" : normalized
+  }
+
+  private var isDirty: Bool {
+    if billing == nil {
+      return !name.isEmpty || !billingDescription.isEmpty || ownerID != .personal || !items.isEmpty
+        || !pixKey.isEmpty || !pixMerchantName.isEmpty || !pixMerchantCity.isEmpty
+        || !recipients.isEmpty || !replyTo.isEmpty
+    }
+    guard let billing else { return false }
+    return name != billing.name || billingDescription != billing.description
+      || pixKey != (billing.pixOverride?.key ?? "")
+      || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
+      || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
+      || items.count != billing.items.count
+      || recipients.count != billing.recipients.count
+      || replyTo.count != billing.replyTo.count
+      || zip(items, billing.items).contains {
+        $0.description != $1.description || $0.centavos != $1.type.normalizedTemplateAmount($1.amount.centavos)
+          || $0.type != $1.type
+      }
+      || zip(recipients, billing.recipients).contains { $0.name != $1.name || $0.email != $1.email }
+      || zip(replyTo, billing.replyTo).contains { $0.name != $1.name || $0.email != $1.email }
+  }
+
+  private func currentDraft() -> BillingDraft? {
+    guard let selectedOwner else { return nil }
+    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    return BillingDraft(
+      name: name,
+      description: billingDescription,
+      owner: selectedOwner,
+      items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
+      pixOverride: pix.isEmpty
+        ? nil
+        : PixConfiguration(
+          key: pix,
+          merchantName: pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines),
+          merchantCity: pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+        ),
+      recipients: nonBlankRecipients.map { $0.domain() },
+      replyTo: nonBlankReplyTo.map { $0.domain() }
+    )
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    switch step {
+    case .essentials: return validateEssentials()
+    case .items: return validateItems()
+    case .pix: return validatePIX()
+    case .communication: return validateCommunication()
+    case .review: return true
+    }
+  }
+
+  private func validateEssentials() -> Bool {
+    validate(fields: [.name, .description])
+  }
+
+  private func validateItems() -> Bool {
+    validate(fields: [.items, .itemDescription, .itemAmount])
+  }
+
+  private func validatePIX() -> Bool {
+    pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
+    let isValid = validate(fields: [.pix])
+    return isValid && pixRecipientRequiredMessage == nil
+  }
+
+  private func validateCommunication() -> Bool {
+    validate(fields: [.recipient, .replyTo])
+  }
+
+  private func validate(fields: Set<ValidationField>) -> Bool {
+    validationIssues = currentDraft()?.validate().filter { fields.contains($0.field) } ?? [
+      ValidationIssue(field: .name, message: "Não foi possível confirmar o responsável.")
+    ]
+    return validationIssues.isEmpty
+  }
+
+  private var pixRecipientRequiredMessageForCurrentFields: String? {
+    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !pix.isEmpty else { return nil }
+    let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard merchantName.isEmpty || merchantCity.isEmpty else { return nil }
+    return "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
   }
 
   private func save() async {
@@ -282,19 +466,12 @@ struct BillingFormView: View {
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
-    let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
-    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
+    let draftRecipients = nonBlankRecipients.map { $0.domain() }
+    let draftReplyTo = nonBlankReplyTo.map { $0.domain() }
     let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    if pix.isEmpty {
-      pixRecipientRequiredMessage = nil
-    } else if merchantName.isEmpty || merchantCity.isEmpty {
-      pixRecipientRequiredMessage =
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
-    } else {
-      pixRecipientRequiredMessage = nil
-    }
+    pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
     let draft = BillingDraft(
       name: name,
       description: billingDescription,
