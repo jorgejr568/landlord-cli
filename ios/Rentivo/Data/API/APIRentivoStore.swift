@@ -177,7 +177,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       files: [(field: "receipt_files", upload: upload)]
     )
     guard let receipt = response.items.first else { throw LiveAPIError.invalidResponse }
-    return Receipt(id: ReceiptID(rawValue: receipt.uuid), name: receipt.filename, sortOrder: receipt.sortOrder)
+    return Receipt(
+      id: ReceiptID(rawValue: receipt.uuid), name: receipt.filename, sortOrder: receipt.sortOrder,
+      mediaType: receipt.contentType, byteCount: receipt.fileSize,
+      createdAt: try receipt.createdAt.map(WireDate.isoDate)
+    )
   }
   public func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws {
     let _: RemoteReceiptList = try await decode(
@@ -644,8 +648,12 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       lineItems: remote.lineItems.enumerated().map { index, line in
         BillLineItem(id: BillLineItemID(rawValue: "\(remote.uuid)-\(index)"), description: line.description,
           amount: Money(centavos: line.amount), kind: BillLineItemKind(rawValue: line.itemType) ?? .fixed)
-      }, receipts: (remote.receipts ?? []).map {
-        Receipt(id: ReceiptID(rawValue: $0.uuid), name: $0.filename, sortOrder: $0.sortOrder)
+      }, receipts: try (remote.receipts ?? []).map {
+        Receipt(
+          id: ReceiptID(rawValue: $0.uuid), name: $0.filename, sortOrder: $0.sortOrder,
+          mediaType: $0.contentType, byteCount: $0.fileSize,
+          createdAt: try $0.createdAt.map(WireDate.isoDate)
+        )
       },
       communications: try (remote.communications ?? []).map { communication in
         BillCommunication(

@@ -494,11 +494,21 @@ public struct Receipt: Identifiable, Hashable, Codable, Sendable {
   public let id: ReceiptID
   public var name: String
   public var sortOrder: Int
+  public var mediaType: String
+  public var byteCount: Int
+  public var createdAt: Date?
 
-  public init(id: ReceiptID, name: String, sortOrder: Int) {
+  public init(
+    id: ReceiptID, name: String, sortOrder: Int,
+    mediaType: String = "application/octet-stream", byteCount: Int = 0,
+    createdAt: Date? = nil
+  ) {
     self.id = id
     self.name = name
     self.sortOrder = sortOrder
+    self.mediaType = mediaType
+    self.byteCount = byteCount
+    self.createdAt = createdAt
   }
 }
 

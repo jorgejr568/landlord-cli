@@ -328,6 +328,9 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       id = ReceiptID(rawValue = receipt.uuid),
       name = receipt.filename,
       sortOrder = receipt.sortOrder,
+      mediaType = receipt.contentType,
+      byteCount = receipt.fileSize,
+      createdAt = receipt.createdAt?.let(WireDate::isoDate),
     )
   }
 
@@ -893,7 +896,11 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         )
       },
       receipts = (remote.receipts ?: emptyList()).map {
-        Receipt(id = ReceiptID(rawValue = it.uuid), name = it.filename, sortOrder = it.sortOrder)
+        Receipt(
+          id = ReceiptID(rawValue = it.uuid), name = it.filename, sortOrder = it.sortOrder,
+          mediaType = it.contentType, byteCount = it.fileSize,
+          createdAt = it.createdAt?.let(WireDate::isoDate),
+        )
       },
       communications = (remote.communications ?: emptyList()).map { communication ->
         BillCommunication(

@@ -380,7 +380,10 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     let receipt = Receipt(
       id: ReceiptID(rawValue: UUID().uuidString),
       name: upload.filename,
-      sortOrder: snapshot.bills[index].receipts.count
+      sortOrder: snapshot.bills[index].receipts.count,
+      mediaType: upload.mediaType,
+      byteCount: upload.byteCount,
+      createdAt: Date()
     )
     snapshot.bills[index].receipts.append(receipt)
     recordActivity(kind: .bill, title: "Comprovante adicionado", detail: upload.filename)

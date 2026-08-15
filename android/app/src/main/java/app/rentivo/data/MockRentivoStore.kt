@@ -506,6 +506,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       id = ReceiptID(rawValue = UUID.randomUUID().toString()),
       name = validatedUpload.filename,
       sortOrder = billsState[index].receipts.size,
+      mediaType = validatedUpload.mediaType,
+      byteCount = validatedUpload.byteCount,
+      createdAt = Instant.now(),
     )
     billsState[index] = billsState[index].copy(
       receipts = billsState[index].receipts + receipt,

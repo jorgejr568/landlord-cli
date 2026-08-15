@@ -304,7 +304,9 @@ class APIRentivoStoreBillingTest {
           """"due_date":"2026-07-10","status_updated_at":"2026-08-15T12:00:00Z",""" +
           """"created_at":"2026-08-01T12:00:00Z","line_items":[""" +
           """{"description":"Aluguel","amount":10000,"item_type":"fixed"},""" +
-          """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[],""" +
+          """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[""" +
+          """{"uuid":"receipt-1","filename":"comprovante.pdf","content_type":"application/pdf",""" +
+          """"file_size":1536,"sort_order":0,"created_at":"2026-08-14T09:00:00Z"}],""" +
           """"communications":[{"uuid":"comm-1","comm_type":"bill_ready",""" +
           """"status":"sent","created_at":"2026-08-15T10:00:00Z",""" +
           """"sent_at":"2026-08-15T10:01:00Z","recipient_name":"Morador",""" +
@@ -375,6 +377,9 @@ class APIRentivoStoreBillingTest {
     assertEquals("morador@example.com", bill.communications.first().recipientEmail)
     assertEquals("sent", bill.communications.first().status)
     assertTrue(bill.communications.last().isRedacted)
+    assertEquals("application/pdf", bill.receipts.first().mediaType)
+    assertEquals(1_536, bill.receipts.first().byteCount)
+    assertNotNull(bill.receipts.first().createdAt)
   }
 
   @Test

@@ -401,6 +401,9 @@ data class Receipt(
   val id: ReceiptID,
   val name: String,
   val sortOrder: Int,
+  val mediaType: String = "application/octet-stream",
+  val byteCount: Int = 0,
+  val createdAt: Instant? = null,
 )
 
 data class Attachment(

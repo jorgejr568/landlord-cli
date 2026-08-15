@@ -136,11 +136,13 @@ struct RemoteReceiptOrder: Encodable { let order: [String] }
 struct RemoteReceipt: Decodable {
   let uuid, filename, contentType: String
   let fileSize, sortOrder: Int
+  let createdAt: String?
   enum CodingKeys: String, CodingKey {
     case uuid, filename
     case contentType = "content_type"
     case fileSize = "file_size"
     case sortOrder = "sort_order"
+    case createdAt = "created_at"
   }
 }
 struct RemoteAttachmentList: Decodable { let items: [RemoteAttachment] }

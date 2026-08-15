@@ -192,11 +192,15 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
         id = ReceiptID(rawValue = stableID(2_001)),
         name = "comprovante-pix-junho.pdf",
         sortOrder = 0,
+        mediaType = "application/pdf",
+        byteCount = 184_320,
       )
       val paidReceiptImage = Receipt(
         id = ReceiptID(rawValue = stableID(2_002)),
         name = "confirmacao-bancaria.jpg",
         sortOrder = 1,
+        mediaType = "image/jpeg",
+        byteCount = 92_160,
       )
       val bills = listOf(
         bill(

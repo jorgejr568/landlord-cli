@@ -688,8 +688,15 @@ private struct ReceiptManagerView: View {
           VStack(spacing: RentivoSpacing.medium) {
             ForEach(bill.receipts) { receipt in
               HStack {
-                Label(receipt.name, systemImage: "doc.fill")
-                  .font(.subheadline)
+                VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                  Label(receipt.name, systemImage: "doc.fill")
+                    .font(.subheadline)
+                  if receipt.byteCount > 0 {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(receipt.byteCount), countStyle: .file))
+                      .font(.caption)
+                      .foregroundStyle(RentivoColors.secondaryInk)
+                  }
+                }
                 Spacer()
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }

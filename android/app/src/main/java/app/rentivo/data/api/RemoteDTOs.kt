@@ -278,6 +278,7 @@ data class RemoteReceipt(
   @SerialName("content_type") val contentType: String,
   @SerialName("file_size") val fileSize: Int,
   @SerialName("sort_order") val sortOrder: Int,
+  @SerialName("created_at") val createdAt: String? = null,
 )
 
 @Serializable

@@ -108,12 +108,16 @@ public struct MockFixtures: Sendable {
     let paidReceipt = Receipt(
       id: stableID(2_001),
       name: "comprovante-pix-junho.pdf",
-      sortOrder: 0
+      sortOrder: 0,
+      mediaType: "application/pdf",
+      byteCount: 184_320
     )
     let paidReceiptImage = Receipt(
       id: stableID(2_002),
       name: "confirmacao-bancaria.jpg",
-      sortOrder: 1
+      sortOrder: 1,
+      mediaType: "image/jpeg",
+      byteCount: 92_160
     )
     let bills = [
       bill(

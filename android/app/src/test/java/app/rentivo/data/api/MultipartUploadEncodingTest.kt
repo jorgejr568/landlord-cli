@@ -68,6 +68,8 @@ class MultipartUploadEncodingTest {
     )
 
     assertEquals("receipt-1", receipt.id.rawValue)
+    assertEquals("application/pdf", receipt.mediaType)
+    assertEquals(8, receipt.byteCount)
     val call = dispatcher.callTo("POST /api/v1/billings/billing-1/bills/bill-1/receipts")!!
     val contentType = call.headers["Content-Type"]!!
     assertTrue(contentType.startsWith("multipart/form-data; boundary=RentivoBoundary-"))

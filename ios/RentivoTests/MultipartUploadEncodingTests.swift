@@ -32,9 +32,11 @@ import Testing
     mediaType: "application/pdf"
   )
 
-  _ = try await store.addReceipt(
+  let receipt = try await store.addReceipt(
     billingID: BillingID(rawValue: "billing-1"), billID: BillID(rawValue: "bill-1"), upload: upload
   )
+  #expect(receipt.mediaType == "application/pdf")
+  #expect(receipt.byteCount == 8)
 
   let contentTypeHeader = try #require(CapturingReceiptUploadURLProtocol.capturedContentTypeHeader)
   #expect(contentTypeHeader.hasPrefix("multipart/form-data; boundary=RentivoBoundary-"))

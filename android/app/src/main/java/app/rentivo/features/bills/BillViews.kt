@@ -1,6 +1,7 @@
 package app.rentivo.features.bills
 
 import android.content.pm.PackageManager
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1476,12 +1477,23 @@ private fun ReceiptManagerSection(
         Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
           bill.receipts.forEach { receipt ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-              IconLabel(
-                text = receipt.name,
-                icon = Icons.AutoMirrored.Filled.InsertDriveFile,
-                style = RentivoTypography.subheadline,
+              Column(
                 modifier = Modifier.weight(1f),
-              )
+                verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
+              ) {
+                IconLabel(
+                  text = receipt.name,
+                  icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                  style = RentivoTypography.subheadline,
+                )
+                if (receipt.byteCount > 0) {
+                  Text(
+                    text = Formatter.formatShortFileSize(context, receipt.byteCount.toLong()),
+                    style = RentivoTypography.caption,
+                    color = RentivoColors.secondaryInk,
+                  )
+                }
+              }
               Box {
                 IconButton(onClick = { openMenuFor = receipt.id }) {
                   Icon(

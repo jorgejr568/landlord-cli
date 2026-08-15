@@ -42,8 +42,15 @@ struct ReceiptManagerView: View {
           VStack(spacing: RentivoSpacing.medium) {
             ForEach(bill.receipts) { receipt in
               HStack {
-                Label(receipt.name, systemImage: "doc.fill")
-                  .font(RentivoTypography.body)
+                VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                  Label(receipt.name, systemImage: "doc.fill")
+                    .font(RentivoTypography.body)
+                  if receipt.byteCount > 0 {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(receipt.byteCount), countStyle: .file))
+                      .font(RentivoTypography.caption)
+                      .foregroundStyle(RentivoColors.secondaryInk)
+                  }
+                }
                 Spacer()
                 if downloadingReceiptID == receipt.id {
                   ProgressView()
