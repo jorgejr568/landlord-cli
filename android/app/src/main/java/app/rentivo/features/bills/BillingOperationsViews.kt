@@ -87,6 +87,7 @@ import app.rentivo.app.LocalAppModel
 import app.rentivo.data.api.fileUploadFromUri
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.MoneyText
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -310,6 +311,7 @@ private fun ExpenseFormSheet(
   var category by remember { mutableStateOf(ExpenseCategory.MAINTENANCE) }
   var incurredOn by remember { mutableStateOf(LocalDate.now()) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun save() {
     app.mutate {
@@ -330,8 +332,9 @@ private fun ExpenseFormSheet(
   FormSheet(
     title = "",
     onDismiss = onDismiss,
-    saveEnabled = ExpenseInput.isValidDescription(description) && centavos > 0,
-    onSave = { scope.launch { save() } },
+    saving = mutationGate.isRunning,
+    saveEnabled = !mutationGate.isRunning && ExpenseInput.isValidDescription(description) && centavos > 0,
+    onSave = { scope.launch { mutationGate.run { save() } } },
   ) {
     Text(
       text = "Nova despesa",
@@ -586,6 +589,7 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var format by remember { mutableStateOf("CSV") }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun requestExport() {
     app.mutate {
@@ -622,7 +626,8 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
       Spacer(modifier = Modifier.height(RentivoSpacing.section - RentivoSpacing.large))
       RentivoButton(
         text = "Solicitar exportação",
-        onClick = { scope.launch { requestExport() } },
+        onClick = { scope.launch { mutationGate.run { requestExport() } } },
+        enabled = !mutationGate.isRunning,
         color = RentivoColors.blue,
       )
     }
@@ -967,15 +972,16 @@ private fun OperationScaffold(
 private fun FormSheet(
   title: String,
   onDismiss: () -> Unit,
+  saving: Boolean,
   saveEnabled: Boolean,
   onSave: () -> Unit,
   content: @Composable ColumnScope.() -> Unit,
 ) {
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !saving) {
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
-        SheetTopBar(title = title, onCancel = onDismiss) {
+        SheetTopBar(title = title, onCancel = onDismiss, cancelEnabled = !saving) {
           TopBarChip {
             TextButton(onClick = onSave, enabled = saveEnabled) { Text(text = "Salvar") }
           }

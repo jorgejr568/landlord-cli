@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -227,7 +228,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = null,
       onDismiss = { showingCreate = false },
-      onSubmit = { draft, _ -> scope.launch { create(draft) } },
+      onSubmit = { draft, _ -> create(draft) },
     )
   }
 
@@ -235,7 +236,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = key,
       onDismiss = { editingKey = null },
-      onSubmit = { draft, updateGrants -> scope.launch { update(key, draft, updateGrants) } },
+      onSubmit = { draft, updateGrants -> update(key, draft, updateGrants) },
     )
   }
 
@@ -402,7 +403,7 @@ private fun DateColumn(title: String, value: Instant, alignment: Alignment.Horiz
 private fun APIKeyFormScreen(
   existing: APIKeyMetadata?,
   onDismiss: () -> Unit,
-  onSubmit: (APIKeyDraft, Boolean) -> Unit,
+  onSubmit: suspend (APIKeyDraft, Boolean) -> Unit,
 ) {
   val app = LocalAppModel.current
   val formScope = rememberCoroutineScope()
@@ -434,10 +435,11 @@ private fun APIKeyFormScreen(
   var options by remember { mutableStateOf<APIKeyOptions?>(null) }
   var optionsError by remember { mutableStateOf<DemoError?>(null) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  val mutationGate = remember(existing) { MutationGate() }
 
   // The sheet installs its own back handler, but this one is registered later and therefore wins;
   // either way back dismisses only the form, never the API-key screen underneath it.
-  BackHandler { onDismiss() }
+  BackHandler { if (!mutationGate.isRunning) onDismiss() }
 
   suspend fun loadOptions() {
     optionsError = null
@@ -457,7 +459,7 @@ private fun APIKeyFormScreen(
 
   LaunchedEffect(Unit) { loadOptions() }
 
-  fun submit() {
+  suspend fun submit() {
     val grants = grantIDs.sortedBy { it.rawValue }.map { resourceID ->
       originalGrants[resourceID]
         ?: APIKeyGrant(
@@ -481,12 +483,12 @@ private fun APIKeyFormScreen(
     )
   }
 
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !mutationGate.isRunning) {
     RentivoLargeTopBarScaffold(
       title = if (existing == null) "Nova chave" else "Editar chave",
       navigationIcon = {
         TopBarChip {
-          TextButton(onClick = onDismiss) {
+          TextButton(onClick = onDismiss, enabled = !mutationGate.isRunning) {
             Text(text = "Cancelar", color = RentivoColors.emerald)
           }
         }
@@ -494,8 +496,9 @@ private fun APIKeyFormScreen(
       actions = {
         AccountToolbarAction {
           TextButton(
-            onClick = { submit() },
-            enabled = options != null && options?.scopes?.isNotEmpty() == true &&
+            onClick = { formScope.launch { mutationGate.run { submit() } } },
+            enabled = !mutationGate.isRunning && options != null &&
+              options?.scopes?.isNotEmpty() == true &&
               APIKeyValidation.isValidName(name) && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
             modifier = Modifier.testTag("api-key.submit"),
           ) {

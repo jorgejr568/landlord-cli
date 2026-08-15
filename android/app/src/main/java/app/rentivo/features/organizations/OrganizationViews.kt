@@ -1,5 +1,6 @@
 package app.rentivo.features.organizations
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +78,7 @@ import app.rentivo.app.AppTab
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -398,6 +400,7 @@ fun OrganizationFormView(
   var merchantName by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantName ?: "") }
   var city by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantCity ?: "") }
   var pixValidationMessage: String? by remember(existing?.id) { mutableStateOf(null) }
+  val mutationGate = remember(existing?.id) { MutationGate() }
 
   suspend fun save() {
     val trimmedKey = pixKey.trim()
@@ -441,6 +444,8 @@ fun OrganizationFormView(
     }
   }
 
+  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
@@ -448,10 +453,11 @@ fun OrganizationFormView(
       SheetTopBar(
         title = if (existing == null) "Nova organização" else "Editar organização",
         confirmTitle = "Salvar",
-        confirmEnabled = OrganizationDraft(name = name, pix = null).isValid,
+        confirmEnabled = !mutationGate.isRunning && OrganizationDraft(name = name, pix = null).isValid,
         confirmTestTag = "organization.form.save",
+        cancelEnabled = !mutationGate.isRunning,
         onCancel = onDismiss,
-        onConfirm = { scope.launch { save() } },
+        onConfirm = { scope.launch { mutationGate.run { save() } } },
       )
     },
   ) { padding ->
@@ -548,6 +554,7 @@ fun OrganizationDetailView(
   var showingInvite by remember { mutableStateOf(false) }
   var confirmingMFA by remember { mutableStateOf(false) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  val mutationGate = remember(organizationId) { MutationGate() }
 
   suspend fun load() {
     // Same "don't blank on refresh" rule as the organization list: every member/role/MFA/billing
@@ -726,8 +733,10 @@ fun OrganizationDetailView(
         MemberSection(
           organization = organization,
           onInvite = { showingInvite = true },
-          onChangeRole = { member, role -> scope.launch { changeRole(member, role) } },
-          onRemove = { member -> scope.launch { remove(member) } },
+          onChangeRole = { member, role ->
+            scope.launch { mutationGate.run { changeRole(member, role) } }
+          },
+          onRemove = { member -> scope.launch { mutationGate.run { remove(member) } } },
         )
 
         PolicySection(
@@ -738,7 +747,9 @@ fun OrganizationDetailView(
         BillingSection(
           organization = organization,
           billings = billings,
-          onTransfer = { billing -> scope.launch { transfer(billing, organization) } },
+          onTransfer = { billing ->
+            scope.launch { mutationGate.run { transfer(billing, organization) } }
+          },
         )
 
         RentivoButton(
@@ -797,7 +808,7 @@ fun OrganizationDetailView(
         TextButton(
           onClick = {
             confirmingMFA = false
-            scope.launch { toggleMFA() }
+            scope.launch { mutationGate.run { toggleMFA() } }
           },
         ) {
           Text(text = "Confirmar")
@@ -819,7 +830,7 @@ fun OrganizationDetailView(
         TextButton(
           onClick = {
             confirmingDelete = false
-            scope.launch { deleteOrganization() }
+            scope.launch { mutationGate.run { deleteOrganization() } }
           },
         ) {
           Text(text = "Excluir", color = RentivoColors.destructiveText)
@@ -1087,6 +1098,7 @@ internal fun SheetTopBar(
   confirmTitle: String,
   confirmEnabled: Boolean,
   confirmTestTag: String,
+  cancelEnabled: Boolean = true,
   onCancel: () -> Unit,
   onConfirm: () -> Unit,
   title: String? = null,
@@ -1100,7 +1112,7 @@ internal fun SheetTopBar(
     navigationIcon = {
       Spacer(modifier = Modifier.width(RentivoSpacing.small))
       TopBarChip {
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = onCancel, enabled = cancelEnabled) {
           Text(text = "Cancelar", style = RentivoTypography.body, color = RentivoColors.emerald)
         }
       }

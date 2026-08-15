@@ -186,6 +186,7 @@ fun BillingFormView(
   )
 
   suspend fun save() {
+    if (saving) return
     val owner = if (existing != null) {
       existing.owner
     } else {

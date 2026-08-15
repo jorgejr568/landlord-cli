@@ -94,6 +94,7 @@ import app.rentivo.data.api.prepareReceiptUpload
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -286,6 +287,7 @@ fun BillFormSheet(
   }
 
   suspend fun save() {
+    if (saving) return
     val draft = BillDraft(
       billingID = billing.id,
       referenceMonth = ReferenceMonth(year = year, month = month),
@@ -745,6 +747,7 @@ fun BillDetailScreen(
   var showingCommunication by remember { mutableStateOf(false) }
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  val mutationGate = remember { MutationGate() }
   /**
    * Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when the
    * bill was already `pending`.
@@ -901,10 +904,12 @@ fun BillDetailScreen(
         billing = currentBilling,
         bill = bill,
         modifier = Modifier.padding(padding),
-        onTransition = { status -> scope.launch { transition(bill.status, status) } },
+        onTransition = { status ->
+          scope.launch { mutationGate.run { transition(bill.status, status) } }
+        },
         onOpenInvoice = { scope.launch { downloadInvoice() } },
         onOpenRecibo = { scope.launch { downloadRecibo() } },
-        onRegenerate = { scope.launch { regenerate(bill) } },
+        onRegenerate = { scope.launch { mutationGate.run { regenerate(bill) } } },
         onCompose = { showingCommunication = true },
         onDelete = { confirmingDelete = true },
         onMutation = { refreshAll() },
@@ -941,7 +946,7 @@ fun BillDetailScreen(
         TextButton(
           onClick = {
             confirmingDelete = false
-            scope.launch { deleteBill() }
+            scope.launch { mutationGate.run { deleteBill() } }
           },
         ) {
           Text(text = "Excluir fatura", color = RentivoColors.coral)
@@ -1250,6 +1255,7 @@ private fun ReceiptManagerSection(
   var pendingDeletion by remember { mutableStateOf<Receipt?>(null) }
   var openMenuFor by remember { mutableStateOf<ReceiptID?>(null) }
   var sourceMenuOpen by remember { mutableStateOf(false) }
+  val mutationGate = remember(bill.id) { MutationGate() }
   val captures = remember(context) {
     ReceiptCaptureStore(File(context.cacheDir, ReceiptCaptureStore.DIRECTORY_NAME))
   }
@@ -1420,20 +1426,23 @@ private fun ReceiptManagerSection(
               text = "Inverter ordem",
               onClick = {
                 scope.launch {
-                  try {
-                    app.dependencies.bills.reorderReceipts(
-                      billingID = billingID,
-                      billID = bill.id,
-                      receiptIDs = bill.receipts.map { it.id }.reversed(),
-                    )
-                    onMutation()
-                  } catch (cancellation: CancellationException) {
-                    throw cancellation
-                  } catch (throwable: Throwable) {
-                    report(throwable)
+                  mutationGate.run {
+                    try {
+                      app.dependencies.bills.reorderReceipts(
+                        billingID = billingID,
+                        billID = bill.id,
+                        receiptIDs = bill.receipts.map { it.id }.reversed(),
+                      )
+                      onMutation()
+                    } catch (cancellation: CancellationException) {
+                      throw cancellation
+                    } catch (throwable: Throwable) {
+                      report(throwable)
+                    }
                   }
                 }
               },
+              enabled = !mutationGate.isRunning,
               modifier = Modifier.testTag("bill.receipts.reverse"),
             )
           }
@@ -1506,17 +1515,19 @@ private fun ReceiptManagerSection(
           onClick = {
             pendingDeletion = null
             scope.launch {
-              try {
-                app.dependencies.bills.deleteReceipt(
-                  billingID = billingID,
-                  billID = bill.id,
-                  receiptID = receipt.id,
-                )
-                onMutation()
-              } catch (cancellation: CancellationException) {
-                throw cancellation
-              } catch (throwable: Throwable) {
-                report(throwable)
+              mutationGate.run {
+                try {
+                  app.dependencies.bills.deleteReceipt(
+                    billingID = billingID,
+                    billID = bill.id,
+                    receiptID = receipt.id,
+                  )
+                  onMutation()
+                } catch (cancellation: CancellationException) {
+                  throw cancellation
+                } catch (throwable: Throwable) {
+                  report(throwable)
+                }
               }
             }
           },

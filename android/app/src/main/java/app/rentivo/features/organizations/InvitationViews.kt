@@ -1,5 +1,6 @@
 package app.rentivo.features.organizations
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.IconLabel
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
@@ -84,6 +86,7 @@ fun InvitationListView(
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var state: LoadState<List<Invitation>> by remember { mutableStateOf(LoadState.Idle) }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun load() {
     // Only blank the sheet with a spinner on first load; a `dataRevision` bump while the sheet is
@@ -159,7 +162,9 @@ fun InvitationListView(
           InvitationRow(
             invitation = invitation,
             showsViewerNotice = !app.usesLiveAPI && app.demoSettings.viewerMode,
-            onRespond = { accept -> scope.launch { respond(invitation, accept) } },
+            onRespond = { accept ->
+              scope.launch { mutationGate.run { respond(invitation, accept) } }
+            },
           )
         }
       }
@@ -230,6 +235,7 @@ fun InviteMemberView(
   var email by remember { mutableStateOf("") }
   var role by remember { mutableStateOf(OrganizationRole.VIEWER) }
   var roleMenuExpanded by remember { mutableStateOf(false) }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun invite() {
     if (!OrganizationInviteEmail.isValid(email)) {
@@ -255,16 +261,19 @@ fun InviteMemberView(
     }
   }
 
+  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
     topBar = {
       SheetTopBar(
         confirmTitle = "Convidar",
-        confirmEnabled = OrganizationInviteEmail.isValid(email),
+        confirmEnabled = !mutationGate.isRunning && OrganizationInviteEmail.isValid(email),
         confirmTestTag = "invitation.send",
+        cancelEnabled = !mutationGate.isRunning,
         onCancel = onDismiss,
-        onConfirm = { scope.launch { invite() } },
+        onConfirm = { scope.launch { mutationGate.run { invite() } } },
       )
     },
   ) { padding ->
