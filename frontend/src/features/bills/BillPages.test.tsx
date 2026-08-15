@@ -837,6 +837,7 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(screen.queryByDisplayValue("Gás")).not.toBeInTheDocument();
   const description = screen.getByLabelText("Descrição");
   const amount = screen.getByLabelText("Valor (R$)");
+  expect(description).toHaveAttribute("maxLength", "255");
   await user.clear(description);
   await user.clear(amount);
   await user.clear(screen.getByLabelText("Vencimento"));
@@ -847,10 +848,16 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(screen.getByText("Informe uma data válida.")).toBeVisible();
   expect(screen.getByLabelText("Vencimento")).toHaveFocus();
 
-  await user.type(description, "Aluguel");
+  fireEvent.change(description, { target: { value: "x".repeat(256) } });
   await user.type(amount, "2.500,00");
   await user.clear(screen.getByLabelText("Vencimento"));
   await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
+  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  expect(await screen.findByText("A descrição deve ter no máximo 255 caracteres.")).toBeVisible();
+
+  fireEvent.change(screen.getByLabelText("Descrição"), {
+    target: { value: "Aluguel" },
+  });
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Observações")).toHaveFocus());

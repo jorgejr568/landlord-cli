@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -237,8 +237,16 @@ it("validates dates and extras locally, removes rows, and focuses nested API err
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor maior que zero.")).toBeVisible();
   expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveFocus();
+  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveAttribute("maxLength", "255");
+
+  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 1"), { target: { value: "x".repeat(256) } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  expect(await screen.findByText("A descrição deve ter no máximo 255 caracteres.")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.clear(screen.getByLabelText("Descrição da despesa extra 1"));
+  await user.clear(screen.getByLabelText("Valor da despesa extra 1"));
   await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Seguro");
   await user.type(screen.getByLabelText("Valor da despesa extra 1"), "10,00");
   await user.type(screen.getByLabelText("Descrição da despesa extra 2"), "Limpeza");
