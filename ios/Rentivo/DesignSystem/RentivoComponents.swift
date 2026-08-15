@@ -59,6 +59,8 @@ struct RentivoButtonStyle: ButtonStyle {
 }
 
 struct RentivoSecondaryButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.headline.weight(.bold))
@@ -71,7 +73,8 @@ struct RentivoSecondaryButtonStyle: ButtonStyle {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
           .stroke(RentivoColors.ink, lineWidth: 2)
       }
-      .opacity(configuration.isPressed ? 0.75 : 1)
+      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+      .saturation(isEnabled ? 1 : 0.6)
   }
 }
 
