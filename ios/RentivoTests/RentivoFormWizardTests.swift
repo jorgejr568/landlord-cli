@@ -19,4 +19,29 @@ import Testing
     #expect(flow.isLast)
     #expect(flow.advance() == false)
   }
+
+  @Test func billValidationFocusRoutesToTheFirstActionableControl() {
+    let fixedID = BillLineItemID(rawValue: "fixed")
+    let extraID = BillLineItemID(rawValue: "extra")
+    let lines = [
+      BillLineItem(id: fixedID, description: "Aluguel", amount: Money(centavos: 100_00), kind: .fixed),
+      BillLineItem(id: extraID, description: "", amount: .zero, kind: .extra),
+    ]
+
+    #expect(billFormFocusTarget(issues: [ValidationIssue(field: .items, message: "")], lines: []) == .addExtra)
+    #expect(
+      billFormFocusTarget(issues: [ValidationIssue(field: .itemDescription, message: "")], lines: lines)
+        == .lineDescription(extraID)
+    )
+    #expect(
+      billFormFocusTarget(issues: [ValidationIssue(field: .itemAmount, message: "")], lines: lines)
+        == .lineAmount(extraID)
+    )
+  }
+
+  @Test func expenseValidationFocusRoutesToTheInvalidStepControl() {
+    #expect(expenseFormFocusTarget(step: .details, descriptionIsValid: false, centavos: 100) == .description)
+    #expect(expenseFormFocusTarget(step: .valueAndDate, descriptionIsValid: true, centavos: 0) == .amount)
+    #expect(expenseFormFocusTarget(step: .review, descriptionIsValid: true, centavos: 100) == nil)
+  }
 #endif

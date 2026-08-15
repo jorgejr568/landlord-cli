@@ -51,10 +51,33 @@ private enum BillWizardStep: Hashable {
   case review
 }
 
-private enum BillFormFocus: Hashable {
+enum BillFormFocus: Hashable {
   case lineDescription(BillLineItemID)
   case lineAmount(BillLineItemID)
   case addExtra
+}
+
+func billFormFocusTarget(issues: [ValidationIssue], lines: [BillLineItem]) -> BillFormFocus? {
+  if issues.contains(where: { $0.field == .items }) { return .addExtra }
+  if issues.contains(where: { $0.field == .itemDescription }),
+    let line = lines.first(where: {
+      $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || $0.description.unicodeScalars.count > 255
+    }) {
+    return .lineDescription(line.id)
+  }
+  if issues.contains(where: { $0.field == .itemAmount }) {
+    if let line = lines.first(where: {
+      ($0.kind == .extra && $0.amount.centavos <= 0)
+        || ($0.kind != .extra && $0.amount.centavos < 0)
+    }) {
+      return .lineAmount(line.id)
+    }
+    if !Money.fitsPersistedTotal(lines.lazy.map(\.amount.centavos)), let line = lines.first {
+      return .lineAmount(line.id)
+    }
+  }
+  return nil
 }
 
 struct BillFormView: View {
@@ -279,7 +302,8 @@ struct BillFormView: View {
       CurrencyCentavosField(
         "Valor em centavos",
         centavos: $lines[index].centavos,
-        isFocused: amountFocusBinding(for: lines[index].id)
+        isFocused: amountFocusBinding(for: lines[index].id),
+        isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id)
       )
       if canRemove {
         Button("Remover item", role: .destructive) {
@@ -306,33 +330,8 @@ struct BillFormView: View {
   /// description gives keyboard users a deterministic first correction point, including extras
   /// that were just added to the invoice.
   private func focusFirstInvalidLine() {
-    if issues.contains(where: { $0.field == .items }) {
-      scheduleFocus(.addExtra)
-      return
-    }
-    guard let issue = issues.first(where: { $0.field == .itemDescription || $0.field == .itemAmount })
-    else { return }
-    let invalidLine: EditableBillLine?
-    switch issue.field {
-    case .itemDescription:
-      invalidLine = lines.first {
-        $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          || $0.description.unicodeScalars.count > 255
-      }
-    case .itemAmount:
-      invalidLine = lines.first {
-        ($0.kind == .extra && $0.centavos <= 0)
-          || ($0.kind != .extra && $0.centavos < 0)
-      }
-        ?? (Money.fitsPersistedTotal(lines.lazy.map(\.centavos)) ? nil : lines.first)
-    default:
-      invalidLine = nil
-    }
-    if let invalidLine {
-      scheduleFocus(
-        issue.field == .itemAmount ? .lineAmount(invalidLine.id) : .lineDescription(invalidLine.id)
-      )
-    }
+    guard let target = billFormFocusTarget(issues: issues, lines: lines.map(\.domain)) else { return }
+    scheduleFocus(target)
   }
 
   private func amountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
@@ -343,6 +342,19 @@ struct BillFormView: View {
           focusedField = .lineAmount(id)
         } else if focusedField == .lineAmount(id) {
           focusedField = nil
+        }
+      }
+    )
+  }
+
+  private func accessibilityAmountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == .lineAmount(id) },
+      set: { isFocused in
+        if isFocused {
+          accessibilityFocusedField = .lineAmount(id)
+        } else if accessibilityFocusedField == .lineAmount(id) {
+          accessibilityFocusedField = nil
         }
       }
     )

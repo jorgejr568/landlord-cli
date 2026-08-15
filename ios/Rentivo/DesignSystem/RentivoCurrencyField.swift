@@ -12,16 +12,24 @@ struct CurrencyCentavosField: View {
   private let label: String
   @Binding private var centavos: Int
   private let isFocused: Binding<Bool>?
+  private let isAccessibilityFocused: Binding<Bool>?
   @State private var text: String
   @FocusState private var textFieldIsFocused: Bool
+  @AccessibilityFocusState private var textFieldIsAccessibilityFocused: Bool
 
   /// - Parameters:
   ///   - label: Visible placeholder and accessibility label for the field.
   ///   - centavos: The bound integer amount, in centavos.
-  init(_ label: String, centavos: Binding<Int>, isFocused: Binding<Bool>? = nil) {
+  init(
+    _ label: String,
+    centavos: Binding<Int>,
+    isFocused: Binding<Bool>? = nil,
+    isAccessibilityFocused: Binding<Bool>? = nil
+  ) {
     self.label = label
     self._centavos = centavos
     self.isFocused = isFocused
+    self.isAccessibilityFocused = isAccessibilityFocused
     self._text = State(initialValue: Self.format(centavos.wrappedValue))
   }
 
@@ -29,6 +37,7 @@ struct CurrencyCentavosField: View {
     TextField(label, text: $text)
       .keyboardType(.numberPad)
       .focused($textFieldIsFocused)
+      .accessibilityFocused($textFieldIsAccessibilityFocused)
       .accessibilityLabel(label)
       .onChange(of: text) { _, newValue in
         let digits = newValue.filter(\.isNumber)
@@ -58,6 +67,14 @@ struct CurrencyCentavosField: View {
       .onChange(of: isFocused?.wrappedValue ?? false) { _, newValue in
         guard textFieldIsFocused != newValue else { return }
         textFieldIsFocused = newValue
+      }
+      .onChange(of: textFieldIsAccessibilityFocused) { _, newValue in
+        guard isAccessibilityFocused?.wrappedValue != newValue else { return }
+        isAccessibilityFocused?.wrappedValue = newValue
+      }
+      .onChange(of: isAccessibilityFocused?.wrappedValue ?? false) { _, newValue in
+        guard textFieldIsAccessibilityFocused != newValue else { return }
+        textFieldIsAccessibilityFocused = newValue
       }
   }
 

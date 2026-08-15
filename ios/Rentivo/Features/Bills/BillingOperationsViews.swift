@@ -160,15 +160,25 @@ struct ExpenseListView: View {
   }
 }
 
-private enum ExpenseWizardStep: Hashable {
+enum ExpenseWizardStep: Hashable {
   case details
   case valueAndDate
   case review
 }
 
-private enum ExpenseFormFocus: Hashable {
+enum ExpenseFormFocus: Hashable {
   case description
   case amount
+}
+
+func expenseFormFocusTarget(
+  step: ExpenseWizardStep, descriptionIsValid: Bool, centavos: Int
+) -> ExpenseFormFocus? {
+  switch step {
+  case .details: return descriptionIsValid ? nil : .description
+  case .valueAndDate: return centavos > 0 ? nil : .amount
+  case .review: return nil
+  }
 }
 
 private struct ExpenseFormView: View {
@@ -218,7 +228,8 @@ private struct ExpenseFormView: View {
           CurrencyCentavosField(
             "Valor em centavos",
             centavos: $centavos,
-            isFocused: amountFocusBinding
+            isFocused: amountFocusBinding,
+            isAccessibilityFocused: accessibilityAmountFocusBinding
           )
           DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
           validationError
@@ -260,13 +271,21 @@ private struct ExpenseFormView: View {
     submitErrorMessage = nil
     switch selectedStep {
     case .details:
-      guard ExpenseInput.isValidDescription(description) else {
+      if expenseFormFocusTarget(
+        step: .details,
+        descriptionIsValid: ExpenseInput.isValidDescription(description),
+        centavos: centavos
+      ) == .description {
         submitErrorMessage = "Informe uma descrição válida para a despesa."
         scheduleFocus(.description)
         return false
       }
     case .valueAndDate:
-      guard centavos > 0 else {
+      if expenseFormFocusTarget(
+        step: .valueAndDate,
+        descriptionIsValid: true,
+        centavos: centavos
+      ) == .amount {
         submitErrorMessage = "Informe um valor maior que zero."
         scheduleFocus(.amount)
         return false
@@ -292,6 +311,19 @@ private struct ExpenseFormView: View {
           focusedField = .amount
         } else if focusedField == .amount {
           focusedField = nil
+        }
+      }
+    )
+  }
+
+  private var accessibilityAmountFocusBinding: Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == .amount },
+      set: { isFocused in
+        if isFocused {
+          accessibilityFocusedField = .amount
+        } else if accessibilityFocusedField == .amount {
+          accessibilityFocusedField = nil
         }
       }
     )
