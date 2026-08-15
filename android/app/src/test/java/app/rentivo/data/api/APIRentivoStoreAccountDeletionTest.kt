@@ -73,6 +73,30 @@ class APIRentivoStoreAccountDeletionTest {
   }
 
   @Test
+  fun `account deletion readiness is decoded before destructive UI proceeds`() = runTest {
+    val dispatcher = server.routeWithSession { call ->
+      if (call.route == "GET /api/v1/security/account-deletion-readiness") {
+        jsonResponse("""{"can_delete":false,"reason":"sole_organization_admin"}""")
+      } else {
+        unexpected(call)
+      }
+    }
+    val store = authenticatedStore()
+
+    val readiness = store.accountDeletionReadiness()
+
+    assertFalse(readiness.canDelete)
+    assertEquals("sole_organization_admin", readiness.reason)
+    assertEquals(
+      listOf(
+        "GET /api/v1/auth/session",
+        "GET /api/v1/security/account-deletion-readiness",
+      ),
+      dispatcher.routes,
+    )
+  }
+
+  @Test
   fun `signing out revokes the token server-side and then clears everything`() = runTest {
     val dispatcher = server.routeWithSession { MockResponse().setResponseCode(204) }
     val store = authenticatedStore()

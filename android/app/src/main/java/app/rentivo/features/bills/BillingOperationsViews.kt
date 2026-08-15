@@ -311,6 +311,7 @@ private fun ExpenseFormSheet(
   var category by remember { mutableStateOf(ExpenseCategory.MAINTENANCE) }
   var incurredOn by remember { mutableStateOf(LocalDate.now()) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  var validationMessage by remember { mutableStateOf<String?>(null) }
   val mutationGate = remember { MutationGate() }
 
   suspend fun save() {
@@ -345,7 +346,10 @@ private fun ExpenseFormSheet(
     RentivoCard {
       RentivoListField(
         value = description,
-        onValueChange = { description = it },
+        onValueChange = {
+          description = it
+          validationMessage = null
+        },
         modifier = Modifier.padding(vertical = FormRowPadding),
         placeholder = "Descrição",
       )
@@ -383,6 +387,14 @@ private fun ExpenseFormSheet(
           color = RentivoColors.secondaryInk,
         )
       }
+    }
+    validationMessage?.let { message ->
+      Text(
+        text = message,
+        style = RentivoTypography.subheadline,
+        color = RentivoColors.coral,
+        modifier = Modifier.padding(top = RentivoSpacing.small),
+      )
     }
   }
 
@@ -433,6 +445,7 @@ fun AttachmentListScreen(billing: Billing, onBack: () -> Unit) {
   var state by remember { mutableStateOf<LoadState<List<Attachment>>>(LoadState.Idle) }
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var pendingDeletion by remember { mutableStateOf<Attachment?>(null) }
+  val mutationGate = remember(billing.id) { MutationGate() }
 
   suspend fun load() {
     state = LoadState.Loading
@@ -440,21 +453,25 @@ fun AttachmentListScreen(billing: Billing, onBack: () -> Unit) {
   }
 
   suspend fun add(uri: Uri) {
-    app.mutate {
-      val upload = fileUploadFromUri(context.contentResolver, uri)
-      app.dependencies.attachments.addAttachment(billingID = billing.id, upload = upload)
-      load()
-      app.showNotice("Arquivo enviado.")
+    mutationGate.run {
+      app.mutate {
+        val upload = fileUploadFromUri(context.contentResolver, uri)
+        app.dependencies.attachments.addAttachment(billingID = billing.id, upload = upload)
+        load()
+        app.showNotice("Arquivo enviado.")
+      }
     }
   }
 
   suspend fun remove(attachment: Attachment) {
-    app.mutate {
-      app.dependencies.attachments.deleteAttachment(
-        billingID = billing.id,
-        attachmentID = attachment.id,
-      )
-      load()
+    mutationGate.run {
+      app.mutate {
+        app.dependencies.attachments.deleteAttachment(
+          billingID = billing.id,
+          attachmentID = attachment.id,
+        )
+        load()
+      }
     }
   }
 
@@ -477,7 +494,10 @@ fun AttachmentListScreen(billing: Billing, onBack: () -> Unit) {
     actions = {
       if (canWrite) {
         TopBarChip {
-          IconButton(onClick = { picker.launch(UploadMimeTypes) }) {
+          IconButton(
+            onClick = { picker.launch(UploadMimeTypes) },
+            enabled = !mutationGate.isRunning,
+          ) {
             Icon(imageVector = Icons.Filled.Add, contentDescription = "Adicionar")
           }
         }
@@ -494,7 +514,10 @@ fun AttachmentListScreen(billing: Billing, onBack: () -> Unit) {
           SectionHeader(ptBRCount(attachments.size, singular = "arquivo", plural = "arquivos"))
         }
         items(attachments, key = { it.id.rawValue }) { attachment ->
-          SwipeToDelete(enabled = canWrite, onRequestDelete = { pendingDeletion = attachment }) {
+          SwipeToDelete(
+            enabled = canWrite && !mutationGate.isRunning,
+            onRequestDelete = { pendingDeletion = attachment },
+          ) {
             AttachmentRow(
               attachment = attachment,
               onOpen = { scope.launch { download(attachment) } },
@@ -664,18 +687,24 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   val state = remember(billing, bill) { CommunicationComposerState(app, billing, bill) }
+  var confirmingDiscard by remember(billing, bill) { mutableStateOf(false) }
+
+  fun requestDismiss() {
+    if (state.isSending) return
+    if (state.hasUnsavedChanges) confirmingDiscard = true else onDismiss()
+  }
 
   LaunchedEffect(state.commType) {
     state.applyTemplateIfNeeded()
   }
 
-  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !state.isSending) {
+  FullScreenSheet(onDismissRequest = ::requestDismiss, dismissEnabled = !state.isSending) {
     Scaffold(
       containerColor = RentivoColors.paper,
       topBar = {
         SheetTopBar(
           title = "Enviar ${state.commType.label.lowercase()}",
-          onCancel = onDismiss,
+          onCancel = ::requestDismiss,
           cancelEnabled = !state.isSending,
         )
       },
@@ -702,6 +731,22 @@ fun CommunicationComposerSheet(billing: Billing, bill: Bill, onDismiss: () -> Un
         }
       }
     }
+  }
+  if (confirmingDiscard) {
+    AlertDialog(
+      onDismissRequest = { confirmingDiscard = false },
+      title = { Text("Descartar as alterações?") },
+      text = { Text("As alterações não salvas serão perdidas.") },
+      confirmButton = {
+        TextButton(onClick = { confirmingDiscard = false; onDismiss() }) {
+          Text("Descartar", color = RentivoColors.coral)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmingDiscard = false }) { Text("Continuar editando") }
+      },
+      containerColor = RentivoColors.surface,
+    )
   }
 }
 
@@ -824,9 +869,9 @@ private class CommunicationComposerState(
   val billing: Billing,
   private val bill: Bill,
 ) {
-  var commType by mutableStateOf(
-    if (bill.capabilities.canSendInvoice) CommunicationType.BILL_READY else CommunicationType.PAYMENT_RECEIPT,
-  )
+  private val initialCommType =
+    if (bill.capabilities.canSendInvoice) CommunicationType.BILL_READY else CommunicationType.PAYMENT_RECEIPT
+  var commType by mutableStateOf(initialCommType)
   var subject by mutableStateOf(billing.template(commType)?.subject.orEmpty())
     private set
   var message by mutableStateOf(billing.template(commType)?.body.orEmpty())
@@ -836,6 +881,9 @@ private class CommunicationComposerState(
     private set
 
   private var selectedRecipients by mutableStateOf(billing.recipients.map { it.id }.toSet())
+  private val initialRecipients = selectedRecipients
+  private val initialSubject = subject
+  private val initialMessage = message
   private var appliedTemplateType = commType
 
   val availableTypes: List<CommunicationType>
@@ -848,7 +896,11 @@ private class CommunicationComposerState(
     }
 
   val attachmentDescription: String
-    get() = if (commType == CommunicationType.PAYMENT_RECEIPT) "recibo" else "PDF da fatura"
+      get() = if (commType == CommunicationType.PAYMENT_RECEIPT) "recibo" else "PDF da fatura"
+
+  val hasUnsavedChanges: Boolean
+    get() = commType != initialCommType || subject != initialSubject || message != initialMessage ||
+      selectedRecipients != initialRecipients || saveScope != null
 
   /**
    * Defense in depth: the detail screen already disables the entry point while the PDF renders, but
@@ -1107,11 +1159,13 @@ internal fun CurrencyRowField(
   centavos: Long,
   onCentavosChange: (Long) -> Unit,
   modifier: Modifier = Modifier,
+  enabled: Boolean = true,
 ) {
   RentivoListField(
     value = displayText(centavos),
     onValueChange = { onCentavosChange(centavosFromInput(it)) },
     modifier = modifier.semantics { contentDescription = "Valor em centavos" },
+    enabled = enabled,
     monospace = true,
     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
   )

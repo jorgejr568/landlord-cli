@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,10 +82,13 @@ import app.rentivo.domain.BillingRecipient
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.PixConfiguration
+import app.rentivo.domain.PixFormFields
 import app.rentivo.domain.RecipientID
 import app.rentivo.domain.ValidationIssue
 import app.rentivo.domain.WorkspaceID
+import app.rentivo.domain.WorkspaceResourceType
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -181,13 +186,29 @@ fun BillingFormView(
   var saving by remember { mutableStateOf(false) }
   var organizations by remember { mutableStateOf(emptyList<Organization>()) }
   var organizationsLoaded by remember { mutableStateOf(existing != null) }
+  var confirmingDiscard by remember { mutableStateOf(false) }
+
+  val hasUnsavedChanges = name != existing?.name.orEmpty() ||
+    billingDescription != existing?.description.orEmpty() ||
+    ownerID != (existing?.owner?.workspaceID ?: WorkspaceID.personal) ||
+    items.toList() != existing?.items.orEmpty().map(EditableBillingItem::from) ||
+    pixKey != existing?.pixOverride?.key.orEmpty() ||
+    pixMerchantName != existing?.pixOverride?.merchantName.orEmpty() ||
+    pixMerchantCity != existing?.pixOverride?.merchantCity.orEmpty() ||
+    recipients.toList() != existing?.recipients.orEmpty().map(EditableRecipient::from) ||
+    replyTo.toList() != existing?.replyTo.orEmpty().map(EditableRecipient::from)
+
+  fun requestDismiss() {
+    if (saving) return
+    if (hasUnsavedChanges) confirmingDiscard = true else onDismiss()
+  }
 
   val ownerChoices = ownerChoices(
     currentUserID = app.currentUser.id,
     organizations = organizations,
   )
 
-  suspend fun save() {
+  fun submit() {
     if (saving) return
     val owner = if (existing != null) {
       existing.owner
@@ -202,26 +223,18 @@ fun BillingFormView(
     // below, because the update replaces the billing's whole recipient set.
     val draftRecipients = recipients.filterNot { it.isBlank }.map { it.domain() }
     val draftReplyTo = replyTo.filterNot { it.isBlank }.map { it.domain() }
-    val pix = pixKey.trim()
-    val merchantName = pixMerchantName.trim()
-    val merchantCity = pixMerchantCity.trim()
-    pixRecipientRequiredMessage = when {
-      pix.isEmpty() -> null
-      merchantName.isEmpty() || merchantCity.isEmpty() ->
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
-
-      else -> null
-    }
+    val pixFields = PixFormFields(
+      key = pixKey,
+      merchantName = pixMerchantName,
+      merchantCity = pixMerchantCity,
+    )
+    pixRecipientRequiredMessage = pixFields.validationMessage
     val draft = BillingDraft(
       name = name,
       description = billingDescription,
       owner = owner,
       items = items.mapIndexed { index, item -> item.domain(sortOrder = index) },
-      pixOverride = if (pix.isEmpty()) {
-        null
-      } else {
-        PixConfiguration(key = pix, merchantName = merchantName, merchantCity = merchantCity)
-      },
+      pixOverride = pixFields.configuration,
       recipients = draftRecipients,
       replyTo = draftReplyTo,
     )
@@ -230,21 +243,23 @@ fun BillingFormView(
     if (validationIssues.isNotEmpty() || pixRecipientRequiredMessage != null) return
 
     saving = true
-    try {
-      if (existing == null) {
-        app.dependencies.billings.createBilling(draft = draft)
-      } else {
-        app.dependencies.billings.updateBilling(id = existing.id, draft = draft)
+    scope.launch {
+      try {
+        if (existing == null) {
+          app.dependencies.billings.createBilling(draft = draft)
+        } else {
+          app.dependencies.billings.updateBilling(id = existing.id, draft = draft)
+        }
+        onSaved()
+        app.showNotice(if (existing == null) "Cobrança criada." else "Cobrança atualizada.")
+        onDismiss()
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (throwable: Throwable) {
+        app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+      } finally {
+        saving = false
       }
-      onSaved()
-      app.showNotice(if (existing == null) "Cobrança criada." else "Cobrança atualizada.")
-      onDismiss()
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (throwable: Throwable) {
-      app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
-    } finally {
-      saving = false
     }
   }
 
@@ -263,7 +278,7 @@ fun BillingFormView(
   // Mirrors `.interactiveDismissDisabled(saving)`: a save in flight must not be backed out from.
   // The handler stays enabled while saving so it swallows the gesture instead of letting the
   // enclosing sheet dismiss the form out from under the request.
-  BackHandler { if (!saving) onDismiss() }
+  BackHandler { requestDismiss() }
 
   Scaffold(
     modifier = Modifier.fillMaxSize(),
@@ -284,7 +299,7 @@ fun BillingFormView(
         navigationIcon = {
           Box(modifier = Modifier.padding(start = RentivoSpacing.small)) {
             TopBarChip {
-              TextButton(onClick = onDismiss) {
+              TextButton(onClick = ::requestDismiss, enabled = !saving) {
                 Text(
                   text = "Cancelar",
                   style = RentivoTypography.body,
@@ -299,7 +314,7 @@ fun BillingFormView(
           Box(modifier = Modifier.padding(end = RentivoSpacing.small)) {
             TopBarChip {
               TextButton(
-                onClick = { scope.launch { save() } },
+                onClick = ::submit,
                 enabled = saveEnabled,
                 modifier = Modifier.testTag("billing.form.save"),
               ) {
@@ -322,7 +337,7 @@ fun BillingFormView(
     },
   ) { padding ->
     LazyColumn(
-      modifier = Modifier.padding(padding).fillMaxSize(),
+      modifier = Modifier.padding(padding).fillMaxSize().imePadding(),
       contentPadding = PaddingValues(RentivoSpacing.page),
       verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
     ) {
@@ -364,6 +379,23 @@ fun BillingFormView(
         }
       }
     }
+  }
+
+  if (confirmingDiscard) {
+    AlertDialog(
+      onDismissRequest = { confirmingDiscard = false },
+      title = { Text("Descartar as alterações?") },
+      text = { Text("As alterações não salvas serão perdidas.") },
+      confirmButton = {
+        TextButton(onClick = { confirmingDiscard = false; onDismiss() }) {
+          Text("Descartar", color = RentivoColors.coral)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmingDiscard = false }) { Text("Continuar editando") }
+      },
+      containerColor = RentivoColors.surface,
+    )
   }
 }
 
@@ -417,9 +449,10 @@ private fun IdentificationSection(
         ownerID = ownerID,
         onOwnerIDChange = onOwnerIDChange,
         ownerChoices = ownerChoices,
+        ownerEditable = true,
       )
-    }
   }
+}
 }
 
 /** The iOS `Picker` row: label leading, current value and a disclosure glyph trailing. */
@@ -428,12 +461,13 @@ private fun OwnerPickerRow(
   ownerID: WorkspaceID,
   onOwnerIDChange: (WorkspaceID) -> Unit,
   ownerChoices: List<BillingOwner>,
+  ownerEditable: Boolean,
 ) {
   var expanded by remember { mutableStateOf(false) }
   val selectedName = ownerChoices.firstOrNull { it.workspaceID == ownerID }?.name.orEmpty()
 
   Box {
-    FormRow(modifier = Modifier.clickable { expanded = true }) {
+    FormRow(modifier = if (ownerEditable) Modifier.clickable { expanded = true } else Modifier) {
       Text(
         text = "Responsável",
         style = RentivoTypography.body,
@@ -445,14 +479,16 @@ private fun OwnerPickerRow(
         style = RentivoTypography.body,
         color = RentivoColors.secondaryInk,
       )
-      Icon(
-        imageVector = Icons.Filled.UnfoldMore,
-        contentDescription = null,
-        tint = RentivoColors.secondaryInk,
-        modifier = Modifier.size(18.dp),
-      )
+      if (ownerEditable) {
+        Icon(
+          imageVector = Icons.Filled.UnfoldMore,
+          contentDescription = null,
+          tint = RentivoColors.secondaryInk,
+          modifier = Modifier.size(18.dp),
+        )
+      }
     }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+    DropdownMenu(expanded = ownerEditable && expanded, onDismissRequest = { expanded = false }) {
       ownerChoices.forEach { owner ->
         DropdownMenuItem(
           text = { Text(text = owner.name) },

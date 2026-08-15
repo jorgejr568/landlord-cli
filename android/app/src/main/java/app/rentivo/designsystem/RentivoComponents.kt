@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.rentivo.app.AppNotice
+import app.rentivo.app.LocalAppModel
 import app.rentivo.domain.BillStatus
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Money
@@ -728,6 +729,7 @@ fun FullScreenSheet(
   dismissEnabled: Boolean = true,
   content: @Composable () -> Unit,
 ) {
+  val app = LocalAppModel.current
   // The sheet's own window reaches the bottom of the display, under the gesture-navigation pill,
   // but reports no window insets of its own to the composition inside it — so `navigationBarsPadding`
   // in there measures zero and the last row of a scrolling form ends up bisected by the pill. The
@@ -762,6 +764,15 @@ fun FullScreenSheet(
           .padding(bottom = navigationBarInset),
       ) {
         content()
+        app.notice?.let { notice ->
+          NoticeBanner(
+            notice = notice,
+            dismiss = { app.notice = null },
+            modifier = Modifier
+              .align(Alignment.TopCenter)
+              .padding(horizontal = RentivoSpacing.page, vertical = RentivoSpacing.small),
+          )
+        }
       }
     }
   }

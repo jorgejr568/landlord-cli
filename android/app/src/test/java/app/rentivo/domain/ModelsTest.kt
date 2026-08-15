@@ -329,6 +329,14 @@ class ModelsTest {
         ),
       ).isValid,
     )
+    assertEquals(
+      "Informe a chave, o nome e a cidade do recebedor para usar uma chave PIX.",
+      OrganizationDraft.pixValidationMessage(
+        key = "",
+        merchantName = "ANA",
+        city = "RECIFE",
+      ),
+    )
   }
 
   @Test

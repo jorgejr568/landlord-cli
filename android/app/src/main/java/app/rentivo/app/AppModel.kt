@@ -86,7 +86,7 @@ class AppModel(
     return profile
   }
 
-  suspend fun updateProfilePIX(pix: PixConfiguration): UserProfile {
+  suspend fun updateProfilePIX(pix: PixConfiguration?): UserProfile {
     val profile = dependencies.profile.updatePix(pix)
     if (session is Session.Authenticated) {
       session = Session.Authenticated(profile)

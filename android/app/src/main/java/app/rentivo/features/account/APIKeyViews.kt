@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -49,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -367,7 +370,11 @@ private fun APIKeyCard(
         modifier = Modifier.size(16.dp),
       )
       Text(
-        text = ptBRCount(key.grants.size, singular = "acesso", plural = "acessos"),
+        text = ptBRCount(
+          key.grants.size + key.unavailableGrantCount,
+          singular = "acesso",
+          plural = "acessos",
+        ),
         style = RentivoTypography.caption.copy(fontWeight = FontWeight.SemiBold),
         color = RentivoColors.secondaryInk,
       )
@@ -450,10 +457,21 @@ private fun APIKeyFormScreen(
   var optionsError by remember { mutableStateOf<DemoError?>(null) }
   var showingDatePicker by remember { mutableStateOf(false) }
   val mutationGate = remember(existing) { MutationGate() }
+  var confirmingDiscard by remember(existing) { mutableStateOf(false) }
+  var expirationEdited by remember(existing) { mutableStateOf(false) }
+  val initialName = existing?.name ?: "Nova integração"
+  val initialScopes = existing?.scopes ?: setOf(APIKeyScope.PROFILE_READ, APIKeyScope.BILLINGS_READ)
+  val hasUnsavedChanges = name != initialName || scopes.toSet() != initialScopes ||
+    grantIDs.toSet() != originalGrantIDs || expirationEdited
+
+  fun requestDismiss() {
+    if (mutationGate.isRunning) return
+    if (hasUnsavedChanges) confirmingDiscard = true else onDismiss()
+  }
 
   // The sheet installs its own back handler, but this one is registered later and therefore wins;
   // either way back dismisses only the form, never the API-key screen underneath it.
-  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+  BackHandler { requestDismiss() }
 
   suspend fun loadOptions() {
     optionsError = null
@@ -492,17 +510,22 @@ private fun APIKeyFormScreen(
         scopes = scopes.toSet(),
         grants = grants,
         expiresAt = existing?.expiresAt ?: loadedOptions.clampedExpiration(expiresAt),
+        shouldUpdateGrants = existing == null ||
+          (existing.unavailableGrantCount == 0 && grantIDs.toSet() != originalGrantIDs),
+        shouldUpdateScopes = existing == null ||
+          (existing.unavailableScopeCount == 0 && scopes.toSet() != existing.scopes),
       ),
-      grantIDs.toSet() != originalGrantIDs,
+      existing == null ||
+        (existing.unavailableGrantCount == 0 && grantIDs.toSet() != originalGrantIDs),
     )
   }
 
-  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !mutationGate.isRunning) {
+  FullScreenSheet(onDismissRequest = ::requestDismiss, dismissEnabled = !mutationGate.isRunning) {
     RentivoLargeTopBarScaffold(
       title = if (existing == null) "Nova chave" else "Editar chave",
       navigationIcon = {
         TopBarChip {
-          TextButton(onClick = onDismiss, enabled = !mutationGate.isRunning) {
+          TextButton(onClick = ::requestDismiss, enabled = !mutationGate.isRunning) {
             Text(text = "Cancelar", color = RentivoColors.emerald)
           }
         }
@@ -548,6 +571,7 @@ private fun APIKeyFormScreen(
               ToggleRow(
                 label = apiKeyScope.label,
                 checked = scopes.contains(apiKeyScope),
+                enabled = (existing?.unavailableScopeCount ?: 0) == 0,
                 onCheckedChange = { enabled ->
                   if (enabled) {
                     if (!scopes.contains(apiKeyScope)) scopes.add(apiKeyScope)
@@ -564,6 +588,13 @@ private fun APIKeyFormScreen(
             )
           }),
         )
+        if ((existing?.unavailableScopeCount ?: 0) > 0) {
+          Text(
+            text = "Alguns escopos exigem uma versão mais nova do app e serão preservados.",
+            style = RentivoTypography.caption,
+            color = RentivoColors.secondaryInk,
+          )
+        }
 
         AccountSection(
           title = "Acesso",
@@ -574,6 +605,7 @@ private fun APIKeyFormScreen(
                   label = apiKeyOptions.personalWorkspace.name,
                   id = apiKeyOptions.personalWorkspace.resourceID,
                   grantIDs = grantIDs,
+                  enabled = (existing?.unavailableGrantCount ?: 0) == 0,
                 )
               })
               apiKeyOptions.organizations.forEach { workspace ->
@@ -582,6 +614,7 @@ private fun APIKeyFormScreen(
                     label = workspace.name,
                     id = workspace.resourceID,
                     grantIDs = grantIDs,
+                    enabled = (existing?.unavailableGrantCount ?: 0) == 0,
                   )
                 })
               }
@@ -593,6 +626,13 @@ private fun APIKeyFormScreen(
             )
           }),
         )
+        if ((existing?.unavailableGrantCount ?: 0) > 0) {
+          Text(
+            text = "Alguns acessos protegidos não podem ser editados e serão preservados.",
+            style = RentivoTypography.caption,
+            color = RentivoColors.secondaryInk,
+          )
+        }
 
         if (existing == null && options != null) {
           AccountSection(
@@ -616,7 +656,26 @@ private fun APIKeyFormScreen(
       minimum = Instant.now().plusSeconds(60),
       maximum = expiryOptions.maximumExpiration(),
       onDismiss = { showingDatePicker = false },
-      onSelect = { expiresAt = expiryOptions.clampedExpiration(it) },
+      onSelect = {
+        expiresAt = expiryOptions.clampedExpiration(it)
+        expirationEdited = true
+      },
+    )
+  }
+  if (confirmingDiscard) {
+    AlertDialog(
+      onDismissRequest = { confirmingDiscard = false },
+      title = { Text("Descartar as alterações?") },
+      text = { Text("As alterações não salvas serão perdidas.") },
+      confirmButton = {
+        TextButton(onClick = { confirmingDiscard = false; onDismiss() }) {
+          Text("Descartar", color = RentivoColors.coral)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmingDiscard = false }) { Text("Continuar editando") }
+      },
+      containerColor = RentivoColors.surface,
     )
   }
 }
@@ -714,10 +773,12 @@ private fun ResourceToggle(
   label: String,
   id: WorkspaceID,
   grantIDs: SnapshotStateList<WorkspaceID>,
+  enabled: Boolean = true,
 ) {
   ToggleRow(
     label = label,
     checked = grantIDs.contains(id),
+    enabled = enabled,
     onCheckedChange = { enabled ->
       if (enabled) {
         if (!grantIDs.contains(id)) grantIDs.add(id)
@@ -730,7 +791,12 @@ private fun ResourceToggle(
 
 /** One iOS `Toggle` row: label on the left, a scaled-down switch on the right. */
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+  label: String,
+  checked: Boolean,
+  enabled: Boolean = true,
+  onCheckedChange: (Boolean) -> Unit,
+) {
   Row(
     modifier = Modifier
       .fillMaxWidth()
@@ -747,6 +813,7 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
     Switch(
       checked = checked,
       onCheckedChange = onCheckedChange,
+      enabled = enabled,
       colors = rentivoSwitchColors(),
       modifier = Modifier.scale(SWITCH_SCALE),
     )
@@ -838,3 +905,6 @@ private val APIKeyScope.label: String
     APIKeyScope.THEMES_WRITE -> "Alterar temas"
     APIKeyScope.EXPORTS_CREATE -> "Criar exportações"
   }
+
+private fun APIKeyOptions?.orEmptyScopes(): List<APIKeyScope> =
+  this?.scopes?.sortedBy(APIKeyScope::wire).orEmpty()

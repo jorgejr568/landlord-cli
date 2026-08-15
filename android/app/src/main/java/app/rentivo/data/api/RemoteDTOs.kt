@@ -214,6 +214,12 @@ data class RemotePasswordChange(
 data class RemoteDeleteAccount(val password: String)
 
 @Serializable
+data class RemoteAccountDeletionReadiness(
+  @SerialName("can_delete") val canDelete: Boolean,
+  val reason: String? = null,
+)
+
+@Serializable
 data class RemotePasskey(
   val uuid: String,
   val name: String,
@@ -384,14 +390,16 @@ data class RemoteAPIKeyCreate(
 @Serializable
 data class RemoteAPIKeyUpdate(
   val name: String,
-  val scopes: List<String>,
+  val scopes: List<String>? = null,
   val grants: List<RemoteAPIKeyGrantInput>? = null,
 ) {
   companion object {
     fun from(draft: APIKeyDraft, updateGrants: Boolean): RemoteAPIKeyUpdate = RemoteAPIKeyUpdate(
       name = draft.name,
-      scopes = draft.scopes.map { it.wire }.sorted(),
-      grants = if (updateGrants) draft.grants.map { RemoteAPIKeyGrantInput.from(it) } else null,
+      scopes = if (draft.shouldUpdateScopes) draft.scopes.map { it.wire }.sorted() else null,
+      grants = if (updateGrants && draft.shouldUpdateGrants) {
+        draft.grants.map { RemoteAPIKeyGrantInput.from(it) }
+      } else null,
     )
   }
 }
@@ -736,10 +744,10 @@ data class RemotePixUpdate(
   @SerialName("pix_merchant_city") val pixMerchantCity: String,
 ) {
   companion object {
-    fun from(pix: PixConfiguration): RemotePixUpdate = RemotePixUpdate(
-      pixKey = pix.key,
-      pixMerchantName = pix.merchantName,
-      pixMerchantCity = pix.merchantCity,
+    fun from(pix: PixConfiguration?): RemotePixUpdate = RemotePixUpdate(
+      pixKey = pix?.key.orEmpty(),
+      pixMerchantName = pix?.merchantName.orEmpty(),
+      pixMerchantCity = pix?.merchantCity.orEmpty(),
     )
   }
 }

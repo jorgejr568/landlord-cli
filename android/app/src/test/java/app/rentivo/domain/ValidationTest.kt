@@ -10,6 +10,34 @@ import org.junit.Test
 class ValidationTest {
 
   @Test
+  fun `totp code is exactly six decimal digits`() {
+    assertEquals(null, TOTPCodeRule.validationMessage("123456"))
+    assertEquals("Informe um código de seis dígitos.", TOTPCodeRule.validationMessage("12345"))
+    assertEquals("Informe um código de seis dígitos.", TOTPCodeRule.validationMessage("12345a"))
+  }
+
+  @Test
+  fun `bcrypt password limit counts UTF-8 bytes rather than characters`() {
+    assertEquals(null, PasswordInput.validationMessage("a".repeat(72)))
+    assertEquals(null, PasswordInput.validationMessage("á".repeat(36)))
+    assertEquals("A senha deve ter no máximo 72 bytes UTF-8.", PasswordInput.validationMessage("a".repeat(73)))
+    assertEquals("A senha deve ter no máximo 72 bytes UTF-8.", PasswordInput.validationMessage("á".repeat(37)))
+  }
+
+  @Test
+  fun `pix form fields reject every partial triple including a blank key`() {
+    val nameWithoutKey = PixFormFields(key = "", merchantName = "Ana", merchantCity = "Santos")
+    val cityWithoutKey = PixFormFields(key = " ", merchantName = "", merchantCity = "Recife")
+    val empty = PixFormFields(key = " ", merchantName = "", merchantCity = " ")
+
+    assertFalse(nameWithoutKey.isValid)
+    assertFalse(cityWithoutKey.isValid)
+    assertEquals(null, nameWithoutKey.configuration)
+    assertTrue(empty.isValid)
+    assertEquals(null, empty.configuration)
+  }
+
+  @Test
   fun billingRequiresNameAndAtLeastOneItem() {
     val issues = BillingDraft.empty.validate()
 
@@ -47,6 +75,32 @@ class ValidationTest {
       listOf("Descreva todos os itens.", "Os valores não podem ser negativos."),
       draft.validate().map { it.message },
     )
+  }
+
+  @Test
+  fun `billing text limits match the API boundaries`() {
+    val maximumDomain = listOf("d".repeat(63), "d".repeat(63), "d".repeat(63), "d".repeat(61))
+      .joinToString(".")
+    fun draft(
+      name: String = "a".repeat(255),
+      description: String = "d".repeat(2_000),
+      itemDescription: String = "i".repeat(255),
+      contactName: String = "c".repeat(255),
+      contactEmail: String = "a".repeat(64) + "@" + maximumDomain,
+    ) = BillingDraft(
+      name = name,
+      description = description,
+      owner = BillingOwner.User(StableID.userAna, "Pessoal"),
+      items = listOf(BillingItem.generated(itemDescription, Money.zero, BillingItemType.FIXED, 0)),
+      recipients = listOf(BillingRecipient(RecipientID("r1"), contactName, contactEmail)),
+    )
+
+    assertTrue(draft().validate().isEmpty())
+    assertTrue(draft(name = "a".repeat(256)).validate().any { it.field == ValidationField.NAME })
+    assertTrue(draft(description = "d".repeat(2_001)).validate().any { it.field == ValidationField.DESCRIPTION })
+    assertTrue(draft(itemDescription = "i".repeat(256)).validate().any { it.field == ValidationField.ITEM_DESCRIPTION })
+    assertTrue(draft(contactName = "c".repeat(256)).validate().any { it.field == ValidationField.RECIPIENT })
+    assertTrue(draft(contactEmail = "a".repeat(64) + "@" + maximumDomain + "x").validate().any { it.field == ValidationField.RECIPIENT })
   }
 
   @Test
