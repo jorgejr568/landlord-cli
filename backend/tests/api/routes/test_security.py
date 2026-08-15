@@ -943,6 +943,39 @@ def test_password_change_succeeds_when_notification_dispatch_fails(
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "current_password": "á" * 37,
+            "new_password": "nova-senha-segura",
+            "confirm_password": "nova-senha-segura",
+        },
+        {
+            "current_password": "senha-atual",
+            "new_password": "á" * 37,
+            "confirm_password": "á" * 37,
+        },
+    ],
+)
+def test_password_change_rejects_bcrypt_oversize_before_services(
+    security_harness: SecurityHarness,
+    payload: dict[str, str],
+) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/change-password",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "Senha muito longa" in str(response.json()["fields"])
+    assert security_harness.login.change_password_calls == []
+    assert security_harness.user.change_calls == []
+    assert security_harness.api_key.revoke_other_calls == []
+
+
+@pytest.mark.parametrize(
     ("payload", "status", "code", "detail", "field"),
     [
         (

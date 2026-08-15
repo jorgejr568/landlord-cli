@@ -5,7 +5,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from rentivo.api.schemas.auth import WebAuthnCredentialDescriptor, WebAuthnModel
+from rentivo.api.schemas.auth import (
+    BCRYPT_MAX_PASSWORD_BYTES,
+    WebAuthnCredentialDescriptor,
+    WebAuthnModel,
+    validate_bcrypt_password,
+)
 
 
 class _StrictModel(BaseModel):
@@ -34,9 +39,14 @@ class PixUpdateResponse(_StrictModel):
 
 
 class PasswordChangeRequest(_StrictModel):
-    current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=1)
-    confirm_password: str = Field(min_length=1)
+    current_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    new_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    confirm_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("current_password", "new_password", "confirm_password")
+    @classmethod
+    def passwords_within_bcrypt_limit(cls, value: str) -> str:
+        return validate_bcrypt_password(value)
 
 
 class TOTPStatusResponse(_StrictModel):

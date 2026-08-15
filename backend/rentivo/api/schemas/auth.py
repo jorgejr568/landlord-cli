@@ -18,15 +18,15 @@ class _AuthRequest(_StrictModel):
 # account-existence oracle on login (only existing accounts reach ``checkpw``)
 # and a hard crash on signup. Cap the input up front so those paths never
 # hand bcrypt an oversized value.
-_BCRYPT_MAX_PASSWORD_BYTES = 72
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
-def _reject_oversized_password(value: str) -> str:
+def validate_bcrypt_password(value: str) -> str:
     # The bcrypt limit is measured in ENCODED BYTES, not characters, so a
     # password of <=72 multibyte characters can still exceed it. ``max_length``
     # on the field advertises the cap in the contract; this validator enforces
     # the byte-accurate boundary.
-    if len(value.encode("utf-8")) > _BCRYPT_MAX_PASSWORD_BYTES:
+    if len(value.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         raise ValueError("Senha muito longa.")
     return value
 
@@ -55,8 +55,8 @@ class _BodyMFAChallengeRequest(_AuthRequest):
 
 class SignupRequest(_CredentialTransportRequest):
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
-    confirm_password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    confirm_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
     turnstile_token: str = ""
 
     @field_validator("email")
@@ -70,7 +70,7 @@ class SignupRequest(_CredentialTransportRequest):
     @field_validator("password")
     @classmethod
     def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return validate_bcrypt_password(value)
 
     @model_validator(mode="after")
     def matching_passwords(self) -> SignupRequest:
@@ -81,7 +81,7 @@ class SignupRequest(_CredentialTransportRequest):
 
 class LoginRequest(_CredentialTransportRequest):
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
     turnstile_token: str = ""
 
     @field_validator("email")
@@ -95,7 +95,7 @@ class LoginRequest(_CredentialTransportRequest):
     @field_validator("password")
     @classmethod
     def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return validate_bcrypt_password(value)
 
 
 class _MobileCredentialsRequest(_AuthRequest):
@@ -106,7 +106,7 @@ class _MobileCredentialsRequest(_AuthRequest):
     """
 
     email: str
-    password: str = Field(min_length=1, max_length=_BCRYPT_MAX_PASSWORD_BYTES)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
 
     @field_validator("email")
     @classmethod
@@ -119,7 +119,7 @@ class _MobileCredentialsRequest(_AuthRequest):
     @field_validator("password")
     @classmethod
     def password_within_bcrypt_limit(cls, value: str) -> str:
-        return _reject_oversized_password(value)
+        return validate_bcrypt_password(value)
 
 
 class MobileLoginRequest(_MobileCredentialsRequest):
@@ -158,8 +158,13 @@ class PasswordForgotRequest(_AuthRequest):
 
 class PasswordResetRequest(_AuthRequest):
     token: str = Field(min_length=1)
-    password: str = Field(min_length=1)
-    confirm_password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    confirm_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("password", "confirm_password")
+    @classmethod
+    def passwords_within_bcrypt_limit(cls, value: str) -> str:
+        return validate_bcrypt_password(value)
 
     @model_validator(mode="after")
     def matching_passwords(self) -> PasswordResetRequest:
