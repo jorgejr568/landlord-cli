@@ -86,6 +86,18 @@ import java.time.Instant
 private const val SWITCH_SCALE = 0.85f
 
 /**
+ * Keeps a form-owned submit coroutine alive until the parent list has finished reloading. If the
+ * form is dismissed first, Compose disposes its coroutine scope and cancels the remaining work.
+ */
+internal suspend fun completeAPIKeyMutation(
+  reload: suspend () -> Unit,
+  complete: () -> Unit,
+) {
+  reload()
+  complete()
+}
+
+/**
  * The integration-key list. Port of `APIKeyListView` in
  * `ios/Rentivo/Features/Account/APIKeyViews.swift`.
  *
@@ -139,9 +151,10 @@ fun APIKeyListScreen(onBack: () -> Unit) {
   suspend fun create(draft: APIKeyDraft) {
     try {
       val secret = app.dependencies.apiKeys.createAPIKey(draft)
-      showingCreate = false
-      createdSecret = secret
-      load()
+      completeAPIKeyMutation(reload = { load() }) {
+        showingCreate = false
+        createdSecret = secret
+      }
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (error: Throwable) {
@@ -152,9 +165,10 @@ fun APIKeyListScreen(onBack: () -> Unit) {
   suspend fun update(key: APIKeyMetadata, draft: APIKeyDraft, updateGrants: Boolean) {
     try {
       app.dependencies.apiKeys.updateAPIKey(key.id, draft, updateGrants = updateGrants)
-      editingKey = null
-      load()
-      app.showNotice("Metadados da chave atualizados.")
+      completeAPIKeyMutation(reload = { load() }) {
+        editingKey = null
+        app.showNotice("Metadados da chave atualizados.")
+      }
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (error: Throwable) {
