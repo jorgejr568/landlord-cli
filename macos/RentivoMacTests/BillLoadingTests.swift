@@ -47,7 +47,9 @@ private final class FanOutProbeRepository: BillRepository {
     unreachable()
   }
   func deleteBill(billingID: BillingID, billID: BillID) async throws { unreachable() }
-  func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+  func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws {
     unreachable()
   }
   func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill { unreachable() }

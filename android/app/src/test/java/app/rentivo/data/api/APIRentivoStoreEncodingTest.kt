@@ -308,10 +308,14 @@ class APIRentivoStoreEncodingTest {
     store.transitionBill(
       billingID = BillingID(rawValue = "billing-1"),
       billID = BillID(rawValue = "bill-1"),
+      currentStatus = app.rentivo.domain.BillStatus.SENT,
       status = app.rentivo.domain.BillStatus.DELAYED_PAYMENT,
     )
 
     val route = "POST /api/v1/billings/billing-1/bills/bill-1/transitions"
-    assertEquals("""{"target":"delayed_payment"}""", dispatcher.bodyOf(route))
+    assertEquals(
+      """{"target":"delayed_payment","current_status":"sent"}""",
+      dispatcher.bodyOf(route),
+    )
   }
 }

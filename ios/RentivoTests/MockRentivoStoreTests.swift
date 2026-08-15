@@ -55,6 +55,7 @@ import Testing
     try await store.transitionBill(
       billingID: StableID.billingAurora101,
       billID: StableID.billDraft,
+      from: .draft,
       to: .delayedPayment
     )
     Issue.record("Expected invalid transition to throw")
@@ -75,6 +76,7 @@ import Testing
   try await store.transitionBill(
     billingID: StableID.billingAurora101,
     billID: StableID.billDraft,
+    from: .draft,
     to: .published
   )
 
@@ -84,6 +86,25 @@ import Testing
   )
   #expect(bill.status == .published)
   #expect(store.recentActivities.first?.kind == .bill)
+}
+
+@Test @MainActor func staleTransitionDoesNotMutateBill() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  await #expect(throws: DemoError.staleBillStatus) {
+    try await store.transitionBill(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billDraft,
+      from: .sent,
+      to: .published
+    )
+  }
+
+  let bill = try await store.bill(
+    billingID: StableID.billingAurora101,
+    id: StableID.billDraft
+  )
+  #expect(bill.status == .draft)
 }
 
 @Test @MainActor func injectedFailureIsConsumedByOneOperation() async throws {

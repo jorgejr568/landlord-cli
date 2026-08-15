@@ -435,12 +435,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun transitionBill(
     billingID: BillingID,
     billID: BillID,
+    currentStatus: BillStatus,
     status: BillStatus,
   ) {
     prepareOperation()
     requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
+    if (billsState[index].status != currentStatus) throw DemoError.staleBillStatus
     if (!billsState[index].status.canTransition(status)) throw DemoError.invalidBillTransition
     billsState[index] = billsState[index].copy(
       status = status,

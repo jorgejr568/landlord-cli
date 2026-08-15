@@ -287,11 +287,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     )
   }
 
-  override suspend fun transitionBill(billingID: BillingID, billID: BillID, status: BillStatus) {
+  override suspend fun transitionBill(
+    billingID: BillingID,
+    billID: BillID,
+    currentStatus: BillStatus,
+    status: BillStatus,
+  ) {
     execute(
       path = "/api/v1/billings/${billingID.rawValue}/bills/${billID.rawValue}/transitions",
       method = "POST",
-      body = RemoteBillTransition(target = status.wire),
+      body = RemoteBillTransition(target = status.wire, currentStatus = currentStatus.wire),
     )
   }
 

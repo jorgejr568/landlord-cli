@@ -7,6 +7,14 @@ import Testing
   @testable import Rentivo
 #endif
 
+@Test func billTransitionEncodingCarriesTheOptimisticConcurrencyGuard() throws {
+  let data = try JSONEncoder().encode(
+    RemoteBillTransition(currentStatus: BillStatus.sent.rawValue, target: BillStatus.paid.rawValue)
+  )
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+  #expect(json == ["current_status": "sent", "target": "paid"])
+}
+
 @MainActor
 @Test func liveCreateBillEncodesVariableAmountsForMatchingULIDsAndOmitsClientMintedIDs() async throws {
   // Regression test: createBill used to send only `extras`, silently dropping user-edited

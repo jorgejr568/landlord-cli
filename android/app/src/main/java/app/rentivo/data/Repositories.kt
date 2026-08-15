@@ -130,7 +130,12 @@ interface BillRepository {
 
   suspend fun deleteBill(billingID: BillingID, billID: BillID)
 
-  suspend fun transitionBill(billingID: BillingID, billID: BillID, status: BillStatus)
+  suspend fun transitionBill(
+    billingID: BillingID,
+    billID: BillID,
+    currentStatus: BillStatus,
+    status: BillStatus,
+  )
 
   suspend fun regenerateBill(billingID: BillingID, billID: BillID): Bill
 

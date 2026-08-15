@@ -268,7 +268,7 @@ struct BillDetailView: View {
           id: \.self
         ) { status in
           Button {
-            Task { await transition(to: status) }
+            Task { await transition(from: bill.status, to: status) }
           } label: {
             HStack(spacing: RentivoSpacing.small) {
               if transitioningTo == status {
@@ -340,13 +340,13 @@ struct BillDetailView: View {
     await onMutation()
   }
 
-  private func transition(to status: BillStatus) async {
+  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
     guard transitioningTo == nil else { return }
     transitioningTo = status
     defer { transitioningTo = nil }
     do {
       try await app.dependencies.bills.transitionBill(
-        billingID: billingID, billID: billID, to: status)
+        billingID: billingID, billID: billID, from: currentStatus, to: status)
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
       await refreshAll()
     } catch {

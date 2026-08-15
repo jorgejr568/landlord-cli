@@ -40,6 +40,9 @@ public struct DemoError: Error, Equatable, LocalizedError, Sendable {
   public static let invalidBillTransition = DemoError(
     message: "Esta mudança de status não é permitida."
   )
+  public static let staleBillStatus = DemoError(
+    message: "O status da fatura foi alterado. Atualize a página e tente novamente."
+  )
   public static let resourceNotFound = DemoError(
     message: "O item solicitado não foi encontrado."
   )

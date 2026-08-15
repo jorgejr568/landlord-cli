@@ -104,6 +104,7 @@ class MockRentivoStoreTest {
       store.transitionBill(
         billingID = StableID.billingAurora101,
         billID = StableID.billDraft,
+        currentStatus = BillStatus.DRAFT,
         status = BillStatus.DELAYED_PAYMENT,
       )
     }
@@ -120,12 +121,33 @@ class MockRentivoStoreTest {
     store.transitionBill(
       billingID = StableID.billingAurora101,
       billID = StableID.billDraft,
+      currentStatus = BillStatus.DRAFT,
       status = BillStatus.PUBLISHED,
     )
 
     val bill = store.bill(billingID = StableID.billingAurora101, id = StableID.billDraft)
     assertEquals(BillStatus.PUBLISHED, bill.status)
     assertEquals(ActivityKind.BILL, store.recentActivities.first().kind)
+  }
+
+  @Test
+  fun staleTransitionDoesNotMutateBill() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val error = assertDemoError {
+      store.transitionBill(
+        billingID = StableID.billingAurora101,
+        billID = StableID.billDraft,
+        currentStatus = BillStatus.SENT,
+        status = BillStatus.PUBLISHED,
+      )
+    }
+
+    assertEquals(DemoError.staleBillStatus, error)
+    assertEquals(
+      BillStatus.DRAFT,
+      store.bill(billingID = StableID.billingAurora101, id = StableID.billDraft).status,
+    )
   }
 
   @Test
@@ -983,6 +1005,7 @@ class MockRentivoStoreTest {
       store.transitionBill(
         billingID = StableID.billingAurora101,
         billID = StableID.billDraft,
+        currentStatus = BillStatus.DRAFT,
         status = BillStatus.PUBLISHED,
       )
     }

@@ -310,7 +310,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     recordActivity(kind: .bill, title: "Fatura excluída", detail: reference)
   }
 
-  public func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+  public func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws {
     try await prepareOperation()
     try requireWriteAccess()
     guard
@@ -319,6 +321,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       })
     else {
       throw DemoError.resourceNotFound
+    }
+    guard snapshot.bills[index].status == currentStatus else {
+      throw DemoError.staleBillStatus
     }
     guard snapshot.bills[index].status.canTransition(to: status) else {
       throw DemoError.invalidBillTransition

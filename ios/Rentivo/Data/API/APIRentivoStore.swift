@@ -155,10 +155,13 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   public func deleteBill(billingID: BillingID, billID: BillID) async throws {
     try await execute(path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)", method: "DELETE")
   }
-  public func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+  public func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws {
     try await execute(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/transitions",
-      method: "POST", body: RemoteBillTransition(target: status.rawValue)
+      method: "POST",
+      body: RemoteBillTransition(currentStatus: currentStatus.rawValue, target: status.rawValue)
     )
   }
   public func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill {

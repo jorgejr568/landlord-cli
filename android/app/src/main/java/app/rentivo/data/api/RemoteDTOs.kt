@@ -672,7 +672,10 @@ data class RemoteBillLineItemInput(
 }
 
 @Serializable
-data class RemoteBillTransition(val target: String)
+data class RemoteBillTransition(
+  val target: String,
+  @SerialName("current_status") val currentStatus: String,
+)
 
 @Serializable
 data class RemoteExpenseCreate(

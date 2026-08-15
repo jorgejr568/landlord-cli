@@ -788,11 +788,12 @@ fun BillDetailScreen(
     onMutation()
   }
 
-  suspend fun transition(status: BillStatus) {
+  suspend fun transition(currentStatus: BillStatus, status: BillStatus) {
     try {
       app.dependencies.bills.transitionBill(
         billingID = billing.id,
         billID = billId,
+        currentStatus = currentStatus,
         status = status,
       )
       refreshAll()
@@ -900,7 +901,7 @@ fun BillDetailScreen(
         billing = currentBilling,
         bill = bill,
         modifier = Modifier.padding(padding),
-        onTransition = { status -> scope.launch { transition(status) } },
+        onTransition = { status -> scope.launch { transition(bill.status, status) } },
         onOpenInvoice = { scope.launch { downloadInvoice() } },
         onOpenRecibo = { scope.launch { downloadRecibo() } },
         onRegenerate = { scope.launch { regenerate(bill) } },

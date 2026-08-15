@@ -64,6 +64,9 @@ class DemoError(override val message: String) : Exception(message), LocalizedErr
     val invalidBillTransition = DemoError(
       message = "Esta mudança de status não é permitida."
     )
+    val staleBillStatus = DemoError(
+      message = "O status da fatura foi alterado. Atualize a página e tente novamente."
+    )
     val resourceNotFound = DemoError(
       message = "O item solicitado não foi encontrado."
     )

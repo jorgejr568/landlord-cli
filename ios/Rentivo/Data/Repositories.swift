@@ -66,7 +66,9 @@ public protocol BillRepository: AnyObject {
   func createBill(_ draft: BillDraft) async throws -> Bill
   func updateBill(billingID: BillingID, billID: BillID, draft: BillDraft) async throws -> Bill
   func deleteBill(billingID: BillingID, billID: BillID) async throws
-  func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws
+  func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws
   func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill
   func addReceipt(billingID: BillingID, billID: BillID, upload: FileUpload) async throws -> Receipt
   func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws

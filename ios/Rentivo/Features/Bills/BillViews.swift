@@ -487,7 +487,7 @@ struct BillDetailView: View {
           id: \.self
         ) { status in
           Button {
-            Task { await transition(to: status) }
+            Task { await transition(from: bill.status, to: status) }
           } label: {
             Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
               .frame(maxWidth: .infinity)
@@ -540,10 +540,10 @@ struct BillDetailView: View {
     await onMutation()
   }
 
-  private func transition(to status: BillStatus) async {
+  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
     do {
       try await app.dependencies.bills.transitionBill(
-        billingID: billingID, billID: billID, to: status)
+        billingID: billingID, billID: billID, from: currentStatus, to: status)
       await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
     } catch {

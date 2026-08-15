@@ -362,7 +362,13 @@ struct RemoteBillUpdateDraft: Encodable {
   }
 }
 struct RemoteBillLineItemInput: Encodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" }; init(_ item: BillLineItem) { description = item.description; amount = item.amount.centavos; itemType = item.kind.rawValue } }
-struct RemoteBillTransition: Encodable { let target: String }
+struct RemoteBillTransition: Encodable {
+  let currentStatus, target: String
+  enum CodingKeys: String, CodingKey {
+    case currentStatus = "current_status"
+    case target
+  }
+}
 struct RemoteExpenseCreate: Encodable { let description: String; let category: String; let incurredOn: String; let amount: Int; enum CodingKeys: String, CodingKey { case description, category, amount; case incurredOn = "incurred_on" } }
 
 struct RemoteBillingList: Decodable { let items: [RemoteBillingListItem]; let stats: RemoteBillingStats }
