@@ -214,6 +214,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return response.items.map(attachment(from:))
   }
   public func addAttachment(billingID: BillingID, upload: FileUpload) async throws -> Attachment {
+    let upload = try AttachmentUploadRules.validated(upload)
     let response: RemoteAttachment = try await decodeMultipart(
       path: "/api/v1/billings/\(billingID.rawValue)/attachments",
       name: upload.filename, files: [(field: "file", upload: upload)]

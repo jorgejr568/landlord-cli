@@ -66,3 +66,31 @@ import Testing
     _ = try FileUpload.from(url: missingURL)
   }
 }
+
+@Test func attachmentUploadRulesMirrorTheServerTypeAndSizeContract() throws {
+  let valid = FileUpload(
+    data: Data("pdf".utf8), filename: "contrato.pdf", mediaType: "application/pdf"
+  )
+  #expect(try AttachmentUploadRules.validated(valid) == valid)
+  #expect(AttachmentUploadRules.maxByteCount == 10 * 1024 * 1024)
+
+  #expect(throws: DemoError(message: "Envie um arquivo PDF, JPEG ou PNG.")) {
+    try AttachmentUploadRules.validated(
+      FileUpload(data: Data("texto".utf8), filename: "notas.txt", mediaType: "text/plain")
+    )
+  }
+  #expect(throws: DemoError(message: "O arquivo excede o limite de 10 MB.")) {
+    try AttachmentUploadRules.validated(
+      FileUpload(
+        data: Data(repeating: 0, count: AttachmentUploadRules.maxByteCount + 1),
+        filename: "contrato.pdf",
+        mediaType: "application/pdf"
+      )
+    )
+  }
+  #expect(throws: DemoError(message: "O arquivo selecionado está vazio.")) {
+    try AttachmentUploadRules.validated(
+      FileUpload(data: Data(), filename: "contrato.pdf", mediaType: "application/pdf")
+    )
+  }
+}

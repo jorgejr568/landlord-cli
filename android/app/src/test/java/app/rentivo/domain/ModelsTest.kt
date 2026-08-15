@@ -192,6 +192,40 @@ class ModelsTest {
   }
 
   @Test
+  fun attachmentUploadRulesMirrorTheServerTypeAndSizeContract() {
+    val valid = FileUpload(
+      data = "pdf".toByteArray(),
+      filename = "contrato.pdf",
+      mediaType = "application/pdf",
+    )
+    assertEquals(valid, AttachmentUploadRules.validated(valid))
+    assertEquals(10 * 1024 * 1024, AttachmentUploadRules.maximumByteCount)
+
+    val unsupported = runCatching {
+      AttachmentUploadRules.validated(
+        FileUpload("texto".toByteArray(), "notas.txt", "text/plain")
+      )
+    }.exceptionOrNull()
+    assertEquals(DemoError("Envie um arquivo PDF, JPEG ou PNG."), unsupported)
+
+    val oversized = runCatching {
+      AttachmentUploadRules.validated(
+        FileUpload(
+          ByteArray(AttachmentUploadRules.maximumByteCount + 1),
+          "contrato.pdf",
+          "application/pdf",
+        )
+      )
+    }.exceptionOrNull()
+    assertEquals(DemoError("O arquivo excede o limite de 10 MB."), oversized)
+
+    val empty = runCatching {
+      AttachmentUploadRules.validated(FileUpload(ByteArray(0), "contrato.pdf", "application/pdf"))
+    }.exceptionOrNull()
+    assertEquals(DemoError("O arquivo selecionado está vazio."), empty)
+  }
+
+  @Test
   fun workspaceIdentifierForPersonalOwnershipIsTheLiteralPersonal() {
     assertEquals("personal", WorkspaceID.personal.rawValue)
     assertEquals(

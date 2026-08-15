@@ -10,6 +10,7 @@ import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.ActivityKind
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
+import app.rentivo.domain.AttachmentUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
@@ -589,6 +590,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment {
     prepareOperation()
     requireWriteAccess()
+    val upload = AttachmentUploadRules.validated(upload)
     if (billingsState.none { it.id == billingID }) throw DemoError.resourceNotFound
     val attachment = Attachment(
       id = AttachmentID(rawValue = UUID.randomUUID().toString()),

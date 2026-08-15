@@ -413,9 +413,8 @@ struct AttachmentListView: View {
     isUploading = true
     defer { isUploading = false }
     do {
-      // Unlike a receipt, an attachment is stored as uploaded — no format clamping and no size
-      // rule of its own — so this only needs the security-scoped read the sandbox requires for a
-      // chosen or dropped file, which `rawUpload` performs off the main actor.
+      // Unlike a receipt, an attachment is stored as uploaded rather than re-encoded. The shared
+      // repository preflight still enforces the API's PDF/JPEG/PNG and 10 MB contract.
       let upload = try await ReceiptIntake.rawUpload(from: fileURL)
       _ = try await app.dependencies.attachments.addAttachment(
         billingID: billingID,

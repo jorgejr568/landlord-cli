@@ -11,6 +11,9 @@ import { pushAnalyticsFromResponse } from "../auth/analytics";
 type Attachment = components["schemas"]["AttachmentResponse"];
 type AttachmentMutation = "delete" | "upload";
 
+const allowedAttachmentTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const maximumAttachmentBytes = 10 * 1024 * 1024;
+
 interface MutationToken {
   controller: AbortController;
   kind: AttachmentMutation;
@@ -78,6 +81,21 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setFileError("Selecione um arquivo.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (!allowedAttachmentTypes.has(file.type.toLowerCase())) {
+      setFileError("Envie um arquivo PDF, JPEG ou PNG.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (file.size === 0) {
+      setFileError("O arquivo selecionado está vazio.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (file.size > maximumAttachmentBytes) {
+      setFileError("O arquivo excede o limite de 10 MB.");
       fileRef.current?.focus();
       return;
     }

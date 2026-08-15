@@ -65,6 +65,34 @@ public struct FileUpload: Hashable, Sendable {
   }
 }
 
+public enum AttachmentUploadRules {
+  /// Mirrors `ALLOWED_ATTACHMENT_TYPES` in `backend/rentivo/models/billing_attachment.py`.
+  public static let allowedMediaTypes: Set<String> = [
+    "application/pdf", "image/jpeg", "image/png",
+  ]
+
+  /// Mirrors `MAX_ATTACHMENT_SIZE` in `backend/rentivo/models/billing_attachment.py`.
+  public static let maxByteCount = 10 * 1024 * 1024
+
+  public static func validated(_ upload: FileUpload) throws -> FileUpload {
+    let mediaType = upload.mediaType
+      .split(separator: ";", maxSplits: 1)
+      .first?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? ""
+    guard allowedMediaTypes.contains(mediaType) else {
+      throw DemoError(message: "Envie um arquivo PDF, JPEG ou PNG.")
+    }
+    guard upload.byteCount > 0 else {
+      throw DemoError(message: "O arquivo selecionado está vazio.")
+    }
+    guard upload.byteCount <= maxByteCount else {
+      throw DemoError(message: "O arquivo excede o limite de 10 MB.")
+    }
+    return FileUpload(data: upload.data, filename: upload.filename, mediaType: mediaType)
+  }
+}
+
 public struct DownloadedFile: Hashable, Sendable {
   public let fileURL: URL
   public let filename: String

@@ -467,6 +467,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func addAttachment(billingID: BillingID, upload: FileUpload) async throws -> Attachment {
     try await prepareOperation()
     try requireWriteAccess()
+    let upload = try AttachmentUploadRules.validated(upload)
     guard snapshot.billings.contains(where: { $0.id == billingID }) else {
       throw DemoError.resourceNotFound
     }

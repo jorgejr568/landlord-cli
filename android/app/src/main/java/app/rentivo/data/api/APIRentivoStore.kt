@@ -28,6 +28,7 @@ import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.APIKeyScope
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
+import app.rentivo.domain.AttachmentUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
 import app.rentivo.domain.BillDraft
@@ -381,14 +382,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return response.items.map(::attachment)
   }
 
-  override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment =
-    attachment(
+  override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment {
+    val validatedUpload = AttachmentUploadRules.validated(upload)
+    return attachment(
       decodeMultipart<RemoteAttachment>(
         path = "/api/v1/billings/${billingID.rawValue}/attachments",
-        name = upload.filename,
-        files = listOf(MultipartFile(field = "file", upload = upload)),
+        name = validatedUpload.filename,
+        files = listOf(MultipartFile(field = "file", upload = validatedUpload)),
       )
     )
+  }
 
   override suspend fun deleteAttachment(billingID: BillingID, attachmentID: AttachmentID) {
     execute(
