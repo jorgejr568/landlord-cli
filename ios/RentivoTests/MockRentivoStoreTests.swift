@@ -585,6 +585,33 @@ import Testing
   #expect(paid.hasRecibo)
 }
 
+@Test @MainActor func viewerModeReturnsReadOnlyPerBillCapabilities() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  store.setViewerMode(true)
+
+  let bill = try await store.bill(
+    billingID: StableID.billingAurora202, id: StableID.billSent)
+
+  #expect(bill.capabilities.canDownloadInvoice)
+  #expect(!bill.capabilities.canEdit)
+  #expect(!bill.capabilities.canDelete)
+  #expect(!bill.capabilities.canTransition)
+  #expect(!bill.capabilities.canRegenerate)
+  #expect(!bill.capabilities.canUploadReceipts)
+  #expect(!bill.capabilities.canDeleteReceipts)
+  #expect(!bill.capabilities.canReorderReceipts)
+  #expect(!bill.capabilities.canCompose)
+  #expect(!bill.capabilities.canSendInvoice)
+  #expect(!bill.capabilities.canSendRecibo)
+
+  do {
+    _ = try await store.regenerateBill(billingID: bill.billingID, billID: bill.id)
+    Issue.record("Expected viewer mode to reject PDF regeneration")
+  } catch let error as DemoError {
+    #expect(error == .permissionDenied)
+  }
+}
+
 @Test @MainActor func mockRegenerateQueuesTheRenderAndSettlesAfterTwoFetches() async throws {
   // Demo mode has to exercise the whole poll cycle: the bill comes back `pending`, stays pending
   // for the first poll tick, and flips to `succeeded` on the second one.

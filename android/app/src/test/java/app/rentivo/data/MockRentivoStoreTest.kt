@@ -640,6 +640,31 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun viewerModeReturnsReadOnlyPerBillCapabilities() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    store.setViewerMode(true)
+
+    val bill = store.bill(billingID = StableID.billingAurora202, id = StableID.billSent)
+
+    assertTrue(bill.capabilities.canDownloadInvoice)
+    assertFalse(bill.capabilities.canEdit)
+    assertFalse(bill.capabilities.canDelete)
+    assertFalse(bill.capabilities.canTransition)
+    assertFalse(bill.capabilities.canRegenerate)
+    assertFalse(bill.capabilities.canUploadReceipts)
+    assertFalse(bill.capabilities.canDeleteReceipts)
+    assertFalse(bill.capabilities.canReorderReceipts)
+    assertFalse(bill.capabilities.canCompose)
+    assertFalse(bill.capabilities.canSendInvoice)
+    assertFalse(bill.capabilities.canSendRecibo)
+
+    assertEquals(
+      DemoError.permissionDenied,
+      assertDemoError { store.regenerateBill(billingID = bill.billingID, billID = bill.id) },
+    )
+  }
+
+  @Test
   fun mockRegenerateQueuesTheRenderAndSettlesAfterTwoFetches() = runTest {
     // Demo mode has to exercise the whole poll cycle: the bill comes back `pending`, stays pending
     // for the first poll tick, and flips to `succeeded` on the second one.

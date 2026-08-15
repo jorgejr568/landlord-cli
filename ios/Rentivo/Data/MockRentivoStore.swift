@@ -204,6 +204,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return snapshot.bills
       .filter { $0.billingID == billingID }
       .sorted { $0.referenceMonth > $1.referenceMonth }
+      .map(restrictIfNeeded)
   }
 
   public func bill(billingID: BillingID, id: BillID) async throws -> Bill {
@@ -212,7 +213,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       throw DemoError.resourceNotFound
     }
     advancePendingRender(at: index, billID: id)
-    return snapshot.bills[index]
+    return restrictIfNeeded(snapshot.bills[index])
   }
 
   /// Demo mode fakes the background render: each fetch consumes one tick of the countdown started
@@ -314,6 +315,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   public func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill {
     try await prepareOperation()
+    try requireWriteAccess()
     guard let index = billIndex(billingID: billingID, billID: billID) else { throw DemoError.resourceNotFound }
     snapshot.bills[index].pdfRenderStatus = .pending
     pendingRenderTicks[billID] = Self.pendingRenderTickCount
@@ -953,6 +955,22 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     } else {
       restricted.capabilities = .forRole(restricted.currentUserRole)
     }
+    return restricted
+  }
+
+  private func restrictIfNeeded(_ bill: Bill) -> Bill {
+    guard viewerMode else { return bill }
+    var restricted = bill
+    restricted.capabilities.canEdit = false
+    restricted.capabilities.canDelete = false
+    restricted.capabilities.canTransition = false
+    restricted.capabilities.canRegenerate = false
+    restricted.capabilities.canUploadReceipts = false
+    restricted.capabilities.canDeleteReceipts = false
+    restricted.capabilities.canReorderReceipts = false
+    restricted.capabilities.canCompose = false
+    restricted.capabilities.canSendInvoice = false
+    restricted.capabilities.canSendRecibo = false
     return restricted
   }
 

@@ -819,23 +819,27 @@ private class CommunicationComposerState(
   val billing: Billing,
   private val bill: Bill,
 ) {
-  var commType by mutableStateOf(CommunicationType.BILL_READY)
-  var subject by mutableStateOf(billing.template(CommunicationType.BILL_READY)?.subject.orEmpty())
+  var commType by mutableStateOf(
+    if (bill.capabilities.canSendInvoice) CommunicationType.BILL_READY else CommunicationType.PAYMENT_RECEIPT,
+  )
+  var subject by mutableStateOf(billing.template(commType)?.subject.orEmpty())
     private set
-  var message by mutableStateOf(billing.template(CommunicationType.BILL_READY)?.body.orEmpty())
+  var message by mutableStateOf(billing.template(commType)?.body.orEmpty())
     private set
   var saveScope by mutableStateOf<CommunicationSaveScope?>(null)
   var isSending by mutableStateOf(false)
     private set
 
   private var selectedRecipients by mutableStateOf(billing.recipients.map { it.id }.toSet())
-  private var appliedTemplateType = CommunicationType.BILL_READY
+  private var appliedTemplateType = commType
 
   val availableTypes: List<CommunicationType>
-    get() = if (bill.status == BillStatus.PAID) {
-      CommunicationType.entries.toList()
-    } else {
-      listOf(CommunicationType.BILL_READY)
+    get() = CommunicationType.entries.filter { type ->
+      when (type) {
+        CommunicationType.BILL_READY -> bill.capabilities.canSendInvoice
+        CommunicationType.PAYMENT_RECEIPT ->
+          bill.status == BillStatus.PAID && bill.capabilities.canSendRecibo
+      }
     }
 
   val attachmentDescription: String
@@ -850,7 +854,7 @@ private class CommunicationComposerState(
       isSending = isSending,
       hasSelectedRecipients = selectedRecipients.isNotEmpty(),
       isRenderingPDF = bill.isRenderingPDF,
-    )
+    ) || commType !in availableTypes
 
   val saveScopeOptions: List<CommunicationSaveScope?>
     get() = buildList {

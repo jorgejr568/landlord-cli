@@ -296,7 +296,7 @@ struct BillDetailView: View {
     .navigationTitle("Fatura")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      if state.value?.status == .draft && billing?.capabilities.canManageBills == true {
+      if state.value?.status == .draft && state.value?.capabilities.canEdit == true {
         Button("Editar") { showingEdit = true }
       }
     }
@@ -355,7 +355,7 @@ struct BillDetailView: View {
         }
 
         lineItems(bill)
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canTransition {
           lifecycle(bill)
         } else {
           Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
@@ -377,7 +377,7 @@ struct BillDetailView: View {
             // Regenerating stays available while a render is pending: a re-trigger supersedes the
             // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
-              .disabled(billing?.capabilities.canManageBills != true)
+              .disabled(!bill.capabilities.canRegenerate)
             if bill.status == .paid {
               // Gated on the pending render alone: iOS opens `GET .../recibo`, which renders the
               // recibo inline when no file is stored yet, so `canDownloadRecibo` (a
@@ -397,20 +397,20 @@ struct BillDetailView: View {
         ReceiptManagerView(
           billingID: billingID,
           bill: bill,
-          canWrite: billing?.capabilities.canUploadBillReceipts == true
+          capabilities: bill.capabilities
         ) { await refreshAll() }
 
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canCompose {
           Button {
             showingCommunication = true
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(bill.isRenderingPDF)
+          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
         }
 
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canDelete {
           Button(role: .destructive) {
             confirmingDelete = true
           } label: {
@@ -590,7 +590,7 @@ private struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   let bill: Bill
-  let canWrite: Bool
+  let capabilities: BillCapabilities
   let onMutation: () async -> Void
   @State private var downloadedFile: DownloadedFile?
   @State private var showingSourceChooser = false
@@ -624,7 +624,7 @@ private struct ReceiptManagerView: View {
                 Spacer()
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }
-                  if canWrite {
+                  if capabilities.canDeleteReceipts {
                     Button("Excluir", role: .destructive) { pendingDeletion = receipt }
                   }
                 } label: {
@@ -637,14 +637,14 @@ private struct ReceiptManagerView: View {
             // section renders inside a `RentivoCard`/`VStack` (the surrounding screen is a
             // `ScrollView`, not a `List`), so `.onMove` has no effect here. Kept as an explicit
             // action instead of restructuring the whole detail screen's layout around a `List`.
-            if bill.receipts.count > 1 && canWrite {
+            if bill.receipts.count > 1 && capabilities.canReorderReceipts {
               Button("Inverter ordem") { Task { await reverse() } }
                 .buttonStyle(.bordered)
             }
           }
         }
       }
-      if canWrite {
+      if capabilities.canUploadReceipts {
         Button {
           showingSourceChooser = true
         } label: {

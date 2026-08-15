@@ -786,8 +786,6 @@ data class RemoteBill(
   val capabilities: RemoteBillCapabilities? = null,
 )
 
-// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that gate
-// a button in the app are decoded; the rest follow the billing-level capabilities today.
 @Serializable
 data class RemoteBillCapabilities(
   @SerialName("can_download_invoice") val canDownloadInvoice: Boolean,
@@ -795,6 +793,13 @@ data class RemoteBillCapabilities(
   @SerialName("can_send_invoice") val canSendInvoice: Boolean,
   @SerialName("can_send_recibo") val canSendRecibo: Boolean,
   @SerialName("can_regenerate") val canRegenerate: Boolean,
+  @SerialName("can_edit") val canEdit: Boolean,
+  @SerialName("can_delete") val canDelete: Boolean,
+  @SerialName("can_transition") val canTransition: Boolean,
+  @SerialName("can_upload_receipts") val canUploadReceipts: Boolean,
+  @SerialName("can_delete_receipts") val canDeleteReceipts: Boolean,
+  @SerialName("can_reorder_receipts") val canReorderReceipts: Boolean,
+  @SerialName("can_compose") val canCompose: Boolean,
 )
 
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

@@ -23,15 +23,22 @@ struct CommunicationComposerView: View {
   init(billing: Billing, bill: Bill) {
     self.billing = billing
     self.bill = bill
+    let initialType: CommunicationType = bill.capabilities.canSendInvoice ? .billReady : .paymentReceipt
+    _commType = State(initialValue: initialType)
     _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
-    let template = billing.template(for: .billReady)
+    let template = billing.template(for: initialType)
     _subject = State(initialValue: template?.subject ?? "")
     _message = State(initialValue: template?.body ?? "")
-    _appliedTemplateType = State(initialValue: .billReady)
+    _appliedTemplateType = State(initialValue: initialType)
   }
 
   private var availableTypes: [CommunicationType] {
-    bill.status == .paid ? CommunicationType.allCases : [.billReady]
+    CommunicationType.allCases.filter { type in
+      switch type {
+      case .billReady: bill.capabilities.canSendInvoice
+      case .paymentReceipt: bill.status == .paid && bill.capabilities.canSendRecibo
+      }
+    }
   }
 
   private var sendDisabled: Bool {
@@ -41,7 +48,7 @@ struct CommunicationComposerView: View {
       isSending: isSending,
       hasSelectedRecipients: !selectedRecipients.isEmpty,
       isRenderingPDF: bill.isRenderingPDF
-    )
+    ) || !availableTypes.contains(commType)
   }
 
   private var attachmentDescription: String {

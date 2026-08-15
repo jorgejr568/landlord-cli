@@ -324,13 +324,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return billsState
       .filter { it.billingID == billingID }
       .sortedByDescending { it.referenceMonth }
+      .map(::restrictIfNeeded)
   }
 
   override suspend fun bill(billingID: BillingID, id: BillID): Bill {
     prepareOperation()
     val index = billIndex(billingID = billingID, billID = id) ?: throw DemoError.resourceNotFound
     advancePendingRender(index = index, billID = id)
-    return billsState[index]
+    return restrictIfNeeded(billsState[index])
   }
 
   /**
@@ -437,6 +438,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun regenerateBill(billingID: BillingID, billID: BillID): Bill {
     prepareOperation()
+    requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
     billsState[index] = billsState[index].copy(pdfRenderStatus = PDFRenderStatus.PENDING)
@@ -1098,6 +1100,25 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
         capabilities = OrganizationCapabilities.forRole(organization.currentUserRole),
       )
     }
+
+  private fun restrictIfNeeded(bill: Bill): Bill = if (viewerModeEnabled) {
+    bill.copy(
+      capabilities = bill.capabilities.copy(
+        canEdit = false,
+        canDelete = false,
+        canTransition = false,
+        canRegenerate = false,
+        canUploadReceipts = false,
+        canDeleteReceipts = false,
+        canReorderReceipts = false,
+        canCompose = false,
+        canSendInvoice = false,
+        canSendRecibo = false,
+      ),
+    )
+  } else {
+    bill
+  }
 
   private fun total(bills: List<Bill>): Money =
     bills.fold(Money.zero) { running, bill -> running + bill.total }

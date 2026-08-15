@@ -396,14 +396,17 @@ struct RemoteBill: Decodable {
     case hasInvoice = "has_invoice"; case hasRecibo = "has_recibo"
   }
 }
-// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that
-// gate a button in the app are decoded; the rest follow the billing-level capabilities today.
 struct RemoteBillCapabilities: Decodable {
   let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
+  let canEdit, canDelete, canTransition, canUploadReceipts, canDeleteReceipts: Bool
+  let canReorderReceipts, canCompose: Bool
   enum CodingKeys: String, CodingKey {
     case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
     case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
     case canRegenerate = "can_regenerate"
+    case canEdit = "can_edit"; case canDelete = "can_delete"; case canTransition = "can_transition"
+    case canUploadReceipts = "can_upload_receipts"; case canDeleteReceipts = "can_delete_receipts"
+    case canReorderReceipts = "can_reorder_receipts"; case canCompose = "can_compose"
   }
 }
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

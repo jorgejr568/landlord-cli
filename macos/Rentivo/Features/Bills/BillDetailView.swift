@@ -39,7 +39,7 @@ struct BillDetailView: View {
     .navigationTitle("Fatura")
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        if state.value?.status == .draft && billing?.capabilities.canManageBills == true {
+        if state.value?.status == .draft && state.value?.capabilities.canEdit == true {
           Button("Editar") { showingEdit = true }
         }
       }
@@ -86,19 +86,21 @@ struct BillDetailView: View {
           ReceiptManagerView(
             billingID: billingID,
             bill: bill,
-            canWrite: billing?.capabilities.canUploadBillReceipts == true
+            capabilities: bill.capabilities
           ) { await refreshAll() }
         }
 
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canCompose {
           Button {
             showingCommunication = true
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(bill.isRenderingPDF)
+          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
+        }
 
+        if bill.capabilities.canDelete {
           Button(role: .destructive) {
             confirmingDelete = true
           } label: {
@@ -163,7 +165,7 @@ struct BillDetailView: View {
         // Regenerating stays available while a render is pending: a re-trigger supersedes the
         // in-flight render server-side.
         Button("Regenerar documento") { Task { await regenerate(bill) } }
-          .disabled(billing?.capabilities.canManageBills != true)
+          .disabled(!bill.capabilities.canRegenerate)
         if bill.status == .paid {
           // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
           // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
@@ -193,7 +195,7 @@ struct BillDetailView: View {
 
   @ViewBuilder
   private func lifecycleSection(_ bill: Bill) -> some View {
-    if billing?.capabilities.canManageBills == true {
+    if bill.capabilities.canTransition {
       lifecycle(bill)
     } else {
       Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")

@@ -331,6 +331,13 @@ data class BillCapabilities(
   val canSendInvoice: Boolean,
   val canSendRecibo: Boolean,
   val canRegenerate: Boolean,
+  val canEdit: Boolean = true,
+  val canDelete: Boolean = true,
+  val canTransition: Boolean = true,
+  val canUploadReceipts: Boolean = true,
+  val canDeleteReceipts: Boolean = true,
+  val canReorderReceipts: Boolean = true,
+  val canCompose: Boolean = true,
 ) {
   companion object {
     /**

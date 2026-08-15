@@ -422,19 +422,40 @@ public struct BillCapabilities: Hashable, Codable, Sendable {
   public var canSendInvoice: Bool
   public var canSendRecibo: Bool
   public var canRegenerate: Bool
+  public var canEdit: Bool
+  public var canDelete: Bool
+  public var canTransition: Bool
+  public var canUploadReceipts: Bool
+  public var canDeleteReceipts: Bool
+  public var canReorderReceipts: Bool
+  public var canCompose: Bool
 
   public init(
     canDownloadInvoice: Bool,
     canDownloadRecibo: Bool,
     canSendInvoice: Bool,
     canSendRecibo: Bool,
-    canRegenerate: Bool
+    canRegenerate: Bool,
+    canEdit: Bool = true,
+    canDelete: Bool = true,
+    canTransition: Bool = true,
+    canUploadReceipts: Bool = true,
+    canDeleteReceipts: Bool = true,
+    canReorderReceipts: Bool = true,
+    canCompose: Bool = true
   ) {
     self.canDownloadInvoice = canDownloadInvoice
     self.canDownloadRecibo = canDownloadRecibo
     self.canSendInvoice = canSendInvoice
     self.canSendRecibo = canSendRecibo
     self.canRegenerate = canRegenerate
+    self.canEdit = canEdit
+    self.canDelete = canDelete
+    self.canTransition = canTransition
+    self.canUploadReceipts = canUploadReceipts
+    self.canDeleteReceipts = canDeleteReceipts
+    self.canReorderReceipts = canReorderReceipts
+    self.canCompose = canCompose
   }
 
   /// Used when no server capabilities are available (older payloads, the mock store). Gating is a

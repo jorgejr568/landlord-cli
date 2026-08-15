@@ -612,7 +612,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return BillCapabilities(
       canDownloadInvoice: remote.canDownloadInvoice, canDownloadRecibo: remote.canDownloadRecibo,
       canSendInvoice: remote.canSendInvoice, canSendRecibo: remote.canSendRecibo,
-      canRegenerate: remote.canRegenerate
+      canRegenerate: remote.canRegenerate, canEdit: remote.canEdit, canDelete: remote.canDelete,
+      canTransition: remote.canTransition, canUploadReceipts: remote.canUploadReceipts,
+      canDeleteReceipts: remote.canDeleteReceipts,
+      canReorderReceipts: remote.canReorderReceipts, canCompose: remote.canCompose
     )
   }
 

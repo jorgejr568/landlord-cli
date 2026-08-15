@@ -7,7 +7,7 @@ struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   let bill: Bill
-  let canWrite: Bool
+  let capabilities: BillCapabilities
   let onMutation: () async -> Void
   @State private var downloadedFile: DownloadedFile?
   @State private var showingFileImporter = false
@@ -52,7 +52,7 @@ struct ReceiptManagerView: View {
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }
                     .disabled(downloadingReceiptID != nil)
-                  if canWrite {
+                  if capabilities.canDeleteReceipts {
                     Button("Excluir", role: .destructive) { pendingDeletion = receipt }
                       .disabled(isUploading)
                   }
@@ -80,7 +80,7 @@ struct ReceiptManagerView: View {
             // inside a `RentivoCard`/`VStack` (the surrounding screen is a `ScrollView`, not a
             // `List`). Kept as an explicit action instead of restructuring the whole detail
             // screen's layout around a `List`.
-            if bill.receipts.count > 1 && canWrite {
+            if bill.receipts.count > 1 && capabilities.canReorderReceipts {
               Button("Inverter ordem") { Task { await reverse() } }
                 .buttonStyle(.bordered)
                 .disabled(isUploading)
@@ -88,7 +88,7 @@ struct ReceiptManagerView: View {
           }
         }
       }
-      if canWrite {
+      if capabilities.canUploadReceipts {
         Button {
           showingFileImporter = true
         } label: {
@@ -104,9 +104,9 @@ struct ReceiptManagerView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(canWrite ? RentivoSpacing.small : 0)
+    .padding(capabilities.canUploadReceipts ? RentivoSpacing.small : 0)
     .overlay {
-      if canWrite {
+      if capabilities.canUploadReceipts {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
           .strokeBorder(
             RentivoColors.emerald,
@@ -125,7 +125,9 @@ struct ReceiptManagerView: View {
     // drop outright while an upload is in flight is what keeps a second file from racing the
     // first one's refresh — returning `false` also tells Finder the drop was not taken.
     .dropDestination(for: URL.self) { urls, _ in
-      guard canWrite, !isUploading, let url = ReceiptIntake.firstFileURL(in: urls) else {
+      guard capabilities.canUploadReceipts, !isUploading,
+        let url = ReceiptIntake.firstFileURL(in: urls)
+      else {
         return false
       }
       Task { await add(fileURL: url) }

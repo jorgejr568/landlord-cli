@@ -286,7 +286,9 @@ class APIRentivoStoreBillingTest {
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,""" +
-          """"can_send_recibo":true,"can_regenerate":true},"available_transitions":[""" +
+          """"can_send_recibo":true,"can_regenerate":true,"can_edit":true,""" +
+          """"can_delete":true,"can_transition":true,"can_upload_receipts":true,""" +
+          """"can_delete_receipts":true,"can_reorder_receipts":true},"available_transitions":[""" +
           """{"target":"paid","label":"Marcar como paga","style":"primary",""" +
           """"requires_confirmation":false},{"target":"delayed_payment","label":"Atrasada",""" +
           """"style":"secondary","requires_confirmation":true},{"target":"teleported"}]}"""
@@ -313,7 +315,9 @@ class APIRentivoStoreBillingTest {
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_send_invoice":false,"can_send_recibo":false,""" +
-          """"can_regenerate":true},"available_transitions":[]}""",
+          """"can_regenerate":true,"can_edit":true,"can_delete":true,"can_transition":true,""" +
+          """"can_upload_receipts":true,"can_delete_receipts":true,""" +
+          """"can_reorder_receipts":true,"can_compose":true},"available_transitions":[]}""",
         code = 202,
       )
 
@@ -346,8 +350,15 @@ class APIRentivoStoreBillingTest {
     assertTrue(bill.isRenderingPDF)
     assertTrue(bill.hasInvoice)
     assertFalse(bill.hasRecibo)
+    assertTrue(bill.capabilities.canEdit)
+    assertTrue(bill.capabilities.canDelete)
+    assertTrue(bill.capabilities.canTransition)
+    assertTrue(bill.capabilities.canUploadReceipts)
+    assertTrue(bill.capabilities.canDeleteReceipts)
+    assertTrue(bill.capabilities.canReorderReceipts)
     assertFalse(bill.capabilities.canDownloadInvoice)
     assertFalse(bill.capabilities.canDownloadRecibo)
+    assertTrue(bill.capabilities.canCompose)
     assertFalse(bill.capabilities.canSendInvoice)
     assertTrue(bill.capabilities.canSendRecibo)
     assertTrue(bill.capabilities.canRegenerate)

@@ -112,6 +112,7 @@ import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
+import app.rentivo.domain.BillCapabilities
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
@@ -876,7 +877,7 @@ fun BillDetailScreen(
         title = "Fatura",
         onBack = onBack,
         actions = {
-          if (loaded?.status == BillStatus.DRAFT && currentBilling.capabilities.canManageBills) {
+          if (loaded?.status == BillStatus.DRAFT && loaded.capabilities.canEdit) {
             TopBarChip {
               TextButton(
                 onClick = { showingEdit = true },
@@ -1015,7 +1016,7 @@ private fun BillDetailContent(
 
     BillLineItemsSection(bill = bill)
 
-    if (billing.capabilities.canManageBills) {
+    if (bill.capabilities.canTransition) {
       BillLifecycleSection(bill = bill, onTransition = onTransition)
     } else {
       IconLabel(
@@ -1027,7 +1028,6 @@ private fun BillDetailContent(
 
     BillDocumentSection(
       bill = bill,
-      canManageBills = billing.capabilities.canManageBills,
       onOpenInvoice = onOpenInvoice,
       onOpenRecibo = onOpenRecibo,
       onRegenerate = onRegenerate,
@@ -1036,14 +1036,14 @@ private fun BillDetailContent(
     ReceiptManagerSection(
       billingID = billing.id,
       bill = bill,
-      canWrite = billing.capabilities.canUploadBillReceipts,
+      capabilities = bill.capabilities,
       onMutation = onMutation,
     )
 
-    if (billing.capabilities.canManageBills) {
+    if (bill.capabilities.canCompose) {
       RentivoButton(
         onClick = onCompose,
-        enabled = !bill.isRenderingPDF,
+        enabled = bill.capabilities.canSendInvoice || bill.capabilities.canSendRecibo,
         modifier = Modifier.testTag("bill.communicate"),
       ) {
         Icon(
@@ -1058,6 +1058,9 @@ private fun BillDetailContent(
           modifier = Modifier.padding(start = RentivoSpacing.small),
         )
       }
+    }
+
+    if (bill.capabilities.canDelete) {
       // Tinted, not destructive-red: iOS renders this as a plain `.bordered` button, and the
       // confirmation dialog behind it is what carries the destructive weight.
       RentivoTonalButton(
@@ -1145,7 +1148,6 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit)
 @Composable
 private fun BillDocumentSection(
   bill: Bill,
-  canManageBills: Boolean,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1203,7 +1205,7 @@ private fun BillDocumentSection(
       RentivoTonalButton(
         text = "Regenerar documento",
         onClick = onRegenerate,
-        enabled = canManageBills,
+        enabled = bill.capabilities.canRegenerate,
         modifier = Modifier
           .weight(1f)
           .testTag("bill.pdf.regenerate"),
@@ -1239,7 +1241,7 @@ private fun BillDocumentSection(
 private fun ReceiptManagerSection(
   billingID: BillingID,
   bill: Bill,
-  canWrite: Boolean,
+  capabilities: BillCapabilities,
   onMutation: suspend () -> Unit,
 ) {
   val app = LocalAppModel.current
@@ -1399,7 +1401,7 @@ private fun ReceiptManagerSection(
                       }
                     },
                   )
-                  if (canWrite) {
+                  if (capabilities.canDeleteReceipts) {
                     DropdownMenuItem(
                       text = { Text(text = "Excluir", color = RentivoColors.coral) },
                       onClick = {
@@ -1415,7 +1417,7 @@ private fun ReceiptManagerSection(
           // Drag-to-reorder would need these rows hosted in a reorderable list, but this section
           // renders inside a `RentivoCard` on a scrolling column. Kept as an explicit action
           // instead of restructuring the whole detail screen's layout.
-          if (bill.receipts.size > 1 && canWrite) {
+          if (bill.receipts.size > 1 && capabilities.canReorderReceipts) {
             RentivoTonalButton(
               text = "Inverter ordem",
               onClick = {
@@ -1440,7 +1442,7 @@ private fun ReceiptManagerSection(
         }
       }
     }
-    if (canWrite) {
+    if (capabilities.canUploadReceipts) {
       // The three sources hang off the button that opens them, like the per-receipt menu above:
       // tapping outside or pressing back dismisses without choosing one.
       Box {
