@@ -25,7 +25,7 @@ from rentivo.models.api_key import APIKey, APIKeyGrant
 from rentivo.models.audit_log import AuditEventType
 from rentivo.models.bill import Bill, BillSummary
 from rentivo.models.billing import Billing, BillingItem, ItemType
-from rentivo.models.billing_attachment import BillingAttachment
+from rentivo.models.billing_attachment import MAX_ATTACHMENT_SIZE, BillingAttachment
 from rentivo.models.communication import Communication, CommunicationTemplate
 from rentivo.models.expense import Expense
 from rentivo.models.organization import Organization, OrganizationMember
@@ -210,7 +210,9 @@ class FakeAuthorizationService:
 
 
 class FakeBillingService:
-    def __init__(self) -> None:
+    def __init__(self, recipient: Any, reply_to: Any) -> None:
+        self.recipient = recipient
+        self.reply_to = reply_to
         self.billings = [
             PERSONAL_BILLING.model_copy(deep=True),
             ORG_BILLING.model_copy(deep=True),
@@ -242,9 +244,15 @@ class FakeBillingService:
         pix_merchant_city: str,
         owner_type: str,
         owner_id: int,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
     ) -> Billing:
         if self.create_error is not None:
             raise self.create_error
+        if recipients is not None and self.recipient.replace_error is not None:
+            raise self.recipient.replace_error
+        if reply_to is not None and self.reply_to.replace_error is not None:
+            raise self.reply_to.replace_error
         self.create_calls.append(
             {
                 "name": name,
@@ -255,6 +263,8 @@ class FakeBillingService:
                 "pix_merchant_city": pix_merchant_city,
                 "owner_type": owner_type,
                 "owner_id": owner_id,
+                "recipients": recipients,
+                "reply_to": reply_to,
             }
         )
         billing = Billing(
@@ -272,13 +282,63 @@ class FakeBillingService:
             updated_at=NOW,
         )
         self.billings.append(billing)
+        if recipients is not None:
+            self.recipient.replace_for_billing(billing.id, recipients)
+        if reply_to is not None:
+            self.reply_to.replace_for_billing(billing.id, reply_to)
         return billing
 
-    def update_billing(self, billing: Billing) -> Billing:
+    def update_billing(
+        self,
+        billing: Billing,
+        *,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
+    ) -> Billing:
         if self.update_error is not None:
             raise self.update_error
+        self._raise_contact_error(recipients, reply_to)
         self.update_calls.append(billing.model_copy(deep=True))
+        self._replace_contacts(billing.id, recipients, reply_to)
         return billing
+
+    def update_and_transfer_personal_to_organization(
+        self,
+        billing: Billing,
+        _expected_owner_id: int,
+        organization_id: int,
+        *,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
+    ) -> Billing:
+        if self.transfer_error is not None:
+            raise self.transfer_error
+        self._raise_contact_error(recipients, reply_to)
+        self.update_calls.append(billing.model_copy(deep=True))
+        self.transfer_calls.append((billing.id, organization_id))
+        self._replace_contacts(billing.id, recipients, reply_to)
+        return billing.model_copy(update={"owner_type": "organization", "owner_id": organization_id})
+
+    def _raise_contact_error(
+        self,
+        recipients: list[dict[str, str]] | None,
+        reply_to: list[dict[str, str]] | None,
+    ) -> None:
+        if recipients is not None and self.recipient.replace_error is not None:
+            raise self.recipient.replace_error
+        if reply_to is not None and self.reply_to.replace_error is not None:
+            raise self.reply_to.replace_error
+
+    def _replace_contacts(
+        self,
+        billing_id: int,
+        recipients: list[dict[str, str]] | None,
+        reply_to: list[dict[str, str]] | None,
+    ) -> None:
+        if recipients is not None:
+            self.recipient.replace_for_billing(billing_id, recipients)
+        if reply_to is not None:
+            self.reply_to.replace_for_billing(billing_id, reply_to)
 
     def delete_billing(self, billing_id: int) -> None:
         self.delete_calls.append(billing_id)
@@ -355,11 +415,14 @@ class FakeRecipientService:
             ]
         }
         self.replace_calls: list[tuple[int, list[dict[str, str]]]] = []
+        self.replace_error: RuntimeError | None = None
 
     def list_for_billing(self, billing_id: int) -> list[Recipient]:
         return list(self.rows.get(billing_id, []))
 
     def replace_for_billing(self, billing_id: int, rows: list[dict[str, str]]) -> list[Recipient]:
+        if self.replace_error is not None:
+            raise self.replace_error
         self.replace_calls.append((billing_id, rows))
         saved = [
             Recipient(
@@ -627,17 +690,19 @@ def billing_harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> BillingH
     local_path = tmp_path / "contrato.pdf"
     local_path.write_bytes(b"%PDF-test")
     organization = FakeOrganizationService()
+    recipient = FakeRecipientService("recipient")
+    reply_to = FakeRecipientService("reply")
     services = SimpleNamespace(
         user=FakeUserService(),
         mfa=SimpleNamespace(user_requires_mfa_setup=lambda _user_id: False),
         organization=organization,
         api_key=FakeAPIKeyService(organization),
         authorization=FakeAuthorizationService(organization),
-        billing=FakeBillingService(),
+        billing=FakeBillingService(recipient, reply_to),
         billing_stats=FakeBillingStatsService(),
         pix=FakePixService(),
-        recipient=FakeRecipientService("recipient"),
-        reply_to=FakeRecipientService("reply"),
+        recipient=recipient,
+        reply_to=reply_to,
         expense=FakeExpenseService(),
         billing_attachment=FakeAttachmentService(local_path),
         bill=FakeBillService(),
@@ -1040,6 +1105,29 @@ def test_create_billing_explicit_children_are_replaced_and_audited(billing_harne
     ]
 
 
+def test_create_billing_reply_to_failure_leaves_aggregate_and_audit_unchanged(
+    billing_harness: BillingHarness,
+) -> None:
+    original_ids = [billing.id for billing in billing_harness.services.billing.billings]
+    billing_harness.services.reply_to.replace_error = RuntimeError("injected reply-to failure")
+
+    with pytest.raises(RuntimeError, match="injected reply-to failure"):
+        billing_harness.request(
+            "POST",
+            "/api/v1/billings",
+            json=_billing_payload(
+                recipients=[{"name": "Ana", "email": "ana@example.com"}],
+                reply_to=[{"name": "Financeiro", "email": "financeiro@example.com"}],
+            ),
+        )
+
+    assert [billing.id for billing in billing_harness.services.billing.billings] == original_ids
+    assert billing_harness.services.billing.create_calls == []
+    assert billing_harness.services.recipient.replace_calls == []
+    assert billing_harness.services.reply_to.replace_calls == []
+    assert billing_harness.services.audit.calls == []
+
+
 def test_create_org_billing_requires_live_membership_and_admin_role(billing_harness: BillingHarness) -> None:
     billing_harness.services.organization.members[(ORGANIZATION.id, USER.id)].role = "manager"
 
@@ -1114,6 +1202,19 @@ def test_create_rejects_invalid_billing_contract(payload: dict[str, Any], billin
     assert billing_harness.services.billing.create_calls == []
 
 
+def test_create_rejects_a_partial_pix_override(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "POST",
+        "/api/v1/billings",
+        json=_billing_payload(pix_key="person@example.com"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert set(response.json()["fields"]) == {"body.pix_merchant_name", "body.pix_merchant_city"}
+    assert billing_harness.services.billing.create_calls == []
+
+
 def test_create_rejects_client_supplied_item_uuid(billing_harness: BillingHarness) -> None:
     response = billing_harness.request(
         "POST",
@@ -1131,8 +1232,8 @@ def test_create_rejects_client_supplied_item_uuid(billing_harness: BillingHarnes
     )
 
     assert response.status_code == 422
-    assert response.json()["code"] == "invalid_billing_item"
-    assert response.json()["fields"] == {"items.0.uuid": "O item não pertence a esta cobrança."}
+    assert response.json()["code"] == "validation_error"
+    assert "body.items.0.uuid" in response.json()["fields"]
     assert billing_harness.services.billing.create_calls == []
 
 
@@ -1165,7 +1266,7 @@ def test_create_maps_pix_validation_to_field_problem(billing_harness: BillingHar
     response = billing_harness.request(
         "POST",
         "/api/v1/billings",
-        json=_billing_payload(pix_key="invalid"),
+        json=_billing_payload(pix_key="invalid", pix_merchant_name="Merchant", pix_merchant_city="Recife"),
     )
 
     assert response.status_code == 422
@@ -1412,6 +1513,166 @@ def test_transfer_requires_source_owner_and_live_destination_membership(billing_
     assert _audit_events(billing_harness) == [AuditEventType.BILLING_TRANSFER]
 
 
+def test_patch_billing_owner_performs_the_authorized_personal_to_organization_transfer(
+    billing_harness: BillingHarness,
+) -> None:
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={"owner": {"type": "organization", "uuid": ORGANIZATION.uuid}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["owner"] == {"type": "organization", "uuid": ORGANIZATION.uuid, "name": ORGANIZATION.name}
+    assert billing_harness.services.billing.transfer_calls == [(PERSONAL_BILLING.id, ORGANIZATION.id)]
+
+
+def test_patch_billing_owner_and_fields_uses_one_atomic_transfer_update(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={
+            "name": "Apartamento transferido",
+            "items": [
+                {
+                    "uuid": PERSONAL_BILLING.items[0].uuid,
+                    "description": "Aluguel",
+                    "amount": 300_000,
+                    "item_type": "fixed",
+                }
+            ],
+            "owner": {"type": "organization", "uuid": ORGANIZATION.uuid},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["owner"]["uuid"] == ORGANIZATION.uuid
+    assert billing_harness.services.billing.update_calls[-1].name == "Apartamento transferido"
+    assert billing_harness.services.billing.transfer_calls == [(PERSONAL_BILLING.id, ORGANIZATION.id)]
+
+
+@pytest.mark.parametrize(
+    ("billing", "owner"),
+    [
+        (PERSONAL_BILLING, {"type": "user"}),
+        (ORG_BILLING, {"type": "organization", "uuid": ORGANIZATION.uuid}),
+    ],
+)
+def test_patch_billing_accepts_unchanged_owner_reference(
+    billing: Billing,
+    owner: dict[str, str],
+    billing_harness: BillingHarness,
+) -> None:
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{billing.uuid}",
+        json={"owner": owner},
+    )
+
+    assert response.status_code == 200
+    assert billing_harness.services.billing.transfer_calls == []
+    assert billing_harness.services.billing.update_calls[-1].owner_type == billing.owner_type
+
+
+@pytest.mark.parametrize(
+    ("billing", "owner"),
+    [
+        (ORG_BILLING, {"type": "organization", "uuid": OTHER_ORGANIZATION.uuid}),
+        (ORG_BILLING, {"type": "user"}),
+    ],
+)
+def test_patch_billing_rejects_owner_change_from_organization(
+    billing: Billing,
+    owner: dict[str, str],
+    billing_harness: BillingHarness,
+) -> None:
+    if owner["type"] == "organization":
+        # Exercise the defensive source-owner check even if a stale authorization layer reports
+        # the otherwise impossible "owner" role for an organization-owned billing.
+        billing_harness.services.authorization.role_overrides[billing.id] = "owner"
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{billing.uuid}",
+        json={"owner": owner},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_billing_owner"
+    assert billing_harness.services.billing.update_calls == []
+
+
+def test_patch_billing_hides_unknown_transfer_destination(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={"owner": {"type": "organization", "uuid": "unknown-org"}},
+    )
+
+    assert response.status_code == 404
+    assert billing_harness.services.billing.update_calls == []
+
+
+def test_patch_billing_rechecks_destination_membership_after_grant(billing_harness: BillingHarness) -> None:
+    billing_harness.services.organization.members.pop((ORGANIZATION.id, USER.id))
+    billing_harness.services.api_key.can_access_resource = lambda *_args: True
+
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={"owner": {"type": "organization", "uuid": ORGANIZATION.uuid}},
+    )
+
+    assert response.status_code == 404
+    assert billing_harness.services.billing.update_calls == []
+
+
+def test_patch_billing_maps_atomic_transfer_conflict(billing_harness: BillingHarness) -> None:
+    billing_harness.services.billing.transfer_error = ValueError("ownership changed")
+
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={"owner": {"type": "organization", "uuid": ORGANIZATION.uuid}},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "billing_transfer_conflict"
+    assert billing_harness.services.audit.calls == []
+    assert billing_harness.services.billing_notification.calls == []
+
+
+def test_patch_billing_reply_to_failure_rolls_back_core_contacts_transfer_and_side_effects(
+    billing_harness: BillingHarness,
+) -> None:
+    original = billing_harness.services.billing.get_billing_by_uuid(PERSONAL_BILLING.uuid).model_copy(deep=True)
+    original_recipients = billing_harness.services.recipient.list_for_billing(PERSONAL_BILLING.id)
+    original_reply_to = billing_harness.services.reply_to.list_for_billing(PERSONAL_BILLING.id)
+    billing_harness.services.reply_to.replace_error = RuntimeError("injected reply-to failure")
+
+    with pytest.raises(RuntimeError, match="injected reply-to failure"):
+        billing_harness.request(
+            "PATCH",
+            f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+            json={
+                "name": "Must roll back",
+                "owner": {"type": "organization", "uuid": ORGANIZATION.uuid},
+                "recipients": [{"name": "Changed", "email": "changed@example.com"}],
+                "reply_to": [{"name": "Changed reply", "email": "changed-reply@example.com"}],
+            },
+        )
+
+    persisted = billing_harness.services.billing.get_billing_by_uuid(PERSONAL_BILLING.uuid)
+    assert persisted == original
+    assert billing_harness.services.recipient.list_for_billing(PERSONAL_BILLING.id) == original_recipients
+    assert billing_harness.services.reply_to.list_for_billing(PERSONAL_BILLING.id) == original_reply_to
+    assert billing_harness.services.billing.update_calls == []
+    assert billing_harness.services.billing.transfer_calls == []
+    assert billing_harness.services.recipient.replace_calls == []
+    assert billing_harness.services.reply_to.replace_calls == []
+    assert billing_harness.services.audit.calls == []
+    assert billing_harness.services.billing_notification.calls == []
+
+
 def test_transfer_rejects_ungranted_or_stale_destination_before_mutation(billing_harness: BillingHarness) -> None:
     billing_harness.services.organization.members.pop((ORGANIZATION.id, USER.id))
 
@@ -1582,6 +1843,19 @@ def test_attachment_upload_maps_service_validation_to_file_problem(billing_harne
     assert response.status_code == 422
     assert response.json()["code"] == "invalid_attachment"
     assert response.json()["fields"] == {"file": "Unsupported file type"}
+
+
+def test_attachment_upload_rejects_oversize_before_calling_service(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "POST",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}/attachments",
+        data={"name": "Arquivo grande"},
+        files={"file": ("grande.pdf", b"x" * (MAX_ATTACHMENT_SIZE + 2), "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["fields"] == {"file": "File too large"}
+    assert billing_harness.services.billing_attachment.add_calls == []
 
 
 def test_attachment_upload_requires_a_named_file(billing_harness: BillingHarness) -> None:
@@ -1853,6 +2127,24 @@ def test_communication_owner_template_saves_for_personal_owner(billing_harness: 
     assert billing_harness.services.communication.save_calls == [
         ("user", USER.id, "bill_ready", "Cobranca {{unidade}}", "Prezado {{nome_inquilino}}")
     ]
+
+
+def test_communication_template_failure_happens_before_any_send(
+    billing_harness: BillingHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_save(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("template store unavailable")
+
+    monkeypatch.setattr(billing_harness.services.communication, "save_template", fail_save)
+
+    with pytest.raises(RuntimeError, match="template store unavailable"):
+        billing_harness.request(
+            "POST",
+            f"/api/v1/billings/{PERSONAL_BILLING.uuid}/communications/send",
+            json=_communication_payload(save_scope="billing"),
+        )
+
+    assert billing_harness.services.communication.send_calls == []
 
 
 def test_communication_send_rejects_duplicate_recipient_selection(billing_harness: BillingHarness) -> None:

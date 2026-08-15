@@ -3,18 +3,12 @@ from __future__ import annotations
 import structlog
 
 from rentivo.models.billing import Billing, BillingItem
+from rentivo.models.recipient import Recipient
 from rentivo.observability import traced
-from rentivo.pix import validate_pix_key
+from rentivo.pix import normalize_pix_triple, validate_pix_key
 from rentivo.repositories.base import BillingRepository
 
 logger = structlog.get_logger(__name__)
-
-
-def _normalize_pix_key(value: str) -> str:
-    """Return a normalized PIX key, or '' if the value is empty. Raises ValueError if invalid."""
-    if not value or not value.strip():
-        return ""
-    return validate_pix_key(value)
 
 
 class BillingService:
@@ -32,18 +26,33 @@ class BillingService:
         pix_merchant_city: str = "",
         owner_type: str = "user",
         owner_id: int = 0,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
     ) -> Billing:
+        pix_key, pix_merchant_name, pix_merchant_city = normalize_pix_triple(
+            pix_key,
+            pix_merchant_name,
+            pix_merchant_city,
+        )
+        pix_key = validate_pix_key(pix_key) if pix_key else ""
         billing = Billing(
             name=name,
             description=description,
             items=items,
-            pix_key=_normalize_pix_key(pix_key),
-            pix_merchant_name=pix_merchant_name.strip(),
-            pix_merchant_city=pix_merchant_city.strip(),
+            pix_key=pix_key,
+            pix_merchant_name=pix_merchant_name,
+            pix_merchant_city=pix_merchant_city,
             owner_type=owner_type,
             owner_id=owner_id,
         )
-        result = self.repo.create(billing)
+        if recipients is None and reply_to is None:
+            result = self.repo.create(billing)
+        else:
+            result = self.repo.create_aggregate(
+                billing,
+                self._contacts(recipients),
+                self._contacts(reply_to),
+            )
         logger.info("billing_created", billing_id=result.id, name=result.name)
         return result
 
@@ -72,13 +81,74 @@ class BillingService:
         return result
 
     @traced("billing.update_billing")
-    def update_billing(self, billing: Billing) -> Billing:
-        billing.pix_key = _normalize_pix_key(billing.pix_key)
-        billing.pix_merchant_name = billing.pix_merchant_name.strip()
-        billing.pix_merchant_city = billing.pix_merchant_city.strip()
-        result = self.repo.update(billing)
+    def update_billing(
+        self,
+        billing: Billing,
+        *,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
+    ) -> Billing:
+        billing.pix_key, billing.pix_merchant_name, billing.pix_merchant_city = normalize_pix_triple(
+            billing.pix_key,
+            billing.pix_merchant_name,
+            billing.pix_merchant_city,
+        )
+        billing.pix_key = validate_pix_key(billing.pix_key) if billing.pix_key else ""
+        if recipients is None and reply_to is None:
+            result = self.repo.update(billing)
+        else:
+            result = self.repo.update_aggregate(
+                billing,
+                self._contacts(recipients, billing.id),
+                self._contacts(reply_to, billing.id),
+            )
+            if result is None:  # pragma: no cover - an ordinary update has no ownership CAS
+                raise RuntimeError("Failed to update billing")
         logger.info("billing_updated", billing_id=result.id, name=result.name)
         return result
+
+    def update_and_transfer_personal_to_organization(
+        self,
+        billing: Billing,
+        expected_owner_id: int,
+        organization_id: int,
+        *,
+        recipients: list[dict[str, str]] | None = None,
+        reply_to: list[dict[str, str]] | None = None,
+    ) -> Billing:
+        billing.pix_key, billing.pix_merchant_name, billing.pix_merchant_city = normalize_pix_triple(
+            billing.pix_key, billing.pix_merchant_name, billing.pix_merchant_city
+        )
+        billing.pix_key = validate_pix_key(billing.pix_key) if billing.pix_key else ""
+        if recipients is None and reply_to is None:
+            updated = self.repo.update_and_transfer_personal_to_organization(
+                billing, expected_owner_id, organization_id
+            )
+        else:
+            updated = self.repo.update_aggregate(
+                billing,
+                self._contacts(recipients, billing.id),
+                self._contacts(reply_to, billing.id),
+                expected_owner_id=expected_owner_id,
+                organization_id=organization_id,
+            )
+        if updated is None:
+            raise ValueError("Billing ownership changed")
+        return updated
+
+    @staticmethod
+    def _contacts(rows: list[dict[str, str]] | None, billing_id: int | None = None) -> list[Recipient] | None:
+        if rows is None:
+            return None
+        return [
+            Recipient(
+                billing_id=billing_id or 0,
+                name=(row.get("name") or "").strip(),
+                email=(row.get("email") or "").strip(),
+            )
+            for row in rows
+            if (row.get("name") or "").strip() and (row.get("email") or "").strip()
+        ]
 
     @traced("billing.delete_billing")
     def delete_billing(self, billing_id: int) -> None:

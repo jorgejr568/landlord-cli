@@ -50,8 +50,13 @@ def _resolve_sender_name(conn, encryption, billing) -> str:
 
 @register("communication.send", model=CommunicationSendPayload)
 def handle_communication_send(payload: CommunicationSendPayload, context: JobContext) -> None:
+    """Send every row in one batch; sent members make retries idempotent."""
+    for communication_id in payload.ids:
+        _handle_one_communication(communication_id, context)
+
+
+def _handle_one_communication(communication_id: int, context: JobContext) -> None:
     """Render a stored communication, attach the bill PDF, send one email, mark sent."""
-    communication_id = payload.communication_id
     engine = get_engine()
     encryption = get_encryption()
     with engine.connect() as conn:
@@ -131,18 +136,26 @@ def handle_communication_send(payload: CommunicationSendPayload, context: JobCon
 
 @register_on_fail("communication.send")
 def _on_communication_send_failed(payload: dict) -> None:
-    """Dead-letter hook: mark the communication failed so the UI can show it."""
+    """Dead-letter hook: mark every undelivered batch member failed."""
     communication_id = payload.get("communication_id")
-    if not isinstance(communication_id, int):  # pragma: no cover - guarded upstream
+    communication_ids = payload.get("communication_ids")
+    if isinstance(communication_id, int):
+        ids = [communication_id]
+    elif isinstance(communication_ids, list) and all(isinstance(item, int) for item in communication_ids):
+        ids = communication_ids
+    else:  # pragma: no cover - guarded upstream
         return
     engine = get_engine()
     with engine.connect() as conn:
         repo = SQLAlchemyCommunicationRepository(conn, get_encryption())
-        comm = repo.get_by_id(communication_id)
         # If a prior attempt actually delivered the email (status already 'sent'),
         # don't flip it back to 'failed' — that would mislead the operator into
         # resending and double-mailing the tenant.
-        if comm is not None and comm.status == "sent":
-            logger.info("communication_fail_hook_skipped_sent", communication_id=communication_id)
-            return
-        repo.mark_failed(communication_id, "Falha no envio após múltiplas tentativas.")
+        undelivered_ids = []
+        for item_id in ids:
+            comm = repo.get_by_id(item_id)
+            if comm is not None and comm.status == "sent":
+                logger.info("communication_fail_hook_skipped_sent", communication_id=item_id)
+            else:
+                undelivered_ids.append(item_id)
+        repo.mark_failed_batch(undelivered_ids, "Falha no envio após múltiplas tentativas.")

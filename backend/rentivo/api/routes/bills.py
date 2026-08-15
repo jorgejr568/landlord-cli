@@ -362,14 +362,20 @@ class _ValidatedReceiptUpload:
 
 async def _validate_receipt_uploads(
     uploads: Sequence[UploadFile],
-) -> tuple[tuple[_ValidatedReceiptUpload, ...], int]:
+) -> tuple[tuple[_ValidatedReceiptUpload, ...], tuple[str, ...]]:
     valid: list[_ValidatedReceiptUpload] = []
-    skipped = 0
+    skipped_reasons: list[str] = []
     for upload in uploads:
-        file_bytes = await upload.read()
+        file_bytes = await upload.read(MAX_RECEIPT_SIZE + 1)
         content_type = upload.content_type or ""
-        if content_type not in ALLOWED_RECEIPT_TYPES or not file_bytes or len(file_bytes) > MAX_RECEIPT_SIZE:
-            skipped += 1
+        if content_type not in ALLOWED_RECEIPT_TYPES:
+            skipped_reasons.append("unsupported_mime")
+            continue
+        if not file_bytes:
+            skipped_reasons.append("empty_file")
+            continue
+        if len(file_bytes) > MAX_RECEIPT_SIZE:
+            skipped_reasons.append("size_limit_exceeded")
             continue
         valid.append(
             _ValidatedReceiptUpload(
@@ -378,7 +384,7 @@ async def _validate_receipt_uploads(
                 content_type=content_type,
             )
         )
-    return tuple(valid), skipped
+    return tuple(valid), tuple(skipped_reasons)
 
 
 def _audit_receipt_uploads(
@@ -403,7 +409,7 @@ def _audit_receipt_uploads(
 
 def _attach_receipts(
     uploads: Sequence[_ValidatedReceiptUpload],
-    skipped: int,
+    skipped_reasons: Sequence[str],
     access: BillAccess,
     services: RequestServices,
     *,
@@ -435,8 +441,9 @@ def _attach_receipts(
     return (
         ReceiptUploadResponse(
             attached=len(receipts),
-            skipped=skipped,
+            skipped=len(skipped_reasons),
             total_bytes=total_bytes,
+            skipped_reasons=tuple(skipped_reasons),
             items=tuple(_receipt_response(receipt) for receipt in receipts),
         ),
         receipts,
@@ -450,10 +457,10 @@ async def _upload_receipts(
     *,
     regenerate: bool,
 ) -> ReceiptUploadResponse:
-    valid, skipped = await _validate_receipt_uploads(uploads)
+    valid, skipped_reasons = await _validate_receipt_uploads(uploads)
     response, _receipts = _attach_receipts(
         valid,
-        skipped,
+        skipped_reasons,
         access,
         services,
         regenerate=regenerate,
@@ -503,7 +510,7 @@ async def create_bill(
             "Informe o valor de todos os itens variáveis.",
             "variable_amounts",
         )
-    valid_uploads, skipped = await _validate_receipt_uploads(receipt_files or ())
+    valid_uploads, skipped_reasons = await _validate_receipt_uploads(receipt_files or ())
     try:
         bill = services.bill.generate_bill(
             billing=access.billing,
@@ -521,7 +528,7 @@ async def create_bill(
     try:
         upload, attached_receipts = _attach_receipts(
             valid_uploads,
-            skipped,
+            skipped_reasons,
             bill_access,
             services,
             regenerate=False,
@@ -557,6 +564,7 @@ async def create_bill(
             attached=upload.attached,
             skipped=upload.skipped,
             total_bytes=upload.total_bytes,
+            skipped_reasons=upload.skipped_reasons,
         ),
     )
 

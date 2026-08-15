@@ -1044,6 +1044,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/security/account-deletion-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Account Deletion Readiness */
+        get: operations["account_deletion_readiness_api_v1_security_account_deletion_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/security/change-password": {
         parameters: {
             query?: never;
@@ -1498,6 +1515,13 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** AccountDeletionReadinessResponse */
+        AccountDeletionReadinessResponse: {
+            /** Can Delete */
+            can_delete: boolean;
+            /** Reason */
+            reason?: "sole_organization_admin" | null;
+        };
         /** AnalyticsEvent */
         AnalyticsEvent: {
             /** Event */
@@ -1624,11 +1648,11 @@ export interface components {
         /** APIKeyUpdateRequest */
         APIKeyUpdateRequest: {
             /** Grants */
-            grants?: components["schemas"]["APIKeyGrantRequest"][] | null;
+            grants?: components["schemas"]["APIKeyGrantRequest"][];
             /** Name */
-            name?: string | null;
+            name?: string;
             /** Scopes */
-            scopes?: string[] | null;
+            scopes?: string[];
         };
         /** AttachmentListResponse */
         AttachmentListResponse: {
@@ -1807,7 +1831,7 @@ export interface components {
              */
             description: string;
             /** Items */
-            items: components["schemas"]["BillingItemInput"][];
+            items: components["schemas"]["BillingItemCreateInput"][];
             /** Name */
             name: string;
             owner?: components["schemas"]["BillingOwnerRequest"];
@@ -1830,6 +1854,21 @@ export interface components {
             recipients?: components["schemas"]["ContactInput"][] | null;
             /** Reply To */
             reply_to?: components["schemas"]["ContactInput"][] | null;
+        };
+        /**
+         * BillingItemCreateInput
+         * @description A new template item has no server-issued public identifier yet.
+         */
+        BillingItemCreateInput: {
+            /** Amount */
+            amount: number;
+            /** Description */
+            description: string;
+            /**
+             * Item Type
+             * @enum {string}
+             */
+            item_type: "fixed" | "variable";
         };
         /** BillingItemInput */
         BillingItemInput: {
@@ -1980,6 +2019,7 @@ export interface components {
             items?: components["schemas"]["BillingItemInput"][] | null;
             /** Name */
             name?: string | null;
+            owner?: components["schemas"]["BillingOwnerRequest"] | null;
             /** Pix Key */
             pix_key?: string | null;
             /** Pix Merchant City */
@@ -2907,17 +2947,17 @@ export interface components {
              * Pix Key
              * @default
              */
-            pix_key: string;
+            pix_key: string | null;
             /**
              * Pix Merchant City
              * @default
              */
-            pix_merchant_city: string;
+            pix_merchant_city: string | null;
             /**
              * Pix Merchant Name
              * @default
              */
-            pix_merchant_name: string;
+            pix_merchant_name: string | null;
         };
         /** PixUpdateResponse */
         PixUpdateResponse: {
@@ -3005,6 +3045,12 @@ export interface components {
              */
             skipped: number;
             /**
+             * Skipped Reasons
+             * @description One reason for each skipped file; valid MIME types are PDF, JPEG, and PNG, with a 10 MiB limit.
+             * @default []
+             */
+            skipped_reasons: ("unsupported_mime" | "empty_file" | "size_limit_exceeded")[];
+            /**
              * Total Bytes
              * @default 0
              */
@@ -3022,6 +3068,12 @@ export interface components {
              * @default 0
              */
             skipped: number;
+            /**
+             * Skipped Reasons
+             * @description One reason for each skipped file; valid MIME types are PDF, JPEG, and PNG, with a 10 MiB limit.
+             * @default []
+             */
+            skipped_reasons: ("unsupported_mime" | "empty_file" | "size_limit_exceeded")[];
             /**
              * Total Bytes
              * @default 0
@@ -6395,6 +6447,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecuritySummaryResponse"];
+                };
+            };
+        };
+    };
+    account_deletion_readiness_api_v1_security_account_deletion_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDeletionReadinessResponse"];
                 };
             };
         };

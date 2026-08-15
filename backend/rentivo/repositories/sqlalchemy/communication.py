@@ -129,33 +129,45 @@ class SQLAlchemyCommunicationRepository(CommunicationRepository):
 
     @traced("communication_repo.create")
     def create(self, communication: Communication) -> Communication:
-        comm_uuid = str(ULID())
-        self.conn.execute(
-            text(
-                "INSERT INTO communications "
-                "(uuid, bill_id, comm_type, recipient_name, recipient_email, subject, body_markdown, status, "
-                "error, job_ulid, created_at) "
-                "VALUES (:uuid, :bill_id, :ct, :name, :email, :subject, :body, :status, :error, :job_ulid, :created_at)"
-            ),
-            {
-                "uuid": comm_uuid,
-                "bill_id": communication.bill_id,
-                "ct": communication.comm_type,
-                "name": self.encryption.encrypt(communication.recipient_name),
-                "email": self.encryption.encrypt(communication.recipient_email),
-                "subject": self.encryption.encrypt(communication.subject),
-                "body": self.encryption.encrypt(communication.body_markdown),
-                "status": communication.status,
-                "error": communication.error,
-                "job_ulid": communication.job_ulid,
-                "created_at": _now(),
-            },
+        return self.create_batch([communication])[0]
+
+    @traced("communication_repo.create_batch")
+    def create_batch(self, communications: list[Communication]) -> list[Communication]:
+        if not communications:
+            return []
+        comm_uuids = [str(ULID()) for _ in communications]
+        statement = text(
+            "INSERT INTO communications "
+            "(uuid, bill_id, comm_type, recipient_name, recipient_email, subject, body_markdown, status, "
+            "error, job_ulid, created_at) "
+            "VALUES (:uuid, :bill_id, :ct, :name, :email, :subject, :body, :status, :error, :job_ulid, :created_at)"
         )
-        self.conn.commit()
-        created = self.get_by_uuid(comm_uuid)
-        if created is None:  # pragma: no cover - sanity guard
-            raise RuntimeError("Failed to retrieve communication after create")
-        return created
+        try:
+            for comm_uuid, communication in zip(comm_uuids, communications, strict=True):
+                self.conn.execute(
+                    statement,
+                    {
+                        "uuid": comm_uuid,
+                        "bill_id": communication.bill_id,
+                        "ct": communication.comm_type,
+                        "name": self.encryption.encrypt(communication.recipient_name),
+                        "email": self.encryption.encrypt(communication.recipient_email),
+                        "subject": self.encryption.encrypt(communication.subject),
+                        "body": self.encryption.encrypt(communication.body_markdown),
+                        "status": communication.status,
+                        "error": communication.error,
+                        "job_ulid": communication.job_ulid,
+                        "created_at": _now(),
+                    },
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        created = [self.get_by_uuid(comm_uuid) for comm_uuid in comm_uuids]
+        if any(item is None for item in created):  # pragma: no cover - sanity guard
+            raise RuntimeError("Failed to retrieve communication batch after create")
+        return [item for item in created if item is not None]
 
     @traced("communication_repo.get_by_id")
     def get_by_id(self, communication_id: int) -> Communication | None:
@@ -185,11 +197,22 @@ class SQLAlchemyCommunicationRepository(CommunicationRepository):
 
     @traced("communication_repo.set_job_ulid")
     def set_job_ulid(self, communication_id: int, job_ulid: str) -> None:
-        self.conn.execute(
-            text("UPDATE communications SET job_ulid = :j WHERE id = :id"),
-            {"j": job_ulid, "id": communication_id},
-        )
-        self.conn.commit()
+        self.set_job_ulid_batch([communication_id], job_ulid)
+
+    @traced("communication_repo.set_job_ulid_batch")
+    def set_job_ulid_batch(self, communication_ids: list[int], job_ulid: str) -> None:
+        if not communication_ids:
+            return
+        try:
+            for communication_id in communication_ids:
+                self.conn.execute(
+                    text("UPDATE communications SET job_ulid = :j WHERE id = :id"),
+                    {"j": job_ulid, "id": communication_id},
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     @traced("communication_repo.mark_sent")
     def mark_sent(self, communication_id: int, sent_at: datetime) -> None:
@@ -201,8 +224,19 @@ class SQLAlchemyCommunicationRepository(CommunicationRepository):
 
     @traced("communication_repo.mark_failed")
     def mark_failed(self, communication_id: int, error: str) -> None:
-        self.conn.execute(
-            text("UPDATE communications SET status = 'failed', error = :err WHERE id = :id"),
-            {"err": error, "id": communication_id},
-        )
-        self.conn.commit()
+        self.mark_failed_batch([communication_id], error)
+
+    @traced("communication_repo.mark_failed_batch")
+    def mark_failed_batch(self, communication_ids: list[int], error: str) -> None:
+        if not communication_ids:
+            return
+        try:
+            for communication_id in communication_ids:
+                self.conn.execute(
+                    text("UPDATE communications SET status = 'failed', error = :err WHERE id = :id"),
+                    {"err": error, "id": communication_id},
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise

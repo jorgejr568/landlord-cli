@@ -35,3 +35,10 @@ class TestAccountDeletionService:
 
         with pytest.raises(ValueError, match="Usuário não encontrado."):
             self.service.delete_account(7)
+
+    @pytest.mark.parametrize(("blocking", "expected"), [([], True), ([3], False)])
+    def test_reports_deletion_readiness(self, blocking, expected):
+        self.organizations.list_blocking_account_deletion.return_value = blocking
+
+        assert self.service.can_delete_account(7) is expected
+        self.organizations.list_blocking_account_deletion.assert_called_once_with(7)

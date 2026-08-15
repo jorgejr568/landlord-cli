@@ -56,6 +56,24 @@ def validate_pix_key(key: str) -> str:
     raise ValueError("Chave PIX inválida. Use CPF, CNPJ, e-mail, telefone (+55...) ou chave aleatória (UUID).")
 
 
+def normalize_pix_triple(
+    pix_key: str | None, merchant_name: str | None, merchant_city: str | None
+) -> tuple[str, str, str]:
+    """Normalize a PIX override, requiring all of its recipient metadata together.
+
+    An all-empty triple deliberately means that a billing inherits its owner's
+    settings (or that a profile/organization clears them).  Any other partial
+    value would produce a QR code that cannot be used, so reject it before a
+    service could silently fall back to an owner's configuration.
+    """
+    key, name, city = (pix_key or "").strip(), (merchant_name or "").strip(), (merchant_city or "").strip()
+    if not any((key, name, city)):
+        return "", "", ""
+    if not all((key, name, city)):
+        raise ValueError("Informe chave PIX, nome e cidade do recebedor juntos.")
+    return key, name, city
+
+
 def _tlv(tag: str, value: str) -> str:
     """Build a TLV (Tag-Length-Value) field."""
     return f"{tag}{len(value):02d}{value}"

@@ -8,6 +8,7 @@ from ulid import ULID
 
 from rentivo.encryption.base import EncryptionBackend
 from rentivo.models.billing import Billing, BillingItem, ItemType
+from rentivo.models.recipient import Recipient
 from rentivo.observability import traced
 from rentivo.repositories.base import BillingRepository
 from rentivo.repositories.sqlalchemy._common import _group_rows_by, _now
@@ -20,6 +21,9 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     @traced("billing_repo.create")
     def create(self, billing: Billing) -> Billing:
+        return self.create_aggregate(billing, recipients=None, reply_to=None)
+
+    def _insert_billing(self, billing: Billing) -> int:
         billing_uuid = str(ULID())
         now = _now()
         result = self.conn.execute(
@@ -42,7 +46,7 @@ class SQLAlchemyBillingRepository(BillingRepository):
                 "updated_at": now,
             },
         )
-        billing_id = result.lastrowid
+        billing_id = int(result.lastrowid)
         for i, item in enumerate(billing.items):
             self.conn.execute(
                 text(
@@ -58,11 +62,59 @@ class SQLAlchemyBillingRepository(BillingRepository):
                     "sort_order": i,
                 },
             )
-        self.conn.commit()
-        result = self.get_by_id(billing_id)
-        if result is None:
-            raise RuntimeError(f"Failed to retrieve billing after create (id={billing_id})")
-        return result
+        return billing_id
+
+    def _replace_contacts(self, table: str, billing_id: int, recipients: list[Recipient]) -> None:
+        if table == "billing_recipients":
+            delete_statement = text("DELETE FROM billing_recipients WHERE billing_id = :bid")
+            insert_statement = text(
+                "INSERT INTO billing_recipients (uuid, billing_id, name, email, sort_order, created_at) "
+                "VALUES (:uuid, :billing_id, :name, :email, :sort_order, :created_at)"
+            )
+        elif table == "billing_reply_to":
+            delete_statement = text("DELETE FROM billing_reply_to WHERE billing_id = :bid")
+            insert_statement = text(
+                "INSERT INTO billing_reply_to (uuid, billing_id, name, email, sort_order, created_at) "
+                "VALUES (:uuid, :billing_id, :name, :email, :sort_order, :created_at)"
+            )
+        else:  # pragma: no cover - internal invariant
+            raise ValueError("Unsupported billing contact table")
+        self.conn.execute(delete_statement, {"bid": billing_id})
+        now = _now()
+        for index, recipient in enumerate(recipients):
+            self.conn.execute(
+                insert_statement,
+                {
+                    "uuid": str(ULID()),
+                    "billing_id": billing_id,
+                    "name": self.encryption.encrypt(recipient.name),
+                    "email": self.encryption.encrypt(recipient.email),
+                    "sort_order": index,
+                    "created_at": now,
+                },
+            )
+
+    @traced("billing_repo.create_aggregate")
+    def create_aggregate(
+        self,
+        billing: Billing,
+        recipients: list[Recipient] | None,
+        reply_to: list[Recipient] | None,
+    ) -> Billing:
+        try:
+            billing_id = self._insert_billing(billing)
+            if recipients is not None:
+                self._replace_contacts("billing_recipients", billing_id, recipients)
+            if reply_to is not None:
+                self._replace_contacts("billing_reply_to", billing_id, reply_to)
+            created = self.get_by_id(billing_id)
+            if created is None:
+                raise RuntimeError(f"Failed to retrieve billing after create (id={billing_id})")
+            self.conn.commit()
+            return created
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def _build_billing(
         self,
@@ -207,27 +259,63 @@ class SQLAlchemyBillingRepository(BillingRepository):
 
     @traced("billing_repo.update")
     def update(self, billing: Billing) -> Billing:
-        self.conn.execute(
-            text(
-                "UPDATE billings SET name = :name, description = :description, "
-                "pix_key = :pix_key, pix_merchant_name = :pix_merchant_name, "
-                "pix_merchant_city = :pix_merchant_city, updated_at = :updated_at WHERE id = :id"
-            ),
-            {
-                "name": self.encryption.encrypt(billing.name),
-                "description": self.encryption.encrypt(billing.description),
-                "pix_key": self.encryption.encrypt(billing.pix_key),
-                "pix_merchant_name": self.encryption.encrypt(billing.pix_merchant_name),
-                "pix_merchant_city": self.encryption.encrypt(billing.pix_merchant_city),
-                "updated_at": _now(),
-                "id": billing.id,
-            },
+        result = self.update_aggregate(billing, recipients=None, reply_to=None)
+        if result is None:  # pragma: no cover - an ordinary update has no ownership CAS
+            raise RuntimeError("Failed to update billing")
+        return result
+
+    def update_and_transfer_personal_to_organization(
+        self, billing: Billing, expected_owner_id: int, organization_id: int
+    ) -> Billing | None:
+        return self.update_aggregate(
+            billing,
+            recipients=None,
+            reply_to=None,
+            expected_owner_id=expected_owner_id,
+            organization_id=organization_id,
         )
-        self.conn.execute(
-            text("DELETE FROM billing_items WHERE billing_id = :billing_id"),
-            {"billing_id": billing.id},
-        )
-        for i, item in enumerate(billing.items):
+
+    def _update_billing(
+        self,
+        billing: Billing,
+        *,
+        expected_owner_id: int | None,
+        organization_id: int | None,
+    ) -> bool:
+        if billing.id is None:
+            raise ValueError("Cannot update billing without an id")
+        values = {
+            "name": self.encryption.encrypt(billing.name),
+            "description": self.encryption.encrypt(billing.description),
+            "pix_key": self.encryption.encrypt(billing.pix_key),
+            "pix_merchant_name": self.encryption.encrypt(billing.pix_merchant_name),
+            "pix_merchant_city": self.encryption.encrypt(billing.pix_merchant_city),
+            "updated_at": _now(),
+            "id": billing.id,
+        }
+        if organization_id is None:
+            result = self.conn.execute(
+                text(
+                    "UPDATE billings SET name=:name, description=:description, pix_key=:pix_key, "
+                    "pix_merchant_name=:pix_merchant_name, pix_merchant_city=:pix_merchant_city, "
+                    "updated_at=:updated_at WHERE id=:id AND deleted_at IS NULL"
+                ),
+                values,
+            )
+        else:
+            result = self.conn.execute(
+                text(
+                    "UPDATE billings SET name=:name, description=:description, pix_key=:pix_key, "
+                    "pix_merchant_name=:pix_merchant_name, pix_merchant_city=:pix_merchant_city, "
+                    "owner_type='organization', owner_id=:organization_id, updated_at=:updated_at "
+                    "WHERE id=:id AND deleted_at IS NULL AND owner_type='user' AND owner_id=:expected_owner_id"
+                ),
+                {**values, "organization_id": organization_id, "expected_owner_id": expected_owner_id},
+            )
+        if result.rowcount != 1:
+            return False
+        self.conn.execute(text("DELETE FROM billing_items WHERE billing_id=:billing_id"), {"billing_id": billing.id})
+        for index, item in enumerate(billing.items):
             self.conn.execute(
                 text(
                     "INSERT INTO billing_items (billing_id, uuid, description, amount, item_type, sort_order) "
@@ -239,16 +327,42 @@ class SQLAlchemyBillingRepository(BillingRepository):
                     "description": self.encryption.encrypt(item.description),
                     "amount": item.amount,
                     "item_type": item.item_type.value,
-                    "sort_order": i,
+                    "sort_order": index,
                 },
             )
-        self.conn.commit()
-        if billing.id is None:  # pragma: no cover
-            raise ValueError("Cannot update billing without an id")
-        result = self.get_by_id(billing.id)
-        if result is None:
-            raise RuntimeError(f"Failed to retrieve billing after update (id={billing.id})")
-        return result
+        return True
+
+    @traced("billing_repo.update_aggregate")
+    def update_aggregate(
+        self,
+        billing: Billing,
+        recipients: list[Recipient] | None,
+        reply_to: list[Recipient] | None,
+        *,
+        expected_owner_id: int | None = None,
+        organization_id: int | None = None,
+    ) -> Billing | None:
+        try:
+            if not self._update_billing(
+                billing,
+                expected_owner_id=expected_owner_id,
+                organization_id=organization_id,
+            ):
+                self.conn.rollback()
+                return None
+            assert billing.id is not None
+            if recipients is not None:
+                self._replace_contacts("billing_recipients", billing.id, recipients)
+            if reply_to is not None:
+                self._replace_contacts("billing_reply_to", billing.id, reply_to)
+            updated = self.get_by_id(billing.id)
+            if updated is None:
+                raise RuntimeError(f"Failed to retrieve billing after update (id={billing.id})")
+            self.conn.commit()
+            return updated
+        except Exception:
+            self.conn.rollback()
+            raise
 
     @traced("billing_repo.delete")
     def delete(self, billing_id: int) -> None:
