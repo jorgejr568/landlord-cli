@@ -140,6 +140,9 @@ class BillLifecycleTest {
     assertTrue(APIKeyValidation.isValidName(" CRM "))
     assertFalse(APIKeyValidation.isValidName("   "))
     assertFalse(APIKeyValidation.isValidName("a".repeat(256)))
+    assertTrue(APIKeyValidation.isValidName("😀".repeat(255)))
+    assertFalse(APIKeyValidation.isValidName("😀".repeat(256)))
+    assertFalse(APIKeyValidation.isValidName("e\u0301".repeat(128)))
   }
 
   @Test

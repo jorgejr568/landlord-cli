@@ -94,6 +94,9 @@ import Testing
   #expect(APIKeyValidation.isValidName(" CRM "))
   #expect(!APIKeyValidation.isValidName("   "))
   #expect(!APIKeyValidation.isValidName(String(repeating: "a", count: 256)))
+  #expect(APIKeyValidation.isValidName(String(repeating: "😀", count: 255)))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "😀", count: 256)))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "e\u{301}", count: 128)))
 }
 
 @Test func apiEnumsPreserveRawValues() {

@@ -271,7 +271,9 @@ data class APIKeyOptions(
 }
 
 object APIKeyValidation {
-  fun isValidName(name: String): Boolean = name.trim().let { it.isNotEmpty() && it.length <= 255 }
+  fun isValidName(name: String): Boolean = name.trim().let {
+    it.isNotEmpty() && it.codePointCount(0, it.length) <= 255
+  }
 }
 
 data class APIKeyGrant(

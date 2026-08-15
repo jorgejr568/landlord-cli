@@ -359,7 +359,7 @@ public struct APIKeyOptions: Hashable, Codable, Sendable {
 public enum APIKeyValidation {
   public static func isValidName(_ name: String) -> Bool {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    return !trimmed.isEmpty && trimmed.count <= 255
+    return !trimmed.isEmpty && trimmed.unicodeScalars.count <= 255
   }
 }
 
