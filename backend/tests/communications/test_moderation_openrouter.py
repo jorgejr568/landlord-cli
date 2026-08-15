@@ -420,9 +420,10 @@ async def test_malformed_model_output_falls_back_to_the_lexicon_result(payload: 
 async def test_incomplete_response_falls_back_to_the_lexicon_result(payload: Any, expected_reason: str | None):
     cache = FakeCache()
     client = _client(payload)
+    backend = _backend(client, cache)
 
     with patch.object(mod, "logger") as logger:
-        result = await _backend(client, cache).scan(MILD_TEXT)
+        result = await backend.scan(MILD_TEXT)
 
     assert result.severe == ("babaca",)
     assert result.mild == ()
