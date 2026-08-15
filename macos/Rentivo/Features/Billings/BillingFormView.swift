@@ -123,7 +123,7 @@ struct BillingFormView: View {
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   @State private var submitFailureMessage: String?
@@ -142,7 +142,7 @@ struct BillingFormView: View {
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
     _organizationsLoaded = State(initialValue: billing != nil)
   }
 
@@ -154,6 +154,7 @@ struct BillingFormView: View {
     // ones the user is looking at.
     let itemPositions = positions(in: items)
     let recipientPositions = positions(in: recipients)
+    let replyToPositions = positions(in: replyTo)
     Form {
       RentivoSection("Identificação") {
         TextField("Nome", text: $name)
@@ -263,8 +264,29 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .autocorrectionDisabled()
+        ForEach($replyTo) { $contact in
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            HStack(spacing: RentivoSpacing.small) {
+              TextField("Nome para resposta", text: $contact.name)
+              RowOrderControls(
+                index: replyToPositions[contact.id] ?? 0,
+                count: replyTo.count,
+                moveUp: { move(&replyTo, from: replyToPositions[contact.id] ?? 0, by: -1) },
+                moveDown: { move(&replyTo, from: replyToPositions[contact.id] ?? 0, by: 1) },
+                remove: { replyTo.removeAll { $0.id == contact.id } },
+                removeLabel: "Remover contato de resposta"
+              )
+            }
+            TextField("E-mail para resposta", text: $contact.email)
+              .autocorrectionDisabled()
+          }
+          .padding(.vertical, RentivoSpacing.tiny)
+        }
+        Button {
+          replyTo.append(EditableRecipient())
+        } label: {
+          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+        }
       } header: {
         Text("Comunicação")
       } footer: {
@@ -366,6 +388,7 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
     let pix = BillingPixOverride.resolve(
       key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity
     )
@@ -377,7 +400,7 @@ struct BillingFormView: View {
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
       pixOverride: pix.configuration,
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }

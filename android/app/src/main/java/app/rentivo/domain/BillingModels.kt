@@ -156,7 +156,7 @@ data class Billing(
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  val replyTo: List<BillingRecipient> = emptyList(),
   val communicationTemplates: List<CommunicationTemplate> = emptyList(),
   val capabilities: BillingCapabilities = BillingCapabilities.full,
 ) {
@@ -175,7 +175,7 @@ data class BillingDraft(
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  val replyTo: List<BillingRecipient> = emptyList(),
 ) {
   fun validate(): List<ValidationIssue> {
     val issues = mutableListOf<ValidationIssue>()
@@ -269,10 +269,29 @@ data class BillingDraft(
         )
       }
     }
-    if (replyTo != null && !EmailAddress.isValid(replyTo)) {
+    if (
+      replyTo.any {
+        val contactName = it.name.trim()
+        contactName.isEmpty() || contactName.apiCharacterCount() > 255 ||
+          !EmailAddress.isValid(it.email.trim())
+      }
+    ) {
       issues.add(
-        ValidationIssue(ValidationField.REPLY_TO, "Informe um e-mail válido para resposta.")
+        ValidationIssue(
+          ValidationField.REPLY_TO,
+          "Informe nome e e-mail válidos para todos os contatos de resposta.",
+        )
       )
+    } else {
+      val emails = replyTo.map { it.email.trim().lowercase() }
+      if (emails.toSet().size != emails.size) {
+        issues.add(
+          ValidationIssue(
+            ValidationField.REPLY_TO,
+            "Remova os contatos de resposta repetidos.",
+          )
+        )
+      }
     }
     return issues
   }

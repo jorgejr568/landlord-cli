@@ -183,13 +183,39 @@ import Testing
         email: "ana@example.com"
       )
     ],
-    replyTo: "resposta-invalida"
+    replyTo: [
+      BillingRecipient(
+        id: RecipientID(rawValue: "reply-1"), name: "Resposta", email: "resposta-invalida"
+      )
+    ]
   )
 
   #expect(
     draft.validate().map(\.field)
       == [.name, .description, .itemDescription, .pix, .recipient, .replyTo]
   )
+}
+
+@Test func billingDraftRejectsRepeatedReplyToContacts() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: "Aluguel", amount: Money(centavos: 180_000),
+        type: .fixed, sortOrder: 0
+      )
+    ],
+    replyTo: [
+      BillingRecipient(id: RecipientID(rawValue: "a"), name: "Ana", email: "ana@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "b"), name: "Cópia", email: " ANA@example.com "),
+    ]
+  )
+
+  #expect(draft.validate().filter { $0.field == .replyTo }.map(\.message) == [
+    "Remova os contatos de resposta repetidos."
+  ])
 }
 
 @Test func emailValidationAcceptsAddressesTheServerAccepts() {

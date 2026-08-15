@@ -485,7 +485,7 @@ data class RemoteBillingDraft(
       pixMerchantName = draft.pixOverride?.merchantName.orEmpty(),
       pixMerchantCity = draft.pixOverride?.merchantCity.orEmpty(),
       recipients = draft.recipients.map { RemoteContactInput.from(it) },
-      replyTo = replyToContacts(draft.replyTo),
+      replyTo = draft.replyTo.map { RemoteContactInput.from(it) },
     )
   }
 }
@@ -510,15 +510,10 @@ data class RemoteBillingUpdate(
       pixMerchantCity = draft.pixOverride?.merchantCity.orEmpty(),
       items = draft.items.map { RemoteBillingItemInput.from(it) },
       recipients = draft.recipients.map { RemoteContactInput.from(it) },
-      replyTo = replyToContacts(draft.replyTo),
+      replyTo = draft.replyTo.map { RemoteContactInput.from(it) },
     )
   }
 }
-
-// The contract has no scalar reply-to field: the single address travels as a one-element contact
-// list whose name the server displays, so it is fixed to the PT-BR label the web app uses.
-private fun replyToContacts(replyTo: String?): List<RemoteContactInput> =
-  replyTo?.let { listOf(RemoteContactInput(name = "Resposta", email = it)) } ?: emptyList()
 
 @Serializable
 data class RemoteOwnerInput(val type: String, val uuid: String?)

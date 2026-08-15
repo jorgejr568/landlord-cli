@@ -938,7 +938,11 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       val email = contact.email ?: return@mapNotNull null
       BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
     },
-    replyTo = remote.replyTo.firstOrNull()?.email,
+    replyTo = remote.replyTo.mapNotNull { contact ->
+      val name = contact.name ?: return@mapNotNull null
+      val email = contact.email ?: return@mapNotNull null
+      BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
+    },
     // Templates for communication types this app doesn't model are dropped rather than failing the
     // whole billing decode, the same tolerance applied to bill transitions above.
     communicationTemplates = (remote.communicationTemplates ?: emptyList()).mapNotNull { template ->

@@ -291,7 +291,7 @@ struct RemoteBillingDraft: Encodable {
     name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
     pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
     recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
+    replyTo = draft.replyTo.map(RemoteContactInput.init)
     switch draft.owner { case .user: owner = RemoteOwnerInput(type: "user", uuid: nil); case .organization(let id, _): owner = RemoteOwnerInput(type: "organization", uuid: id.rawValue) }
   }
 }
@@ -304,7 +304,7 @@ struct RemoteBillingUpdate: Encodable {
     name = draft.name; description = draft.description; items = draft.items.map(RemoteBillingItemInput.init)
     pixKey = draft.pixOverride?.key ?? ""; pixMerchantName = draft.pixOverride?.merchantName ?? ""; pixMerchantCity = draft.pixOverride?.merchantCity ?? ""
     recipients = draft.recipients.map(RemoteContactInput.init)
-    replyTo = draft.replyTo.map { [RemoteContactInput(name: "Resposta", email: $0)] } ?? []
+    replyTo = draft.replyTo.map(RemoteContactInput.init)
   }
 }
 struct RemoteOwnerInput: Encodable { let type: String; let uuid: String? }

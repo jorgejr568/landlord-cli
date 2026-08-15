@@ -173,7 +173,9 @@ fun BillingFormView(
   val recipients: SnapshotStateList<EditableRecipient> = remember {
     existing?.recipients.orEmpty().map(EditableRecipient::from).toMutableStateList()
   }
-  var replyTo by remember { mutableStateOf(existing?.replyTo.orEmpty()) }
+  val replyTo: SnapshotStateList<EditableRecipient> = remember {
+    existing?.replyTo.orEmpty().map(EditableRecipient::from).toMutableStateList()
+  }
   val validationIssues = remember { mutableStateListOf<ValidationIssue>() }
   var pixRecipientRequiredMessage by remember { mutableStateOf<String?>(null) }
   var saving by remember { mutableStateOf(false) }
@@ -199,6 +201,7 @@ fun BillingFormView(
     // it is dropped rather than reported as invalid. Partially filled rows still fail validation
     // below, because the update replaces the billing's whole recipient set.
     val draftRecipients = recipients.filterNot { it.isBlank }.map { it.domain() }
+    val draftReplyTo = replyTo.filterNot { it.isBlank }.map { it.domain() }
     val pix = pixKey.trim()
     val merchantName = pixMerchantName.trim()
     val merchantCity = pixMerchantCity.trim()
@@ -220,7 +223,7 @@ fun BillingFormView(
         PixConfiguration(key = pix, merchantName = merchantName, merchantCity = merchantCity)
       },
       recipients = draftRecipients,
-      replyTo = if (replyTo.isEmpty()) null else replyTo,
+      replyTo = draftReplyTo,
     )
     validationIssues.clear()
     validationIssues.addAll(draft.validate())
@@ -350,7 +353,6 @@ fun BillingFormView(
         CommunicationSection(
           recipients = recipients,
           replyTo = replyTo,
-          onReplyToChange = { replyTo = it },
         )
       }
       if (validationIssues.isNotEmpty() || pixRecipientRequiredMessage != null) {
@@ -561,8 +563,7 @@ private fun PixSection(
 @Composable
 private fun CommunicationSection(
   recipients: SnapshotStateList<EditableRecipient>,
-  replyTo: String,
-  onReplyToChange: (String) -> Unit,
+  replyTo: SnapshotStateList<EditableRecipient>,
 ) {
   var editing by rememberSaveable { mutableStateOf(false) }
 
@@ -605,13 +606,40 @@ private fun CommunicationSection(
       onClick = { recipients.add(EditableRecipient.blank()) },
       modifier = Modifier.testTag("billing.form.recipients.add"),
     )
-    RentivoListDivider(indent = 0.dp)
-    FormTextField(
-      label = "Responder para",
-      value = replyTo,
-      onValueChange = onReplyToChange,
-      keyboardType = KeyboardType.Email,
-      capitalization = KeyboardCapitalization.None,
+    if (replyTo.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    replyTo.forEachIndexed { index, contact ->
+      if (index > 0) RentivoListDivider(indent = 0.dp)
+      FormTextField(
+        label = "Nome para resposta",
+        value = contact.name,
+        onValueChange = { replyTo[index] = replyTo[index].copy(name = it) },
+      )
+      RentivoListDivider()
+      FormTextField(
+        label = "E-mail para resposta",
+        value = contact.email,
+        onValueChange = { replyTo[index] = replyTo[index].copy(email = it) },
+        keyboardType = KeyboardType.Email,
+        capitalization = KeyboardCapitalization.None,
+      )
+      if (editing) {
+        RentivoListDivider()
+        FormRow {
+          RowActions(
+            canMoveUp = index > 0,
+            canMoveDown = index < replyTo.lastIndex,
+            onMoveUp = { replyTo.add(index - 1, replyTo.removeAt(index)) },
+            onMoveDown = { replyTo.add(index + 1, replyTo.removeAt(index)) },
+            onDelete = { replyTo.removeAt(index) },
+          )
+        }
+      }
+    }
+    if (replyTo.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    AddRow(
+      text = "Adicionar contato de resposta",
+      onClick = { replyTo.add(EditableRecipient.blank()) },
+      modifier = Modifier.testTag("billing.form.replyTo.add"),
     )
   }
 }

@@ -71,6 +71,8 @@ import Testing
 
   #expect(billing.communicationTemplates.isEmpty)
   #expect(billing.template(for: .billReady) == nil)
+  #expect(billing.replyTo.map(\.name) == ["Ana", "Bruno"])
+  #expect(billing.replyTo.map(\.email) == ["ana@rentivo.com.br", "bruno@rentivo.com.br"])
 }
 
 @MainActor
@@ -93,6 +95,14 @@ import Testing
     items: [
       BillingItem(id: clientMintedID, description: "Aluguel", amount: Money(centavos: 1_000), type: .fixed, sortOrder: 0),
       BillingItem(id: BillingItemID(rawValue: serverULID), description: "Água", amount: Money(centavos: 500), type: .variable, sortOrder: 1),
+    ],
+    replyTo: [
+      BillingRecipient(
+        id: RecipientID(rawValue: "reply-1"), name: "Ana", email: "ana@rentivo.com.br"
+      ),
+      BillingRecipient(
+        id: RecipientID(rawValue: "reply-2"), name: "Bruno", email: "bruno@rentivo.com.br"
+      ),
     ]
   )
 
@@ -104,6 +114,12 @@ import Testing
   #expect(items.count == 2)
   #expect(items[0]["uuid"] == nil || items[0]["uuid"] is NSNull)
   #expect(items[1]["uuid"] as? String == serverULID)
+  let replyTo = try #require(json["reply_to"] as? [[String: Any]])
+  #expect(replyTo.map { $0["name"] as? String } == ["Ana", "Bruno"])
+  #expect(
+    replyTo.map { $0["email"] as? String }
+      == ["ana@rentivo.com.br", "bruno@rentivo.com.br"]
+  )
 }
 
 @MainActor
@@ -232,7 +248,7 @@ private final class BillingURLProtocol: URLProtocol, @unchecked Sendable {
       body = #"{"uuid":"billing-1","name":"Apartamento","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1","description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"communication_templates":[{"comm_type":"bill_ready","subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}","body":"Recebemos {{total}}"},{"comm_type":"telepathy","subject":"Ignorado","body":"Ignorado"}],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
     case "/api/v1/billings/billing-2":
       // Deliberately omits `communication_templates`.
-      body = #"{"uuid":"billing-2","name":"Kitnet","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
+      body = #"{"uuid":"billing-2","name":"Kitnet","description":"Aluguel","owner":{"type":"user","name":"Ana"},"items":[],"pix_key":"","pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[{"uuid":"reply-1","name":"Ana","email":"ana@rentivo.com.br"},{"uuid":"reply-2","name":"Bruno","email":"bruno@rentivo.com.br"}],"capabilities":{"can_edit":true,"can_read_bills":true,"can_create_bills":true,"can_manage_bills":true,"can_read_expenses":true,"can_write_expenses":true,"can_create_exports":true,"can_read_attachments":true,"can_write_attachments":true,"can_read_theme":true,"can_manage_theme":true,"can_upload_bill_receipts":true,"can_delete":true,"can_transfer":true}}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }

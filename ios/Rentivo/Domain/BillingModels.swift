@@ -202,7 +202,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
   public var items: [BillingItem]
   public var pixOverride: PixConfiguration?
   public var recipients: [BillingRecipient]
-  public var replyTo: String?
+  public var replyTo: [BillingRecipient]
   public var communicationTemplates: [CommunicationTemplate]
   public var capabilities: BillingCapabilities
 
@@ -214,7 +214,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     items: [BillingItem],
     pixOverride: PixConfiguration? = nil,
     recipients: [BillingRecipient] = [],
-    replyTo: String? = nil,
+    replyTo: [BillingRecipient] = [],
     communicationTemplates: [CommunicationTemplate] = [],
     capabilities: BillingCapabilities = .full
   ) {
@@ -254,7 +254,7 @@ public struct BillingDraft: Hashable, Sendable {
   public var items: [BillingItem]
   public var pixOverride: PixConfiguration?
   public var recipients: [BillingRecipient]
-  public var replyTo: String?
+  public var replyTo: [BillingRecipient]
 
   public init(
     name: String,
@@ -263,7 +263,7 @@ public struct BillingDraft: Hashable, Sendable {
     items: [BillingItem],
     pixOverride: PixConfiguration? = nil,
     recipients: [BillingRecipient] = [],
-    replyTo: String? = nil
+    replyTo: [BillingRecipient] = []
   ) {
     self.name = name
     self.description = description
@@ -377,10 +377,26 @@ public struct BillingDraft: Hashable, Sendable {
         )
       }
     }
-    if let replyTo, !EmailAddress.isValid(replyTo) {
+    if replyTo.contains(where: {
+      let normalizedName = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      return normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255
+        || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
       issues.append(
-        ValidationIssue(field: .replyTo, message: "Informe um e-mail válido para resposta.")
+        ValidationIssue(
+          field: .replyTo,
+          message: "Informe nome e e-mail válidos para todos os contatos de resposta."
+        )
       )
+    } else {
+      let emails = replyTo.map {
+        $0.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      }
+      if Set(emails).count != emails.count {
+        issues.append(
+          ValidationIssue(field: .replyTo, message: "Remova os contatos de resposta repetidos.")
+        )
+      }
     }
     return issues
   }

@@ -76,7 +76,7 @@ struct BillingFormView: View {
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
@@ -98,7 +98,7 @@ struct BillingFormView: View {
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
     _organizationsLoaded = State(initialValue: billing != nil)
   }
 
@@ -187,10 +187,23 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .keyboardType(.emailAddress)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
+        ForEach($replyTo) { $contact in
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            TextField("Nome para resposta", text: $contact.name)
+            TextField("E-mail para resposta", text: $contact.email)
+              .keyboardType(.emailAddress)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+          }
+          .padding(.vertical, RentivoSpacing.tiny)
+        }
+        .onDelete { replyTo.remove(atOffsets: $0) }
+        .onMove { replyTo.move(fromOffsets: $0, toOffset: $1) }
+        Button {
+          replyTo.append(EditableRecipient())
+        } label: {
+          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+        }
       } header: {
         HStack {
           Text("Comunicação")
@@ -270,6 +283,7 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
     let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -290,7 +304,7 @@ struct BillingFormView: View {
         ? nil
         : PixConfiguration(key: pix, merchantName: merchantName, merchantCity: merchantCity),
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }

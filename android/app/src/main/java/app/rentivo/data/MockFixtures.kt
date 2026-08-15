@@ -430,7 +430,12 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
           email = "fiadora@example.com",
         ),
       ),
-      replyTo = "ana@example.com",
+      replyTo = listOf(
+        BillingRecipient(
+          id = RecipientID(rawValue = "reply-aurora"), name = "Ana",
+          email = "ana@example.com",
+        )
+      ),
       communicationTemplates = defaultCommunicationTemplates,
     )
 

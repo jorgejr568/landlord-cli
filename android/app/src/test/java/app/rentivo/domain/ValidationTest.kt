@@ -228,7 +228,11 @@ class ValidationTest {
           id = RecipientID("r1"), name = "r".repeat(256), email = "ana@example.com",
         )
       ),
-      replyTo = "resposta-invalida",
+      replyTo = listOf(
+        BillingRecipient(
+          id = RecipientID("reply-1"), name = "Resposta", email = "resposta-invalida",
+        )
+      ),
     )
 
     assertEquals(
@@ -241,6 +245,30 @@ class ValidationTest {
         ValidationField.REPLY_TO,
       ),
       draft.validate().map { it.field },
+    )
+  }
+
+  @Test
+  fun billingDraftRejectsRepeatedReplyToContacts() {
+    val draft = BillingDraft(
+      name = "Apt 101",
+      description = "",
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "Aluguel", amount = Money(centavos = 180_000),
+          type = BillingItemType.FIXED, sortOrder = 0,
+        )
+      ),
+      replyTo = listOf(
+        BillingRecipient(id = RecipientID("a"), name = "Ana", email = "ana@example.com"),
+        BillingRecipient(id = RecipientID("b"), name = "Cópia", email = " ANA@example.com "),
+      ),
+    )
+
+    assertEquals(
+      listOf("Remova os contatos de resposta repetidos."),
+      draft.validate().filter { it.field == ValidationField.REPLY_TO }.map { it.message },
     )
   }
 

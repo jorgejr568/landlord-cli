@@ -517,10 +517,10 @@ private fun RecipientsSection(billing: Billing) {
             color = RentivoColors.secondaryInk,
           )
         }
-        billing.replyTo?.let { replyTo ->
+        billing.replyTo.forEach { contact ->
           RentivoListDivider(indent = 0.dp)
           IconLabel(
-            text = "Respostas para $replyTo",
+            text = "Respostas para ${contact.name} <${contact.email}>",
             icon = Icons.AutoMirrored.Filled.Reply,
             style = RentivoTypography.caption,
           )

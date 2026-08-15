@@ -10,10 +10,12 @@ import app.rentivo.domain.BillingItem
 import app.rentivo.domain.BillingItemID
 import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.BillingRecipient
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.Money
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.RecipientID
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
@@ -86,7 +88,8 @@ class APIRentivoStoreBillingTest {
           """"items":[],"pix_key":"chave","pix_merchant_name":"","pix_merchant_city":"",""" +
           """"recipients":[{"uuid":"contact-1","name":"Bruno","email":"bruno@rentivo.com.br"},""" +
           """{"uuid":"contact-2","name":null,"email":null}],""" +
-          """"reply_to":[{"uuid":"contact-9","name":"Resposta","email":"ana@rentivo.com.br"}],""" +
+          """"reply_to":[{"uuid":"contact-9","name":"Ana","email":"ana@rentivo.com.br"},""" +
+          """{"uuid":"contact-10","name":"Bruno","email":"bruno@rentivo.com.br"}],""" +
           """"capabilities":$FULL_BILLING_CAPABILITIES}"""
       )
 
@@ -172,7 +175,11 @@ class APIRentivoStoreBillingTest {
     )
     // A contact missing a name or an e-mail is dropped rather than failing the decode.
     assertEquals(listOf("Bruno"), billing.recipients.map { it.name })
-    assertEquals("ana@rentivo.com.br", billing.replyTo)
+    assertEquals(listOf("Ana", "Bruno"), billing.replyTo.map { it.name })
+    assertEquals(
+      listOf("ana@rentivo.com.br", "bruno@rentivo.com.br"),
+      billing.replyTo.map { it.email },
+    )
     // One non-empty field is enough for the override to exist.
     assertEquals("chave", billing.pixOverride?.key)
     assertEquals(BillingCapabilities.full, billing.capabilities)
@@ -239,7 +246,7 @@ class APIRentivoStoreBillingTest {
     }
 
   @Test
-  fun `a billing draft flattens pix and encodes reply-to as a single named contact`() = runTest {
+  fun `a billing draft flattens pix and preserves every named reply-to contact`() = runTest {
     val dispatcher = server.routeWithSession { call ->
       if (call.route == "POST /api/v1/billings") {
         jsonResponse(
@@ -262,7 +269,16 @@ class APIRentivoStoreBillingTest {
           name = "Horizonte",
         ),
         items = emptyList(),
-        replyTo = "ana@rentivo.com.br",
+        replyTo = listOf(
+          BillingRecipient(
+            id = RecipientID(rawValue = "reply-1"), name = "Ana",
+            email = "ana@rentivo.com.br",
+          ),
+          BillingRecipient(
+            id = RecipientID(rawValue = "reply-2"), name = "Bruno",
+            email = "bruno@rentivo.com.br",
+          ),
+        ),
       )
     )
 
@@ -271,9 +287,11 @@ class APIRentivoStoreBillingTest {
     assertEquals("organization-1", body["owner"]!!.jsonObject["uuid"]!!.jsonPrimitive.content)
     assertEquals("", body["pix_key"]!!.jsonPrimitive.content)
     val replyTo = body["reply_to"]!!.jsonArray
-    assertEquals(1, replyTo.size)
-    assertEquals("Resposta", replyTo[0].jsonObject["name"]!!.jsonPrimitive.content)
+    assertEquals(2, replyTo.size)
+    assertEquals("Ana", replyTo[0].jsonObject["name"]!!.jsonPrimitive.content)
     assertEquals("ana@rentivo.com.br", replyTo[0].jsonObject["email"]!!.jsonPrimitive.content)
+    assertEquals("Bruno", replyTo[1].jsonObject["name"]!!.jsonPrimitive.content)
+    assertEquals("bruno@rentivo.com.br", replyTo[1].jsonObject["email"]!!.jsonPrimitive.content)
   }
 
   private fun billDetailRoutes(): RouteDispatcher = server.routeWithSession { call ->

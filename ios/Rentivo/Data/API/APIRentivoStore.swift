@@ -676,7 +676,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
         guard let name = contact.name, let email = contact.email else { return nil }
         return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
       },
-      replyTo: remote.replyTo.first?.email,
+      replyTo: remote.replyTo.compactMap { contact in
+        guard let name = contact.name, let email = contact.email else { return nil }
+        return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
+      },
       // Templates for communication types this app doesn't model are dropped rather than failing
       // the whole billing decode, the same tolerance applied to bill transitions above.
       communicationTemplates: (remote.communicationTemplates ?? []).compactMap { template in

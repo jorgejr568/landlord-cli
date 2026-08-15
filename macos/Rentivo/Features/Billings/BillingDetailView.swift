@@ -267,9 +267,12 @@ struct BillingDetailView: View {
               .font(RentivoTypography.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
-          if let replyTo = billing.replyTo {
+          ForEach(billing.replyTo) { contact in
             Divider()
-            Label("Respostas para \(replyTo)", systemImage: "arrowshape.turn.up.left")
+            Label(
+              "Respostas para \(contact.name) <\(contact.email)>",
+              systemImage: "arrowshape.turn.up.left"
+            )
               .font(RentivoTypography.caption)
           }
         }
