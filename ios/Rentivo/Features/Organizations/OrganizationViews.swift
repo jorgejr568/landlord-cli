@@ -78,13 +78,12 @@ struct OrganizationListView: View {
           } label: {
             Label("Criar", systemImage: "plus")
           }
+          .accessibilityIdentifier("organization.create")
         }
       }
     }
-    .sheet(isPresented: $showingCreate) {
-      NavigationStack {
-        OrganizationFormView { await load() }
-      }
+    .rentivoFullScreenWizard(isPresented: $showingCreate) {
+      OrganizationFormView { await load() }
     }
     .sheet(isPresented: $showingInvitations) {
       NavigationStack {
@@ -176,6 +175,12 @@ private struct OrganizationCard: View {
 }
 
 struct OrganizationFormView: View {
+  private enum Step: CaseIterable {
+    case organization
+    case pix
+    case review
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let organization: Organization?
@@ -185,71 +190,139 @@ struct OrganizationFormView: View {
   @State private var merchantName: String
   @State private var city: String
   @State private var pixValidationMessage: String?
-  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
-  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var nameValidationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var step: Step = .organization
+  private let initialName: String
+  private let initialPixKey: String
+  private let initialMerchantName: String
+  private let initialCity: String
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
     self.onSaved = onSaved
-    _name = State(initialValue: organization?.name ?? "")
-    _pixKey = State(initialValue: organization?.pix?.key ?? "")
-    _merchantName = State(initialValue: organization?.pix?.merchantName ?? "")
-    _city = State(initialValue: organization?.pix?.merchantCity ?? "")
+    initialName = organization?.name ?? ""
+    initialPixKey = organization?.pix?.key ?? ""
+    initialMerchantName = organization?.pix?.merchantName ?? ""
+    initialCity = organization?.pix?.merchantCity ?? ""
+    _name = State(initialValue: initialName)
+    _pixKey = State(initialValue: initialPixKey)
+    _merchantName = State(initialValue: initialMerchantName)
+    _city = State(initialValue: initialCity)
   }
 
   var body: some View {
-    Form {
-      Section("Organização") {
+    RentivoFormWizard(
+      title: organization == nil ? "Nova organização" : "Editar organização",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isDirty: isDirty,
+      isBusy: saving,
+      primaryTitle: step == .review ? (organization == nil ? "Criar" : "Salvar") : "Continuar",
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: { Task { await save() } }
+    ) { selectedStep in
+      stepContent(selectedStep)
+    }
+    .interactiveDismissDisabled(isDirty || saving)
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .organization, title: "Organização"),
+      .init(id: .pix, title: "Recebimento PIX"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  private var isDirty: Bool {
+    name != initialName || pixKey != initialPixKey || merchantName != initialMerchantName
+      || city != initialCity
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .organization:
+      RentivoWizardSection(
+        "Identidade da organização",
+        subtitle: organization == nil
+          ? "Dê um nome claro para o espaço compartilhado."
+          : "Atualize o nome exibido para membros e cobranças."
+      ) {
         TextField("Nome", text: $name)
-        if !name.isEmpty, let message = OrganizationDraft.nameValidationMessage(name) {
-          Text(message).foregroundStyle(RentivoColors.coral)
+        if let nameValidationMessage {
+          validationLabel(nameValidationMessage)
         }
       }
-      Section("PIX") {
+    case .pix:
+      RentivoWizardSection(
+        "Recebimento PIX",
+        subtitle: "Deixe todos os campos vazios para manter a organização sem PIX."
+      ) {
         TextField("Chave", text: $pixKey)
+          .textInputAutocapitalization(.never)
         TextField("Nome do recebedor", text: $merchantName)
         TextField("Cidade", text: $city)
           .textInputAutocapitalization(.characters)
+        if let pixValidationMessage {
+          validationLabel(pixValidationMessage)
+        }
       }
+    case .review:
+      RentivoWizardSection("Organização") {
+        RentivoWizardReviewRow(
+          label: "Nome",
+          value: name.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+      }
+      RentivoWizardSection("PIX") {
+        RentivoWizardReviewRow(label: "Configuração", value: pixSummary)
+        if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          RentivoWizardReviewRow(
+            label: "Recebedor",
+            value: merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+          RentivoWizardReviewRow(
+            label: "Cidade", value: city.trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+        }
+      }
+      if let submitErrorMessage {
+        RentivoWizardSection("Não foi possível salvar") {
+          validationLabel(submitErrorMessage)
+        }
+      }
+    }
+  }
 
-      if pixValidationMessage != nil || submitErrorMessage != nil {
-        Section("Revise os campos") {
-          if let pixValidationMessage {
-            Label(pixValidationMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("organization.form.validation")
-          }
-          if let submitErrorMessage {
-            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("organization.form.validation")
-          }
-        }
-      }
+  private var pixSummary: String {
+    pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? "Sem PIX configurado" : "PIX configurado"
+  }
+
+  private func validationLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("organization.form.validation")
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    switch step {
+    case .organization:
+      nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
+      return nameValidationMessage == nil
+    case .pix:
+      pixValidationMessage = OrganizationDraft.pixValidationMessage(
+        key: pixKey, merchantName: merchantName, city: city
+      )
+      return pixValidationMessage == nil
+    case .review:
+      return true
     }
-    .navigationTitle(organization == nil ? "Nova organização" : "Editar organização")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
-      }
-      ToolbarItem(placement: .confirmationAction) {
-        // The spinner is the only sign the request is still in flight: everything else this form
-        // does while saving is a disable, which on a stalled request reads as a frozen sheet.
-        Button {
-          Task { await save() }
-        } label: {
-          HStack(spacing: RentivoSpacing.small) {
-            if saving { ProgressView() }
-            Text("Salvar")
-          }
-        }
-        .disabled(saving || !OrganizationDraft(name: name, pix: nil).isValid)
-      }
-    }
-    .interactiveDismissDisabled(saving)
   }
 
   private func save() async {
@@ -273,7 +346,9 @@ struct OrganizationFormView: View {
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
     guard draft.isValid else {
-      submitErrorMessage = OrganizationDraft.nameValidationMessage(name)
+      nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
+      submitErrorMessage = nameValidationMessage
+      step = nameValidationMessage == nil ? .pix : .organization
       return
     }
     saving = true
@@ -301,6 +376,7 @@ struct OrganizationDetailView: View {
   @State private var billings: [Billing] = []
   @State private var showingEdit = false
   @State private var showingInvite = false
+  @State private var showingTheme = false
   @State private var confirmingMFA = false
   @State private var confirmingDelete = false
 
@@ -318,19 +394,18 @@ struct OrganizationDetailView: View {
         Button("Editar") { showingEdit = true }
       }
     }
-    .sheet(isPresented: $showingEdit) {
+    .rentivoFullScreenWizard(isPresented: $showingEdit) {
       if let organization = state.value {
-        NavigationStack {
-          OrganizationFormView(organization: organization) { await refreshAll() }
-        }
+        OrganizationFormView(organization: organization) { await refreshAll() }
       }
     }
-    .sheet(isPresented: $showingInvite) {
+    .rentivoFullScreenWizard(isPresented: $showingInvite) {
       if let organization = state.value {
-        NavigationStack {
-          InviteMemberView(organization: organization) { await refreshAll() }
-        }
+        InviteMemberView(organization: organization) { await refreshAll() }
       }
+    }
+    .rentivoFullScreenWizard(isPresented: $showingTheme) {
+      ThemeEditorView(target: .organization(organizationID))
     }
     .confirmationDialog(
       state.value?.requiresMFA == true ? "Tornar MFA opcional?" : "Exigir MFA?",
@@ -368,8 +443,8 @@ struct OrganizationDetailView: View {
         policySection(organization)
         billingSection(organization)
 
-        NavigationLink {
-          ThemeEditorView(target: .organization(organizationID))
+        Button {
+          showingTheme = true
         } label: {
           Label("Aparência da organização", systemImage: "paintpalette.fill")
             .frame(maxWidth: .infinity)

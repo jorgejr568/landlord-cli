@@ -1,73 +1,45 @@
 import SwiftUI
 
 struct ThemeEditorView: View {
+  private enum Step: CaseIterable {
+    case typography
+    case primaryColors
+    case textAndContrast
+    case preview
+    case review
+  }
+
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   let target: ThemeTarget
   @State private var record: ThemeRecord?
   @State private var values = ThemeValues.rentivo
   @State private var loadedValues: ThemeValues?
   @State private var error: DemoError?
+  @State private var step: Step = .typography
+  @State private var saving = false
 
   /// True once the user has changed a field since the last successful load/save.
   /// Guards against `.task(id:)` reloads (triggered by unrelated `app.dataRevision`
   /// bumps) silently overwriting in-progress, unsaved color edits.
   private var isDirty: Bool {
-    guard let loadedValues else { return false }
-    return values != loadedValues
+    values != (loadedValues ?? .rentivo)
   }
 
   var body: some View {
-    Form {
-      if let record {
-        Section("Herança") {
-          LabeledContent("Responsável", value: record.ownerName)
-          LabeledContent("Origem efetiva", value: record.effectiveSource.label)
-            .accessibilityIdentifier("theme.source")
-          if record.stored == nil {
-            Label(
-              "Este nível herda o tema de \(record.effectiveSource.label.lowercased()).",
-              systemImage: "arrow.triangle.branch"
-            )
-            .font(.footnote)
-          }
-        }
-      }
-
-      Section("Tipografia") {
-        Picker("Fonte de títulos", selection: $values.headerFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-        }
-        Picker("Fonte de texto", selection: $values.textFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-        }
-      }
-
-      Section("Cores da API") {
-        ThemeColorField(title: "Primária", value: $values.primary)
-        ThemeColorField(title: "Primária clara", value: $values.primaryLight)
-        ThemeColorField(title: "Secundária", value: $values.secondary)
-        ThemeColorField(title: "Secundária escura", value: $values.secondaryDark)
-        ThemeColorField(title: "Texto", value: $values.textColor)
-        ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
-      }
-
-      Section("Prévia") {
-        ThemePreview(values: values)
-      }
-
-      if record?.canReset == true {
-        Section {
-          Button("Restaurar herança", role: .destructive) { Task { await reset() } }
-        }
-      }
+    RentivoFormWizard(
+      title: "Aparência",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isDirty: isDirty,
+      isBusy: saving,
+      primaryTitle: step == .review ? (record?.canEdit == true ? "Salvar" : "Concluir") : "Continuar",
+      onValidateAndAdvance: { true },
+      onCommit: commit
+    ) { selectedStep in
+      stepContent(selectedStep)
     }
-    .navigationTitle("Aparência")
-    .toolbar {
-      if record?.canEdit == true {
-        Button("Salvar") { Task { await save() } }
-          .accessibilityIdentifier("theme.save")
-      }
-    }
+    .interactiveDismissDisabled(isDirty || saving)
     .task(id: app.dataRevision) {
       guard !isDirty else { return }
       await load()
@@ -82,6 +54,113 @@ struct ThemeEditorView: View {
     }
   }
 
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .typography, title: "Tipografia"),
+      .init(id: .primaryColors, title: "Cores principais"),
+      .init(id: .textAndContrast, title: "Texto e contraste"),
+      .init(id: .preview, title: "Prévia"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .typography:
+      RentivoWizardSection(
+        "Tipografia da marca",
+        subtitle: "Escolha fontes para títulos e textos dos documentos."
+      ) {
+        Picker("Fonte de títulos", selection: $values.headerFont) {
+          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        Picker("Fonte de texto", selection: $values.textFont) {
+          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+      }
+    case .primaryColors:
+      RentivoWizardSection(
+        "Cores principais",
+        subtitle: "Informe cores hexadecimais usadas nos destaques da marca."
+      ) {
+        ThemeColorField(title: "Primária", value: $values.primary)
+        ThemeColorField(title: "Primária clara", value: $values.primaryLight)
+        ThemeColorField(title: "Secundária", value: $values.secondary)
+      }
+    case .textAndContrast:
+      RentivoWizardSection(
+        "Texto e contraste",
+        subtitle: "Ajuste superfícies escuras e a legibilidade do texto."
+      ) {
+        ThemeColorField(title: "Secundária escura", value: $values.secondaryDark)
+        ThemeColorField(title: "Texto", value: $values.textColor)
+        ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
+      }
+    case .preview:
+      inheritanceSection
+      RentivoWizardSection(
+        "Prévia ao vivo",
+        subtitle: "A visualização muda enquanto você edita as cores."
+      ) {
+        ThemePreview(values: values)
+      }
+      if record?.canReset == true {
+        RentivoWizardSection("Herança") {
+          Button("Restaurar herança", role: .destructive) { Task { await reset() } }
+            .disabled(saving)
+        }
+      }
+    case .review:
+      inheritanceSection
+      RentivoWizardSection("Resumo do tema") {
+        RentivoWizardReviewRow(label: "Fonte de títulos", value: values.headerFont.rawValue)
+        RentivoWizardReviewRow(label: "Fonte de texto", value: values.textFont.rawValue)
+        RentivoWizardReviewRow(label: "Cor primária", value: values.primary)
+        RentivoWizardReviewRow(
+          label: "Configuração",
+          value: record?.stored == nil && !isDirty ? "Tema herdado" : "Personalização deste nível"
+        )
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var inheritanceSection: some View {
+    if let record {
+      RentivoWizardSection("Herança") {
+        RentivoWizardReviewRow(label: "Responsável", value: record.ownerName)
+        RentivoWizardReviewRow(label: "Origem efetiva", value: record.effectiveSource.label)
+          .accessibilityIdentifier("theme.source")
+        if record.stored == nil {
+          Label(
+            "Este nível herda o tema de \(record.effectiveSource.label.lowercased()).",
+            systemImage: "arrow.triangle.branch"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
+        if record.canEdit == false {
+          Label("Seu acesso permite somente consultar este tema.", systemImage: "eye.fill")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
+      }
+    } else {
+      RentivoWizardSection("Carregando tema") {
+        ProgressView()
+      }
+    }
+  }
+
+  private func commit() {
+    if record?.canEdit == true {
+      Task { await save() }
+    } else {
+      dismiss()
+    }
+  }
+
   private func load() async {
     do {
       let loaded = try await app.dependencies.themes.theme(target: target)
@@ -92,14 +171,21 @@ struct ThemeEditorView: View {
   }
 
   private func save() async {
+    guard !saving, record?.canEdit == true else { return }
+    saving = true
+    defer { saving = false }
     do {
       try await app.dependencies.themes.updateTheme(target: target, values: values)
       await load()
       app.showNotice("Tema atualizado.")
+      dismiss()
     } catch { self.error = DemoError(error) }
   }
 
   private func reset() async {
+    guard !saving, record?.canReset == true else { return }
+    saving = true
+    defer { saving = false }
     do {
       try await app.dependencies.themes.resetTheme(target: target)
       await load()
