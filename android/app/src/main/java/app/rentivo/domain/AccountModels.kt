@@ -109,6 +109,32 @@ data class OrganizationDraft(
   }
 }
 
+/**
+ * Mirrors the deliberately permissive `OrganizationInviteCreateRequest` address contract. This
+ * must stay separate from the stricter billing-contact validator because invites accept `a@b`.
+ */
+object OrganizationInviteEmail {
+  const val maximumLength: Int = 320
+
+  fun normalized(email: String): String = email.trim().lowercase()
+
+  fun validationMessage(email: String): String? {
+    val value = normalized(email)
+    return when {
+      value.isEmpty() -> "Informe o e-mail."
+      value.codePointCount(0, value.length) > maximumLength ->
+        "O e-mail deve ter até 320 caracteres."
+      value.count { it == '@' } != 1 || value.any { it.isWhitespace() } ->
+        "Informe um e-mail válido."
+      value.substringBefore('@').isEmpty() || value.substringAfter('@').isEmpty() ->
+        "Informe um e-mail válido."
+      else -> null
+    }
+  }
+
+  fun isValid(email: String): Boolean = validationMessage(email) == null
+}
+
 enum class InvitationStatus(val wire: String) {
   PENDING("pending"),
   ACCEPTED("accepted"),

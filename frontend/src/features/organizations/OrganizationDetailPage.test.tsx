@@ -304,6 +304,7 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   }));
   renderPage();
   await screen.findByText("Acme Imóveis");
+  expect(screen.getByLabelText("E-mail")).toHaveAttribute("maxlength", "320");
 
   await user.selectOptions(screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "viewer");
   expect(await screen.findByText("Papel atualizado com sucesso!")).toBeVisible();

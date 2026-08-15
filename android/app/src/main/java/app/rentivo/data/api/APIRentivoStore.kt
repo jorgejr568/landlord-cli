@@ -69,6 +69,7 @@ import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
@@ -591,7 +592,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     val response = decode<RemoteInviteCreate, RemoteInvitation>(
       path = "/api/v1/organizations/${organizationID.rawValue}/invites",
       method = "POST",
-      body = RemoteInviteCreate(email = email, role = role.wire),
+      body = RemoteInviteCreate(email = OrganizationInviteEmail.normalized(email), role = role.wire),
     )
     // Best-effort enrichment: the invite already succeeded, so a failure here shouldn't fail the
     // whole call.

@@ -201,7 +201,7 @@ struct InviteMemberView: View {
             Text("Convidar")
           }
         }
-        .disabled(saving || !email.contains("@"))
+        .disabled(saving || !OrganizationInviteEmail.isValid(email))
       }
     }
     .interactiveDismissDisabled(saving)
@@ -209,13 +209,17 @@ struct InviteMemberView: View {
 
   private func invite() async {
     guard !saving else { return }
+    if let message = OrganizationInviteEmail.validationMessage(email) {
+      submitErrorMessage = message
+      return
+    }
     submitErrorMessage = nil
     saving = true
     defer { saving = false }
     do {
       _ = try await app.dependencies.organizations.inviteMember(
         organizationID: organization.id,
-        email: email,
+        email: OrganizationInviteEmail.normalized(email),
         role: role
       )
       await onSaved()

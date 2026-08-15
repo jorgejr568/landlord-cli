@@ -356,7 +356,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     // exactly as when this ran sequentially — the invite itself already succeeded.
     async let remoteOrganization: RemoteOrganization? = try? self.decode(
       path: "/api/v1/organizations/\(organizationID.rawValue)")
-    let response: RemoteInvitation = try await decode(path: "/api/v1/organizations/\(organizationID.rawValue)/invites", method: "POST", body: RemoteInviteCreate(email: email, role: role.rawValue))
+    let response: RemoteInvitation = try await decode(path: "/api/v1/organizations/\(organizationID.rawValue)/invites", method: "POST", body: RemoteInviteCreate(email: OrganizationInviteEmail.normalized(email), role: role.rawValue))
     let organizationName = await remoteOrganization.map(organization(from:))?.name ?? "Organização"
     return Invitation(id: InvitationID(rawValue: response.uuid), organizationID: organizationID, organizationName: organizationName, email: response.invitedEmail, role: OrganizationRole(rawValue: response.role) ?? .viewer, status: InvitationStatus(rawValue: response.status) ?? .pending)
   }

@@ -63,6 +63,7 @@ import app.rentivo.domain.DemoError
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationRole
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -231,10 +232,17 @@ fun InviteMemberView(
   var roleMenuExpanded by remember { mutableStateOf(false) }
 
   suspend fun invite() {
+    if (!OrganizationInviteEmail.isValid(email)) {
+      app.showNotice(
+        OrganizationInviteEmail.validationMessage(email) ?: "Informe um e-mail válido.",
+        AppNotice.Kind.WARNING,
+      )
+      return
+    }
     try {
       app.dependencies.organizations.inviteMember(
         organizationID = organization.id,
-        email = email,
+        email = OrganizationInviteEmail.normalized(email),
         role = role,
       )
       onSent()
@@ -253,9 +261,7 @@ fun InviteMemberView(
     topBar = {
       SheetTopBar(
         confirmTitle = "Convidar",
-        // Deliberately weaker than `EmailAddress.isValid`: the iOS form gates only on an "@" being
-        // present and lets the server reject anything else, so the ported button matches it exactly.
-        confirmEnabled = email.contains("@"),
+        confirmEnabled = OrganizationInviteEmail.isValid(email),
         confirmTestTag = "invitation.send",
         onCancel = onDismiss,
         onConfirm = { scope.launch { invite() } },

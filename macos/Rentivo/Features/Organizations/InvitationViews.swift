@@ -135,7 +135,7 @@ struct InviteMemberView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Convidar") { Task { await invite() } }
-          .disabled(saving || !email.contains("@"))
+          .disabled(saving || !OrganizationInviteEmail.isValid(email))
       }
     }
     .interactiveDismissDisabled(saving)
@@ -145,13 +145,17 @@ struct InviteMemberView: View {
     // Without this the sheet stays interactive across the round trip and a double-click sends the
     // same person two invitations.
     guard !saving else { return }
+    if let message = OrganizationInviteEmail.validationMessage(email) {
+      submitFailureMessage = message
+      return
+    }
     submitFailureMessage = nil
     saving = true
     defer { saving = false }
     do {
       _ = try await app.dependencies.organizations.inviteMember(
         organizationID: organization.id,
-        email: email,
+        email: OrganizationInviteEmail.normalized(email),
         role: role
       )
       // The notice outlives the sheet — `app.notice` holds it until the banner is dismissed — so

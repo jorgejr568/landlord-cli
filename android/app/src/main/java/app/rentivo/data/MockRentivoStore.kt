@@ -48,6 +48,7 @@ import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationRole
@@ -880,17 +881,18 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     requireOrganizationCapability(organizationID) { it.canInvite }
     val index = organizationIndex(organizationID)
-    if (index == null || !email.contains("@")) throw DemoError.operationFailed
+    if (index == null || !OrganizationInviteEmail.isValid(email)) throw DemoError.operationFailed
+    val normalizedEmail = OrganizationInviteEmail.normalized(email)
     val invitation = Invitation(
       id = InvitationID(rawValue = UUID.randomUUID().toString()),
       organizationID = organizationID,
       organizationName = organizationsState[index].name,
-      email = email,
+      email = normalizedEmail,
       role = role,
       status = InvitationStatus.PENDING,
     )
     invitationsState.add(0, invitation)
-    recordActivity(kind = ActivityKind.INVITATION, title = "Convite criado", detail = email)
+    recordActivity(kind = ActivityKind.INVITATION, title = "Convite criado", detail = normalizedEmail)
     return invitation
   }
 

@@ -138,6 +138,38 @@ public struct OrganizationDraft: Hashable, Sendable {
   }
 }
 
+/// Validation for the deliberately permissive organization-invite address accepted by
+/// `OrganizationInviteCreateRequest`. This is not the stricter billing-contact contract:
+/// the API accepts addresses such as `a@b` here as long as both sides are present.
+public enum OrganizationInviteEmail {
+  public static let maximumLength = 320
+
+  public static func normalized(_ email: String) -> String {
+    email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  public static func validationMessage(_ email: String) -> String? {
+    let value = normalized(email)
+    if value.isEmpty { return "Informe o e-mail." }
+    if value.unicodeScalars.count > maximumLength {
+      return "O e-mail deve ter até 320 caracteres."
+    }
+    guard value.filter({ $0 == "@" }).count == 1,
+      !value.contains(where: \.isWhitespace)
+    else { return "Informe um e-mail válido." }
+
+    let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+    guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+      return "Informe um e-mail válido."
+    }
+    return nil
+  }
+
+  public static func isValid(_ email: String) -> Bool {
+    validationMessage(email) == nil
+  }
+}
+
 public enum InvitationStatus: String, CaseIterable, Codable, Sendable {
   case pending
   case accepted

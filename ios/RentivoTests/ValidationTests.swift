@@ -190,6 +190,20 @@ import Testing
   #expect(!EmailAddress.isValid("ana@\(String(repeating: "a", count: 64)).com"))
 }
 
+@Test func organizationInviteEmailMirrorsTheServerContract() {
+  #expect(OrganizationInviteEmail.normalized("  ANA@EXAMPLE.COM\n") == "ana@example.com")
+  #expect(OrganizationInviteEmail.isValid("a@b"))
+  #expect(OrganizationInviteEmail.isValid("\(String(repeating: "😀", count: 318))@a"))
+  #expect(!OrganizationInviteEmail.isValid(""))
+  #expect(!OrganizationInviteEmail.isValid("ana"))
+  #expect(!OrganizationInviteEmail.isValid("a@@b"))
+  #expect(!OrganizationInviteEmail.isValid("@example.com"))
+  #expect(!OrganizationInviteEmail.isValid("ana@"))
+  #expect(!OrganizationInviteEmail.isValid("ana @example.com"))
+  #expect(!OrganizationInviteEmail.isValid("\(String(repeating: "😀", count: 319))@a"))
+  #expect(OrganizationInviteEmail.maximumLength == 320)
+}
+
 @Test func invoiceDraftRejectsBlankRowsAndNegativeValues() {
   let draft = BillDraft(
     billingID: StableID.billingAurora101,

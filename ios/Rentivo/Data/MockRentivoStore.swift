@@ -747,19 +747,21 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     try await prepareOperation()
     try requireWriteAccess()
     try requireOrganizationCapability(id: organizationID, \.canInvite)
-    guard let index = organizationIndex(organizationID), email.contains("@") else {
+    guard let index = organizationIndex(organizationID), OrganizationInviteEmail.isValid(email)
+    else {
       throw DemoError.operationFailed
     }
+    let normalizedEmail = OrganizationInviteEmail.normalized(email)
     let invitation = Invitation(
       id: InvitationID(rawValue: UUID().uuidString),
       organizationID: organizationID,
       organizationName: snapshot.organizations[index].name,
-      email: email,
+      email: normalizedEmail,
       role: role,
       status: .pending
     )
     snapshot.invitations.insert(invitation, at: 0)
-    recordActivity(kind: .invitation, title: "Convite criado", detail: email)
+    recordActivity(kind: .invitation, title: "Convite criado", detail: normalizedEmail)
     return invitation
   }
 

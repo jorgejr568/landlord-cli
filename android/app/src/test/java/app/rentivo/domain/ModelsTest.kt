@@ -292,4 +292,19 @@ class ModelsTest {
     assertFalse(OrganizationDraft(name = "😀".repeat(256), pix = null).isValid)
     assertEquals(255, OrganizationDraft.nameLimit)
   }
+
+  @Test
+  fun organizationInviteEmailsMirrorTheServerContract() {
+    assertEquals("ana@example.com", OrganizationInviteEmail.normalized("  ANA@EXAMPLE.COM\n"))
+    assertTrue(OrganizationInviteEmail.isValid("a@b"))
+    assertTrue(OrganizationInviteEmail.isValid("😀".repeat(318) + "@a"))
+    assertFalse(OrganizationInviteEmail.isValid(""))
+    assertFalse(OrganizationInviteEmail.isValid("ana"))
+    assertFalse(OrganizationInviteEmail.isValid("a@@b"))
+    assertFalse(OrganizationInviteEmail.isValid("@example.com"))
+    assertFalse(OrganizationInviteEmail.isValid("ana@"))
+    assertFalse(OrganizationInviteEmail.isValid("ana @example.com"))
+    assertFalse(OrganizationInviteEmail.isValid("😀".repeat(319) + "@a"))
+    assertEquals(320, OrganizationInviteEmail.maximumLength)
+  }
 }
