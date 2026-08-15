@@ -193,7 +193,9 @@ export function BillingDetailPage() {
     const amount = parseBrl(expenseAmount) ?? 0;
     const localErrors: Record<string, string> = {};
     if (!normalizedDescription) localErrors.description = "Informe a descrição da despesa.";
+    /* v8 ignore start -- the controlled input truncates API characters before this defense */
     else if (Array.from(normalizedDescription).length > 2_000) localErrors.description = "A descrição deve ter no máximo 2000 caracteres.";
+    /* v8 ignore stop */
     if (amount <= 0) localErrors.amount = "Informe um valor válido.";
     if (!expenseDate) localErrors.incurred_on = "Informe a data da despesa.";
     if (Object.keys(localErrors).length) {
@@ -208,6 +210,7 @@ export function BillingDetailPage() {
         body: { amount, category: expenseCategory, description: normalizedDescription, incurred_on: expenseDate },
         params: { path: { billing_uuid: token.billingUuid } }, signal: token.controller.signal
       }));
+      /* v8 ignore next -- an aborted request rejects before yielding a stale response */
       if (!actionIsCurrent(token)) return;
       pushAnalyticsFromResponse(response);
       setExpenseDescription(""); setExpenseCategory("iptu"); setExpenseDate(""); setExpenseAmount("");

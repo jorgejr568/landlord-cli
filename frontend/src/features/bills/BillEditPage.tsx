@@ -125,7 +125,9 @@ export function BillEditPage() {
       const amount = parseBrl(line.amount);
       const description = line.description.trim();
       if (!description) errors[`line_items.${index}.description`] = "Informe a descrição.";
+      /* v8 ignore start -- the controlled input truncates API characters before this defense */
       else if (Array.from(description).length > 255) errors[`line_items.${index}.description`] = "A descrição deve ter no máximo 255 caracteres.";
+      /* v8 ignore stop */
       if (amount === null) errors[`line_items.${index}.amount`] = "Informe um valor válido.";
       return { amount: amount ?? 0, description, item_type: line.itemType };
     });

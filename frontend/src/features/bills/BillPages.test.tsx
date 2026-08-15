@@ -446,6 +446,12 @@ it("validates and normalizes communication content before sending", async () => 
   expect(sends).toBe(0);
 
   fireEvent.change(subject, { target: { value: "  Assunto  " } });
+  fireEvent.change(body, { target: { value: "   " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("Informe o corpo da mensagem.")).toBeVisible();
+  await waitFor(() => expect(body).toHaveFocus());
+  expect(sends).toBe(0);
+
   fireEvent.change(body, { target: { value: "😀".repeat(1_025) } });
   fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("A mensagem deve ter no máximo 4096 bytes.")).toBeVisible();

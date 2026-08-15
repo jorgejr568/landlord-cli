@@ -84,6 +84,7 @@ export function SecurityPage() {
     startAction(pixIsPartial ? missingField : pixRef.current);
     if (pixIsPartial) {
       setActionError("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.");
+      missingField?.focus();
       return;
     }
     setSavingPix(true);

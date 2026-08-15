@@ -143,12 +143,21 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   await user.clear(key);
   await user.clear(name);
   await user.clear(city);
+  await user.type(name, "Pessoa");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(key).toHaveFocus();
+  await user.clear(name);
   await user.type(key, "person@example.com");
   await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
 
   expect(await screen.findByText("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.")).toBeVisible();
   expect(updates).toBe(0);
   expect(name).toHaveFocus();
+
+  await user.type(name, "Pessoa");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(city).toHaveFocus();
+  expect(updates).toBe(0);
 });
 
 it("routes regenerated recovery codes to their one-time screen", async () => {

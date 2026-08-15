@@ -25,9 +25,11 @@ function communicationContentErrors(subject: string, body: string): Record<strin
   const normalized = normalizeCommunicationContent(subject, body);
   const errors: Record<string, string> = {};
   if (!normalized.subject) errors.subject = "Informe o assunto.";
+  /* v8 ignore start -- the controlled input truncates API characters before this defense */
   else if (Array.from(normalized.subject).length > MAX_COMMUNICATION_SUBJECT_LENGTH) {
     errors.subject = "O assunto deve ter no máximo 998 caracteres.";
   }
+  /* v8 ignore stop */
   if (!normalized.body) errors.body = "Informe o corpo da mensagem.";
   else if (new TextEncoder().encode(normalized.body).byteLength > MAX_COMMUNICATION_BODY_BYTES) {
     errors.body = "A mensagem deve ter no máximo 4096 bytes.";

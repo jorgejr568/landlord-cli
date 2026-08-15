@@ -358,7 +358,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
     if (key === "GET /api/v1/organizations") return jsonResponse({ items: [] });
     if (key === "POST /api/v1/billings/billing-public/expenses") {
       expensePosts += 1;
-      if (expensePosts === 1) return problemResponse({ code: "validation_error", detail: "Valor inválido.", fields: { "body.amount": "Informe um valor válido." }, request_id: "request-id", status: 422, title: "Dados inválidos", type: "problem" });
+      if (expensePosts === 1) return problemResponse({ code: "validation_error", detail: "Valor inválido.", fields: { "body.amount": "Informe um valor válido.", "body.category": "Categoria inválida." }, request_id: "request-id", status: 422, title: "Dados inválidos", type: "problem" });
       throw new Error("offline");
     }
     throw new Error(`Unexpected request: ${key}`);
@@ -372,6 +372,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
   await user.type(screen.getByLabelText("Valor da despesa (R$)"), "10,00");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa" }));
   expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
+  expect(screen.getByText("Categoria inválida.")).toBeVisible();
   expect(screen.getByLabelText("Valor da despesa (R$)")).toHaveFocus();
   await user.click(screen.getByRole("button", { name: "Adicionar despesa" }));
   expect(await screen.findByText("Não foi possível adicionar a despesa.")).toBeVisible();
@@ -567,6 +568,10 @@ it("deduplicates exports and disables every domain mutation while one is pending
   });
   renderPage();
   await screen.findByRole("button", { name: "Exportar CSV" });
+
+  fireEvent.change(screen.getByLabelText("Descrição da despesa"), { target: { value: "Pintura" } });
+  fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
 
   fireEvent.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
   fireEvent.change(screen.getByLabelText("Organização de destino"), { target: { value: "org-public" } });

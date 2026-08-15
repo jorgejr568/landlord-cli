@@ -136,7 +136,9 @@ export function BillGeneratePage() {
     const localErrors: Record<string, string> = {};
     parsedExtras.forEach((extra, index) => {
       if (!extra.description) localErrors[`extras.${index}.description`] = "Informe a descrição.";
+      /* v8 ignore start -- the controlled input truncates API characters before this defense */
       else if (Array.from(extra.description).length > 255) localErrors[`extras.${index}.description`] = "A descrição deve ter no máximo 255 caracteres.";
+      /* v8 ignore stop */
       if (extra.amount === null || extra.amount <= 0) localErrors[`extras.${index}.amount`] = "Informe um valor maior que zero.";
     });
     if (Object.keys(localErrors).length > 0) {
