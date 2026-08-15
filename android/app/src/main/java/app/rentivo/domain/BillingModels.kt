@@ -12,7 +12,7 @@ enum class BillingItemType(val wire: String) {
 
   val showsTemplateAmount: Boolean get() = this == FIXED
 
-  fun normalizedTemplateAmount(centavos: Int): Int = if (this == VARIABLE) 0 else centavos
+  fun normalizedTemplateAmount(centavos: Long): Long = if (this == VARIABLE) 0L else centavos
 
   companion object {
     fun fromWire(wire: String?): BillingItemType? = entries.firstOrNull { it.wire == wire }
@@ -213,7 +213,18 @@ data class BillingDraft(
         ValidationIssue(ValidationField.ITEM_AMOUNT, "Os valores não podem ser negativos.")
       )
     }
-    if (items.any { it.type == BillingItemType.VARIABLE && it.amount.centavos != 0 }) {
+    if (!Money.fitsPersistedTotal(
+        items.filter { it.type == BillingItemType.FIXED }.map { it.amount.centavos }
+      )
+    ) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "O valor total deve ser de no máximo R$ 21.474.836,47.",
+        )
+      )
+    }
+    if (items.any { it.type == BillingItemType.VARIABLE && it.amount.centavos != 0L }) {
       issues.add(
         ValidationIssue(
           ValidationField.ITEM_AMOUNT,
@@ -548,6 +559,14 @@ data class BillDraft(
         ValidationIssue(
           ValidationField.ITEM_AMOUNT,
           "Os itens extras devem ter valor maior que zero.",
+        )
+      )
+    }
+    if (!Money.fitsPersistedTotal(lineItems.map { it.amount.centavos })) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "O valor total deve ser de no máximo R$ 21.474.836,47.",
         )
       )
     }

@@ -92,7 +92,7 @@ import kotlinx.coroutines.launch
 private data class EditableBillingItem(
   val id: BillingItemID,
   val description: String = "",
-  val centavos: Int = 0,
+  val centavos: Long = 0L,
   val type: BillingItemType = BillingItemType.FIXED,
 ) {
   fun domain(sortOrder: Int): BillingItem = BillingItem(
@@ -749,8 +749,8 @@ private fun FormTextField(
 @Composable
 private fun FormCurrencyRow(
   label: String,
-  centavos: Int,
-  onCentavosChange: (Int) -> Unit,
+  centavos: Long,
+  onCentavosChange: (Long) -> Unit,
 ) {
   FormRow {
     Text(text = label, style = RentivoTypography.body, color = RentivoColors.ink)

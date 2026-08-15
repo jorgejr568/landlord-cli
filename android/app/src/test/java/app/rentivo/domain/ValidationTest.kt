@@ -104,6 +104,31 @@ class ValidationTest {
   }
 
   @Test
+  fun billingRejectsAmountsOrFixedSubtotalsBeyondPersistenceLimit() {
+    val draft = BillingDraft(
+      name = "Apt 101",
+      description = "",
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "Aluguel",
+          amount = Money(centavos = Money.MAX_PERSISTED_CENTAVOS),
+          type = BillingItemType.FIXED,
+          sortOrder = 0,
+        ),
+        BillingItem.generated(
+          description = "Condomínio",
+          amount = Money(centavos = 1),
+          type = BillingItemType.FIXED,
+          sortOrder = 1,
+        ),
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_AMOUNT), draft.validate().map { it.field })
+  }
+
+  @Test
   fun billingKeepsEveryRecipientItIsGiven() {
     // A billing update replaces the whole recipient set server-side, so a draft carrying several
     // recipients must validate as-is instead of being narrowed to the first one.
@@ -369,6 +394,30 @@ class ValidationTest {
     )
 
     assertTrue(draft.validate().isEmpty())
+  }
+
+  @Test
+  fun invoiceDraftRejectsAmountsOrTotalsBeyondPersistenceLimit() {
+    val draft = BillDraft(
+      billingID = StableID.billingAurora101,
+      referenceMonth = ReferenceMonth(year = 2026, month = 8),
+      dueDate = null,
+      notes = "",
+      lineItems = listOf(
+        BillLineItem.generated(
+          description = "Aluguel",
+          amount = Money(centavos = Money.MAX_PERSISTED_CENTAVOS),
+          kind = BillLineItemKind.FIXED,
+        ),
+        BillLineItem.generated(
+          description = "Condomínio",
+          amount = Money(centavos = 1),
+          kind = BillLineItemKind.FIXED,
+        ),
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_AMOUNT), draft.validate().map { it.field })
   }
 
   @Test

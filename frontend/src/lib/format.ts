@@ -13,6 +13,8 @@ const MONTHS_PT: Record<string, string> = {
   "12": "Dezembro"
 };
 
+export const MAX_PERSISTED_CENTAVOS = 2_147_483_647;
+
 export function formatBrlInput(centavos: number): string {
   const normalized = Math.trunc(centavos);
   const sign = normalized < 0 ? "-" : "";
@@ -45,7 +47,7 @@ export function parseBrl(value: string): number | null {
   if ((fractionPart[2] ?? "0") >= "5") {
     centavos += 1n;
   }
-  if (centavos > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (centavos > BigInt(MAX_PERSISTED_CENTAVOS)) {
     return null;
   }
   return Number(centavos);

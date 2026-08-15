@@ -869,6 +869,21 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(await screen.findByText("Não foi possível atualizar a fatura.")).toBeVisible();
 });
 
+it("rejects an edited bill total beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch(detailHandlers());
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+  await screen.findByRole("heading", { name: "Editar Fatura" });
+  const firstAmount = screen.getAllByLabelText("Valor (R$)")[0];
+  await user.clear(firstAmount);
+  await user.type(firstAmount, "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(firstAmount).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(0);
+});
+
 it("reports edit regeneration and deletion failures", async () => {
   const user = userEvent.setup();
   installFetch({

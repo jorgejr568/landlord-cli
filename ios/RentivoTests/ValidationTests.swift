@@ -85,6 +85,26 @@ import Testing
   )
 }
 
+@Test func billingRejectsAmountsOrFixedSubtotalsBeyondPersistenceLimit() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: "Aluguel",
+        amount: Money(centavos: Money.maximumPersistedCentavos), type: .fixed, sortOrder: 0
+      ),
+      BillingItem(
+        id: UUID(), description: "Condomínio", amount: Money(centavos: 1),
+        type: .fixed, sortOrder: 1
+      ),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemAmount])
+}
+
 @Test func billingKeepsEveryRecipientItIsGiven() {
   // A billing update replaces the whole recipient set server-side, so a draft carrying
   // several recipients must validate as-is instead of being narrowed to the first one.
@@ -295,6 +315,26 @@ import Testing
   )
 
   #expect(draft.validate().isEmpty)
+}
+
+@Test func invoiceDraftRejectsAmountsOrTotalsBeyondPersistenceLimit() {
+  let draft = BillDraft(
+    billingID: StableID.billingAurora101,
+    referenceMonth: ReferenceMonth(year: 2026, month: 8),
+    dueDate: nil,
+    notes: "",
+    lineItems: [
+      BillLineItem(
+        id: UUID(), description: "Aluguel",
+        amount: Money(centavos: Money.maximumPersistedCentavos), kind: .fixed
+      ),
+      BillLineItem(
+        id: UUID(), description: "Condomínio", amount: Money(centavos: 1), kind: .fixed
+      ),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemAmount])
 }
 
 @Test func expenseDescriptionsMirrorTheServerContract() {

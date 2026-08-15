@@ -8,7 +8,7 @@ import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import {
-  formatBrlInput, formatIsoDate, formatMonth, parseBrl, parseDateInput
+  formatBrlInput, formatIsoDate, formatMonth, MAX_PERSISTED_CENTAVOS, parseBrl, parseDateInput
 } from "../../lib/format";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
@@ -131,6 +131,9 @@ export function BillEditPage() {
       if (amount === null) errors[`line_items.${index}.amount`] = "Informe um valor válido.";
       return { amount: amount ?? 0, description, item_type: line.itemType };
     });
+    if (lineItems.reduce((total, item) => total + item.amount, 0) > MAX_PERSISTED_CENTAVOS) {
+      errors["line_items.0.amount"] = "O valor total deve ser de no máximo R$ 21.474.836,47.";
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       focusField(Object.keys(errors)[0]);

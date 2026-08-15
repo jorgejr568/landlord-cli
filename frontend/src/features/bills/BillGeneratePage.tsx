@@ -7,7 +7,7 @@ import { EmptyState, LoadError, LoadingState } from "../../components/PageState"
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { paths } from "../../lib/api/schema";
-import { formatBrl, formatBrlInput, parseBrl, parseDateInput } from "../../lib/format";
+import { formatBrl, formatBrlInput, MAX_PERSISTED_CENTAVOS, parseBrl, parseDateInput } from "../../lib/format";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
@@ -157,6 +157,20 @@ export function BillGeneratePage() {
     if (Object.keys(localErrors).length > 0) {
       setFieldErrors(localErrors);
       focusError(Object.keys(localErrors)[0]);
+      return;
+    }
+    const fixedSubtotal = billing.items.reduce(
+      (total, item) => total + (item.item_type === "fixed" ? item.amount : 0), 0
+    );
+    const billTotal = fixedSubtotal
+      + Object.values(variableValues).reduce((total, amount) => total + amount, 0)
+      + parsedExtras.reduce((total, extra) => total + extra.amount!, 0);
+    if (billTotal > MAX_PERSISTED_CENTAVOS) {
+      const firstVariable = billing.items.find((item) => item.item_type === "variable");
+      const field = firstVariable ? `variable_amounts.${firstVariable.uuid}` : "extras.0.amount";
+      localErrors[field] = "O valor total deve ser de no máximo R$ 21.474.836,47.";
+      setFieldErrors(localErrors);
+      focusError(field);
       return;
     }
     if (billing.capabilities.can_upload_bill_receipts) {

@@ -320,6 +320,43 @@ it("rejects an unparsable variable amount and tolerates an unknown backend UUID 
   expect(payload).toEqual(expect.objectContaining({ variable_amounts: { [VARIABLE_ITEM_UUID]: 1000 } }));
 });
 
+it("rejects a generated bill total beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.type(screen.getByLabelText("Água"), "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Água")).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+});
+
+it("focuses the first extra when an extras-only total exceeds the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({
+      ...billing,
+      items: [{ amount: 250000, description: "Aluguel", item_type: "fixed", uuid: FIXED_ITEM_UUID }]
+    })
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Reforma");
+  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+});
+
 it.each(["resolve", "reject"] as const)("resets every resource when a stale generation mutation %s after the billing route changes", async (outcome) => {
   const user = userEvent.setup();
   let settleGeneration!: () => void;

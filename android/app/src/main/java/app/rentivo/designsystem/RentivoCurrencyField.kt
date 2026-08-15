@@ -14,31 +14,25 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.domain.Money
 
 /**
- * The largest number of digits the field accepts, i.e. `R$ 9.999.999,99`.
- *
- * The iOS field parses the typed digits with `Int(digits)`, and Swift's `Int` is 64-bit, so it can
- * absorb far more digits before failing. Kotlin's `Int` is 32-bit and the domain stores centavos as
- * `Int`, so anything past 10 digits would overflow `toIntOrNull()` and silently reset the amount to
- * zero. Capping the input instead makes the extra keystrokes no-ops, which is the behavior users
- * expect from a masked field and keeps the bound value stable.
+ * Largest individual value the backend can persist in its PostgreSQL `INTEGER` amount columns.
  */
-private const val MAX_DIGITS = 9
+const val MAX_CENTAVOS = Money.MAX_PERSISTED_CENTAVOS
 
 /**
  * Parses whatever the user typed into an integer centavos amount: non-digits are dropped, leading
- * zeros collapse, an empty result is 0, and input past [MAX_DIGITS] significant digits is ignored.
+ * zeros collapse, an empty result is 0, and larger values clamp to [MAX_CENTAVOS].
  */
-fun centavosFromInput(text: String): Int {
+fun centavosFromInput(text: String): Long {
   val digits = text.filter { it.isDigit() }.trimStart('0')
-  if (digits.isEmpty()) return 0
-  return digits.take(MAX_DIGITS).toIntOrNull() ?: 0
+  if (digits.isEmpty()) return 0L
+  return digits.toLongOrNull()?.coerceAtMost(MAX_CENTAVOS) ?: MAX_CENTAVOS
 }
 
 /** The masked representation of [centavos], e.g. `245000` -> `R$ 2.450,00`. */
-fun displayText(centavos: Int): String = Money(centavos = centavos).formatted()
+fun displayText(centavos: Long): String = Money(centavos = centavos).formatted()
 
 /**
- * A text field that edits an `Int` centavos value as pt-BR currency: typing "245000" displays
+ * A text field that edits a `Long` centavos value as pt-BR currency: typing "245000" displays
  * "R$ 2.450,00". The amount itself never passes through `Float`/`Double` — only
  * [Money.formatted] touches the presentation.
  *
@@ -51,8 +45,8 @@ fun displayText(centavos: Int): String = Money(centavos = centavos).formatted()
 @Composable
 fun CurrencyCentavosField(
   label: String,
-  centavos: Int,
-  onCentavosChange: (Int) -> Unit,
+  centavos: Long,
+  onCentavosChange: (Long) -> Unit,
   modifier: Modifier = Modifier,
   enabled: Boolean = true,
 ) {

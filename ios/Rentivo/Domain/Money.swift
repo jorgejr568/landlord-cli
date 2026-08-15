@@ -1,6 +1,7 @@
 import Foundation
 
 public struct Money: Hashable, Codable, Sendable, Comparable {
+  public static let maximumPersistedCentavos = 2_147_483_647
   public let centavos: Int
 
   public init(centavos: Int) {
@@ -8,6 +9,19 @@ public struct Money: Hashable, Codable, Sendable, Comparable {
   }
 
   public static let zero = Money(centavos: 0)
+
+  public static func fitsPersistedTotal<S: Sequence>(_ amounts: S) -> Bool
+  where S.Element == Int {
+    var total = 0
+    for amount in amounts {
+      if amount < 0 { continue }
+      if amount > maximumPersistedCentavos || total > maximumPersistedCentavos - amount {
+        return false
+      }
+      total += amount
+    }
+    return true
+  }
 
   public static func + (lhs: Money, rhs: Money) -> Money {
     Money(centavos: lhs.centavos + rhs.centavos)

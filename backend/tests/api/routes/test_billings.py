@@ -1094,6 +1094,12 @@ def test_create_org_billing_uses_granted_live_admin_workspace(billing_harness: B
         _billing_payload(items=[]),
         _billing_payload(items=[{"description": "Aluguel", "amount": -1, "item_type": "fixed"}]),
         _billing_payload(items=[{"description": "Aluguel", "amount": 2_147_483_648, "item_type": "fixed"}]),
+        _billing_payload(
+            items=[
+                {"description": "Aluguel", "amount": 2_147_483_647, "item_type": "fixed"},
+                {"description": "Condomínio", "amount": 1, "item_type": "fixed"},
+            ]
+        ),
         _billing_payload(items=[{"description": "Agua", "amount": 1, "item_type": "variable"}]),
         _billing_payload(owner={"type": "organization", "uuid": None}),
         _billing_payload(owner={"type": "user", "uuid": ORGANIZATION.uuid}),
@@ -1253,6 +1259,23 @@ def test_patch_explicit_items_replaces_template_lines(billing_harness: BillingHa
     assert [(item.description, item.amount) for item in billing_harness.services.billing.update_calls[0].items] == [
         ("Novo aluguel", 310000)
     ]
+
+
+def test_patch_rejects_fixed_subtotal_beyond_storage_limit(billing_harness: BillingHarness) -> None:
+    response = billing_harness.request(
+        "PATCH",
+        f"/api/v1/billings/{PERSONAL_BILLING.uuid}",
+        json={
+            "items": [
+                {"description": "Aluguel", "amount": 2_147_483_647, "item_type": "fixed"},
+                {"description": "Condomínio", "amount": 1, "item_type": "fixed"},
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert billing_harness.services.billing.update_calls == []
 
 
 def test_patch_preserves_valid_existing_billing_item_uuid(billing_harness: BillingHarness) -> None:

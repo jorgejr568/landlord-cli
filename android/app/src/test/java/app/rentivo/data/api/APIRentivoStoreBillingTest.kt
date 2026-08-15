@@ -62,9 +62,9 @@ class APIRentivoStoreBillingTest {
       "/api/v1/billings" -> jsonResponse(
         """{"items":[{"uuid":"billing-1","name":"Apartamento","description":"Aluguel",""" +
           """"owner":{"type":"user","name":"Ana"},"capabilities":$FULL_BILLING_CAPABILITIES}],""" +
-          """"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":50000,""" +
+          """"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":3000000000,""" +
           """"pending":20000,"overdue":5000,"paid_count":3,"pending_count":1,"overdue_count":1,""" +
-          """"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":42000}}"""
+          """"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":2999992000}}"""
       )
 
       "/api/v1/billings/billing-1" -> jsonResponse(
@@ -114,9 +114,9 @@ class APIRentivoStoreBillingTest {
 
     val summary = store.dashboardSummary()
 
-    assertEquals(Money(centavos = 50_000), summary.received)
+    assertEquals(Money(centavos = 3_000_000_000L), summary.received)
     assertEquals(Money(centavos = 8_000), summary.expenses)
-    assertEquals(Money(centavos = 42_000), summary.netIncome)
+    assertEquals(Money(centavos = 2_999_992_000L), summary.netIncome)
     assertEquals(Money(centavos = 5_000), summary.overdue)
     assertEquals(Money(centavos = 20_000), summary.upcoming)
     // paid_count / billed_count * 100, matching the mock's integer-math formula.

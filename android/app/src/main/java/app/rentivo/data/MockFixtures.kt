@@ -394,7 +394,7 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
 
     private data class ItemSpec(
       val description: String,
-      val centavos: Int,
+      val centavos: Long,
       val type: BillingItemType,
     )
 
@@ -439,11 +439,11 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
       billingID: BillingID,
       month: Int,
       status: BillStatus,
-      variableAmount: Int,
+      variableAmount: Long,
       paidAt: DateOnly? = null,
       receipts: List<Receipt> = emptyList(),
     ): Bill {
-      val fixedAmount = when (billingID) {
+      val fixedAmount: Long = when (billingID) {
         StableID.billingAurora101 -> 273_000
         StableID.billingAurora202 -> 350_000
         StableID.billingSolNascente303 -> 175_000

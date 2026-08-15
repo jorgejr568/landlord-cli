@@ -156,7 +156,7 @@ private const val MILLIS_PER_DAY = 86_400_000L
 private data class EditableBillLine(
   val id: BillLineItemID,
   val description: String,
-  val centavos: Int,
+  val centavos: Long,
   val kind: BillLineItemKind,
 ) {
   val domain: BillLineItem
@@ -178,7 +178,7 @@ private data class EditableBillLine(
     fun new(kind: BillLineItemKind): EditableBillLine = EditableBillLine(
       id = BillLineItemID(rawValue = UUID.randomUUID().toString()),
       description = "",
-      centavos = 0,
+      centavos = 0L,
       kind = kind,
     )
 
@@ -583,7 +583,7 @@ private val LineDeleteGlyphSize = 20.dp
 private fun BillLineRow(
   line: EditableBillLine,
   onDescriptionChange: (String) -> Unit,
-  onCentavosChange: (Int) -> Unit,
+  onCentavosChange: (Long) -> Unit,
   onDelete: (() -> Unit)?,
 ) {
   Column(

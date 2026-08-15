@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
-import { formatBrl, parseBrl } from "../../lib/format";
+import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
 import type { components } from "../../lib/api/schema";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { RecipientFormset, type ContactValue } from "./RecipientFormset";
@@ -68,6 +68,8 @@ function controlNameFor(field: string): string {
 
 export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode, onSubmit, organizations, saving, values }: BillingFormProps) {
   const [form, setForm] = useState(values);
+  const [localAmountErrors, setLocalAmountErrors] = useState<Record<number, string>>({});
+  const [localItemsError, setLocalItemsError] = useState("");
   const allowedOrganizations = organizations.filter((organization) => organization.capabilities.can_create_billing);
   const fixedSubtotal = useMemo(() => form.items.reduce((sum, item) => {
     if (item.itemType === "variable") return sum;
@@ -90,9 +92,15 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   }, [error]);
 
   const setField = <K extends keyof BillingFormValues>(field: K, value: BillingFormValues[K]) => {
+    if (field === "items") {
+      setLocalAmountErrors({});
+      setLocalItemsError("");
+    }
     setForm((current) => ({ ...current, [field]: value }));
   };
   const updateItem = (index: number, changes: Partial<BillingItemValue>) => {
+    setLocalAmountErrors({});
+    setLocalItemsError("");
     setForm((current) => ({
       ...current,
       items: current.items.map((item, currentIndex) => currentIndex === index ? { ...item, ...changes } : item)
@@ -100,6 +108,23 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const amountErrors: Record<number, string> = {};
+    const fixedAmounts = form.items.map((item, index) => {
+      if (item.itemType === "variable" || !item.amount.trim()) return 0;
+      const amount = parseBrl(item.amount);
+      if (amount === null) amountErrors[index] = "Informe um valor válido.";
+      return amount ?? 0;
+    });
+    const totalError = fixedAmounts.reduce((total, amount) => total + amount, 0) > MAX_PERSISTED_CENTAVOS
+      ? "O valor total deve ser de no máximo R$ 21.474.836,47."
+      : "";
+    if (Object.keys(amountErrors).length > 0 || totalError) {
+      setLocalAmountErrors(amountErrors);
+      setLocalItemsError(totalError);
+      const firstIndex = Number(Object.keys(amountErrors)[0] ?? form.items.findIndex((item) => item.itemType === "fixed"));
+      document.querySelector<HTMLElement>(`[name="items-${firstIndex}-amount"]`)?.focus();
+      return;
+    }
     onSubmit(form);
   };
 
@@ -182,14 +207,14 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <button aria-label="Adicionar item" className="btn btn--sm btn--primary" name="items-add" onClick={() => setField("items", [...form.items, newItem()])} type="button">+ Adicionar <span className="sr-only">item</span></button>
         </div>
         <div className="panel__body">
-          <FieldError id="items-error" message={fieldErrors.items} />
+          <FieldError id="items-error" message={fieldErrors.items ?? localItemsError} />
           <input id="id_items-TOTAL_FORMS" name="items-TOTAL_FORMS" type="hidden" value={form.items.length} />
           <div id="items-container">
             {form.items.map((item, index) => {
               const descriptionError = fieldErrors[`items.${index}.description`];
               const uuidError = fieldErrors[`items.${index}.uuid`];
               const typeError = fieldErrors[`items.${index}.item_type`];
-              const amountError = fieldErrors[`items.${index}.amount`];
+              const amountError = fieldErrors[`items.${index}.amount`] ?? localAmountErrors[index];
               return (
                 <div className="formset-row" id={`items-row-${index}`} key={item.id}>
                   <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
@@ -209,7 +234,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                     {item.itemType === "fixed" ? (
                       <div className="field mb-0">
                         <label className="field__label" htmlFor={`${item.id}-amount`}>Valor (R$)</label>
-                        <input aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
+                        <input aria-describedby={amountError ? `${item.id}-amount-error` : undefined} aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
                         <FieldError id={`${item.id}-amount-error`} message={amountError} />
                       </div>
                     ) : null}

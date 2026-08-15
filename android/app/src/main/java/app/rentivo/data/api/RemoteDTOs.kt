@@ -536,7 +536,7 @@ internal fun isULID(value: String): Boolean =
 data class RemoteBillingItemInput(
   val uuid: String?,
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 ) {
   companion object {
@@ -555,7 +555,7 @@ data class RemoteBillCreateDraft(
   val dueDate: String?,
   val notes: String,
   val extras: List<RemoteBillExtra>,
-  val variableAmounts: Map<String, Int>,
+  val variableAmounts: Map<String, Long>,
 ) {
   companion object {
     fun from(draft: BillDraft): RemoteBillCreateDraft = RemoteBillCreateDraft(
@@ -614,7 +614,7 @@ internal object RemoteBillCreateDraftSerializer : KSerializer<RemoteBillCreateDr
 }
 
 @Serializable
-data class RemoteBillExtra(val description: String, val amount: Int) {
+data class RemoteBillExtra(val description: String, val amount: Long) {
   companion object {
     fun from(item: BillLineItem): RemoteBillExtra =
       RemoteBillExtra(description = item.description, amount = item.amount.centavos)
@@ -673,7 +673,7 @@ internal object RemoteBillUpdateDraftSerializer : KSerializer<RemoteBillUpdateDr
 @Serializable
 data class RemoteBillLineItemInput(
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 ) {
   companion object {
@@ -696,7 +696,7 @@ data class RemoteExpenseCreate(
   val description: String,
   val category: String,
   @SerialName("incurred_on") val incurredOn: String,
-  val amount: Int,
+  val amount: Long,
 )
 
 @Serializable
@@ -707,11 +707,11 @@ data class RemoteBillingList(
 
 @Serializable
 data class RemoteBillingStats(
-  val received: Int,
-  val pending: Int,
-  val overdue: Int,
-  @SerialName("total_expenses") val totalExpenses: Int,
-  @SerialName("net_income") val netIncome: Int,
+  val received: Long,
+  val pending: Long,
+  val overdue: Long,
+  @SerialName("total_expenses") val totalExpenses: Long,
+  @SerialName("net_income") val netIncome: Long,
   @SerialName("paid_count") val paidCount: Int,
   @SerialName("billed_count") val billedCount: Int,
 )
@@ -813,7 +813,7 @@ data class RemoteOwner(
 data class RemoteBillingItem(
   val uuid: String,
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 )
 
@@ -830,7 +830,7 @@ data class RemoteBill(
   @SerialName("status_updated_at") val statusUpdatedAt: String? = null,
   @SerialName("line_items") val lineItems: List<RemoteBillLine>,
   val receipts: List<RemoteReceipt>? = null,
-  @SerialName("total_amount") val totalAmount: Int,
+  @SerialName("total_amount") val totalAmount: Long,
   @SerialName("available_transitions") val availableTransitions: List<RemoteAvailableTransition>,
   @SerialName("pdf_render_status") val pdfRenderStatus: String? = null,
   @SerialName("has_invoice") val hasInvoice: Boolean? = null,
@@ -863,7 +863,7 @@ data class RemoteAvailableTransition(val target: String)
 @Serializable
 data class RemoteBillLine(
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 )
 
@@ -876,7 +876,7 @@ data class RemoteExpense(
   val description: String,
   val category: String,
   @SerialName("incurred_on") val incurredOn: String,
-  val amount: Int,
+  val amount: Long,
 )
 
 @Serializable

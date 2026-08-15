@@ -143,6 +143,29 @@ it("keeps invalid currency visible and prevents removing the final item row", as
   expect(screen.getByRole("button", { name: "Remover item 1" })).toBeDisabled();
 });
 
+it("rejects invalid amounts and fixed subtotals beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  const values = emptyBillingValues();
+  values.items[0] = { ...values.items[0], amount: "21.474.836,47", description: "Aluguel" };
+  renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
+
+  await user.click(screen.getByRole("button", { name: "Adicionar item" }));
+  await user.type(screen.getByLabelText("Descrição do item 2"), "Condomínio");
+  await user.type(screen.getByLabelText("Valor do item 2 (R$)"), "0,01");
+  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+
+  expect(screen.getByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus();
+  expect(onSubmit).not.toHaveBeenCalled();
+
+  await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "valor inválido");
+  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+  expect(screen.getByText("Informe um valor válido.")).toBeVisible();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
 it("renders an aggregate items error and focuses the first item description", () => {
   renderForm(<BillingForm error="" fieldErrors={{ items: "Adicione pelo menos um item." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={emptyBillingValues()} />);
 

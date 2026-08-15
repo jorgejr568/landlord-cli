@@ -65,7 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -307,7 +307,7 @@ private fun ExpenseFormSheet(
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var description by remember { mutableStateOf("") }
-  var centavos by remember { mutableIntStateOf(0) }
+  var centavos by remember { mutableLongStateOf(0L) }
   var category by remember { mutableStateOf(ExpenseCategory.MAINTENANCE) }
   var incurredOn by remember { mutableStateOf(LocalDate.now()) }
   var showingDatePicker by remember { mutableStateOf(false) }
@@ -1104,8 +1104,8 @@ internal val FormRowPadding = RentivoSpacing.small
  */
 @Composable
 internal fun CurrencyRowField(
-  centavos: Int,
-  onCentavosChange: (Int) -> Unit,
+  centavos: Long,
+  onCentavosChange: (Long) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   RentivoListField(

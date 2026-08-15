@@ -324,6 +324,16 @@ public struct BillingDraft: Hashable, Sendable {
         ValidationIssue(field: .itemAmount, message: "Os valores não podem ser negativos.")
       )
     }
+    if !Money.fitsPersistedTotal(
+      items.lazy.filter { $0.type == .fixed }.map { $0.amount.centavos }
+    ) {
+      issues.append(
+        ValidationIssue(
+          field: .itemAmount,
+          message: "O valor total deve ser de no máximo R$ 21.474.836,47."
+        )
+      )
+    }
     if items.contains(where: { $0.type == .variable && $0.amount.centavos != 0 }) {
       issues.append(
         ValidationIssue(
@@ -752,6 +762,14 @@ public struct BillDraft: Hashable, Sendable {
       issues.append(
         ValidationIssue(
           field: .itemAmount, message: "Os itens extras devem ter valor maior que zero."
+        )
+      )
+    }
+    if !Money.fitsPersistedTotal(lineItems.lazy.map { $0.amount.centavos }) {
+      issues.append(
+        ValidationIssue(
+          field: .itemAmount,
+          message: "O valor total deve ser de no máximo R$ 21.474.836,47."
         )
       )
     }
