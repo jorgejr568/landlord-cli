@@ -88,11 +88,15 @@ class TOTPConfirmRequest(_StrictModel):
 
 
 class TOTPDisableRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    _password_within_bcrypt_limit = field_validator("password")(validate_bcrypt_password)
 
 
 class AccountDeleteRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    _password_within_bcrypt_limit = field_validator("password")(validate_bcrypt_password)
 
 
 class RecoveryCodesResponse(_StrictModel):

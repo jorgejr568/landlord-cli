@@ -976,6 +976,31 @@ def test_password_change_rejects_bcrypt_oversize_before_services(
 
 
 @pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/security/totp/disable",
+        "/api/v1/security/delete-account",
+    ],
+)
+def test_password_confirmation_rejects_bcrypt_oversize_before_services(
+    security_harness: SecurityHarness,
+    path: str,
+) -> None:
+    response = security_harness.request(
+        "POST",
+        path,
+        json={"password": "á" * 37},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "Senha muito longa" in str(response.json()["fields"])
+    assert security_harness.mfa.disable_calls == []
+    assert security_harness.account_deletion.deleted == []
+    assert security_harness.audit.calls == []
+
+
+@pytest.mark.parametrize(
     ("payload", "status", "code", "detail", "field"),
     [
         (

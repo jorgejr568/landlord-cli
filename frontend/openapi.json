@@ -400,6 +400,7 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
             "type": "string"
@@ -4505,6 +4506,7 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
             "type": "string"
