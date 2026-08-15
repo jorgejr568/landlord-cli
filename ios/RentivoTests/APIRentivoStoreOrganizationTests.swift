@@ -17,6 +17,7 @@ import Testing
   let organization = try #require(try await store.listOrganizations().first)
 
   #expect(organization.members.map(\.userID) == [7, 11])
+  #expect(organization.members.map(\.isCurrentUser) == [true, false])
 }
 
 @MainActor
@@ -211,7 +212,7 @@ private final class OrganizationURLProtocol: URLProtocol, @unchecked Sendable {
     case ("GET", "/api/v1/organizations"):
       body = #"{"items":[{"uuid":"organization-1","name":"Horizonte","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true}}]}"#
     case ("GET", "/api/v1/organizations/organization-1"):
-      body = #"{"uuid":"organization-1","name":"Horizonte","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":null,"members":[{"user_id":7,"email":"ana@rentivo.com.br","role":"admin"},{"user_id":11,"email":"bruno@rentivo.com.br","role":"viewer"}]}"#
+      body = #"{"uuid":"organization-1","name":"Horizonte","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":null,"members":[{"user_id":7,"email":"ana@rentivo.com.br","role":"admin","is_current_user":true},{"user_id":11,"email":"bruno@rentivo.com.br","role":"viewer","is_current_user":false}]}"#
     case ("POST", "/api/v1/organizations/organization-1/invites"):
       body = #"{"uuid":"invite-1","invited_email":"bruno@rentivo.com.br","role":"viewer","status":"pending"}"#
     case ("PUT", "/api/v1/organizations/organization-1/mfa-policy"):

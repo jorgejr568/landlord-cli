@@ -48,13 +48,10 @@ enum OrganizationBillingIndex {
   }
 }
 
-/// The roles a manager may assign to a member from the member row's menu.
+/// The roles an administrator may assign to another member from the member row's menu.
 enum OrganizationMemberActions {
-  /// Admin has no menu at all (the member list renders a crown instead), so offering "admin"
-  /// here would promote a member to a role with no way back through the UI. The member's
-  /// current role is also excluded: re-selecting it is a no-op that only clutters the menu.
   static func assignableRoles(excluding currentRole: OrganizationRole) -> [OrganizationRole] {
-    OrganizationRole.allCases.filter { $0 != .admin && $0 != currentRole }
+    OrganizationRole.allCases.filter { $0 != currentRole }
   }
 }
 
@@ -716,14 +713,23 @@ private struct MemberRow: View {
   var body: some View {
     HStack {
       VStack(alignment: .leading) {
-        Text(member.email).font(RentivoTypography.bodyStrong)
+        HStack(spacing: RentivoSpacing.tiny) {
+          Text(member.email).font(RentivoTypography.bodyStrong)
+          if member.isCurrentUser {
+            Text("você").font(RentivoTypography.captionStrong).foregroundStyle(RentivoColors.blue)
+          }
+        }
         Text(member.role.label)
           .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
       Spacer()
-      if member.role == .admin {
-        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
+      if member.isCurrentUser {
+        Image(
+          systemName: member.role == .admin
+            ? "crown.fill" : "person.crop.circle.badge.checkmark"
+        )
+        .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.blue)
       } else if canManage {
         if isBusy {
           // The menu is replaced rather than merely dimmed, so the wait reads on the row the
@@ -744,6 +750,8 @@ private struct MemberRow: View {
           .fixedSize()
           .disabled(isLocked)
         }
+      } else if member.role == .admin {
+        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
       }
     }
     .padding(.horizontal, RentivoSpacing.small)

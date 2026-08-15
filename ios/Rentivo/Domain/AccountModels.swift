@@ -57,11 +57,15 @@ public struct OrganizationMember: Identifiable, Hashable, Codable, Sendable {
   public let userID: Int
   public var email: String
   public var role: OrganizationRole
+  public var isCurrentUser: Bool
 
-  public init(userID: Int, email: String, role: OrganizationRole) {
+  public init(
+    userID: Int, email: String, role: OrganizationRole, isCurrentUser: Bool = false
+  ) {
     self.userID = userID
     self.email = email
     self.role = role
+    self.isCurrentUser = isCurrentUser
   }
 }
 

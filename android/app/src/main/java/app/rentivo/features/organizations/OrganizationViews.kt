@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Security
@@ -913,29 +914,47 @@ private fun MemberRow(
 
   Row(verticalAlignment = Alignment.CenterVertically) {
     Column(modifier = Modifier.weight(1f)) {
-      Text(
-        text = member.email,
-        style = RentivoTypography.subheadlineEmphasized,
-        color = RentivoColors.ink,
-      )
+      Row(horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
+        Text(
+          text = member.email,
+          style = RentivoTypography.subheadlineEmphasized,
+          color = RentivoColors.ink,
+        )
+        if (member.isCurrentUser) {
+          Text(
+            text = "você",
+            style = RentivoTypography.caption,
+            color = RentivoColors.blue,
+          )
+        }
+      }
       Text(
         text = member.role.label,
         style = RentivoTypography.caption,
         color = RentivoColors.secondaryInk,
       )
     }
-    if (member.role == OrganizationRole.ADMIN || canManage) {
+    if (member.isCurrentUser || member.role == OrganizationRole.ADMIN || canManage) {
       // Both trailing controls are centered in the same square, so a row carrying a crown keeps the
       // exact height and gutter of one carrying an overflow menu.
       Box(modifier = Modifier.size(MemberActionSize), contentAlignment = Alignment.Center) {
-        if (member.role == OrganizationRole.ADMIN) {
-          Icon(
-            painter = painterResource(R.drawable.ic_crown),
-            contentDescription = null,
-            tint = RentivoColors.amber,
-            modifier = Modifier.size(CrownSize),
-          )
-        } else {
+        if (member.isCurrentUser) {
+          if (member.role == OrganizationRole.ADMIN) {
+            Icon(
+              painter = painterResource(R.drawable.ic_crown),
+              contentDescription = "Você",
+              tint = RentivoColors.amber,
+              modifier = Modifier.size(CrownSize),
+            )
+          } else {
+            Icon(
+              imageVector = Icons.Filled.Person,
+              contentDescription = "Você",
+              tint = RentivoColors.blue,
+              modifier = Modifier.size(CrownSize),
+            )
+          }
+        } else if (canManage) {
           IconButton(onClick = { expanded = true }, modifier = Modifier.fillMaxSize()) {
             Box(
               modifier = Modifier
@@ -956,12 +975,8 @@ private fun MemberRow(
             }
           }
           DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            // Admin has no menu at all (see the `member.role == ADMIN` branch above), so offering
-            // "admin" here would promote a member to a role with no way back through the UI. The
-            // member's current role is also excluded: re-selecting it is a no-op that only clutters
-            // the menu.
             OrganizationRole.entries
-              .filter { it != OrganizationRole.ADMIN && it != member.role }
+              .filter { it != member.role }
               .forEach { role ->
                 DropdownMenuItem(
                   text = { Text(text = role.label) },
@@ -980,6 +995,13 @@ private fun MemberRow(
               },
             )
           }
+        } else {
+          Icon(
+            painter = painterResource(R.drawable.ic_crown),
+            contentDescription = null,
+            tint = RentivoColors.amber,
+            modifier = Modifier.size(CrownSize),
+          )
         }
       }
     }

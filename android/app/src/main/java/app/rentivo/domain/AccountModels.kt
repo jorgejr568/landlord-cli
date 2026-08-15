@@ -57,6 +57,7 @@ data class OrganizationMember(
   val userID: Int,
   val email: String,
   val role: OrganizationRole,
+  val isCurrentUser: Boolean = false,
 ) {
   val id: Int get() = userID
 }

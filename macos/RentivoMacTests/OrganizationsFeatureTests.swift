@@ -125,12 +125,10 @@ struct OrganizationBillingIndexTests {
 
 @Suite("macOS organization member actions")
 struct OrganizationMemberActionsTests {
-  @Test("the role menu never offers admin, and never re-offers the member's current role")
-  func assignableRolesExcludeAdminAndTheCurrentRole() {
-    // Admin is excluded because an admin member renders a crown instead of a menu: promoting
-    // someone to admin would strip the only UI path back out of that role.
-    #expect(OrganizationMemberActions.assignableRoles(excluding: .viewer) == [.manager])
-    #expect(OrganizationMemberActions.assignableRoles(excluding: .manager) == [.viewer])
+  @Test("the role menu offers every backend role except the member's current role")
+  func assignableRolesExcludeOnlyTheCurrentRole() {
+    #expect(OrganizationMemberActions.assignableRoles(excluding: .viewer) == [.admin, .manager])
+    #expect(OrganizationMemberActions.assignableRoles(excluding: .manager) == [.admin, .viewer])
     #expect(OrganizationMemberActions.assignableRoles(excluding: .admin) == [.manager, .viewer])
   }
 }

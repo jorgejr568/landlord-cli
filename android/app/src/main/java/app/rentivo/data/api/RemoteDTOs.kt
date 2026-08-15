@@ -88,6 +88,7 @@ data class RemoteOrganizationMember(
   @SerialName("user_id") val userID: Int,
   val email: String,
   val role: String,
+  @SerialName("is_current_user") val isCurrentUser: Boolean? = null,
 )
 
 @Serializable

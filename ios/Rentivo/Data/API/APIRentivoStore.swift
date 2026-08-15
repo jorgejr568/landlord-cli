@@ -709,7 +709,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     Organization(id: OrganizationID(rawValue: remote.uuid), name: remote.name,
       pix: remote.settings.flatMap { pix(key: $0.pixKey, name: $0.pixMerchantName, city: $0.pixMerchantCity) },
       members: (remote.members ?? []).map {
-        OrganizationMember(userID: $0.userID, email: $0.email, role: OrganizationRole(rawValue: $0.role) ?? .viewer)
+        OrganizationMember(
+          userID: $0.userID, email: $0.email,
+          role: OrganizationRole(rawValue: $0.role) ?? .viewer,
+          isCurrentUser: $0.isCurrentUser ?? false
+        )
       },
       requiresMFA: remote.enforceMFA, currentUserRole: OrganizationRole(rawValue: remote.currentRole) ?? .viewer,
       capabilities: OrganizationCapabilities(canManage: remote.capabilities.canManage, canInvite: remote.capabilities.canInvite,

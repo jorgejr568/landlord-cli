@@ -49,8 +49,8 @@ class APIRentivoStoreOrganizationTest {
         """{"uuid":"organization-1","name":"Horizonte","enforce_mfa":false,""" +
           """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES,""" +
           """"settings":null,"members":[{"user_id":7,"email":"ana@rentivo.com.br",""" +
-          """"role":"admin"},{"user_id":11,"email":"bruno@rentivo.com.br",""" +
-          """"role":"teleporter"}]}"""
+          """"role":"admin","is_current_user":true},{"user_id":11,""" +
+          """"email":"bruno@rentivo.com.br","role":"teleporter","is_current_user":false}]}"""
       )
 
       "POST /api/v1/organizations/organization-1/invites" -> jsonResponse(
@@ -78,6 +78,7 @@ class APIRentivoStoreOrganizationTest {
     val organization = store.listOrganizations().first()
 
     assertEquals(listOf(7, 11), organization.members.map { it.userID })
+    assertEquals(listOf(true, false), organization.members.map { it.isCurrentUser })
     // An unknown role falls back to the least privileged one rather than failing the decode.
     assertEquals(OrganizationRole.VIEWER, organization.members[1].role)
     assertEquals(OrganizationRole.ADMIN, organization.currentUserRole)

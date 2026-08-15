@@ -13,7 +13,7 @@ struct RemoteOrganization: Decodable {
 }
 struct RemoteOrganizationCapabilities: Decodable { let canManage, canInvite, canCreateBilling, canViewBillingStats: Bool; enum CodingKeys: String, CodingKey { case canManage = "can_manage"; case canInvite = "can_invite"; case canCreateBilling = "can_create_billing"; case canViewBillingStats = "can_view_billing_stats" } }
 struct RemoteOrganizationSettings: Decodable { let pixKey, pixMerchantName, pixMerchantCity: String; enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" } }
-struct RemoteOrganizationMember: Decodable { let userID: Int; let email, role: String; enum CodingKeys: String, CodingKey { case email, role; case userID = "user_id" } }
+struct RemoteOrganizationMember: Decodable { let userID: Int; let email, role: String; let isCurrentUser: Bool?; enum CodingKeys: String, CodingKey { case email, role; case userID = "user_id"; case isCurrentUser = "is_current_user" } }
 struct RemoteOrganizationCreate: Encodable {
   let name, pixKey, pixMerchantName, pixMerchantCity: String
   enum CodingKeys: String, CodingKey {

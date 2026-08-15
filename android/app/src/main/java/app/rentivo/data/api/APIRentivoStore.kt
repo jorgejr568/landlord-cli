@@ -981,6 +981,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         userID = it.userID,
         email = it.email,
         role = OrganizationRole.fromWire(it.role) ?: OrganizationRole.VIEWER,
+        isCurrentUser = it.isCurrentUser ?: false,
       )
     },
     requiresMFA = remote.enforceMFA,

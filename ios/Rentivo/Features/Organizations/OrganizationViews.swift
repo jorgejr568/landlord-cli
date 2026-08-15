@@ -416,22 +416,27 @@ struct OrganizationDetailView: View {
           ForEach(organization.members) { member in
             HStack {
               VStack(alignment: .leading) {
-                Text(member.email).font(.subheadline.weight(.semibold))
+                HStack(spacing: RentivoSpacing.tiny) {
+                  Text(member.email).font(.subheadline.weight(.semibold))
+                  if member.isCurrentUser {
+                    Text("você").font(.caption2.weight(.bold)).foregroundStyle(RentivoColors.blue)
+                  }
+                }
                 Text(member.role.label)
                   .font(.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
               Spacer()
-              if member.role == .admin {
-                Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
+              if member.isCurrentUser {
+                Image(
+                  systemName: member.role == .admin
+                    ? "crown.fill" : "person.crop.circle.badge.checkmark"
+                )
+                .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.blue)
               } else if organization.capabilities.canManage {
                 Menu {
-                  // Admin has no menu at all (see the `member.role == .admin` branch above), so
-                  // offering "admin" here would promote a member to a role with no way back
-                  // through the UI. The member's current role is also excluded: re-selecting it
-                  // is a no-op that only clutters the menu.
                   ForEach(
-                    OrganizationRole.allCases.filter { $0 != .admin && $0 != member.role },
+                    OrganizationRole.allCases.filter { $0 != member.role },
                     id: \.self
                   ) { role in
                     Button(role.label) { Task { await changeRole(member, to: role) } }
@@ -441,6 +446,8 @@ struct OrganizationDetailView: View {
                 } label: {
                   Image(systemName: "ellipsis.circle")
                 }
+              } else if member.role == .admin {
+                Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
               }
             }
           }
