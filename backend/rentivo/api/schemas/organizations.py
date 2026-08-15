@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from rentivo.api.schemas.auth import normalize_email
 from rentivo.api.schemas.billings import BillingStatsResponse
+from rentivo.pix import normalize_pix_triple
 
 
 class _StrictModel(BaseModel):
@@ -37,9 +39,19 @@ class OrganizationCreateRequest(_StrictModel):
 
     @model_validator(mode="after")
     def require_complete_or_empty_pix(self) -> OrganizationCreateRequest:
-        fields = (self.pix_key, self.pix_merchant_name, self.pix_merchant_city)
-        if any(fields) and not all(fields):
-            raise ValueError("Preencha todos os dados PIX ou deixe todos os campos vazios.")
+        try:
+            self.pix_key, self.pix_merchant_name, self.pix_merchant_city = normalize_pix_triple(
+                self.pix_key, self.pix_merchant_name, self.pix_merchant_city
+            )
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {"type": "value_error", "loc": (field,), "input": getattr(self, field), "ctx": {"error": exc}}
+                    for field in ("pix_key", "pix_merchant_name", "pix_merchant_city")
+                    if not getattr(self, field)
+                ],
+            ) from None
         return self
 
 
@@ -77,14 +89,8 @@ class OrganizationInviteCreateRequest(_StrictModel):
 
     @field_validator("email")
     @classmethod
-    def normalize_email(cls, value: str) -> str:
-        normalized = _nonblank(value, "Informe o e-mail.").lower()
-        if normalized.count("@") != 1 or any(character.isspace() for character in normalized):
-            raise ValueError("Informe um e-mail válido.")
-        local, domain = normalized.split("@")
-        if not local or not domain:
-            raise ValueError("Informe um e-mail válido.")
-        return normalized
+    def normalize_invite_email(cls, value: str) -> str:
+        return normalize_email(value)
 
 
 class OrganizationMFAPolicyRequest(_StrictModel):

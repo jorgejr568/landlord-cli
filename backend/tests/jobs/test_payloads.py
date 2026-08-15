@@ -94,6 +94,11 @@ def test_transport_keys_are_ignored():
             EmailSendPayload(event="welcome", to_email="a@example.com", ctx={}),
         ),
         ("communication.send", {"communication_id": 5}, CommunicationSendPayload(communication_id=5)),
+        (
+            "communication.send",
+            {"communication_ids": [5, 6]},
+            CommunicationSendPayload(communication_ids=[5, 6]),
+        ),
         ("pdf.render", {"bill_id": 42}, PdfRenderPayload(bill_id=42)),
         (
             "pdf.render",
@@ -150,6 +155,10 @@ def test_valid_payloads_decode(job_type, payload, expected):
         # communication.send
         ("communication.send", {}),
         ("communication.send", {"communication_id": "x"}),
+        ("communication.send", {"communication_ids": []}),
+        ("communication.send", {"communication_ids": [5, "6"]}),
+        ("communication.send", {"communication_ids": [5, 5]}),
+        ("communication.send", {"communication_id": 5, "communication_ids": [6]}),
         # pdf.render
         ("pdf.render", {}),
         ("pdf.render", {"bill_id": "42"}),

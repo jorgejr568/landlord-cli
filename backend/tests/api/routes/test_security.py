@@ -445,11 +445,15 @@ class FakeAccountDeletionService:
     def __init__(self) -> None:
         self.deleted: list[int] = []
         self.error: Exception | None = None
+        self.readiness = True
 
     def delete_account(self, user_id: int) -> None:
         if self.error is not None:
             raise self.error
         self.deleted.append(user_id)
+
+    def can_delete_account(self, _user_id: int) -> bool:
+        return self.readiness
 
 
 class DeterministicWebAuthn:
@@ -620,9 +624,101 @@ def _assert_absent_from_side_effects(harness: SecurityHarness, *secrets: str) ->
         assert secret not in serialized
 
 
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/api/v1/security/change-password",
+            {"current_password": "a" * 73, "new_password": "nova", "confirm_password": "nova"},
+        ),
+        ("/api/v1/security/totp/disable", {"password": "á" * 37}),
+        ("/api/v1/security/delete-account", {"password": "a" * 73}),
+    ],
+)
+def test_sensitive_password_actions_reject_over_bcrypt_byte_limit_before_services(
+    security_harness: SecurityHarness,
+    path: str,
+    payload: dict[str, str],
+) -> None:
+    response = security_harness.request("POST", path, json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert response.json()["fields"]
+    assert security_harness.login.change_password_calls == []
+    assert security_harness.user.pix_calls == []
+
+
+def test_pix_update_rejects_a_partial_triple_before_user_service(security_harness: SecurityHarness) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/pix",
+        json={"pix_key": "person@example.com"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert set(response.json()["fields"]) == {"body.pix_merchant_name", "body.pix_merchant_city"}
+    assert security_harness.user.pix_calls == []
+
+
+def test_pix_update_accepts_all_null_as_an_explicit_clear(security_harness: SecurityHarness) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/pix",
+        json={"pix_key": None, "pix_merchant_name": None, "pix_merchant_city": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["profile"] == {
+        "email": USER.email,
+        "pix_key": "",
+        "pix_merchant_name": "",
+        "pix_merchant_city": "",
+    }
+    assert security_harness.user.pix_calls == [(USER.id, "", "", "")]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("pix_merchant_name", "N" * 26), ("pix_merchant_city", "C" * 16)],
+)
+def test_pix_update_enforces_the_shared_merchant_lengths(
+    security_harness: SecurityHarness,
+    field: str,
+    value: str,
+) -> None:
+    payload = {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "Recife"}
+    payload[field] = value
+
+    response = security_harness.request("POST", "/api/v1/security/pix", json=payload)
+
+    assert response.status_code == 422
+    assert f"body.{field}" in response.json()["fields"]
+    assert security_harness.user.pix_calls == []
+
+
+def test_account_deletion_readiness_exposes_sole_admin_conflict_before_submission(
+    security_harness: SecurityHarness,
+) -> None:
+    security_harness.account_deletion.readiness = False
+
+    response = security_harness.request("GET", "/api/v1/security/account-deletion-readiness")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "can_delete": False,
+        "reason": "sole_organization_admin",
+    }
+
+
 PRIVILEGED_REQUESTS = [
     ("GET", "/api/v1/security", None),
-    ("POST", "/api/v1/security/pix", {"pix_key": "person@example.com"}),
+    (
+        "POST",
+        "/api/v1/security/pix",
+        {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "Recife"},
+    ),
     (
         "POST",
         "/api/v1/security/change-password",

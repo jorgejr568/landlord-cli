@@ -22,6 +22,7 @@ from rentivo.api.schemas.billings import (
     AttachmentResponse,
     BillingCapabilitiesResponse,
     BillingCreateRequest,
+    BillingItemCreateInput,
     BillingItemInput,
     BillingItemResponse,
     BillingListItemResponse,
@@ -52,7 +53,7 @@ from rentivo.communications.render import render_markdown
 from rentivo.constants.api_scopes import APIScope
 from rentivo.models.audit_log import AuditEventType
 from rentivo.models.billing import Billing, BillingItem, ItemType
-from rentivo.models.billing_attachment import BillingAttachment
+from rentivo.models.billing_attachment import MAX_ATTACHMENT_SIZE, BillingAttachment
 from rentivo.models.communication import CommType, Communication
 from rentivo.models.expense import Expense
 from rentivo.models.recipient import Recipient
@@ -144,7 +145,10 @@ async def _attachment_upload_form(request: Request) -> AttachmentUploadForm:
     return AttachmentUploadForm(name=str(form.get("name", "")).strip(), file=file)
 
 
-def _capabilities(access: BillingAccess) -> BillingCapabilitiesResponse:
+def _capabilities(access: BillingAccess, *, pix_needs_setup: bool = False) -> BillingCapabilitiesResponse:
+    # Capabilities describe authorization only. PIX readiness is a separate response field so
+    # clients can explain the prerequisite instead of misreporting it as a permission failure.
+    _ = pix_needs_setup
     can_edit = access.allows(APIScope.BILLINGS_WRITE, roles=_EDIT_ROLES)
     can_manage_bills = access.allows(APIScope.BILLS_WRITE, roles=_MANAGE_ROLES)
     return BillingCapabilitiesResponse(
@@ -285,25 +289,52 @@ _CONTACT_LISTS: tuple[tuple[str, Literal["recipient", "reply_to"], AuditEventTyp
 )
 
 
-def _replace_provided_contacts(
+def _provided_contact_rows(
+    payload: BillingCreateRequest | BillingUpdateRequest,
+) -> tuple[list[dict[str, str]] | None, list[dict[str, str]] | None]:
+    recipients = None if payload.recipients is None else _contact_rows(payload.recipients)
+    reply_to = None if payload.reply_to is None else _contact_rows(payload.reply_to)
+    return recipients, reply_to
+
+
+def _provided_contact_snapshots(
+    access: BillingAccess,
+    services: RequestServices,
+    payload: BillingCreateRequest | BillingUpdateRequest,
+) -> dict[str, list[Recipient]]:
+    billing_id = access.billing.id
+    assert billing_id is not None
+    return {
+        field_name: getattr(services, service_name).list_for_billing(billing_id)
+        for field_name, service_name, _event_type, _count_key in _CONTACT_LISTS
+        if getattr(payload, field_name) is not None
+    }
+
+
+def _audit_provided_contacts(
     *,
     access: BillingAccess,
     services: RequestServices,
     payload: BillingCreateRequest | BillingUpdateRequest,
-    track_previous: bool,
+    previous: dict[str, list[Recipient]],
 ) -> None:
-    """Apply the contact lists the payload actually carries, recipients first."""
+    billing_id = access.billing.id
+    assert billing_id is not None
     for field_name, service_name, event_type, count_key in _CONTACT_LISTS:
         items = getattr(payload, field_name)
-        if items is not None:
-            _replace_contacts(
-                access=access,
-                services=services,
-                service_name=service_name,
-                items=items,
-                event_type=event_type,
-                count_key=count_key,
-                track_previous=track_previous,
+        if items is None:
+            continue
+        saved = getattr(services, service_name).list_for_billing(billing_id)
+        prior = previous.get(field_name, [])
+        if items or saved or prior:
+            services.audit.safe_log_for(
+                access.principal.actor,
+                event_type,
+                entity_type="billing",
+                entity_id=billing_id,
+                entity_uuid=access.billing.uuid,
+                previous_state=({count_key: len(prior)} if field_name in previous else None),
+                new_state={count_key: len(saved)},
             )
 
 
@@ -337,7 +368,7 @@ def _billing_response(access: BillingAccess, services: RequestServices) -> Billi
         ),
         stats=BillingStatsResponse.from_stats(services.billing_stats.stats_for_ids([billing_id])),
         pix_needs_setup=services.pix.billing_needs_setup(billing),
-        capabilities=_capabilities(access),
+        capabilities=_capabilities(access, pix_needs_setup=services.pix.billing_needs_setup(billing)),
         created_at=billing.created_at,
         updated_at=billing.updated_at,
     )
@@ -350,25 +381,26 @@ class _BillingItemReferenceError(ValueError):
 
 
 def _billing_items(
-    items: tuple[BillingItemInput, ...],
+    items: tuple[BillingItemCreateInput | BillingItemInput, ...],
     existing: list[BillingItem] | None = None,
 ) -> list[BillingItem]:
     existing_by_uuid = {item.uuid: item for item in existing or []}
     seen: set[str] = set()
     result: list[BillingItem] = []
     for index, item in enumerate(items):
-        if item.uuid is not None:
-            if item.uuid in seen:
+        item_uuid = getattr(item, "uuid", None)
+        if item_uuid is not None:
+            if item_uuid in seen:
                 raise _BillingItemReferenceError("items", "Os itens da cobrança devem ser distintos.")
-            if item.uuid not in existing_by_uuid:
+            if item_uuid not in existing_by_uuid:
                 raise _BillingItemReferenceError(
                     f"items.{index}.uuid",
                     "O item não pertence a esta cobrança.",
                 )
-            seen.add(item.uuid)
+            seen.add(item_uuid)
         result.append(
             BillingItem(
-                uuid=item.uuid or "",
+                uuid=item_uuid or "",
                 description=item.description,
                 amount=item.amount,
                 item_type=ItemType(item.item_type),
@@ -400,7 +432,10 @@ async def list_billings(
                 item_count=len(access.billing.items),
                 pix_needs_setup=services.pix.billing_needs_setup(access.billing),
                 current_bill=_current_bill(stats, access.billing.id),
-                capabilities=_capabilities(access),
+                capabilities=_capabilities(
+                    access,
+                    pix_needs_setup=services.pix.billing_needs_setup(access.billing),
+                ),
             )
             for access in accesses
         ),
@@ -437,6 +472,7 @@ async def create_billing(
     services: RequestServices = Depends(get_services),
 ) -> BillingResponse:
     owner_type, owner_id = _create_owner(payload, principal, services)
+    recipients, reply_to = _provided_contact_rows(payload)
     try:
         billing = services.billing.create_billing(
             payload.name,
@@ -447,9 +483,9 @@ async def create_billing(
             pix_merchant_city=payload.pix_merchant_city,
             owner_type=owner_type,
             owner_id=owner_id,
+            recipients=recipients,
+            reply_to=reply_to,
         )
-    except _BillingItemReferenceError as exc:
-        raise ProblemException.invalid_field("invalid_billing_item", str(exc), exc.field) from None
     except ValueError as exc:
         raise ProblemException.invalid_field("invalid_billing", str(exc), "pix_key") from None
     assert billing.id is not None
@@ -462,7 +498,7 @@ async def create_billing(
         new_state=serialize_billing(billing),
     )
     access = resolve_billing_access(principal, services, billing.uuid)
-    _replace_provided_contacts(access=access, services=services, payload=payload, track_previous=False)
+    _audit_provided_contacts(access=access, services=services, payload=payload, previous={})
     set_analytics(response, "rentivo_billing_created")
     return _billing_response(access, services)
 
@@ -487,6 +523,31 @@ async def update_billing(
 ) -> BillingResponse:
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _EDIT_ROLES)
+    transfer_organization_id: int | None = None
+    if payload.owner is not None:
+        if payload.owner.type == "user" and access.billing.owner_type == "user":
+            pass  # clients submit the current personal owner with ordinary edits
+        elif payload.owner.type == "organization":
+            current = services.organization.get_by_id(access.billing.owner_id)
+            if (
+                access.billing.owner_type == "organization"
+                and current is not None
+                and current.uuid == payload.owner.uuid
+            ):
+                pass  # unchanged organization ownership is likewise an ordinary edit
+            else:
+                require_role(access.role, _OWNER_ROLES)
+                if access.billing.owner_type != "user":
+                    raise ProblemException.invalid("invalid_billing_owner", "A cobrança não pode mudar de organização.")
+                organization = services.organization.get_by_uuid(payload.owner.uuid)
+                if organization is None or organization.id is None:
+                    raise ProblemException.not_found()
+                require_resource_grant(principal, services, "organization", organization.id)
+                if services.organization.get_member(organization.id, principal.user.id) is None:
+                    raise ProblemException.not_found()
+                transfer_organization_id = organization.id
+        else:
+            raise ProblemException.invalid("invalid_billing_owner", "A cobrança não pode voltar para a conta pessoal.")
     previous_state = serialize_billing(access.billing)
     candidate = access.billing.model_copy(deep=True)
     for field_name in ("name", "description", "pix_key", "pix_merchant_name", "pix_merchant_city"):
@@ -498,10 +559,43 @@ async def update_billing(
             candidate.items = _billing_items(payload.items, access.billing.items)
         except _BillingItemReferenceError as exc:
             raise ProblemException.invalid_field("invalid_billing_item", str(exc), exc.field) from None
+    previous_contacts = _provided_contact_snapshots(access, services, payload)
+    recipients, reply_to = _provided_contact_rows(payload)
     try:
-        updated = services.billing.update_billing(candidate)
+        if transfer_organization_id is None:
+            updated = services.billing.update_billing(candidate, recipients=recipients, reply_to=reply_to)
+        else:
+            updated = services.billing.update_and_transfer_personal_to_organization(
+                candidate,
+                access.billing.owner_id,
+                transfer_organization_id,
+                recipients=recipients,
+                reply_to=reply_to,
+            )
     except ValueError as exc:
+        if transfer_organization_id is not None:
+            raise ProblemException.conflict("billing_transfer_conflict", str(exc)) from None
         raise ProblemException.invalid_field("invalid_billing", str(exc), "pix_key") from None
+
+    if transfer_organization_id is not None:
+        previous_owner = {"owner_type": "user", "owner_id": access.billing.owner_id}
+        services.audit.safe_log_for(
+            principal.actor,
+            AuditEventType.BILLING_TRANSFER,
+            entity_type="billing",
+            entity_id=updated.id,
+            entity_uuid=updated.uuid,
+            previous_state=previous_owner,
+            new_state={"owner_type": "organization", "owner_id": transfer_organization_id},
+        )
+        services.billing_notification.notify_transferred(
+            billing=access.billing,
+            previous_owner=previous_owner,
+            new_org_id=transfer_organization_id,
+            actor_user_id=principal.user.id,
+            actor_email=principal.user.email,
+        )
+
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILLING_UPDATE,
@@ -512,7 +606,12 @@ async def update_billing(
         new_state=serialize_billing(updated),
     )
     updated_access = BillingAccess(billing=updated, role=access.role, principal=principal)
-    _replace_provided_contacts(access=updated_access, services=services, payload=payload, track_previous=True)
+    _audit_provided_contacts(
+        access=updated_access,
+        services=services,
+        payload=payload,
+        previous=previous_contacts,
+    )
     set_analytics(response, "rentivo_billing_edited")
     return _billing_response(updated_access, services)
 
@@ -759,11 +858,16 @@ async def upload_attachment(
     access = resolve_billing_access(principal, services, billing_uuid)
     require_role(access.role, _EDIT_ROLES)
     try:
+        # Cap the route-level read itself; relying only on the service's `len` check would first
+        # buffer an arbitrarily large multipart upload into application memory.
+        file_bytes = await upload.file.read(MAX_ATTACHMENT_SIZE + 1)
+        if len(file_bytes) > MAX_ATTACHMENT_SIZE:
+            raise ValueError("File too large")
         attachment = services.billing_attachment.add_attachment(
             billing=access.billing,
             name=upload.name,
             filename=upload.file.filename,
-            file_bytes=await upload.file.read(),
+            file_bytes=file_bytes,
             content_type=upload.file.content_type or "",
         )
     except ValueError as exc:
@@ -993,15 +1097,6 @@ async def send_communication(
             "A mensagem contém conteúdo não permitido e não pode ser enviada.",
             "body",
         )
-    communications = services.communication.send(
-        bill=bill,
-        billing=access.billing,
-        recipients=recipients,
-        subject_template=payload.subject,
-        body_template=payload.body,
-        actor=principal.actor,
-        comm_type=payload.comm_type,
-    )
     if payload.save_scope == "billing":
         services.communication.save_template(
             "billing",
@@ -1027,6 +1122,15 @@ async def send_communication(
             entity_uuid=access.billing.uuid,
             new_state={"scope": payload.save_scope, "comm_type": payload.comm_type},
         )
+    communications = services.communication.send(
+        bill=bill,
+        billing=access.billing,
+        recipients=recipients,
+        subject_template=payload.subject,
+        body_template=payload.body,
+        actor=principal.actor,
+        comm_type=payload.comm_type,
+    )
     _audit_communications(communications, principal, services)
     set_analytics(
         response,

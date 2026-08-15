@@ -31,6 +31,19 @@ def validate_bcrypt_password(value: str) -> str:
     return value
 
 
+def normalize_email(value: str) -> str:
+    """Normalize and validate the shared email representation used by forms."""
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ValueError("E-mail obrigatório.")
+    if normalized.count("@") != 1 or any(character.isspace() for character in normalized):
+        raise ValueError("Informe um e-mail válido.")
+    local, domain = normalized.split("@")
+    if not local or not domain:
+        raise ValueError("Informe um e-mail válido.")
+    return normalized
+
+
 CredentialTransport = Literal["cookie", "body"]
 
 
@@ -62,10 +75,7 @@ class SignupRequest(_CredentialTransportRequest):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
+        return normalize_email(value)
 
     @field_validator("password")
     @classmethod
@@ -87,10 +97,7 @@ class LoginRequest(_CredentialTransportRequest):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
+        return normalize_email(value)
 
     @field_validator("password")
     @classmethod
@@ -111,10 +118,7 @@ class _MobileCredentialsRequest(_AuthRequest):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
+        return normalize_email(value)
 
     @field_validator("password")
     @classmethod
@@ -150,10 +154,7 @@ class PasswordForgotRequest(_AuthRequest):
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("E-mail obrigatório.")
-        return value
+        return normalize_email(value)
 
 
 class PasswordResetRequest(_AuthRequest):

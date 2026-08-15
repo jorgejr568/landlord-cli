@@ -77,19 +77,15 @@ class CommunicationService:
         actor=None,
         comm_type: str = CommType.BILL_READY.value,
     ) -> list[Communication]:
-        """Create one queued communication per recipient and enqueue a send job each.
+        """Create all recipient rows atomically and enqueue one idempotent batch job.
 
         ``comm_type`` selects which document the send job attaches: ``bill_ready``
         attaches the invoice PDF, ``payment_receipt`` the stored recibo PDF.
         """
-        results: list[Communication] = []
-        # Per-recipient: create row, enqueue job, stamp job_ulid. Not atomic across
-        # recipients — earlier recipients stay queued if a later one fails. If the
-        # enqueue itself fails we mark that row 'failed' so it surfaces in the UI
-        # instead of sitting 'queued' forever with no job to process it.
+        pending: list[Communication] = []
         for recipient in recipients:
             ctx = self._context(bill, billing, recipient)
-            comm = self.communication_repo.create(
+            pending.append(
                 Communication(
                     bill_id=bill.id,
                     comm_type=comm_type,
@@ -99,17 +95,21 @@ class CommunicationService:
                     body_markdown=substitute(body_template, ctx),
                 )
             )
-            try:
-                job = self.job_service.enqueue_for(
-                    actor, "communication.send", {"communication_id": comm.id}, max_attempts=3
-                )
-            except Exception:
-                self.communication_repo.mark_failed(comm.id, "Falha ao enfileirar o envio.")
-                logger.exception("communication_enqueue_failed", communication_id=comm.id)
-                raise
-            self.communication_repo.set_job_ulid(comm.id, job.ulid)
+        if not pending:
+            return []
+        results = self.communication_repo.create_batch(pending)
+        communication_ids = [comm.id for comm in results]
+        try:
+            job = self.job_service.enqueue_for(
+                actor, "communication.send", {"communication_ids": communication_ids}, max_attempts=3
+            )
+        except Exception:
+            self.communication_repo.mark_failed_batch(communication_ids, "Falha ao enfileirar o envio.")
+            logger.exception("communication_batch_enqueue_failed", communication_ids=communication_ids)
+            raise
+        self.communication_repo.set_job_ulid_batch(communication_ids, job.ulid)
+        for comm in results:
             comm.job_ulid = job.ulid
-            results.append(comm)
         logger.info("communications_enqueued", bill_id=bill.id, count=len(results))
         return results
 

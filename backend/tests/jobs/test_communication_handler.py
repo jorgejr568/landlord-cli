@@ -85,6 +85,41 @@ def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
         assert repo.get_by_id(comm.id).status == "sent"
 
 
+def test_handler_sends_a_batch_and_skips_an_already_sent_member(engine, monkeypatch):
+    from datetime import datetime
+
+    import rentivo.jobs.handlers.communication as mod
+    from rentivo.constants import SP_TZ
+
+    first = _seed_comm(engine)
+    second = _seed_comm(engine)
+    with engine.connect() as c:
+        SQLAlchemyCommunicationRepository(c, Base64Backend()).mark_sent(first.id, datetime(2026, 6, 12, tzinfo=SP_TZ))
+    sent = []
+
+    class FakeStorage:
+        def get(self, key):
+            return b"%PDF"
+
+    class FakeBackend:
+        def send(self, message):
+            sent.append(message)
+            return "msg-1"
+
+    monkeypatch.setattr(mod, "get_engine", lambda: engine)
+    monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
+    monkeypatch.setattr(mod, "get_storage", lambda: FakeStorage())
+    monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
+
+    _send({"communication_ids": [first.id, second.id]})
+
+    assert len(sent) == 1
+    with engine.connect() as c:
+        repo = SQLAlchemyCommunicationRepository(c, Base64Backend())
+        assert repo.get_by_id(first.id).status == "sent"
+        assert repo.get_by_id(second.id).status == "sent"
+
+
 def test_handler_sets_reply_to_and_from_override(engine, monkeypatch):
     import rentivo.jobs.handlers.communication as mod
     from rentivo.models.recipient import Recipient
@@ -301,6 +336,23 @@ def test_fail_hook_marks_failed(engine, monkeypatch):
     with engine.connect() as c:
         repo = SQLAlchemyCommunicationRepository(c, Base64Backend())
         assert repo.get_by_id(comm.id).status == "failed"
+
+
+def test_fail_hook_marks_every_queued_batch_member_failed(engine, monkeypatch):
+    import rentivo.jobs.handlers.communication as mod
+    from rentivo.jobs.handlers.communication import _on_communication_send_failed
+
+    first = _seed_comm(engine)
+    second = _seed_comm(engine)
+    monkeypatch.setattr(mod, "get_engine", lambda: engine)
+    monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
+
+    _on_communication_send_failed({"communication_ids": [first.id, second.id]})
+
+    with engine.connect() as c:
+        repo = SQLAlchemyCommunicationRepository(c, Base64Backend())
+        assert repo.get_by_id(first.id).status == "failed"
+        assert repo.get_by_id(second.id).status == "failed"
 
 
 def test_fail_hook_does_not_overwrite_sent(engine, monkeypatch):

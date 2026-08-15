@@ -5,7 +5,7 @@ import structlog
 
 from rentivo.models.user import User
 from rentivo.observability import span, traced
-from rentivo.pix import validate_pix_key
+from rentivo.pix import normalize_pix_triple, validate_pix_key
 from rentivo.repositories.base import UserAlreadyRegisteredError, UserRepository
 
 logger = structlog.get_logger(__name__)
@@ -115,12 +115,17 @@ class UserService:
         pix_merchant_name: str,
         pix_merchant_city: str,
     ) -> User:
-        normalized_key = validate_pix_key(pix_key) if pix_key.strip() else ""
+        normalized_key, merchant_name, merchant_city = normalize_pix_triple(
+            pix_key,
+            pix_merchant_name,
+            pix_merchant_city,
+        )
+        normalized_key = validate_pix_key(normalized_key) if normalized_key else ""
         self.repo.update_pix(
             user_id,
             normalized_key,
-            pix_merchant_name.strip(),
-            pix_merchant_city.strip(),
+            merchant_name,
+            merchant_city,
         )
         updated = self.repo.get_by_id(user_id)
         if updated is None:

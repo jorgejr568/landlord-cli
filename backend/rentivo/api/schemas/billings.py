@@ -4,9 +4,11 @@ import re
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from rentivo.api.schemas.auth import normalize_email
 from rentivo.money import MAX_CENTAVOS, total_centavos
+from rentivo.pix import normalize_pix_triple
 
 if TYPE_CHECKING:
     from rentivo.services.billing_stats import BillingStats
@@ -46,8 +48,7 @@ class BillingOwnerResponse(_StrictModel):
     name: str | None = None
 
 
-class BillingItemInput(_StrictModel):
-    uuid: BillingItemUUID | None = None
+class _BillingItemBase(_StrictModel):
     description: str = Field(min_length=1, max_length=255)
     amount: int = Field(ge=0, le=MAX_CENTAVOS)
     item_type: Literal["fixed", "variable"]
@@ -57,6 +58,14 @@ class BillingItemInput(_StrictModel):
         if self.item_type == "variable" and self.amount != 0:
             raise ValueError("Itens variáveis devem ter valor zero no modelo.")
         return self
+
+
+class BillingItemCreateInput(_BillingItemBase):
+    """A new template item has no server-issued public identifier yet."""
+
+
+class BillingItemInput(_BillingItemBase):
+    uuid: BillingItemUUID | None = None
 
 
 class BillingItemResponse(_StrictModel):
@@ -73,6 +82,7 @@ class ContactInput(_StrictModel):
     @field_validator("email")
     @classmethod
     def valid_email(cls, value: str) -> str:
+        value = normalize_email(value)
         if value.count("@") != 1 or any(character.isspace() for character in value):
             raise ValueError("E-mail inválido.")
         local, domain = value.split("@")
@@ -116,9 +126,33 @@ class BillingCreateRequest(_StrictModel):
     pix_merchant_name: str = Field(default="", max_length=25)
     pix_merchant_city: str = Field(default="", max_length=15)
     owner: BillingOwnerRequest = Field(default_factory=BillingOwnerRequest)
-    items: tuple[BillingItemInput, ...] = Field(min_length=1)
+    items: tuple[BillingItemCreateInput, ...] = Field(min_length=1)
     recipients: tuple[ContactInput, ...] | None = None
     reply_to: tuple[ContactInput, ...] | None = None
+
+    @model_validator(mode="after")
+    def normalized_pix_triple(self) -> Self:
+        try:
+            self.pix_key, self.pix_merchant_name, self.pix_merchant_city = normalize_pix_triple(
+                self.pix_key,
+                self.pix_merchant_name,
+                self.pix_merchant_city,
+            )
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {
+                        "type": "value_error",
+                        "loc": (field,),
+                        "input": getattr(self, field),
+                        "ctx": {"error": exc},
+                    }
+                    for field in ("pix_key", "pix_merchant_name", "pix_merchant_city")
+                    if not getattr(self, field)
+                ],
+            ) from None
+        return self
 
     @model_validator(mode="after")
     def fixed_subtotal_fits_storage(self) -> Self:
@@ -132,6 +166,7 @@ class BillingUpdateRequest(_StrictModel):
     pix_key: str | None = None
     pix_merchant_name: str | None = Field(default=None, max_length=25)
     pix_merchant_city: str | None = Field(default=None, max_length=15)
+    owner: BillingOwnerRequest | None = None
     items: tuple[BillingItemInput, ...] | None = Field(default=None, min_length=1)
     recipients: tuple[ContactInput, ...] | None = None
     reply_to: tuple[ContactInput, ...] | None = None
