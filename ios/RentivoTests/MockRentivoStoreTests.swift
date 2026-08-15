@@ -19,6 +19,18 @@ import Testing
   #expect(Set(bills.map(\.status)) == Set(BillStatus.allCases))
 }
 
+@Test @MainActor func exportRequestsMirrorTheBackendFormatsAndBillingLookup() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  try await store.requestExport(billingID: StableID.billingAurora101, format: "csv")
+  await #expect(throws: DemoError(message: "Escolha CSV ou XLSX.")) {
+    try await store.requestExport(billingID: StableID.billingAurora101, format: "pdf")
+  }
+  await #expect(throws: DemoError.resourceNotFound) {
+    try await store.requestExport(billingID: BillingID(rawValue: "missing"), format: "csv")
+  }
+}
+
 @Test @MainActor func addingExpenseUpdatesDashboardNetIncome() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let before = try await store.dashboardSummary()

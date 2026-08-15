@@ -18,6 +18,7 @@ import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
+import app.rentivo.domain.BillingExportContract
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingOwner
 import app.rentivo.domain.CommunicationContent
@@ -702,6 +703,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun requestExport(billingID: BillingID, format: String) {
     prepareOperation()
+    requireWriteAccess()
+    if (billingsState.none { it.id == billingID }) throw DemoError.resourceNotFound
+    if (format !in BillingExportContract.formats) throw DemoError("Escolha CSV ou XLSX.")
+    recordActivity(
+      kind = ActivityKind.BILLING,
+      title = "Exportação solicitada",
+      detail = format.uppercase(),
+    )
   }
 
   override suspend fun dashboardSummary(): DashboardSummary {

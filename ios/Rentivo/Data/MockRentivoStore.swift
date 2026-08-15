@@ -572,7 +572,21 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func downloadRecibo(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }
   public func downloadReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws -> DownloadedFile { throw DemoError.operationFailed }
   public func downloadAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws -> DownloadedFile { throw DemoError.operationFailed }
-  public func requestExport(billingID: BillingID, format: String) async throws { try await prepareOperation() }
+  public func requestExport(billingID: BillingID, format: String) async throws {
+    try await prepareOperation()
+    try requireWriteAccess()
+    guard snapshot.billings.contains(where: { $0.id == billingID }) else {
+      throw DemoError.resourceNotFound
+    }
+    guard BillingExportContract.formats.contains(format) else {
+      throw DemoError(message: "Escolha CSV ou XLSX.")
+    }
+    recordActivity(
+      kind: .billing,
+      title: "Exportação solicitada",
+      detail: format.uppercased()
+    )
+  }
 
   public func dashboardSummary() async throws -> DashboardSummary {
     try await prepareOperation()

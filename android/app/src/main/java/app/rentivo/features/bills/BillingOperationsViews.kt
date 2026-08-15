@@ -40,8 +40,6 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -107,6 +105,7 @@ import app.rentivo.domain.Attachment
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
+import app.rentivo.domain.BillingExportContract
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.CommunicationContent
 import app.rentivo.domain.CommunicationSaveScope
@@ -613,11 +612,10 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
         )
       }
       FormSection(header = "Conteúdo") {
-        ContentRow(title = "Faturas", icon = Icons.Outlined.Description)
-        FormRowDivider()
-        ContentRow(title = "Despesas", icon = Icons.Outlined.Build)
-        FormRowDivider()
-        ContentRow(title = "Resumo financeiro", icon = Icons.Outlined.BarChart)
+        ContentRow(
+          title = BillingExportContract.includedSections.single(),
+          icon = Icons.Outlined.Description,
+        )
       }
       // The call to action is a block of its own, so it gets section spacing rather than the
       // large spacing that separates the picker from the content list.
@@ -631,7 +629,7 @@ fun ExportScreen(billing: Billing, onBack: () -> Unit) {
   }
 }
 
-private val ExportFormats = listOf("CSV", "XLSX")
+private val ExportFormats = BillingExportContract.formats.map(String::uppercase)
 
 /** The outlined glyph a `Label` in an iOS form row draws, sized to the row's 20pt symbol. */
 private val ContentRowIconSize = 26.dp

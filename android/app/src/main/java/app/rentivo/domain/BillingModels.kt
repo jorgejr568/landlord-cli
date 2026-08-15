@@ -375,6 +375,12 @@ data class Attachment(
   val byteCount: Int,
 )
 
+/** Mirrors the backend `ExportCreateRequest` and its bills-only `ExportService` rows. */
+object BillingExportContract {
+  val formats: List<String> = listOf("csv", "xlsx")
+  val includedSections: List<String> = listOf("Faturas")
+}
+
 /**
  * The server's asynchronous PDF render state for a bill. The wire literals are exactly
  * `"pending" | "succeeded" | "failed"`; anything else (including `null`) decodes to `null`.

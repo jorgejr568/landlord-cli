@@ -597,19 +597,20 @@ struct CommunicationComposerView: View {
 struct ExportSimulationView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
-  @State private var format = "CSV"
+  @State private var format = BillingExportContract.formats[0]
 
   var body: some View {
     Form {
       Picker("Formato", selection: $format) {
-        Text("CSV").tag("CSV")
-        Text("XLSX").tag("XLSX")
+        ForEach(BillingExportContract.formats, id: \.self) { format in
+          Text(format.uppercased()).tag(format)
+        }
       }
       .pickerStyle(.segmented)
       Section("Conteúdo") {
-        Label("Faturas", systemImage: "doc.text")
-        Label("Despesas", systemImage: "wrench.and.screwdriver")
-        Label("Resumo financeiro", systemImage: "chart.bar")
+        ForEach(BillingExportContract.includedSections, id: \.self) { section in
+          Label(section, systemImage: "doc.text")
+        }
       }
       Button("Solicitar exportação") {
         Task { await requestExport() }
@@ -622,8 +623,8 @@ struct ExportSimulationView: View {
 
   private func requestExport() async {
     do {
-      try await app.dependencies.exports.requestExport(billingID: billingID, format: format.lowercased())
-      app.showNotice("Exportação \(format) enfileirada.")
+      try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
+      app.showNotice("Exportação \(format.uppercased()) enfileirada.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 }

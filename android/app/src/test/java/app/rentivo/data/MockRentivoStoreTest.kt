@@ -59,6 +59,25 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun exportRequestsMirrorTheBackendFormatsAndBillingLookup() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    store.requestExport(billingID = StableID.billingAurora101, format = "csv")
+    assertEquals(
+      DemoError("Escolha CSV ou XLSX."),
+      assertDemoError {
+        store.requestExport(billingID = StableID.billingAurora101, format = "pdf")
+      },
+    )
+    assertEquals(
+      DemoError.resourceNotFound,
+      assertDemoError {
+        store.requestExport(billingID = app.rentivo.domain.BillingID("missing"), format = "csv")
+      },
+    )
+  }
+
+  @Test
   fun addingExpenseUpdatesDashboardNetIncome() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val before = store.dashboardSummary()

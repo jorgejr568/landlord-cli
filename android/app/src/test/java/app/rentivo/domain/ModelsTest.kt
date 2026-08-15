@@ -278,4 +278,10 @@ class ModelsTest {
     )
     assertNull(denied.billingOwnerForCreation)
   }
+
+  @Test
+  fun billingExportContractMatchesTheBackendJobPayload() {
+    assertEquals(listOf("csv", "xlsx"), BillingExportContract.formats)
+    assertEquals(listOf("Faturas"), BillingExportContract.includedSections)
+  }
 }

@@ -481,6 +481,13 @@ public struct Attachment: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+/// The queued export currently contains the billing's bill rows only. Keep the client copy and
+/// format picker tied to the `ExportCreateRequest` and `ExportService` backend contract.
+public enum BillingExportContract {
+  public static let formats = ["csv", "xlsx"]
+  public static let includedSections = ["Faturas"]
+}
+
 /// The server's asynchronous PDF render state for a bill. The wire literals are exactly
 /// `"pending" | "succeeded" | "failed"`; anything else (including `null`) decodes to `nil`.
 public enum PDFRenderStatus: String, Hashable, Codable, Sendable {

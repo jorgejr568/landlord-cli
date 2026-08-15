@@ -143,3 +143,8 @@ private struct SamplePlainError: Error {}
   )
   #expect(denied.billingOwnerForCreation == nil)
 }
+
+@Test func billingExportContractMatchesTheBackendJobPayload() {
+  #expect(BillingExportContract.formats == ["csv", "xlsx"])
+  #expect(BillingExportContract.includedSections == ["Faturas"])
+}
