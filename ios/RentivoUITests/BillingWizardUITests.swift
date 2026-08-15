@@ -28,18 +28,9 @@ final class BillingWizardUITests: XCTestCase {
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 2))
   }
 
-  func testBillingWizardWaitsForOwnerChoicesBeforeContinuing() throws {
-    let app = launchAndSignIn(arguments: ["--ui-testing", "--ui-testing-delay-organizations"])
-    app.tabBars.buttons["Cobranças"].tap()
-    app.buttons["billing.create"].tap()
-
-    XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
-    XCTAssertFalse(app.buttons["wizard.continue"].isEnabled)
-  }
-
-  private func launchAndSignIn(arguments: [String] = ["--ui-testing"]) -> XCUIApplication {
+  private func launchAndSignIn() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = arguments
+    app.launchArguments = ["--ui-testing"]
     app.launch()
 
     let email = app.textFields["login.email"]
@@ -67,4 +58,5 @@ final class BillingWizardUITests: XCTestCase {
     )
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }
+
 }

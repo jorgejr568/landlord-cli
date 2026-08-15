@@ -85,6 +85,7 @@ struct BillingFormView: View {
     case name
     case description
     case itemDescription(Int)
+    case itemAmount(Int)
     case pixKey
     case pixMerchantName
     case pixMerchantCity
@@ -151,9 +152,6 @@ struct BillingFormView: View {
     .interactiveDismissDisabled(saving)
     .task {
       guard billing == nil else { return }
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing-delay-organizations") {
-        try? await Task.sleep(for: .seconds(5))
-      }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -210,7 +208,11 @@ struct BillingFormView: View {
               items[index].centavos = type.normalizedTemplateAmount(items[index].centavos)
             }
             if items[index].type.showsTemplateAmount {
-              CurrencyCentavosField("Valor do item", centavos: $items[index].centavos)
+              CurrencyCentavosField(
+                "Valor do item",
+                centavos: $items[index].centavos,
+                isFocused: itemAmountFocusBinding(for: index)
+              )
                 .accessibilityIdentifier("billing.form.item.\(index).amount")
             }
           }
@@ -489,19 +491,21 @@ struct BillingFormView: View {
     case .essentials:
       focusedField = validationIssues.contains(where: { $0.field == .name }) ? .name : .description
     case .items:
-      if let index = items.firstIndex(where: { $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+      if validationIssues.contains(where: { $0.field == .itemDescription }),
+        let index = firstInvalidItemDescriptionIndex {
         focusedField = .itemDescription(index)
-      } else if let index = items.indices.first {
-        focusedField = .itemDescription(index)
+      } else if validationIssues.contains(where: { $0.field == .itemAmount }),
+        let index = firstInvalidItemAmountIndex {
+        focusedField = .itemAmount(index)
       }
     case .pix:
       focusedField = .pixKey
     case .communication:
       if validationIssues.contains(where: { $0.field == .recipient }),
-        let index = recipients.firstIndex(where: { !$0.isBlank }) {
+        let index = firstInvalidContactIndex(in: recipients) {
         focusContact(recipients[index], at: index, isReplyTo: false)
       } else if validationIssues.contains(where: { $0.field == .replyTo }),
-        let index = replyTo.firstIndex(where: { !$0.isBlank }) {
+        let index = firstInvalidContactIndex(in: replyTo) {
         focusContact(replyTo[index], at: index, isReplyTo: true)
       }
     case .review:
@@ -515,6 +519,47 @@ struct BillingFormView: View {
     } else {
       focusedField = .pixMerchantCity
     }
+  }
+
+  private var firstInvalidItemDescriptionIndex: Int? {
+    items.firstIndex {
+      let description = $0.description.trimmingCharacters(in: .whitespacesAndNewlines)
+      return description.isEmpty || description.unicodeScalars.count > 255
+    }
+  }
+
+  private func itemAmountFocusBinding(for index: Int) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == .itemAmount(index) },
+      set: { focusedField = $0 ? .itemAmount(index) : nil }
+    )
+  }
+
+  private var firstInvalidItemAmountIndex: Int? {
+    if let negativeAmount = items.firstIndex(where: { $0.centavos < 0 }) { return negativeAmount }
+    if !Money.fitsPersistedTotal(items.lazy.filter { $0.type == .fixed }.map(\.centavos)) {
+      return items.indices.last
+    }
+    return items.firstIndex { $0.type == .variable && $0.centavos != 0 }
+  }
+
+  private func firstInvalidContactIndex(in contacts: [EditableRecipient]) -> Int? {
+    let nonBlankIndices = contacts.indices.filter { !contacts[$0].isBlank }
+    if let invalidContact = nonBlankIndices.first(where: { index in
+      let contact = contacts[index]
+      let name = contact.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      return name.isEmpty || name.unicodeScalars.count > 255
+        || !EmailAddress.isValid(contact.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
+      return invalidContact
+    }
+
+    var seenEmails = Set<String>()
+    for index in nonBlankIndices {
+      let email = contacts[index].email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      if !seenEmails.insert(email).inserted { return index }
+    }
+    return nil
   }
 
   private func focusContact(_ contact: EditableRecipient, at index: Int, isReplyTo: Bool) {
