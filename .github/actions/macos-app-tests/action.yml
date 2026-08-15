@@ -1,5 +1,5 @@
 name: macOS app tests
-description: Build and unit-test the native macOS app against the RentivoCore package.
+description: Build and test the native macOS app against the RentivoCore package.
 
 runs:
   using: composite
@@ -38,11 +38,8 @@ runs:
         key: ${{ runner.os }}-macos-derived-${{ hashFiles('ios/Package.swift', 'macos/Rentivo.xcodeproj/project.pbxproj') }}
         restore-keys: |
           ${{ runner.os }}-macos-derived-
-    # CODE_SIGNING_ALLOWED=NO is enough here: the test bundle's TEST_HOST is the
-    # app itself running locally on the runner, so nothing needs an identity.
-    - name: Build and run the macOS app unit tests
+    # `make macos-test` keeps the unsigned unit-test build separate from the signed UI-test
+    # runner. The UI runner must be signed so XCTest can launch and drive the app.
+    - name: Build and run the macOS app tests
       shell: bash
-      run: |
-        xcodebuild -project macos/Rentivo.xcodeproj -scheme Rentivo \
-          -destination 'platform=macOS' \
-          test CODE_SIGNING_ALLOWED=NO
+      run: make macos-test

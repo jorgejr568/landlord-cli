@@ -11,7 +11,6 @@ struct BillingDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let billingID: BillingID
-  let onMutation: () async -> Void
 
   @State private var state: LoadState<BillingDetailData> = .idle
   @State private var showingEdit = false
@@ -38,8 +37,7 @@ struct BillingDetailView: View {
       if let billing = state.value?.billing {
         NavigationStack {
           BillingFormView(billing: billing) {
-            await load()
-            await onMutation()
+            app.invalidateData()
           }
         }
         .rentivoSheetFrame()
@@ -49,8 +47,7 @@ struct BillingDetailView: View {
       if let billing = state.value?.billing {
         NavigationStack {
           BillFormView(billing: billing) {
-            await load()
-            await onMutation()
+            app.invalidateData()
           }
         }
         .rentivoSheetFrame()
@@ -68,41 +65,28 @@ struct BillingDetailView: View {
     } message: {
       Text("Faturas, despesas e arquivos desta cobrança também serão removidos.")
     }
-    .navigationDestination(for: BillID.self) { billID in
-      BillDetailView(billingID: billingID, billID: billID) {
-        await load()
-        await onMutation()
-      }
-    }
     .task(id: app.dataRevision) { await load() }
   }
 
   private func detail(_ data: BillingDetailData) -> some View {
     ScrollView {
       VStack(alignment: .leading, spacing: RentivoSpacing.section) {
-        // A wide window puts the cobrança's own record — identity, recurring items, money,
-        // operations, recipients — next to the faturas it produced, rather than making the user
-        // scroll past all of it to reach the list they came for.
-        BillingAdaptiveColumns {
-          summaryCard(data.billing)
-          lineItems(data.billing.items)
-          financialSummary(data)
-          BillingOperationsLinks(
-            billingID: billingID,
-            capabilities: data.billing.capabilities
-          ) {
-            await load()
-            await onMutation()
-          }
-          recipients(data.billing)
-        } trailing: {
-          bills(data)
-        }
+        summaryCard(data.billing)
+          .accessibilityIdentifier("billing.detail")
+        lineItems(data.billing.items)
+        financialSummary(data)
+        BillingOperationsLinks(
+          billingID: billingID,
+          capabilities: data.billing.capabilities
+        )
+        recipients(data.billing)
+        bills(data)
 
         footerActions(data.billing)
       }
       .padding(RentivoSpacing.page)
     }
+    .accessibilityIdentifier("billing.detail.scroll")
   }
 
   private func summaryCard(_ billing: Billing) -> some View {
@@ -202,7 +186,9 @@ struct BillingDetailView: View {
           .foregroundStyle(RentivoColors.secondaryInk)
       } else {
         ForEach(data.bills) { bill in
-          NavigationLink(value: bill.id) {
+          NavigationLink {
+            BillDetailView(billingID: billingID, billID: bill.id)
+          } label: {
             RentivoCard {
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.small) {
@@ -306,7 +292,7 @@ struct BillingDetailView: View {
     do {
       try await app.dependencies.billings.deleteBilling(id: billingID)
       app.showNotice("Cobrança excluída.")
-      await onMutation()
+      app.invalidateData()
       dismiss()
     } catch {
       app.reportFailure(error)

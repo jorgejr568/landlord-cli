@@ -178,7 +178,8 @@ macos-run: macos-build
 	open -n "$$($(MACOS_XCODEBUILD) -configuration Debug -showBuildSettings 2>/dev/null | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p' | head -1)/Rentivo.app"
 
 macos-test:
-	$(MACOS_XCODEBUILD) -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
+	$(MACOS_XCODEBUILD) -destination 'platform=macOS' -only-testing:RentivoMacTests test CODE_SIGNING_ALLOWED=NO
+	$(MACOS_XCODEBUILD) -destination 'platform=macOS' -only-testing:RentivoMacUITests test
 
 macos-dmg:
 	./scripts/macos-dmg.sh

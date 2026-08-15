@@ -120,12 +120,13 @@ struct OrganizationListView: View {
           }
           ForEach(organizations) { item in
             NavigationLink {
-              OrganizationDetailView(organizationID: item.id) { await load() }
+              OrganizationDetailView(organizationID: item.id)
             } label: {
               OrganizationCard(item: item)
             }
             .buttonStyle(.plain)
             .rentivoHoverLift()
+            .accessibilityIdentifier("organization.card.\(item.id.rawValue)")
           }
         }
         .padding(RentivoSpacing.page)
@@ -370,7 +371,6 @@ struct OrganizationDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let organizationID: OrganizationID
-  let onMutation: () async -> Void
   @State private var state: LoadState<Organization> = .idle
   @State private var billingsByWorkspace: [WorkspaceID: [Billing]] = [:]
   @State private var personalBillings: [Billing] = []
@@ -403,7 +403,7 @@ struct OrganizationDetailView: View {
     .sheet(isPresented: $showingEdit) {
       if let organization = state.value {
         NavigationStack {
-          OrganizationFormView(organization: organization) { await refreshAll() }
+          OrganizationFormView(organization: organization) { refreshAll() }
         }
         .rentivoSheetFrame()
       }
@@ -411,7 +411,7 @@ struct OrganizationDetailView: View {
     .sheet(isPresented: $showingInvite) {
       if let organization = state.value {
         NavigationStack {
-          InviteMemberView(organization: organization) { await refreshAll() }
+          InviteMemberView(organization: organization) { refreshAll() }
         }
         .rentivoSheetFrame()
       }
@@ -447,6 +447,7 @@ struct OrganizationDetailView: View {
             )
           }
         }
+        .accessibilityIdentifier("organization.detail")
 
         memberSection(organization)
         policySection(organization)
@@ -625,9 +626,8 @@ struct OrganizationDetailView: View {
     }
   }
 
-  private func refreshAll() async {
-    await load()
-    await onMutation()
+  private func refreshAll() {
+    app.invalidateData()
   }
 
   // Each mutation below claims `runningAction` for the length of its round trip and the reload
@@ -644,7 +644,7 @@ struct OrganizationDetailView: View {
         userID: member.userID,
         role: role
       )
-      await refreshAll()
+      refreshAll()
     } catch { app.reportFailure(error) }
   }
 
@@ -655,7 +655,7 @@ struct OrganizationDetailView: View {
     do {
       try await app.dependencies.organizations.removeMember(
         organizationID: organizationID, userID: member.userID)
-      await refreshAll()
+      refreshAll()
     } catch { app.reportFailure(error) }
   }
 
@@ -668,7 +668,7 @@ struct OrganizationDetailView: View {
         organizationID: organizationID,
         required: !organization.requiresMFA
       )
-      await refreshAll()
+      refreshAll()
     } catch { app.reportFailure(error) }
   }
 
@@ -681,7 +681,7 @@ struct OrganizationDetailView: View {
         billingID: billing.id,
         toOrganizationID: organization.id
       )
-      await refreshAll()
+      refreshAll()
     } catch { app.reportFailure(error) }
   }
 
@@ -691,7 +691,7 @@ struct OrganizationDetailView: View {
     defer { runningAction = nil }
     do {
       try await app.dependencies.organizations.deleteOrganization(id: organizationID)
-      await onMutation()
+      app.invalidateData()
       dismiss()
     } catch { app.reportFailure(error) }
   }

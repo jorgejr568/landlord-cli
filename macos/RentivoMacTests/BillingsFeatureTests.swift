@@ -1,28 +1,8 @@
 import Foundation
 import RentivoCore
-import SwiftUI
 import Testing
 
 @testable import Rentivo
-
-@Suite("Cobrança adaptive columns")
-struct BillingAdaptiveColumnsTests {
-  @Test("a width at the breakpoint uses two columns")
-  func breakpointIsHorizontal() {
-    #expect(BillingAdaptiveLayout.axis(for: 880, breakpoint: 880) == .horizontal)
-  }
-
-  @Test("a narrow width stacks the columns")
-  func narrowWidthIsVertical() {
-    #expect(BillingAdaptiveLayout.axis(for: 879, breakpoint: 880) == .vertical)
-  }
-
-  @Test("an unusable width stacks safely")
-  func unusableWidthIsVertical() {
-    #expect(BillingAdaptiveLayout.axis(for: nil, breakpoint: 880) == .vertical)
-    #expect(BillingAdaptiveLayout.axis(for: .infinity, breakpoint: 880) == .vertical)
-  }
-}
 
 private func makeBilling(
   name: String = "Aurora 101",
