@@ -1020,7 +1020,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun listAPIKeys(): List<APIKeyMetadata> {
     prepareOperation()
     if (emptyModeEnabled) return emptyList()
-    return apiKeysState.filter { it.revokedAt == null }
+    return apiKeysState.toList()
   }
 
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {
@@ -1078,7 +1078,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun revokeAPIKey(id: APIKeyID) {
     prepareOperation()
     requireWriteAccess()
-    val index = apiKeysState.indexOfFirst { it.id == id }
+    val index = apiKeysState.indexOfFirst { it.id == id && it.revokedAt == null }
     if (index < 0) throw DemoError.resourceNotFound
     apiKeysState[index] = apiKeysState[index].copy(revokedAt = Instant.now())
     recordActivity(

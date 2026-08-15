@@ -475,6 +475,19 @@ import Testing
   #expect(!String(describing: metadata).contains(created.secret))
 }
 
+@Test @MainActor func revokedAPIKeyRemainsInHistoryAndCannotBeRevokedAgain() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let key = try #require(try await store.listAPIKeys().first)
+
+  try await store.revokeAPIKey(id: key.id)
+
+  let revoked = try #require(try await store.listAPIKeys().first { $0.id == key.id })
+  #expect(revoked.revokedAt != nil)
+  await #expect(throws: DemoError.resourceNotFound) {
+    try await store.revokeAPIKey(id: key.id)
+  }
+}
+
 @Test @MainActor func apiKeyMetadataCanBeUpdatedWithoutRotatingSecret() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let key = try #require(try await store.listAPIKeys().first)

@@ -89,9 +89,7 @@ import Testing
 }
 
 @MainActor
-@Test func liveListAPIKeysHidesRevokedKeysLikeTheMock() async throws {
-  // Regression test: the server returns revoked integration keys too; the mock filters them out
-  // and the live store must match.
+@Test func liveListAPIKeysPreservesRevokedKeyHistory() async throws {
   let credentials = MemoryCredentialStore(token: "stored-token")
   let client = LiveAPIClient(session: profileSession(), credentials: credentials)
   let store = APIRentivoStore(client: client)
@@ -99,7 +97,9 @@ import Testing
   _ = try #require(try await store.restoreSession())
   let keys = try await store.listAPIKeys()
 
-  #expect(keys.map(\.name) == ["Ativa"])
+  #expect(keys.map(\.name) == ["Ativa", "Revogada"])
+  #expect(keys[0].revokedAt == nil)
+  #expect(keys[1].revokedAt != nil)
 }
 
 @MainActor

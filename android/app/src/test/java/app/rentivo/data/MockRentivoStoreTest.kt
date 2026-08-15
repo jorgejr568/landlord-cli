@@ -510,6 +510,21 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun revokedAPIKeyRemainsInHistoryAndCannotBeRevokedAgain() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val key = store.listAPIKeys().first()
+
+    store.revokeAPIKey(key.id)
+
+    val revoked = store.listAPIKeys().first { it.id == key.id }
+    assertNotNull(revoked.revokedAt)
+    assertEquals(
+      DemoError.resourceNotFound,
+      runCatching { store.revokeAPIKey(key.id) }.exceptionOrNull(),
+    )
+  }
+
+  @Test
   fun apiKeyMetadataCanBeUpdatedWithoutRotatingSecret() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val key = store.listAPIKeys().first()

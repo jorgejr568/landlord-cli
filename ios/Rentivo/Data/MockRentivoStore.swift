@@ -861,7 +861,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     try await prepareOperation()
     guard !emptyMode else { return [] }
-    return snapshot.apiKeys.filter { $0.revokedAt == nil }
+    return snapshot.apiKeys
   }
 
   public func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret {
@@ -910,7 +910,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func revokeAPIKey(id: APIKeyID) async throws {
     try await prepareOperation()
     try requireWriteAccess()
-    guard let index = snapshot.apiKeys.firstIndex(where: { $0.id == id }) else {
+    guard let index = snapshot.apiKeys.firstIndex(where: { $0.id == id && $0.revokedAt == nil }) else {
       throw DemoError.resourceNotFound
     }
     snapshot.apiKeys[index].revokedAt = Date()

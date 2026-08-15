@@ -451,8 +451,8 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     let response: RemoteAPIKeyList = try await decode(path: "/api/v1/api-keys")
-    // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
-    return try response.items.filter { $0.revokedAt == nil }.map(apiKey(from:))
+    // Revoked integrations remain visible as immutable history, matching the web client.
+    return try response.items.map(apiKey(from:))
   }
   public func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret {
     let response: RemoteCreatedAPIKey = try await decode(

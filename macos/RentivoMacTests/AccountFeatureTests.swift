@@ -130,14 +130,17 @@ struct APIKeyLifecycleTests {
     #expect(keys.contains { $0.id == created.metadata.id })
   }
 
-  @Test("revoking a key removes it from the list")
-  func revokingAKeyRemovesItFromTheList() async throws {
+  @Test("revoking a key preserves it as revoked history")
+  func revokingAKeyPreservesItAsRevokedHistory() async throws {
     let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
     let key = try #require(await app.dependencies.apiKeys.listAPIKeys().first)
 
     try await app.dependencies.apiKeys.revokeAPIKey(id: key.id)
 
-    #expect(try await app.dependencies.apiKeys.listAPIKeys().contains { $0.id == key.id } == false)
+    let revoked = try #require(
+      try await app.dependencies.apiKeys.listAPIKeys().first { $0.id == key.id }
+    )
+    #expect(revoked.revokedAt != nil)
   }
 
   @Test("demo viewer mode refuses to create or revoke keys")

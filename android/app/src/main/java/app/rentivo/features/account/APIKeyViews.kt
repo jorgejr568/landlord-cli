@@ -213,7 +213,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
           items(items = keys, key = { it.id.rawValue }) { key ->
             APIKeyCard(
               key = key,
-              showsActions = !isDemoViewerLocked,
+              showsActions = !isDemoViewerLocked && key.revokedAt == null,
               onEdit = { editingKey = key },
               onRevoke = { keyPendingRevoke = key },
             )
@@ -287,7 +287,20 @@ private fun APIKeyCard(
 ) {
   RentivoCard {
     Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
-      Text(text = key.name, style = RentivoTypography.cardTitle, color = RentivoColors.ink)
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(text = key.name, style = RentivoTypography.cardTitle, color = RentivoColors.ink)
+        if (key.revokedAt != null) {
+          Text(
+            text = "Revogada",
+            style = RentivoTypography.caption.copy(fontWeight = FontWeight.SemiBold),
+            color = RentivoColors.coral,
+            modifier = Modifier.testTag("api-key.revoked"),
+          )
+        }
+      }
       Row(
         horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
         verticalAlignment = Alignment.CenterVertically,

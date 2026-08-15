@@ -212,15 +212,13 @@ class APIRentivoStoreProfileTest {
   }
 
   @Test
-  fun `listing api keys hides revoked keys like the mock`() = runTest {
-    // Regression test: the server returns revoked integration keys too; the mock filters them out
-    // and the live store must match.
+  fun `listing api keys preserves revoked key history`() = runTest {
     profileRoutes()
     val store = authenticatedStore()
 
     val keys = store.listAPIKeys()
 
-    assertEquals(listOf("Ativa"), keys.map { it.name })
+    assertEquals(listOf("Ativa", "Revogada"), keys.map { it.name })
     // Unknown scopes and grants with no resource id are dropped rather than failing the decode.
     assertEquals(setOf(APIKeyScope.PROFILE_READ), keys.first().scopes)
     assertEquals(
@@ -228,6 +226,7 @@ class APIRentivoStoreProfileTest {
       keys.first().grants,
     )
     assertNull(keys.first().revokedAt)
+    assertNotNull(keys.last().revokedAt)
   }
 
   @Test

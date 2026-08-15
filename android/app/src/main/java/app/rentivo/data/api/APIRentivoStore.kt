@@ -746,8 +746,8 @@ class APIRentivoStore(private val client: LiveAPIClient) :
 
   override suspend fun listAPIKeys(): List<APIKeyMetadata> {
     val response = decode<RemoteAPIKeyList>(path = "/api/v1/api-keys")
-    // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
-    return response.items.filter { it.revokedAt == null }.map(::apiKey)
+    // Revoked integrations remain visible as immutable history, matching the web client.
+    return response.items.map(::apiKey)
   }
 
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {

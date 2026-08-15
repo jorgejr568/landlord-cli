@@ -59,7 +59,7 @@ struct APIKeyListView: View {
           ForEach(keys) { key in
             APIKeyCard(
               key: key,
-              showsActions: !isDemoViewerLocked,
+              showsActions: !isDemoViewerLocked && key.revokedAt == nil,
               onEdit: { editingKey = key },
               onRevoke: { keyPendingRevoke = key }
             )
@@ -157,10 +157,18 @@ private struct APIKeyCard: View {
     RentivoCard {
       VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
         VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-          Text(key.name)
-            .font(RentivoTypography.cardTitle)
-            .foregroundStyle(RentivoColors.ink)
-            .multilineTextAlignment(.leading)
+          HStack(alignment: .firstTextBaseline, spacing: RentivoSpacing.small) {
+            Text(key.name)
+              .font(RentivoTypography.cardTitle)
+              .foregroundStyle(RentivoColors.ink)
+              .multilineTextAlignment(.leading)
+            if key.revokedAt != nil {
+              Text("Revogada")
+                .font(RentivoTypography.caption.weight(.semibold))
+                .foregroundStyle(RentivoColors.coral)
+                .accessibilityIdentifier("api-key.revoked")
+            }
+          }
           Label(key.hint, systemImage: "key.fill")
             .font(RentivoTypography.monoSmall)
             .foregroundStyle(RentivoColors.secondaryInk)
