@@ -81,6 +81,19 @@ struct BillingFormView: View {
     }
   }
 
+  private enum FocusedField: Hashable {
+    case name
+    case description
+    case itemDescription(Int)
+    case pixKey
+    case pixMerchantName
+    case pixMerchantCity
+    case recipientName(Int)
+    case recipientEmail(Int)
+    case replyToName(Int)
+    case replyToEmail(Int)
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   private let billing: Billing?
@@ -105,6 +118,7 @@ struct BillingFormView: View {
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded: Bool
+  @FocusState private var focusedField: FocusedField?
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -127,8 +141,8 @@ struct BillingFormView: View {
       descriptors: Step.allCases.map { RentivoWizardStepDescriptor(id: $0, title: $0.title) },
       selectedStep: $step,
       isDirty: isDirty,
-      isBusy: saving,
-      primaryTitle: step == .review ? "Salvar cobrança" : "Continuar",
+      isBusy: isPrimaryActionBusy,
+      primaryTitle: primaryActionTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
     ) { step in
@@ -137,6 +151,9 @@ struct BillingFormView: View {
     .interactiveDismissDisabled(saving)
     .task {
       guard billing == nil else { return }
+      if ProcessInfo.processInfo.arguments.contains("--ui-testing-delay-organizations") {
+        try? await Task.sleep(for: .seconds(5))
+      }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -148,8 +165,10 @@ struct BillingFormView: View {
     case .essentials:
       RentivoWizardSection("Identificação", subtitle: "Defina a cobrança e seu responsável.") {
         TextField("Nome", text: $name)
+          .focused($focusedField, equals: .name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
+          .focused($focusedField, equals: .description)
           .lineLimit(2...4)
         if billing == nil {
           Picker("Responsável", selection: $ownerID) {
@@ -178,6 +197,7 @@ struct BillingFormView: View {
               .accessibilityIdentifier("billing.form.item.\(index).remove")
             }
             TextField("Descrição do item", text: $items[index].description)
+              .focused($focusedField, equals: .itemDescription(index))
               .accessibilityIdentifier("billing.form.item.\(index).description")
             Picker("Tipo", selection: $items[index].type) {
               ForEach(BillingItemType.allCases, id: \.self) { type in
@@ -214,12 +234,15 @@ struct BillingFormView: View {
     case .pix:
       RentivoWizardSection("PIX opcional", subtitle: "Deixe em branco para herdar o PIX do responsável.") {
         TextField("Chave PIX própria", text: $pixKey)
+          .focused($focusedField, equals: .pixKey)
           .textInputAutocapitalization(.never)
           .accessibilityIdentifier("billing.form.pix.key")
         if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           TextField("Nome do recebedor", text: $pixMerchantName)
+            .focused($focusedField, equals: .pixMerchantName)
             .accessibilityIdentifier("billing.form.pix.merchantName")
           TextField("Cidade do recebedor", text: $pixMerchantCity)
+            .focused($focusedField, equals: .pixMerchantCity)
             .textInputAutocapitalization(.characters)
             .accessibilityIdentifier("billing.form.pix.merchantCity")
         }
@@ -241,8 +264,10 @@ struct BillingFormView: View {
                 .accessibilityIdentifier("billing.form.recipient.\(index).remove")
               }
               TextField("Nome do destinatário", text: $recipients[index].name)
+                .focused($focusedField, equals: .recipientName(index))
                 .accessibilityIdentifier("billing.form.recipient.\(index).name")
               TextField("E-mail do destinatário", text: $recipients[index].email)
+                .focused($focusedField, equals: .recipientEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -271,8 +296,10 @@ struct BillingFormView: View {
                 .accessibilityIdentifier("billing.form.reply-to.\(index).remove")
               }
               TextField("Nome para resposta", text: $replyTo[index].name)
+                .focused($focusedField, equals: .replyToName(index))
                 .accessibilityIdentifier("billing.form.reply-to.\(index).name")
               TextField("E-mail para resposta", text: $replyTo[index].email)
+                .focused($focusedField, equals: .replyToEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -348,6 +375,15 @@ struct BillingFormView: View {
 
   private var selectedOwner: BillingOwner? {
     billing?.owner ?? ownerChoices.first(where: { $0.id == ownerID })
+  }
+
+  private var isPrimaryActionBusy: Bool {
+    saving || !organizationsLoaded
+  }
+
+  private var primaryActionTitle: String {
+    if !organizationsLoaded { return "Carregando responsáveis…" }
+    return step == .review ? "Salvar cobrança" : "Continuar"
   }
 
   private var fixedSubtotal: Money {
@@ -429,7 +465,11 @@ struct BillingFormView: View {
   private func validatePIX() -> Bool {
     pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
     let isValid = validate(fields: [.pix])
-    return isValid && pixRecipientRequiredMessage == nil
+    guard isValid && pixRecipientRequiredMessage == nil else {
+      if isValid { focusPIXRecipientField() }
+      return false
+    }
+    return true
   }
 
   private func validateCommunication() -> Bool {
@@ -440,7 +480,51 @@ struct BillingFormView: View {
     validationIssues = currentDraft()?.validate().filter { fields.contains($0.field) } ?? [
       ValidationIssue(field: .name, message: "Não foi possível confirmar o responsável.")
     ]
+    if !validationIssues.isEmpty { focusFirstInvalidControl() }
     return validationIssues.isEmpty
+  }
+
+  private func focusFirstInvalidControl() {
+    switch step {
+    case .essentials:
+      focusedField = validationIssues.contains(where: { $0.field == .name }) ? .name : .description
+    case .items:
+      if let index = items.firstIndex(where: { $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+        focusedField = .itemDescription(index)
+      } else if let index = items.indices.first {
+        focusedField = .itemDescription(index)
+      }
+    case .pix:
+      focusedField = .pixKey
+    case .communication:
+      if validationIssues.contains(where: { $0.field == .recipient }),
+        let index = recipients.firstIndex(where: { !$0.isBlank }) {
+        focusContact(recipients[index], at: index, isReplyTo: false)
+      } else if validationIssues.contains(where: { $0.field == .replyTo }),
+        let index = replyTo.firstIndex(where: { !$0.isBlank }) {
+        focusContact(replyTo[index], at: index, isReplyTo: true)
+      }
+    case .review:
+      break
+    }
+  }
+
+  private func focusPIXRecipientField() {
+    if pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      focusedField = .pixMerchantName
+    } else {
+      focusedField = .pixMerchantCity
+    }
+  }
+
+  private func focusContact(_ contact: EditableRecipient, at index: Int, isReplyTo: Bool) {
+    let missingName = contact.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    switch (isReplyTo, missingName) {
+    case (false, true): focusedField = .recipientName(index)
+    case (false, false): focusedField = .recipientEmail(index)
+    case (true, true): focusedField = .replyToName(index)
+    case (true, false): focusedField = .replyToEmail(index)
+    }
   }
 
   private var pixRecipientRequiredMessageForCurrentFields: String? {

@@ -11,13 +11,35 @@ final class BillingWizardUITests: XCTestCase {
     app.tabBars.buttons["Cobranças"].tap()
     app.buttons["billing.create"].tap()
     XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
-    app.buttons["wizard.continue"].tap()
+    let continueButton = app.buttons["wizard.continue"]
+    XCTAssertTrue(waitForEnabled(continueButton))
+    continueButton.tap()
     XCTAssertTrue(app.staticTexts["Informe o nome da cobrança."].exists)
   }
 
-  private func launchAndSignIn() -> XCUIApplication {
+  func testBillingWizardFocusesNameWhenEssentialsAreInvalid() throws {
+    let app = launchAndSignIn()
+    app.tabBars.buttons["Cobranças"].tap()
+    app.buttons["billing.create"].tap()
+    let continueButton = app.buttons["wizard.continue"]
+    XCTAssertTrue(waitForEnabled(continueButton))
+    continueButton.tap()
+
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 2))
+  }
+
+  func testBillingWizardWaitsForOwnerChoicesBeforeContinuing() throws {
+    let app = launchAndSignIn(arguments: ["--ui-testing", "--ui-testing-delay-organizations"])
+    app.tabBars.buttons["Cobranças"].tap()
+    app.buttons["billing.create"].tap()
+
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
+    XCTAssertFalse(app.buttons["wizard.continue"].isEnabled)
+  }
+
+  private func launchAndSignIn(arguments: [String] = ["--ui-testing"]) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing"]
+    app.launchArguments = arguments
     app.launch()
 
     let email = app.textFields["login.email"]
@@ -36,5 +58,13 @@ final class BillingWizardUITests: XCTestCase {
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
+  }
+
+  private func waitForEnabled(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "isEnabled == true"),
+      object: element
+    )
+    return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }
 }
