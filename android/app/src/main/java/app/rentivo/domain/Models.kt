@@ -29,6 +29,18 @@ sealed class LoadState<out Value> {
   }
 }
 
+/** Pure state transition used by forms to make a second submit a no-op until the first completes. */
+data class FormSubmitState(val isSubmitting: Boolean) {
+  fun start(): FormSubmitState = if (isSubmitting) this else submitting
+
+  fun finish(): FormSubmitState = idle
+
+  companion object {
+    val idle = FormSubmitState(isSubmitting = false)
+    val submitting = FormSubmitState(isSubmitting = true)
+  }
+}
+
 /**
  * Kotlin analogue of Swift's `LocalizedError`: an error that carries user-facing PT-BR copy.
  * [DemoError.from] preserves the description of anything implementing it (notably `LiveAPIError`)
@@ -213,19 +225,66 @@ data class UserProfile(
   val pix: PixConfiguration? = null,
 )
 
+/** Bcrypt's public input boundary is 72 encoded bytes, not 72 Unicode characters. */
+object PasswordInput {
+  const val MAX_BCRYPT_UTF8_BYTES = 72
+  private const val TOO_LONG_MESSAGE = "A senha deve ter no máximo 72 bytes UTF-8."
+
+  fun validationMessage(value: String): String? =
+    TOO_LONG_MESSAGE.takeIf { value.toByteArray(Charsets.UTF_8).size > MAX_BCRYPT_UTF8_BYTES }
+
+  fun validationMessage(vararg values: String): String? =
+    values.firstNotNullOfOrNull(::validationMessage)
+}
+
+object TOTPCodeRule {
+  private val sixDigits = Regex("^[0-9]{6}$")
+
+  fun validationMessage(value: String): String? =
+    "Informe um código de seis dígitos.".takeUnless { sixDigits.matches(value) }
+}
+
+/** Shared lossless PIX form boundary: only an entirely empty or entirely complete triple is valid. */
+data class PixFormFields(
+  val key: String,
+  val merchantName: String,
+  val merchantCity: String,
+) {
+  private val normalizedValues: List<String>
+    get() = listOf(key.trim(), merchantName.trim(), merchantCity.trim())
+
+  val isValid: Boolean
+    get() = normalizedValues.all(String::isEmpty) || normalizedValues.all(String::isNotEmpty)
+
+  val validationMessage: String?
+    get() = if (isValid) null else "Informe a chave, o nome e a cidade do recebedor para usar PIX."
+
+  val configuration: PixConfiguration?
+    get() = normalizedValues.takeIf { isValid && it.first().isNotEmpty() }?.let { values ->
+      PixConfiguration(key = values[0], merchantName = values[1], merchantCity = values[2])
+    }
+}
+
 data class ProfilePIXForm(
   var key: String,
   var merchantName: String,
   var merchantCity: String,
 ) {
-  val configuration: PixConfiguration
-    get() = PixConfiguration(key = key, merchantName = merchantName, merchantCity = merchantCity)
+  /** An empty triple explicitly clears PIX; a partial triple deliberately has no payload. */
+  val configuration: PixConfiguration?
+    get() = fields.configuration
+
+  val validationMessage: String?
+    get() = fields.validationMessage
+
+  private val fields: PixFormFields
+    get() = PixFormFields(key = key, merchantName = merchantName, merchantCity = merchantCity)
 
   val isSavable: Boolean
     get() {
       val normalizedName = merchantName.trim()
       val normalizedCity = merchantCity.trim()
-      return (configuration.isEmpty || configuration.isComplete) &&
+      return fields.isValid &&
         normalizedName.codePointCount(0, normalizedName.length) <= 25 &&
         normalizedCity.codePointCount(0, normalizedCity.length) <= 15
     }

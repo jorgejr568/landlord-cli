@@ -174,6 +174,7 @@ private struct ExpenseFormView: View {
   var body: some View {
     Form {
       TextField("Descrição", text: $description)
+        .textInputAutocapitalization(.sentences)
       CurrencyCentavosField("Valor em centavos", centavos: $centavos)
       Picker("Categoria", selection: $category) {
         ForEach(ExpenseCategory.allCases, id: \.self) { category in
@@ -238,6 +239,7 @@ struct AttachmentListView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingFileImporter = false
   @State private var pendingDeletion: Attachment?
+  @State private var isUploading = false
 
   var body: some View {
     PageStateView(state: state) { attachments in
@@ -291,6 +293,7 @@ struct AttachmentListView: View {
         } label: {
           Label("Adicionar", systemImage: "plus")
         }
+        .disabled(isUploading)
       }
     }
     .downloadedFileSheet($downloadedFile)
@@ -329,10 +332,13 @@ struct AttachmentListView: View {
   }
 
   private func add(fileURL: URL) async {
+    guard !isUploading else { return }
+    isUploading = true
+    defer { isUploading = false }
     do {
-      let accessGranted = fileURL.startAccessingSecurityScopedResource()
-      defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
-      let upload = try FileUpload.from(url: fileURL)
+      let upload = try await FileUpload.fromSecurityScoped(
+        url: fileURL, policy: .rentivoDocument
+      )
       _ = try await app.dependencies.attachments.addAttachment(
         billingID: billingID,
         upload: upload
@@ -397,11 +403,13 @@ struct CommunicationComposerView: View {
   @State private var message: String
   @State private var saveScope: CommunicationSaveScope?
   @State private var isSending = false
+  @State private var confirmingDiscard = false
   /// Why the last send attempt failed, be it the local recipient check or a server rejection.
   /// The composer is presented in a sheet and the global notice banner renders behind it, so the
   /// message has to stay inline.
   @State private var sendErrorMessage: String?
   @State private var appliedTemplateType: CommunicationType
+  private let initialDraftState: NativeCommunicationDraftState
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -410,8 +418,14 @@ struct CommunicationComposerView: View {
     _commType = State(initialValue: initialType)
     _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
     let template = billing.template(for: initialType)
-    _subject = State(initialValue: template?.subject ?? "")
-    _message = State(initialValue: template?.body ?? "")
+    let subject = template?.subject ?? ""
+    let message = template?.body ?? ""
+    initialDraftState = NativeCommunicationDraftState(
+      commType: initialType, selectedRecipients: Set(billing.recipients.map(\.id)),
+      subject: subject, message: message, saveScope: nil
+    )
+    _subject = State(initialValue: subject)
+    _message = State(initialValue: message)
     _appliedTemplateType = State(initialValue: initialType)
   }
 
@@ -431,7 +445,11 @@ struct CommunicationComposerView: View {
       isSending: isSending,
       hasSelectedRecipients: !selectedRecipients.isEmpty,
       isRenderingPDF: bill.isRenderingPDF
-    ) || !availableTypes.contains(commType)
+    ) || !bill.capabilities.canCompose || !availableTypes.contains(commType) || !formIssues.isEmpty
+  }
+
+  private var formIssues: [ValidationIssue] {
+    CommunicationFormRules.issues(subject: subject, body: message)
   }
 
   private var attachmentDescription: String {
@@ -476,12 +494,25 @@ struct CommunicationComposerView: View {
 
         Section {
           TextField("Assunto", text: $subject)
+            .accessibilityIdentifier("comm.subject")
           TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
             .lineLimit(5...12)
+            .accessibilityIdentifier("comm.body")
+          ForEach(formIssues, id: \.self) { issue in
+            Label(issue.message, systemImage: "exclamationmark.circle.fill")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.coral)
+          }
         } header: {
           Text("Mensagem")
         } footer: {
-          Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+          VStack(alignment: .leading) {
+            Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
+            Text(
+              "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+            )
+            .monospacedDigit()
+          }
         }
 
         Section {
@@ -529,12 +560,27 @@ struct CommunicationComposerView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
           .disabled(isSending)
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .interactiveDismissDisabled(isSending)
+    .interactiveDismissDisabled(isSending || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeCommunicationDraftState(
+      commType: commType, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: saveScope
+    ).hasChanges(from: initialDraftState)
   }
 
   private var ownerScopeLabel: String {
@@ -568,8 +614,8 @@ struct CommunicationComposerView: View {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
-    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
-      sendErrorMessage = message
+    guard formIssues.isEmpty, bill.capabilities.canCompose, availableTypes.contains(commType) else {
+      sendErrorMessage = formIssues.first?.message ?? "Esta comunicação não está disponível agora."
       return
     }
     let normalizedSubject = CommunicationContent.normalizedSubject(subject)

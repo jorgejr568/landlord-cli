@@ -97,6 +97,7 @@ import app.rentivo.designsystem.ptBRCount
 import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.Billing
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.FormSubmitState
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationDraft
@@ -104,6 +105,7 @@ import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PixConfiguration
+import app.rentivo.domain.PixFormFields
 import app.rentivo.domain.ThemeTarget
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -401,7 +403,18 @@ fun OrganizationFormView(
   var merchantName by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantName ?: "") }
   var city by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantCity ?: "") }
   var pixValidationMessage: String? by remember(existing?.id) { mutableStateOf(null) }
+  var submitState by remember(existing?.id) { mutableStateOf(FormSubmitState.idle) }
   val mutationGate = remember(existing?.id) { MutationGate() }
+  var confirmingDiscard by remember(existing?.id) { mutableStateOf(false) }
+  val hasUnsavedChanges = name != existing?.name.orEmpty() ||
+    pixKey != existing?.pix?.key.orEmpty() ||
+    merchantName != existing?.pix?.merchantName.orEmpty() ||
+    city != existing?.pix?.merchantCity.orEmpty()
+
+  fun requestDismiss() {
+    if (mutationGate.isRunning) return
+    if (hasUnsavedChanges) confirmingDiscard = true else onDismiss()
+  }
 
   suspend fun save() {
     val trimmedKey = pixKey.trim()
@@ -418,15 +431,11 @@ fun OrganizationFormView(
       city = trimmedCity,
     )
     if (pixValidationMessage != null) return
-    val pix = if (trimmedKey.isEmpty()) {
-      null
-    } else {
-      PixConfiguration(
-        key = trimmedKey,
-        merchantName = trimmedMerchantName,
-        merchantCity = trimmedCity,
-      )
-    }
+    val pix = PixFormFields(
+      key = trimmedKey,
+      merchantName = trimmedMerchantName,
+      merchantCity = trimmedCity,
+    ).configuration
     val draft = OrganizationDraft(name = name, pix = pix)
     if (!draft.isValid) return
     try {
@@ -442,10 +451,12 @@ fun OrganizationFormView(
       throw cancellation
     } catch (throwable: Throwable) {
       app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+    } finally {
+      submitState = submitState.finish()
     }
   }
 
-  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+  BackHandler { requestDismiss() }
 
   Scaffold(
     modifier = Modifier.fillMaxSize(),
@@ -457,7 +468,7 @@ fun OrganizationFormView(
         confirmEnabled = !mutationGate.isRunning && OrganizationDraft(name = name, pix = null).isValid,
         confirmTestTag = "organization.form.save",
         cancelEnabled = !mutationGate.isRunning,
-        onCancel = onDismiss,
+        onCancel = ::requestDismiss,
         onConfirm = { scope.launch { mutationGate.run { save() } } },
       )
     },
@@ -530,6 +541,23 @@ fun OrganizationFormView(
         )
       }
     }
+  }
+
+  if (confirmingDiscard) {
+    AlertDialog(
+      onDismissRequest = { confirmingDiscard = false },
+      title = { Text("Descartar as alterações?") },
+      text = { Text("As alterações não salvas serão perdidas.") },
+      confirmButton = {
+        TextButton(onClick = { confirmingDiscard = false; onDismiss() }) {
+          Text("Descartar", color = RentivoColors.coral)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmingDiscard = false }) { Text("Continuar editando") }
+      },
+      containerColor = RentivoColors.surface,
+    )
   }
 }
 

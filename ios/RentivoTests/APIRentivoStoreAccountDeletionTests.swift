@@ -24,6 +24,52 @@ import Testing
   #expect(await credentials.readAccessToken() == nil)
 }
 
+@MainActor
+@Test func accountDeletionReadinessDecodesBlockingReason() async throws {
+  let client = LiveAPIClient(
+    session: accountDeletionReadinessSession(), credentials: MemoryCredentialStore(token: "stored-token"))
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  let readiness = try await store.accountDeletionReadiness()
+
+  #expect(readiness.canDelete == false)
+  #expect(readiness.reason == .soleOrganizationAdmin)
+  #expect(AccountDeletionReadinessURLProtocol.recordedMethod == "GET")
+}
+
+private func accountDeletionReadinessSession() -> URLSession {
+  AccountDeletionReadinessURLProtocol.recordedMethod = nil
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [AccountDeletionReadinessURLProtocol.self]
+  return URLSession(configuration: configuration)
+}
+
+private final class AccountDeletionReadinessURLProtocol: URLProtocol, @unchecked Sendable {
+  nonisolated(unsafe) static var recordedMethod: String?
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isRestore = request.url?.path == "/api/v1/auth/session"
+    if !isRestore { Self.recordedMethod = request.httpMethod }
+    let status = isRestore || request.url?.path == "/api/v1/security/account-deletion-readiness" ? 200 : 500
+    let body = isRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : #"{"can_delete":false,"reason":"sole_organization_admin"}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: status, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
 private func deleteAccountSession() -> URLSession {
   DeleteAccountURLProtocol.reset()
   let configuration = URLSessionConfiguration.ephemeral
@@ -59,6 +105,11 @@ private final class DeleteAccountURLProtocol: URLProtocol, @unchecked Sendable {
       Self.recordedBody = Self.requestBody(from: request)
       statusCode = 204
       body = Data()
+    case "/api/v1/security/account-deletion-readiness":
+      Self.recordedPath = path
+      Self.recordedMethod = request.httpMethod
+      statusCode = 200
+      body = Data(#"{"can_delete":false,"reason":"sole_organization_admin"}"#.utf8)
     default:
       statusCode = 500
       body = Data(#"{"detail":"Endpoint inesperado."}"#.utf8)

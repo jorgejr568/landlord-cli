@@ -76,7 +76,9 @@ test("deletes the account and returns to the login screen", async ({ page }) => 
   await page.goto("/security");
   await expect(page.getByRole("heading", { name: "Segurança" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Excluir conta" }).click();
+  const deleteAccountButton = page.getByRole("button", { name: "Excluir conta" });
+  await expect(deleteAccountButton).toBeVisible();
+  await deleteAccountButton.click();
   await page.getByLabel("Confirme sua senha para excluir a conta").fill("current-password-e2e");
   await page.getByRole("button", { name: "Excluir minha conta permanentemente" }).click();
 
@@ -84,6 +86,9 @@ test("deletes the account and returns to the login screen", async ({ page }) => 
 
   const deletion = api.requests.find((request) => request.path === "/security/delete-account");
   expect(deletion?.body).toEqual({ password: "current-password-e2e" });
+  expect(
+    api.requests.some((request) => request.path === "/security/account-deletion-readiness")
+  ).toBe(true);
   expect(api.requests.some((request) => request.path === "/auth/logout")).toBe(true);
   expect(api.unexpectedRequests).toEqual([]);
 });

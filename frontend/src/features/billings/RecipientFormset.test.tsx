@@ -22,7 +22,11 @@ it("adds, edits and removes recipients with the legacy row classes", async () =>
   expect(recipientName.closest(".item-grid")).not.toBeNull();
   fireEvent.change(recipientName, { target: { value: "😀".repeat(256) } });
   expect(recipientName).toHaveValue("😀".repeat(255));
-  expect(screen.getByLabelText("E-mail do destinatário 1")).toHaveAttribute("maxLength", "320");
+  const recipientEmail = screen.getByLabelText("E-mail do destinatário 1");
+  expect(recipientEmail).not.toHaveAttribute("maxLength");
+  fireEvent.change(recipientEmail, { target: { value: "😀".repeat(321) } });
+  expect(recipientEmail).toHaveValue("😀".repeat(320));
+  fireEvent.change(recipientEmail, { target: { value: values[0].email } });
   await user.clear(recipientName);
   await user.type(recipientName, "José");
   expect(onChange).toHaveBeenLastCalledWith([{ ...values[0], name: "José" }]);

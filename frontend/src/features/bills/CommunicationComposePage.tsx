@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
+import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
@@ -62,8 +63,10 @@ export function CommunicationComposePage() {
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [isDirty, setIsDirty] = useState(false);
   const loadController = useRef<AbortController | null>(null);
   const sendController = useRef<AbortController | null>(null);
+  const sendInFlight = useRef(false);
   const recipientRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -89,6 +92,7 @@ export function CommunicationComposePage() {
     setLoadError("");
     setActionError("");
     setFieldErrors({});
+    setIsDirty(false);
     try {
       const [billingResult, billResult] = await Promise.all([
         apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", { params: { path: { billing_uuid: billingUuid } }, signal: controller.signal })),
@@ -128,6 +132,7 @@ export function CommunicationComposePage() {
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
+    if (sendInFlight.current) return;
     /* v8 ignore next -- invalid communication types never render the send form */
     if (!commType) return;
     setActionError(""); setFieldErrors({});
@@ -143,7 +148,7 @@ export function CommunicationComposePage() {
       return;
     }
     const normalized = normalizeCommunicationContent(subject, body);
-    sendController.current?.abort();
+    sendInFlight.current = true;
     const controller = new AbortController();
     sendController.current = controller;
     setSending(true);
@@ -171,6 +176,7 @@ export function CommunicationComposePage() {
       setActionError(errorMessage(caught, "Não foi possível enviar a comunicação."));
       requestAnimationFrame(() => focusError(firstFieldError(errors, ["recipient_uuids", "subject", "body", "save_scope"])));
     } finally {
+      sendInFlight.current = false;
       if (!controller.signal.aborted) setSending(false);
     }
   };
@@ -193,10 +199,11 @@ export function CommunicationComposePage() {
 
   return (
     <>
+      <DirtyFormGuard isDirty={isDirty && !sending} />
       <Link className="crumb" to={`/billings/${billingUuid}/bills/${billUuid}`}><ArrowLeft aria-hidden="true" size={16} /> Fatura {formatMonth(bill.reference_month)}</Link>
       <div className="pagehead"><div><h1 className="pagehead__title">Enviar {commLabel}</h1><p className="pagehead__sub">{billing.name} · {formatMonth(bill.reference_month)}. Cada destinatário recebe um e-mail separado com o {isRecibo ? "recibo" : "PDF da fatura"} anexado.</p></div></div>
       {billing.recipients.length === 0 ? <div className="panel"><div className="panel__body"><p className="text-muted">Nenhum destinatário cadastrado. <Link to={`/billings/${billingUuid}/edit`}>Adicione destinatários</Link> na cobrança antes de enviar.</p></div></div> : (
-        <form id="comm-form" onSubmit={(event) => void send(event)}>
+        <form id="comm-form" onChange={() => setIsDirty(true)} onSubmit={(event) => void send(event)}>
           <div className="panel"><div className="panel__head"><h3>Destinatários</h3></div><div className="panel__body">{billing.recipients.map((recipient, index) => {
             const label = isFullContact(recipient) ? `${recipient.name} <${recipient.email}>` : "Destinatário protegido";
             return <label className="field" key={recipient.uuid} style={{ alignItems: "center", display: "flex", gap: ".5rem" }}><input aria-describedby={index === 0 && fieldErrors.recipient_uuids ? "recipient_uuids-error" : undefined} checked={selectedRecipients.includes(recipient.uuid)} onChange={(event) => setSelectedRecipients((current) => event.target.checked ? [...current, recipient.uuid] : current.filter((uuid) => uuid !== recipient.uuid))} ref={index === 0 ? recipientRef : undefined} type="checkbox" value={recipient.uuid} /><span>{label}</span></label>;
@@ -204,7 +211,7 @@ export function CommunicationComposePage() {
 
           <div className="panel"><div className="panel__head"><h3>Mensagem</h3><span className="panel__title-eyebrow">Markdown</span></div><div className="panel__body">
             <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
-            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" maxLength={MAX_COMMUNICATION_BODY_BYTES} onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
+            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={["body-byte-count", fieldErrors.body ? "body-error" : ""].filter(Boolean).join(" ")} className="input" id="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><span aria-live="polite" className="field__hint" id="body-byte-count">{new TextEncoder().encode(body).length} / 4096 bytes</span><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
           </div></div>
 
           <div className="panel"><div className="panel__head"><h3>Salvar modelo (opcional)</h3></div><div className="panel__body"><div className="field"><label className="sr-only" htmlFor="save_scope">Salvar modelo</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div></div></div>

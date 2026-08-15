@@ -78,6 +78,7 @@ const COLOR_FIELDS: Array<{ key: ColorKey; label: string }> = [
   { key: "text_color", label: "Texto" },
   { key: "text_contrast", label: "Contraste" }
 ];
+const COLOR_KEYS = new Set<ColorKey>(COLOR_FIELDS.map(({ key }) => key));
 
 const INITIAL_VALUES: ThemeValues = {
   header_font: "Montserrat",
@@ -98,6 +99,16 @@ const SECTION_HEADING_STYLE = {
 
 function fieldErrorId(fields: Record<string, string>, key: string): string | undefined {
   return fields[key] ? `${key}-error` : undefined;
+}
+
+function contrastRatio(first: string, second: string): number {
+  const luminance = (color: string) => {
+    const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16) / 255);
+    const linear = channels.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const [lighter, darker] = [luminance(first), luminance(second)].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 async function getTheme(target: ThemeTarget, uuid: string, signal: AbortSignal) {
@@ -324,7 +335,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     const nextValues = { ...values, [key]: value };
     setValues(nextValues);
     setFieldErrors((current) => ({ ...current, [key]: "" }));
-    schedulePreview(nextValues);
+    if (!COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
   }
 
   function previewNow() {
@@ -539,6 +550,10 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         <div className="theme-editor-preview">
           <div className="panel" style={{ height: "100%" }}>
             <div className="panel-head"><h2 style={SECTION_HEADING_STYLE}>Pré-visualização</h2></div>
+            <div aria-label="Amostra local do tema" className="theme-local-preview" style={{ backgroundColor: values.primary, color: values.text_contrast, fontFamily: values.header_font, padding: "1rem" }}>
+              <strong>Fatura Rentivo</strong><span style={{ display: "block", fontFamily: values.text_font, marginTop: "0.35rem" }}>As cores e fontes são aplicadas imediatamente nesta amostra.</span>
+            </div>
+            {contrastRatio(values.primary, values.text_contrast) < 4.5 ? <div className="toast toast--warning" role="alert">O contraste entre a cor primária e o texto está abaixo de 4,5:1.</div> : null}
             <div className="panel-body" style={{ display: "flex", flex: 1, padding: 0 }}>
               <iframe
                 src={previewUrl || undefined}

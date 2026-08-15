@@ -180,7 +180,7 @@ fun BillingDetailView(
         BillingDetail(
           data = data,
           modifier = Modifier.padding(padding),
-          onCreateBill = { showingCreateBill = true },
+          onCreateBill = { if (!data.billing.pixNeedsSetup) showingCreateBill = true },
           onOpenBill = { billID -> onOpenBill(data.billing, billID) },
           onOpenExpenses = { onOpenExpenses(data.billing) },
           onOpenAttachments = { onOpenAttachments(data.billing) },
@@ -430,6 +430,14 @@ private fun BillsSection(
           )
         }
       }
+    }
+    if (data.billing.capabilities.canCreateBills && data.billing.pixNeedsSetup) {
+      IconLabel(
+        icon = Icons.Filled.QrCode2,
+        text = "Configure um PIX completo antes de gerar uma fatura.",
+        style = RentivoTypography.subheadline,
+        tint = RentivoColors.secondaryInk,
+      )
     }
     if (data.bills.isEmpty()) {
       Text(

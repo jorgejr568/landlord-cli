@@ -226,16 +226,22 @@ public struct ProfilePIXForm: Equatable, Sendable {
     merchantCity = profile?.pix?.merchantCity ?? ""
   }
 
-  public var configuration: PixConfiguration {
-    PixConfiguration(key: key, merchantName: merchantName, merchantCity: merchantCity)
+  public var validationResult: PixFormResult {
+    PixFormRules.result(key: key, merchantName: merchantName, merchantCity: merchantCity)
+  }
+
+  public var configuration: PixConfiguration? {
+    if case .custom(let configuration) = validationResult { return configuration }
+    return nil
+  }
+
+  public var validationMessage: String? {
+    if case .invalid(let message) = validationResult { return message }
+    return nil
   }
 
   public var isSavable: Bool {
-    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    return (configuration.isEmpty || configuration.isComplete)
-      && normalizedName.unicodeScalars.count <= 25
-      && normalizedCity.unicodeScalars.count <= 15
+    validationMessage == nil
   }
 }
 

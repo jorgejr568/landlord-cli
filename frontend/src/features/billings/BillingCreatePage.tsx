@@ -76,6 +76,7 @@ export function BillingCreatePage() {
       pushAnalyticsFromResponse(response);
       navigate(`/billings/${data.uuid}`);
     } catch (caught) {
+      /* v8 ignore next -- aborting an unmounted request intentionally suppresses its error */
       if (!isCurrent()) return;
       if (caught instanceof ApiError && Object.keys(caught.fields).length) setFieldErrors(normalizedFieldErrors(caught));
       else setError(caught instanceof ApiError ? caught.message : "Não foi possível criar a cobrança.");

@@ -83,7 +83,7 @@ export function TotpSetupPage() {
           </div></div>
           <div className="panel"><div className="panel-head"><h5>2. Confirme o código</h5></div><div className="panel-body">
             <p>Após escanear, digite o código de 6 dígitos exibido no aplicativo:</p>
-            <form onSubmit={(event) => void confirm(event)} style={{ marginTop: "1rem" }}><div className="field" style={{ maxWidth: "280px" }}><label className="field-label" htmlFor="totp-code">Código de verificação</label><input autoComplete="one-time-code" autoFocus className="field-input" id="totp-code" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value)} placeholder="000000" ref={codeRef} required value={code} /></div><SubmitButton loading={confirming}>Confirmar e Ativar</SubmitButton></form>
+            <form onSubmit={(event) => void confirm(event)} style={{ marginTop: "1rem" }}><div className="field" style={{ maxWidth: "280px" }}><label className="field-label" htmlFor="totp-code">Código de verificação</label><input autoComplete="one-time-code" autoFocus className="field-input" id="totp-code" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} pattern="[0-9]{6}" placeholder="000000" ref={codeRef} required value={code} /></div><SubmitButton loading={confirming}>Confirmar e Ativar</SubmitButton></form>
           </div></div>
           {bootstrap?.capabilities.mfa_setup_required ? <p style={{ marginTop: "1rem" }}><Link className="btn btn--sm" to="/security">Ou cadastrar uma Passkey</Link></p> : null}
         </>

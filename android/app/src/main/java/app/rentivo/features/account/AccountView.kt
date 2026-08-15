@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.BrandMark
+import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoLargeTopBarScaffold
 import app.rentivo.designsystem.RentivoListField
@@ -65,7 +66,11 @@ import app.rentivo.designsystem.RentivoSpacing
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.TopBarChip
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.AccountDeletionReadiness
+import app.rentivo.domain.FormSubmitState
+import app.rentivo.domain.LoadState
 import app.rentivo.domain.ProfilePIXForm
+import app.rentivo.domain.PasswordInput
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 
@@ -102,6 +107,22 @@ fun AccountView(
   val uriHandler = LocalUriHandler.current
   var showDeleteAccountAlert by remember { mutableStateOf(false) }
   var deleteAccountPassword by remember { mutableStateOf("") }
+  var deleteAccountValidationMessage by remember { mutableStateOf<String?>(null) }
+  var deletionReadiness by remember { mutableStateOf<AccountDeletionReadiness?>(null) }
+  var deletionReadinessError by remember { mutableStateOf<String?>(null) }
+
+  LaunchedEffect(showDeleteAccountAlert) {
+    if (!showDeleteAccountAlert) return@LaunchedEffect
+    deletionReadiness = null
+    deletionReadinessError = null
+    try {
+      deletionReadiness = app.dependencies.auth.accountDeletionReadiness()
+    } catch (cancellation: CancellationException) {
+      throw cancellation
+    } catch (throwable: Throwable) {
+      deletionReadinessError = DemoError.from(throwable).message
+    }
+  }
 
   AccountScaffold(title = "Conta", onBack = null) { padding ->
     Column(
@@ -277,6 +298,7 @@ fun AccountView(
       onDismissRequest = {
         showDeleteAccountAlert = false
         deleteAccountPassword = ""
+        deleteAccountValidationMessage = null
       },
       containerColor = RentivoColors.surface,
       title = { Text(text = "Excluir sua conta?", style = RentivoTypography.title) },
@@ -287,16 +309,66 @@ fun AccountView(
             style = RentivoTypography.subheadline,
             color = RentivoColors.secondaryInk,
           )
-          AccountPasswordField(
-            label = "Senha",
-            value = deleteAccountPassword,
-            onValueChange = { deleteAccountPassword = it },
-          )
+          when {
+            deletionReadinessError != null -> {
+              Text(
+                text = deletionReadinessError!!,
+                style = RentivoTypography.subheadline,
+                color = RentivoColors.destructiveText,
+              )
+              TextButton(
+                onClick = {
+                  deletionReadinessError = null
+                  deletionReadiness = null
+                  scope.launch {
+                    try {
+                      deletionReadiness = app.dependencies.auth.accountDeletionReadiness()
+                    } catch (cancellation: CancellationException) {
+                      throw cancellation
+                    } catch (throwable: Throwable) {
+                      deletionReadinessError = DemoError.from(throwable).message
+                    }
+                  }
+                },
+              ) { Text("Tentar novamente") }
+            }
+
+            deletionReadiness == null -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
+
+            deletionReadiness?.canDelete == false -> Text(
+              text = deletionReadiness?.blockerMessage
+                ?: "A exclusão da conta está indisponível no momento.",
+              style = RentivoTypography.subheadline,
+              color = RentivoColors.destructiveText,
+            )
+
+            else -> Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.small)) {
+              AccountPasswordField(
+                label = "Senha",
+                value = deleteAccountPassword,
+                onValueChange = {
+                  deleteAccountPassword = it
+                  deleteAccountValidationMessage = null
+                },
+              )
+              deleteAccountValidationMessage?.let { message ->
+                Text(
+                  text = message,
+                  style = RentivoTypography.subheadline,
+                  color = RentivoColors.destructiveText,
+                )
+              }
+            }
+          }
         }
       },
       confirmButton = {
         TextButton(
           onClick = {
+            PasswordInput.validationMessage(deleteAccountPassword)?.let { message ->
+              deleteAccountValidationMessage = message
+              return@TextButton
+            }
             // Capture before clearing: the field is reset synchronously so the password never
             // survives the dialog, exactly like the iOS alert action does.
             val password = deleteAccountPassword
@@ -304,6 +376,9 @@ fun AccountView(
             showDeleteAccountAlert = false
             scope.launch { app.deleteAccount(password = password) }
           },
+          enabled = deletionReadiness?.canDelete == true &&
+            deleteAccountPassword.isNotEmpty() &&
+            !app.isDeletingAccount,
         ) {
           Text(text = "Excluir conta", color = RentivoColors.destructiveText)
         }
@@ -312,6 +387,7 @@ fun AccountView(
         TextButton(
           onClick = {
             deleteAccountPassword = ""
+            deleteAccountValidationMessage = null
             showDeleteAccountAlert = false
           },
         ) {
@@ -333,21 +409,27 @@ fun ProfilePixView(onBack: () -> Unit) {
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var form by remember { mutableStateOf(ProfilePIXForm.from()) }
+  var submitState by remember { mutableStateOf(FormSubmitState.idle) }
+  var loadState by remember { mutableStateOf<LoadState<ProfilePIXForm>>(LoadState.Loading) }
 
   // Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is connected to the
   // live API, the signed-in user owns their own account and this screen should be fully enabled
   // regardless of the demo viewer-mode toggle.
   val isDemoViewerLocked = !app.usesLiveAPI && app.demoSettings.viewerMode
 
-  LaunchedEffect(Unit) {
+  suspend fun load() {
+    loadState = LoadState.Loading
     try {
       form = ProfilePIXForm.from(app.loadProfile())
+      loadState = LoadState.Loaded(form)
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (throwable: Throwable) {
-      app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+      loadState = LoadState.Failed(DemoError.from(throwable))
     }
   }
+
+  LaunchedEffect(Unit) { load() }
 
   AccountScaffold(
     title = "Dados e PIX",
@@ -358,17 +440,23 @@ fun ProfilePixView(onBack: () -> Unit) {
           TextButton(
             onClick = {
               scope.launch {
+                if (submitState.isSubmitting) return@launch
+                submitState = submitState.start()
                 try {
+                  val clearing = form.configuration == null
                   form = ProfilePIXForm.from(app.updateProfilePIX(form.configuration))
-                  app.showNotice("PIX pessoal atualizado.")
+                  loadState = LoadState.Loaded(form)
+                  app.showNotice(if (clearing) "PIX pessoal removido." else "PIX pessoal atualizado.")
                 } catch (cancellation: CancellationException) {
                   throw cancellation
                 } catch (throwable: Throwable) {
                   app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+                } finally {
+                  submitState = submitState.finish()
                 }
               }
             },
-            enabled = form.isSavable,
+            enabled = loadState is LoadState.Loaded && form.isSavable && !submitState.isSubmitting,
             modifier = Modifier.testTag("profile.pix.save"),
           ) {
             Text(text = "Salvar", color = RentivoColors.emerald)
@@ -377,14 +465,15 @@ fun ProfilePixView(onBack: () -> Unit) {
       }
     },
   ) { padding ->
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(padding)
-        .verticalScroll(rememberScrollState())
-        .padding(RentivoSpacing.page),
-      verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
-    ) {
+    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+      PageStateView(state = loadState, retry = { scope.launch { load() } }) {
+        Column(
+          modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(RentivoSpacing.page),
+          verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
+        ) {
       AccountSection(
         title = "Conta",
         rows = listOf(
@@ -440,6 +529,8 @@ fun ProfilePixView(onBack: () -> Unit) {
           )
         }),
       )
+        }
+      }
     }
   }
 }

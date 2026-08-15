@@ -3,6 +3,7 @@ package app.rentivo.data
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.AccountDeletionReadiness
 import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
@@ -99,13 +100,15 @@ interface AuthRepository {
    */
   suspend fun logout()
 
+  suspend fun accountDeletionReadiness(): AccountDeletionReadiness
+
   suspend fun deleteAccount(password: String)
 }
 
 interface ProfileRepository {
   suspend fun profile(): UserProfile
 
-  suspend fun updatePix(pix: PixConfiguration): UserProfile
+  suspend fun updatePix(pix: PixConfiguration?): UserProfile
 }
 
 interface BillingRepository {

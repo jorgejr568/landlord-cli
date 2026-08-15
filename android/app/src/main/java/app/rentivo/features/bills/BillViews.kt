@@ -10,16 +10,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -119,6 +122,7 @@ import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
 import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
+import app.rentivo.domain.BillFormEditRule
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
 import app.rentivo.domain.BillLineItemID
@@ -243,10 +247,27 @@ fun BillFormSheet(
       ReferenceMonth(year = today.year, month = today.monthValue)
     }
   }
+  val initialDueDate = remember(existing, reference) {
+    (existing?.dueDate ?: reference.defaultDueDate).resolvedDate()
+  }
+  val initialHasDueDate = existing?.let { it.dueDate != null } ?: true
+  val initialLines = remember(existing, billing) {
+    existing?.lineItems?.map(EditableBillLine::from)
+      ?: billing.items.map { item ->
+        EditableBillLine.seededFrom(
+          item = item,
+          kind = if (item.type == BillingItemType.FIXED) {
+            BillLineItemKind.FIXED
+          } else {
+            BillLineItemKind.VARIABLE
+          },
+        )
+      }
+  }
   var year by remember { mutableIntStateOf(reference.year) }
   var month by remember { mutableIntStateOf(reference.month) }
   var dueDate by remember {
-    mutableStateOf((existing?.dueDate ?: reference.defaultDueDate).resolvedDate())
+    mutableStateOf(initialDueDate)
   }
   /**
    * Set once the user touches the date picker. Until then the due date tracks the reference month
@@ -258,29 +279,27 @@ fun BillFormSheet(
    */
   var dueDateEdited by remember { mutableStateOf(existing?.dueDate != null) }
   // A new bill always starts with a due date; an existing one keeps whatever the server has.
-  var hasDueDate by remember { mutableStateOf(existing?.let { it.dueDate != null } ?: true) }
+  var hasDueDate by remember { mutableStateOf(initialHasDueDate) }
   var notes by remember { mutableStateOf(existing?.notes ?: "") }
   val lines = remember {
     mutableStateListOf<EditableBillLine>().apply {
-      addAll(
-        existing?.lineItems?.map(EditableBillLine::from)
-          ?: billing.items.map { item ->
-            EditableBillLine.seededFrom(
-              item = item,
-              kind = if (item.type == BillingItemType.FIXED) {
-                BillLineItemKind.FIXED
-              } else {
-                BillLineItemKind.VARIABLE
-              },
-            )
-          },
-      )
+      addAll(initialLines)
     }
   }
   var issues by remember { mutableStateOf(emptyList<ValidationIssue>()) }
   var saving by remember { mutableStateOf(false) }
   var monthMenuExpanded by remember { mutableStateOf(false) }
   var showingDatePicker by remember { mutableStateOf(false) }
+  var confirmingDiscard by remember { mutableStateOf(false) }
+  val editRule = BillFormEditRule(isEditing = existing != null)
+  val hasUnsavedChanges = year != reference.year || month != reference.month ||
+    dueDate != initialDueDate || hasDueDate != initialHasDueDate || notes != existing?.notes.orEmpty() ||
+    lines.toList() != initialLines
+
+  fun requestDismiss() {
+    if (saving) return
+    if (hasUnsavedChanges) confirmingDiscard = true else onDismiss()
+  }
 
   fun syncDueDateWithReferenceMonth(nextYear: Int, nextMonth: Int) {
     if (dueDateEdited) return
@@ -297,7 +316,7 @@ fun BillFormSheet(
     dueDateEdited = true
   }
 
-  suspend fun save() {
+  fun submit() {
     if (saving) return
     val draft = BillDraft(
       billingID = billing.id,
@@ -309,27 +328,29 @@ fun BillFormSheet(
     issues = draft.validate()
     if (issues.isNotEmpty()) return
     saving = true
-    try {
-      if (existing != null) {
-        app.dependencies.bills.updateBill(
-          billingID = billing.id,
-          billID = existing.id,
-          draft = draft,
+    scope.launch {
+      try {
+        if (existing != null) {
+          app.dependencies.bills.updateBill(
+            billingID = billing.id,
+            billID = existing.id,
+            draft = draft,
+          )
+        } else {
+          app.dependencies.bills.createBill(draft = draft)
+        }
+        onSaved()
+        app.showNotice(
+          if (existing == null) "Fatura criada como rascunho." else "Fatura atualizada.",
         )
-      } else {
-        app.dependencies.bills.createBill(draft = draft)
+        onDismiss()
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } catch (throwable: Throwable) {
+        app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
+      } finally {
+        saving = false
       }
-      onSaved()
-      app.showNotice(
-        if (existing == null) "Fatura criada como rascunho." else "Fatura atualizada.",
-      )
-      onDismiss()
-    } catch (cancellation: CancellationException) {
-      throw cancellation
-    } catch (throwable: Throwable) {
-      app.showNotice(DemoError.from(throwable).message, AppNotice.Kind.WARNING)
-    } finally {
-      saving = false
     }
   }
 
@@ -338,19 +359,19 @@ fun BillFormSheet(
   // A `Dialog`-backed sheet, not an in-tab surface: the form is presented modally on iOS, and only
   // a dialog can rise over the floating tab bar the way that sheet does. Dismissal is gated while a
   // save is in flight, so back cannot abandon a request the server is already handling.
-  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = !saving) {
+  FullScreenSheet(onDismissRequest = ::requestDismiss, dismissEnabled = !saving) {
     Scaffold(
       modifier = Modifier.fillMaxSize(),
       containerColor = RentivoColors.paper,
       topBar = {
         SheetTopBar(
           title = if (existing == null) "Gerar fatura" else "Editar fatura",
-          onCancel = onDismiss,
+          onCancel = ::requestDismiss,
           cancelEnabled = !saving,
         ) {
           TopBarChip {
             TextButton(
-              onClick = { scope.launch { save() } },
+              onClick = ::submit,
               enabled = !saving,
               modifier = Modifier.testTag("bill.form.save"),
             ) {
@@ -360,17 +381,26 @@ fun BillFormSheet(
         }
       },
     ) { padding ->
-      Column(
+      LazyColumn(
         modifier = Modifier
           .fillMaxSize()
           .padding(padding)
-          .verticalScroll(rememberScrollState())
-          .padding(RentivoSpacing.page),
+          .imePadding(),
+        contentPadding = PaddingValues(RentivoSpacing.page),
         verticalArrangement = Arrangement.spacedBy(RentivoSpacing.section),
       ) {
-        FormSectionColumn(header = "Competência") {
+        item(key = "reference") { FormSectionColumn(header = "Competência") {
           RentivoListGroup {
-            Box {
+            if (!editRule.canEditReferenceMonth) {
+              FormRow(label = "Competência") {
+                Text(
+                  text = reference.displayFormatted,
+                  style = RentivoTypography.subheadlineEmphasized,
+                  color = RentivoColors.secondaryInk,
+                  modifier = Modifier.testTag("bill.form.referenceMonth.readonly"),
+                )
+              }
+            } else Box {
               FormRow(
                 label = "Mês",
                 modifier = Modifier
@@ -404,27 +434,29 @@ fun BillFormSheet(
                 }
               }
             }
-            RentivoListDivider()
-            FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
-              YearStepper(
-                canDecrease = year > YEAR_RANGE.first,
-                canIncrease = year < YEAR_RANGE.last,
-                onDecrease = {
-                  val next = year - 1
-                  year = next
-                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-                },
-                onIncrease = {
-                  val next = year + 1
-                  year = next
-                  syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
-                },
-              )
+            if (editRule.canEditReferenceMonth) {
+              RentivoListDivider()
+              FormRow(label = "Ano: $year", modifier = Modifier.testTag("bill.form.year")) {
+                YearStepper(
+                  canDecrease = year > YEAR_RANGE.first,
+                  canIncrease = year < YEAR_RANGE.last,
+                  onDecrease = {
+                    val next = year - 1
+                    year = next
+                    syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                  },
+                  onIncrease = {
+                    val next = year + 1
+                    year = next
+                    syncDueDateWithReferenceMonth(nextYear = next, nextMonth = month)
+                  },
+                )
+              }
             }
           }
-        }
+        } }
 
-        FormSectionColumn(header = "Vencimento") {
+        item(key = "due-date") { FormSectionColumn(header = "Vencimento") {
           RentivoListGroup {
             FormRow(label = "Definir vencimento") {
               Switch(
@@ -454,10 +486,10 @@ fun BillFormSheet(
               modifier = Modifier.padding(horizontal = RentivoSpacing.medium),
             )
           }
-        }
+        } }
 
         BillLineItemKind.entries.forEach { kind ->
-          FormSectionColumn(header = kind.sectionTitle) {
+          item(key = "lines-${kind.wire}") { FormSectionColumn(header = kind.sectionTitle) {
             val kindLines = lines.filter { it.kind == kind }
             // Only extras get an "add new line" affordance here: extras are the server's mechanism
             // for ad-hoc per-bill lines. Variable items are defined by the billing (cobrança)
@@ -478,6 +510,8 @@ fun BillFormSheet(
                   key(line.id.rawValue) {
                     BillLineRow(
                       line = line,
+                      descriptionEditable = editRule.canEditDescription(kind),
+                      amountEditable = editRule.canEditAmount(kind),
                       onDescriptionChange = { description ->
                         lines.updateLine(line.id) { it.copy(description = description) }
                       },
@@ -486,7 +520,7 @@ fun BillFormSheet(
                       },
                       // Fixed lines mirror the billing's own recurring items and aren't deletable
                       // here; only user-added variable/extra lines can be removed.
-                      onDelete = if (kind == BillLineItemKind.FIXED) {
+                      onDelete = if (!editRule.canDelete(kind)) {
                         null
                       } else {
                         {
@@ -507,10 +541,10 @@ fun BillFormSheet(
                 }
               }
             }
-          }
+          } }
         }
 
-        FormSectionColumn(header = "Observações") {
+        item(key = "notes") { FormSectionColumn(header = "Observações") {
           RentivoListGroup {
             FormPlate {
               RentivoListField(
@@ -525,16 +559,16 @@ fun BillFormSheet(
               )
             }
           }
-        }
+        } }
 
-        FormSectionColumn(header = "Total") {
+        item(key = "total") { FormSectionColumn(header = "Total") {
           RentivoListGroup {
             FormPlate { MoneyText(money = total) }
           }
-        }
+        } }
 
         if (issues.isNotEmpty()) {
-          FormSectionColumn(header = "Revise a fatura") {
+          item(key = "issues") { FormSectionColumn(header = "Revise a fatura") {
             RentivoListGroup {
               issues.forEachIndexed { position, issue ->
                 if (position > 0) RentivoListDivider()
@@ -548,7 +582,7 @@ fun BillFormSheet(
                 }
               }
             }
-          }
+          } }
         }
       }
     }
@@ -579,6 +613,22 @@ fun BillFormSheet(
       DatePicker(state = pickerState)
     }
   }
+  if (confirmingDiscard) {
+    AlertDialog(
+      onDismissRequest = { confirmingDiscard = false },
+      title = { Text("Descartar as alterações?") },
+      text = { Text("As alterações não salvas serão perdidas.") },
+      confirmButton = {
+        TextButton(onClick = { confirmingDiscard = false; onDismiss() }) {
+          Text("Descartar", color = RentivoColors.coral)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { confirmingDiscard = false }) { Text("Continuar editando") }
+      },
+      containerColor = RentivoColors.surface,
+    )
+  }
 }
 
 /** The multi-line notes field's floor, i.e. the `lineLimit(3...6)` minimum the iOS form sets. */
@@ -593,6 +643,8 @@ private val LineDeleteGlyphSize = 20.dp
 @Composable
 private fun BillLineRow(
   line: EditableBillLine,
+  descriptionEditable: Boolean,
+  amountEditable: Boolean,
   onDescriptionChange: (String) -> Unit,
   onCentavosChange: (Long) -> Unit,
   onDelete: (() -> Unit)?,
@@ -614,6 +666,7 @@ private fun BillLineRow(
         onValueChange = onDescriptionChange,
         modifier = Modifier.weight(1f),
         placeholder = "Descrição",
+        enabled = descriptionEditable,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
       )
       if (onDelete != null) {
@@ -632,7 +685,11 @@ private fun BillLineRow(
         )
       }
     }
-    CurrencyRowField(centavos = line.centavos, onCentavosChange = onCentavosChange)
+    CurrencyRowField(
+      centavos = line.centavos,
+      onCentavosChange = onCentavosChange,
+      enabled = amountEditable,
+    )
   }
 }
 
@@ -1000,6 +1057,7 @@ fun BillDetailScreen(
       containerColor = RentivoColors.surface,
     )
   }
+
 }
 
 @Composable
@@ -1388,19 +1446,25 @@ private fun ReceiptManagerSection(
    */
   fun uploadReceipt(cleanup: () -> Unit = {}, build: suspend () -> FileUpload) {
     scope.launch {
-      try {
-        app.dependencies.bills.addReceipt(
-          billingID = billingID,
-          billID = bill.id,
-          upload = build(),
-        )
-        onMutation()
-      } catch (cancellation: CancellationException) {
-        throw cancellation
-      } catch (throwable: Throwable) {
-        report(throwable)
-      } finally {
+      if (mutationGate.isRunning) {
         cleanup()
+        return@launch
+      }
+      mutationGate.run {
+        try {
+          app.dependencies.bills.addReceipt(
+            billingID = billingID,
+            billID = bill.id,
+            upload = build(),
+          )
+          onMutation()
+        } catch (cancellation: CancellationException) {
+          throw cancellation
+        } catch (throwable: Throwable) {
+          report(throwable)
+        } finally {
+          cleanup()
+        }
       }
     }
   }
@@ -1532,6 +1596,7 @@ private fun ReceiptManagerSection(
                         openMenuFor = null
                         pendingDeletion = receipt
                       },
+                      enabled = !mutationGate.isRunning,
                     )
                   }
                 }
@@ -1575,6 +1640,7 @@ private fun ReceiptManagerSection(
       Box {
         RentivoTonalButton(
           onClick = { sourceMenuOpen = true },
+          enabled = !mutationGate.isRunning,
           modifier = Modifier.testTag("bill.receipts.add"),
         ) {
           Icon(imageVector = Icons.Filled.Add, contentDescription = null)

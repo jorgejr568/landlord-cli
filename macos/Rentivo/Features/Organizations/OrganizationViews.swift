@@ -247,17 +247,30 @@ struct OrganizationFormView: View {
   @State private var pixKey: String
   @State private var merchantName: String
   @State private var city: String
+  @State private var usesCustomPix: Bool
   @State private var pixValidationMessage: String?
   @State private var submitFailureMessage: String?
   @State private var saving = false
+  @State private var confirmingDiscard = false
+  private let initialDraftState: NativeOrganizationDraftState
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
     self.onSaved = onSaved
-    _name = State(initialValue: organization?.name ?? "")
-    _pixKey = State(initialValue: organization?.pix?.key ?? "")
-    _merchantName = State(initialValue: organization?.pix?.merchantName ?? "")
-    _city = State(initialValue: organization?.pix?.merchantCity ?? "")
+    let name = organization?.name ?? ""
+    let pixKey = organization?.pix?.key ?? ""
+    let merchantName = organization?.pix?.merchantName ?? ""
+    let city = organization?.pix?.merchantCity ?? ""
+    let usesCustomPix = organization?.pix != nil
+    initialDraftState = NativeOrganizationDraftState(
+      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      usesCustomPix: usesCustomPix
+    )
+    _name = State(initialValue: name)
+    _pixKey = State(initialValue: pixKey)
+    _merchantName = State(initialValue: merchantName)
+    _city = State(initialValue: city)
+    _usesCustomPix = State(initialValue: usesCustomPix)
   }
 
   var body: some View {
@@ -269,9 +282,16 @@ struct OrganizationFormView: View {
         }
       }
       RentivoSection("PIX") {
-        TextField("Chave", text: $pixKey)
-        TextField("Nome do recebedor", text: $merchantName)
-        TextField("Cidade", text: $city)
+        Toggle("Usar PIX da organização", isOn: $usesCustomPix)
+        if usesCustomPix {
+          TextField("Chave", text: $pixKey)
+          TextField("Nome do recebedor", text: $merchantName)
+          TextField("Cidade", text: $city)
+        } else {
+          Text("Sem PIX próprio. Cobranças podem usar o PIX pessoal do responsável.")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
 
       if let pixValidationMessage {
@@ -294,7 +314,9 @@ struct OrganizationFormView: View {
     .navigationTitle(organization == nil ? "Nova organização" : "Editar organização")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }.disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
@@ -302,25 +324,45 @@ struct OrganizationFormView: View {
           .accessibilityIdentifier("organization.form.save")
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeOrganizationDraftState(
+      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      usesCustomPix: usesCustomPix
+    ).hasChanges(from: initialDraftState)
   }
 
   private func save() async {
     // Without this the sheet stays interactive across the round trip and a double-click creates
     // two organizations.
     guard !saving else { return }
-    let trimmedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
-    pixValidationMessage = OrganizationFormValidation.pixMessage(
-      key: trimmedKey, merchantName: trimmedMerchantName, city: trimmedCity
-    )
+    let result = usesCustomPix
+      ? PixFormRules.result(key: pixKey, merchantName: merchantName, merchantCity: city)
+      : .inherit
+    let pix: PixConfiguration?
+    switch result {
+    case .inherit:
+      pix = nil
+      pixValidationMessage = nil
+    case .custom(let configuration):
+      pix = configuration
+      pixValidationMessage = nil
+    case .invalid(let message):
+      pix = nil
+      pixValidationMessage = message
+    }
     guard pixValidationMessage == nil else { return }
-    let pix: PixConfiguration? =
-      trimmedKey.isEmpty
-      ? nil
-      : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
-    let draft = OrganizationDraft(name: name, pix: pix)
+    let draft = OrganizationDraft(
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines), pix: pix
+    )
     guard draft.isValid else {
       submitFailureMessage = OrganizationDraft.nameValidationMessage(name)
       return

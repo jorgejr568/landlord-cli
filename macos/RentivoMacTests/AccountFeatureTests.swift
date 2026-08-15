@@ -23,7 +23,7 @@ struct AccountProfilePIXTests {
     #expect(saved.merchantName == "JORGE JUNIOR")
     #expect(saved.merchantCity == "SALVADOR")
     // The screen's Salvar button is gated on this, and a reload has to agree with what was sent.
-    #expect(saved.configuration.isComplete)
+    #expect(saved.configuration?.isComplete == true)
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
@@ -31,16 +31,16 @@ struct AccountProfilePIXTests {
   func pixFormSavabilityMatchesTheServerContract() {
     var form = ProfilePIXForm()
     #expect(form.isSavable)
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
     form.key = "jorge@example.com"
     #expect(form.isSavable == false)
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
     form.merchantName = "JORGE JUNIOR"
     #expect(form.isSavable == false)
-    #expect(form.configuration.isComplete == false)
+    #expect(form.configuration == nil)
     form.merchantCity = "SALVADOR"
     #expect(form.isSavable)
-    #expect(form.configuration.isComplete)
+    #expect(form.configuration?.isComplete == true)
     form.merchantName = String(repeating: "N", count: 26)
     #expect(form.isSavable == false)
     form.merchantName = "JORGE JUNIOR"

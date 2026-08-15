@@ -30,6 +30,22 @@ it("starts setup with POST and routes confirmed codes to the one-time screen", a
   );
 });
 
+it("sanitizes a TOTP code to six digits before confirmation", async () => {
+  const user = userEvent.setup();
+  let body: unknown;
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/confirm": (init) => { body = JSON.parse(String(init?.body)); return jsonResponse({ recovery_codes: ["code-one"] }); },
+      "/api/v1/security/totp/setup": () => jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+  await user.type(await screen.findByLabelText("Código de verificação"), "12ab34-5678");
+  await user.click(screen.getByRole("button", { name: "Confirmar e Ativar" }));
+  await waitFor(() => expect(body).toEqual({ code: "123456" }));
+});
+
 it("shows enforced MFA, retries setup errors, and links back to passkeys", async () => {
   const user = userEvent.setup();
   let attempts = 0;

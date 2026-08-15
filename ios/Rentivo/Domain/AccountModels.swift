@@ -1,5 +1,19 @@
 import Foundation
 
+public struct AccountDeletionReadiness: Hashable, Codable, Sendable {
+  public enum BlockingReason: String, Hashable, Codable, Sendable {
+    case soleOrganizationAdmin = "sole_organization_admin"
+  }
+
+  public let canDelete: Bool
+  public let reason: BlockingReason?
+
+  public init(canDelete: Bool, reason: BlockingReason? = nil) {
+    self.canDelete = canDelete
+    self.reason = reason
+  }
+}
+
 /// Mirrors the server's role contract exactly (`admin`, `manager`, `viewer`).
 /// There is no "owner" role on the wire: `OrganizationMemberUpdateRequest.role`
 /// and every invite/member response enum accept only these three values, so no
@@ -401,6 +415,8 @@ public struct APIKeyMetadata: Identifiable, Hashable, Codable, Sendable {
   public var hint: String
   public var scopes: Set<APIKeyScope>
   public var grants: [APIKeyGrant]
+  public var unsupportedScopeCount: Int
+  public var unavailableGrantCount: Int
   public var expiresAt: Date
   public var lastUsedAt: Date?
   public var createdAt: Date
@@ -415,13 +431,17 @@ public struct APIKeyMetadata: Identifiable, Hashable, Codable, Sendable {
     expiresAt: Date,
     lastUsedAt: Date?,
     createdAt: Date,
-    revokedAt: Date?
+    revokedAt: Date?,
+    unavailableGrantCount: Int = 0,
+    unsupportedScopeCount: Int = 0
   ) {
     self.id = id
     self.name = name
     self.hint = hint
     self.scopes = scopes
     self.grants = grants
+    self.unsupportedScopeCount = unsupportedScopeCount
+    self.unavailableGrantCount = unavailableGrantCount
     self.expiresAt = expiresAt
     self.lastUsedAt = lastUsedAt
     self.createdAt = createdAt
@@ -434,12 +454,24 @@ public struct APIKeyDraft: Hashable, Sendable {
   public var scopes: Set<APIKeyScope>
   public var grants: [APIKeyGrant]
   public var expiresAt: Date
+  /// PATCH omits scopes when the server returned a scope this client version cannot represent.
+  /// Sending only the recognized values would silently revoke forward-compatible permissions.
+  public var shouldUpdateScopes: Bool
+  /// PATCH omits grants when the edit form did not change the visible selection. This preserves
+  /// server-redacted grants whose resource identifiers cannot be round-tripped by any client.
+  public var shouldUpdateGrants: Bool
 
-  public init(name: String, scopes: Set<APIKeyScope>, grants: [APIKeyGrant], expiresAt: Date) {
+  public init(
+    name: String, scopes: Set<APIKeyScope>, grants: [APIKeyGrant], expiresAt: Date,
+    shouldUpdateGrants: Bool = true,
+    shouldUpdateScopes: Bool = true
+  ) {
     self.name = name
     self.scopes = scopes
     self.grants = grants
     self.expiresAt = expiresAt
+    self.shouldUpdateGrants = shouldUpdateGrants
+    self.shouldUpdateScopes = shouldUpdateScopes
   }
 
   public static let demo = APIKeyDraft(

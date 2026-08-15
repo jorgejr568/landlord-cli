@@ -30,8 +30,7 @@ struct CurrencyCentavosField: View {
     TextField(label, text: $text)
       .accessibilityLabel(label)
       .onChange(of: text) { _, newValue in
-        let digits = newValue.filter(\.isNumber)
-        let parsed = Int(digits) ?? 0
+        let parsed = MoneyInputRules.centavos(from: newValue)
         if parsed != centavos {
           centavos = parsed
         }
@@ -49,7 +48,7 @@ struct CurrencyCentavosField: View {
         // `text` is always left holding `format(parsed)`, so its digits are exactly the
         // digits of the bound value and comparing them decides whether this write is an echo
         // of that formatting or a genuinely new value from outside.
-        guard (Int(text.filter(\.isNumber)) ?? 0) != newValue else { return }
+        guard MoneyInputRules.centavos(from: text) != newValue else { return }
         text = Self.format(newValue)
       }
   }

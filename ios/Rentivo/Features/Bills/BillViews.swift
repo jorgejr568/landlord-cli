@@ -64,6 +64,7 @@ struct BillFormView: View {
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var confirmingDiscard = false
 
   init(billing: Billing, bill: Bill? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -105,7 +106,13 @@ struct BillFormView: View {
         .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
         Stepper("Ano: \(year)", value: $year, in: 2024...2035)
           .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
+        if bill != nil {
+          Text("A competência não pode ser alterada depois que a fatura é criada.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
+      .disabled(bill != nil)
 
       Section("Vencimento") {
         Toggle("Definir vencimento", isOn: $hasDueDate)
@@ -121,9 +128,8 @@ struct BillFormView: View {
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
         Section(kind.sectionTitle) {
-          // Fixed lines mirror the billing's own recurring items and aren't deletable here; only
-          // user-added variable/extra lines get swipe-to-delete.
-          if kind == .fixed {
+          // Fixed and variable template rows are mandatory. Only ad-hoc extras are removable.
+          if kind != .extra {
             ForEach(lineIndices(for: kind), id: \.self) { index in
               lineRow(index)
             }
@@ -177,13 +183,22 @@ struct BillFormView: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
           .disabled(saving)
           .accessibilityIdentifier("bill.form.save")
       }
+    }
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
     }
   }
 
@@ -209,11 +224,39 @@ struct BillFormView: View {
     lines.map { Money(centavos: $0.centavos) }.reduce(.zero, +)
   }
 
+  private var hasUnsavedChanges: Bool {
+    let currentMonth = ReferenceMonth(year: year, month: month)
+    let currentDueDate = hasDueDate ? DateOnly(from: dueDate) : nil
+    let currentLines = lines.map(\.domain)
+    guard let bill else {
+      let seeded = billing.items.map { item in
+        BillLineItem(
+          id: BillLineItemID(rawValue: item.id.rawValue), description: item.description,
+          amount: item.amount, kind: item.type == .fixed ? .fixed : .variable
+        )
+      }
+      return currentMonth != ReferenceMonth(
+        year: Calendar.current.component(.year, from: Date()),
+        month: Calendar.current.component(.month, from: Date())
+      ) || currentDueDate != currentMonth.defaultDueDate || !notes.isEmpty || currentLines != seeded
+    }
+    return currentMonth != bill.referenceMonth || currentDueDate != bill.dueDate
+      || notes != bill.notes || currentLines != bill.lineItems
+  }
+
   @ViewBuilder
   private func lineRow(_ index: Int) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-      TextField("Descrição", text: $lines[index].description)
-      CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+      if bill == nil, lines[index].kind != .extra {
+        LabeledContent("Descrição", value: lines[index].description)
+      } else {
+        TextField("Descrição", text: $lines[index].description)
+      }
+      if bill == nil, lines[index].kind == .fixed {
+        LabeledContent("Valor", value: Money(centavos: lines[index].centavos).formatted())
+      } else {
+        CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+      }
     }
   }
 
@@ -228,6 +271,9 @@ struct BillFormView: View {
   }
 
   private func save() async {
+    // A disabled toolbar item is not a synchronization primitive: two queued taps can enter this
+    // async handler before SwiftUI redraws. Claim the in-flight state before any suspension.
+    guard !saving else { return }
     submitErrorMessage = nil
     let draft = BillDraft(
       billingID: billing.id,
@@ -280,6 +326,7 @@ struct BillDetailView: View {
   @State private var confirmingDelete = false
   @State private var pendingTransition: BillTransition?
   @State private var transitioningTo: BillStatus?
+  @State private var isRegenerating = false
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
   @State private var pollGeneration = 0
@@ -396,7 +443,7 @@ struct BillDetailView: View {
             // Regenerating stays available while a render is pending: a re-trigger supersedes the
             // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
-              .disabled(!bill.capabilities.canRegenerate)
+              .disabled(!bill.capabilities.canRegenerate || isRegenerating)
             if bill.capabilities.canOpenRecibo {
               Button("Abrir recibo") { Task { await downloadRecibo() } }
                 .disabled(bill.isRenderingPDF)
@@ -631,6 +678,9 @@ struct BillDetailView: View {
   }
 
   private func regenerate(_ bill: Bill) async {
+    guard !isRegenerating else { return }
+    isRegenerating = true
+    defer { isRegenerating = false }
     do {
       let queued = try await app.dependencies.bills.regenerateBill(
         billingID: billingID, billID: bill.id)
@@ -668,6 +718,7 @@ private struct ReceiptManagerView: View {
   @State private var showingPhotosPicker = false
   @State private var photoSelection: PhotosPickerItem?
   @State private var pendingDeletion: Receipt?
+  @State private var isMutating = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
@@ -702,6 +753,7 @@ private struct ReceiptManagerView: View {
                   Button("Abrir") { Task { await download(receipt) } }
                   if capabilities.canDeleteReceipts {
                     Button("Excluir", role: .destructive) { pendingDeletion = receipt }
+                      .disabled(isMutating)
                   }
                 } label: {
                   Image(systemName: "ellipsis.circle")
@@ -716,6 +768,7 @@ private struct ReceiptManagerView: View {
             if bill.receipts.count > 1 && capabilities.canReorderReceipts {
               Button("Inverter ordem") { Task { await reverse() } }
                 .buttonStyle(.bordered)
+                .disabled(isMutating)
             }
           }
         }
@@ -727,6 +780,7 @@ private struct ReceiptManagerView: View {
           Label("Adicionar comprovante", systemImage: "plus")
         }
         .buttonStyle(.bordered)
+        .disabled(isMutating)
       }
     }
     .downloadedFileSheet($downloadedFile)
@@ -801,9 +855,12 @@ private struct ReceiptManagerView: View {
 
   private func add(fileURL: URL) async {
     do {
-      let accessGranted = fileURL.startAccessingSecurityScopedResource()
-      defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
-      guard let upload = try FileUpload.from(url: fileURL).clampedToAcceptedReceiptFormat() else {
+      guard
+        let upload = try await FileUpload.fromSecurityScoped(
+          url: fileURL, policy: .rentivoDocument
+        )
+          .clampedToAcceptedReceiptFormat()
+      else {
         app.showNotice("Não foi possível ler o arquivo selecionado.", kind: .warning)
         return
       }
@@ -831,11 +888,18 @@ private struct ReceiptManagerView: View {
   }
 
   private func send(_ upload: FileUpload) async {
+    guard !isMutating else { return }
+    guard upload.byteCount > 0 else {
+      app.showNotice("O arquivo selecionado está vazio.", kind: .warning)
+      return
+    }
     guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
       app.showNotice(
         "O comprovante excede o limite de \(ReceiptUploadLimit.label).", kind: .warning)
       return
     }
+    isMutating = true
+    defer { isMutating = false }
     do {
       _ = try await app.dependencies.bills.addReceipt(
         billingID: billingID,
@@ -847,6 +911,9 @@ private struct ReceiptManagerView: View {
   }
 
   private func remove(_ receipt: Receipt) async {
+    guard !isMutating else { return }
+    isMutating = true
+    defer { isMutating = false }
     do {
       try await app.dependencies.bills.deleteReceipt(
         billingID: billingID,
@@ -858,6 +925,9 @@ private struct ReceiptManagerView: View {
   }
 
   private func reverse() async {
+    guard !isMutating else { return }
+    isMutating = true
+    defer { isMutating = false }
     do {
       try await app.dependencies.bills.reorderReceipts(
         billingID: billingID, billID: bill.id, receiptIDs: Array(bill.receipts.map(\.id).reversed())
