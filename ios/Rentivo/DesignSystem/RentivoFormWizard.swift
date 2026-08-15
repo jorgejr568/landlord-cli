@@ -40,6 +40,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
   @Binding var selectedStep: Step
   let isDirty: Bool
   let isBusy: Bool
+  let isPrimaryEnabled: Bool
   let primaryTitle: String
   let onValidateAndAdvance: () -> Bool
   let onCommit: () -> Void
@@ -54,6 +55,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
     selectedStep: Binding<Step>,
     isDirty: Bool,
     isBusy: Bool,
+    isPrimaryEnabled: Bool = true,
     primaryTitle: String,
     onValidateAndAdvance: @escaping () -> Bool,
     onCommit: @escaping () -> Void,
@@ -67,6 +69,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
     _selectedStep = selectedStep
     self.isDirty = isDirty
     self.isBusy = isBusy
+    self.isPrimaryEnabled = isPrimaryEnabled
     self.primaryTitle = primaryTitle
     self.onValidateAndAdvance = onValidateAndAdvance
     self.onCommit = onCommit
@@ -159,7 +162,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
         }
       }
       .buttonStyle(RentivoButtonStyle())
-      .disabled(isBusy)
+      .disabled(isBusy || !isPrimaryEnabled)
       .accessibilityIdentifier(isLast ? "wizard.commit" : "wizard.continue")
     }
     .padding(.horizontal, RentivoSpacing.page)
@@ -173,6 +176,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
   }
 
   private func advanceOrCommit() {
+    guard !isBusy && isPrimaryEnabled else { return }
     if isLast {
       onCommit()
     } else {

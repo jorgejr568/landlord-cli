@@ -51,6 +51,36 @@ final class BillOperationsWizardUITests: XCTestCase {
     assertFocused(firstDescription)
   }
 
+  func testBillWizardFocusesInvalidExtraAmount() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+
+    let createBill = app.buttons["bill.create"]
+    scrollTo(createBill, in: app)
+    createBill.tap()
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 2 de 5"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 3 de 5"].waitForExistence(timeout: 2))
+    app.buttons["Adicionar item extra"].tap()
+
+    let descriptions = app.textFields.matching(
+      NSPredicate(format: "placeholderValue == %@", "Descrição")
+    )
+    let extraDescription = descriptions.element(boundBy: descriptions.count - 1)
+    extraDescription.tap()
+    extraDescription.typeText("Ajuste")
+    let amounts = app.textFields.matching(
+      NSPredicate(format: "label == %@", "Valor em centavos")
+    )
+    let extraAmount = amounts.element(boundBy: amounts.count - 1)
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertTrue(
+      app.staticTexts["Os itens extras devem ter valor maior que zero."].waitForExistence(timeout: 2)
+    )
+    assertFocused(extraAmount)
+  }
+
   func testExpenseWizardFocusesDescriptionWhenDetailsAreInvalid() throws {
     let app = launchAndSignInAndOpenExpenses()
 
@@ -59,6 +89,23 @@ final class BillOperationsWizardUITests: XCTestCase {
     app.buttons["wizard.continue"].tap()
 
     assertFocused(description)
+  }
+
+  func testExpenseWizardFocusesAmountWhenValueIsInvalid() throws {
+    let app = launchAndSignInAndOpenExpenses()
+
+    app.buttons["Adicionar"].tap()
+    let description = app.textFields["Descrição"]
+    description.tap()
+    description.typeText("Reparo")
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 2 de 3"].waitForExistence(timeout: 2))
+
+    let amount = app.textFields["Valor em centavos"]
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertTrue(app.staticTexts["Informe um valor maior que zero."].waitForExistence(timeout: 2))
+    assertFocused(amount)
   }
 
   func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
@@ -80,6 +127,9 @@ final class BillOperationsWizardUITests: XCTestCase {
     }
 
     XCTAssertFalse(app.buttons["wizard.commit"].isEnabled)
+    let backButtons = app.buttons.matching(identifier: "wizard.back")
+    XCTAssertGreaterThan(backButtons.count, 0)
+    XCTAssertTrue(backButtons.element(boundBy: backButtons.count - 1).isEnabled)
   }
 
   private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {

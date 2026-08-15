@@ -168,6 +168,7 @@ private enum ExpenseWizardStep: Hashable {
 
 private enum ExpenseFormFocus: Hashable {
   case description
+  case amount
 }
 
 private struct ExpenseFormView: View {
@@ -214,7 +215,11 @@ private struct ExpenseFormView: View {
         }
       case .valueAndDate:
         RentivoWizardSection("Valor e data") {
-          CurrencyCentavosField("Valor em centavos", centavos: $centavos)
+          CurrencyCentavosField(
+            "Valor em centavos",
+            centavos: $centavos,
+            isFocused: amountFocusBinding
+          )
           DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
           validationError
         }
@@ -263,6 +268,7 @@ private struct ExpenseFormView: View {
     case .valueAndDate:
       guard centavos > 0 else {
         submitErrorMessage = "Informe um valor maior que zero."
+        scheduleFocus(.amount)
         return false
       }
     case .review:
@@ -276,6 +282,19 @@ private struct ExpenseFormView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+
+  private var amountFocusBinding: Binding<Bool> {
+    Binding(
+      get: { focusedField == .amount },
+      set: { isFocused in
+        if isFocused {
+          focusedField = .amount
+        } else if focusedField == .amount {
+          focusedField = nil
+        }
+      }
+    )
   }
 
   private func save() async {
@@ -532,7 +551,8 @@ struct CommunicationComposerView: View {
       descriptors: descriptors,
       selectedStep: $selectedStep,
       isDirty: isDirty,
-      isBusy: isSending || (selectedStep == .review && bill.isRenderingPDF),
+      isBusy: isSending,
+      isPrimaryEnabled: selectedStep != .review || !bill.isRenderingPDF,
       primaryTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await send() } }

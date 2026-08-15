@@ -53,6 +53,8 @@ private enum BillWizardStep: Hashable {
 
 private enum BillFormFocus: Hashable {
   case lineDescription(BillLineItemID)
+  case lineAmount(BillLineItemID)
+  case addExtra
 }
 
 struct BillFormView: View {
@@ -193,6 +195,8 @@ struct BillFormView: View {
             } label: {
               Label("Adicionar \(kind.actionLabel)", systemImage: "plus.circle.fill")
             }
+            .focused($focusedField, equals: .addExtra)
+            .accessibilityFocused($accessibilityFocusedField, equals: .addExtra)
           }
         }
       }
@@ -272,7 +276,11 @@ struct BillFormView: View {
       TextField("Descrição", text: $lines[index].description)
         .focused($focusedField, equals: .lineDescription(lines[index].id))
         .accessibilityFocused($accessibilityFocusedField, equals: .lineDescription(lines[index].id))
-      CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+      CurrencyCentavosField(
+        "Valor em centavos",
+        centavos: $lines[index].centavos,
+        isFocused: amountFocusBinding(for: lines[index].id)
+      )
       if canRemove {
         Button("Remover item", role: .destructive) {
           lines.remove(at: index)
@@ -298,6 +306,10 @@ struct BillFormView: View {
   /// description gives keyboard users a deterministic first correction point, including extras
   /// that were just added to the invoice.
   private func focusFirstInvalidLine() {
+    if issues.contains(where: { $0.field == .items }) {
+      scheduleFocus(.addExtra)
+      return
+    }
     guard let issue = issues.first(where: { $0.field == .itemDescription || $0.field == .itemAmount })
     else { return }
     let invalidLine: EditableBillLine?
@@ -317,8 +329,23 @@ struct BillFormView: View {
       invalidLine = nil
     }
     if let invalidLine {
-      scheduleFocus(.lineDescription(invalidLine.id))
+      scheduleFocus(
+        issue.field == .itemAmount ? .lineAmount(invalidLine.id) : .lineDescription(invalidLine.id)
+      )
     }
+  }
+
+  private func amountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == .lineAmount(id) },
+      set: { isFocused in
+        if isFocused {
+          focusedField = .lineAmount(id)
+        } else if focusedField == .lineAmount(id) {
+          focusedField = nil
+        }
+      }
+    )
   }
 
   /// The Continue button becomes first responder for the validation action. Deferring the field
