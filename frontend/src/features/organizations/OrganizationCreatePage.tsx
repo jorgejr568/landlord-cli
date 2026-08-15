@@ -42,9 +42,9 @@ export function OrganizationCreatePage() {
       const { data, response } = await apiRequest(apiClient.POST("/api/v1/organizations", {
         body: {
           name: values.name.trim(),
-          pix_key: "",
-          pix_merchant_city: "",
-          pix_merchant_name: ""
+          pix_key: values.pix_key.trim(),
+          pix_merchant_city: values.pix_merchant_city.trim(),
+          pix_merchant_name: values.pix_merchant_name.trim()
         },
         signal: controller.signal
       }));

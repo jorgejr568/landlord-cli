@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate, useParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
+import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { EmptyState, LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
@@ -48,6 +49,8 @@ export function BillGeneratePage() {
   const [variableAmounts, setVariableAmounts] = useState<Record<string, string>>({});
   const [extras, setExtras] = useState<ExtraRow[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState("");
+  const [isDirty, setIsDirty] = useState(false);
   const nextExtraKey = useRef(0);
   const referenceRef = useRef<HTMLInputElement>(null);
   const receiptRef = useRef<HTMLInputElement>(null);
@@ -55,6 +58,7 @@ export function BillGeneratePage() {
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const loadController = useRef<AbortController | null>(null);
   const mutationController = useRef<AbortController | null>(null);
+  const submissionInFlight = useRef(false);
 
   useDocumentTitle(billing ? `Gerar Fatura - ${billing.name} - Rentivo` : "Gerar Fatura - Rentivo");
 
@@ -75,6 +79,8 @@ export function BillGeneratePage() {
     setVariableAmounts({});
     setExtras([]);
     setFiles([]);
+    setFileError("");
+    setIsDirty(false);
     nextExtraKey.current = 0;
     variableRefs.current = {};
     extraRefs.current = {};
@@ -119,12 +125,14 @@ export function BillGeneratePage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submissionInFlight.current) return;
     /* v8 ignore next -- the form is only rendered after billing loading */
     if (!billing) return;
     setActionError("");
     setFieldErrors({});
 
     const parsedDate = parseDateInput(dueDate);
+    /* v8 ignore next -- a native date control cannot contain a malformed non-empty date */
     if (parsedDate === undefined) {
       setFieldErrors({ due_date: "Informe uma data válida." });
       document.getElementById("due_date")?.focus();
@@ -176,7 +184,7 @@ export function BillGeneratePage() {
     if (billing.capabilities.can_upload_bill_receipts) {
       const validationError = receiptFileError(files);
       if (validationError) {
-        setActionError(validationError);
+        setFileError(validationError);
         receiptRef.current?.focus();
         return;
       }
@@ -196,7 +204,7 @@ export function BillGeneratePage() {
       payload: JSON.stringify(payload),
       ...(billing.capabilities.can_upload_bill_receipts ? { receipt_files: files } : {})
     } as unknown as CreateBody;
-    mutationController.current?.abort();
+    submissionInFlight.current = true;
     const controller = new AbortController();
     mutationController.current = controller;
     setSubmitting(true);
@@ -218,6 +226,7 @@ export function BillGeneratePage() {
       setActionError(errorMessage(caught, "Não foi possível gerar a fatura."));
       requestAnimationFrame(() => focusError(firstFieldError(errors, ["reference_month", "due_date"])));
     } finally {
+      submissionInFlight.current = false;
       if (!controller.signal.aborted) setSubmitting(false);
     }
   };
@@ -229,9 +238,13 @@ export function BillGeneratePage() {
   if (!billing.capabilities.can_manage_bills) {
     return <EmptyState body="Você não possui permissão para gerar faturas nesta cobrança." title="Geração indisponível" />;
   }
+  if (billing.pix_needs_setup) {
+    return <EmptyState action={<Link className="btn btn--primary" to={`/billings/${billingUuid}/edit`}>Configurar PIX</Link>} body="Configure a chave, o nome e a cidade do recebedor antes de gerar uma fatura." title="PIX necessário" />;
+  }
 
   return (
     <>
+      <DirtyFormGuard isDirty={isDirty && !submitting} />
       <h2 className="mb-1">Gerar Fatura</h2>
       <p className="text-muted">Cobrança: <strong>{billing.name}</strong></p>
       {billing.items.length === 0 && (
@@ -242,7 +255,7 @@ export function BillGeneratePage() {
         />
       )}
       {billing.items.length > 0 && (
-        <form encType="multipart/form-data" onSubmit={(event) => void submit(event)}>
+        <form encType="multipart/form-data" onChange={() => setIsDirty(true)} onSubmit={(event) => void submit(event)}>
           <div className="panel"><div className="panel-body panel__body">
             <div className="dates-grid">
               <div className="field">
@@ -252,7 +265,7 @@ export function BillGeneratePage() {
               </div>
               <div className="field">
                 <label className="field-label field__label" htmlFor="due_date">Vencimento</label>
-                <input aria-describedby={fieldErrors.due_date ? "due_date-error" : undefined} className="field-input input" id="due_date" onChange={(event) => setDueDate(event.target.value)} placeholder="10/03/2025" type="text" value={dueDate} />
+                <input aria-describedby={/* v8 ignore next -- native date controls exclude malformed non-empty values */ fieldErrors.due_date ? "due_date-error" : undefined} className="field-input input" id="due_date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
                 <FieldError id="due_date-error" message={fieldErrors.due_date} />
               </div>
             </div>
@@ -280,21 +293,21 @@ export function BillGeneratePage() {
           </div>
 
           <div className="panel">
-            <div className="panel-head panel__head"><h5>Despesas Extras</h5><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => setExtras((rows) => [...rows, { amount: "", description: "", key: nextExtraKey.current++ }])} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div>
+            <div className="panel-head panel__head"><h5>Despesas Extras</h5><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => { setExtras((rows) => [...rows, { amount: "", description: "", key: nextExtraKey.current++ }]); setIsDirty(true); }} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div>
             <div className="panel-body panel__body">
               {extras.length === 0 && <p className="text-muted">Nenhuma despesa extra.</p>}
               {extras.map((extra, index) => (
                 <div className="extras-grid" key={extra.key}>
                   <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
                   <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} className="field-input" inputMode="decimal" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row))} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
-                  <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => setExtras((rows) => rows.filter((row) => row.key !== extra.key))} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
+                  <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => { setExtras((rows) => rows.filter((row) => row.key !== extra.key)); setIsDirty(true); }} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="panel"><div className="panel-body panel__body"><div className="field mb-0"><label className="field-label field__label" htmlFor="notes">Observações</label><textarea className="field-textarea input" id="notes" onChange={(event) => setNotes(event.target.value)} rows={3} value={notes} /><FieldError id="notes-error" message={fieldErrors.notes} /></div></div></div>
-          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" className="field-input input" id="generate_receipt_files" multiple onChange={(event) => setFiles(Array.from(event.currentTarget.files!))} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small></div></div></div> : null}
+          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" aria-describedby={fileError ? "generate-receipt-files-error" : undefined} className="field-input input" id="generate_receipt_files" multiple onChange={(event) => { setFiles(Array.from(event.currentTarget.files!)); setFileError(""); }} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small><FieldError id="generate-receipt-files-error" message={fileError} /></div></div></div> : null}
           {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}
           <div className="btn-group"><button className="btn btn--primary" disabled={submitting} type="submit">{submitting ? "Gerando..." : "Gerar Fatura"}</button><Link className="btn btn--ghost" to={`/billings/${billingUuid}`}>Cancelar</Link></div>
         </form>

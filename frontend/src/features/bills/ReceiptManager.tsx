@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import Sortable from "sortablejs";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { validateUpload } from "../../forms/validators";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
@@ -10,7 +11,6 @@ import { formatFileSize } from "../../lib/format";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { BillCapabilities, Receipt } from "./billSupport";
 import { multipartBodySerializer } from "./billSupport";
-import { receiptFileError } from "./receiptFiles";
 
 export interface ReceiptManagerProps {
   billingUuid: string;
@@ -21,6 +21,13 @@ export interface ReceiptManagerProps {
 }
 
 type BusyAction = "delete" | "reorder" | "upload" | null;
+type SkippedReason = components["schemas"]["ReceiptUploadResponse"]["skipped_reasons"][number];
+
+const SKIPPED_REASON_LABELS: Record<SkippedReason, string> = {
+  empty_file: "arquivo vazio",
+  size_limit_exceeded: "arquivo acima do limite de tamanho",
+  unsupported_mime: "tipo de arquivo não suportado"
+};
 
 function uniqueFiles(files: File[]): File[] {
   const seen = new Set<string>();
@@ -102,9 +109,13 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
       fileRef.current?.focus();
       return;
     }
-    const validationError = receiptFileError(files);
-    if (validationError) {
-      setError(validationError);
+    const invalidFile = files.map((file) => validateUpload(file, {
+      empty: ({ name }) => `O arquivo ${name} está vazio.`,
+      oversized: ({ name }) => `O arquivo ${name} excede o limite de 10 MB.`,
+      unsupported: ({ name }) => `O arquivo ${name} deve ser PDF, JPEG ou PNG.`
+    })).find((result) => "error" in result);
+    if (invalidFile && "error" in invalidFile) {
+      setError(invalidFile.error);
       fileRef.current?.focus();
       return;
     }
@@ -128,7 +139,8 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
       publish(appendUnique(currentRef.current, data.items));
       setFiles([]);
       if (fileRef.current) fileRef.current.value = "";
-      setSuccess(`${data.attached} comprovante(s) anexado(s).${data.skipped ? ` ${data.skipped} arquivo(s) ignorado(s).` : ""}`);
+      const skippedReasons = (data.skipped_reasons ?? []).map((reason) => SKIPPED_REASON_LABELS[reason]);
+      setSuccess(`${data.attached} comprovante(s) anexado(s).${data.skipped ? ` ${data.skipped} arquivo(s) ignorado(s).` : ""}${skippedReasons.length ? ` Motivos: ${skippedReasons.join("; ")}.` : ""}`);
     } catch (caught) {
       if (request !== operation.current) return;
       setError(errorMessage(caught, "Não foi possível anexar os comprovantes."));

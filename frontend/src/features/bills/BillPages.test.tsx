@@ -356,7 +356,7 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
 
   await screen.findByRole("heading", { name: "Editar Fatura" });
-  expect(screen.getByLabelText("Vencimento")).toHaveValue("10/08/2026");
+  expect(screen.getByLabelText("Vencimento")).toHaveValue("2026-08-10");
   expect(screen.getAllByLabelText("Tipo")[0]).toBeDisabled();
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "edit.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
@@ -437,7 +437,7 @@ it("validates and normalizes communication content before sending", async () => 
   const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
   fireEvent.change(subject, { target: { value: "😀".repeat(999) } });
   expect(subject).toHaveValue("😀".repeat(998));
-  expect(body).toHaveAttribute("maxlength", "4096");
+  expect(body).not.toHaveAttribute("maxlength");
 
   fireEvent.change(subject, { target: { value: "   " } });
   fireEvent.submit(document.getElementById("comm-form")!);
@@ -824,7 +824,7 @@ it("retries edit loading and obeys denied edit and file capabilities", async () 
   expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
 });
 
-it("validates edit rows and dates, removes extras, and focuses nested API errors", async () => {
+it("validates edit rows, removes extras, and focuses nested API errors", async () => {
   const user = userEvent.setup();
   let saves = 0;
   installFetch({
@@ -832,7 +832,10 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
     "PATCH /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => {
       saves += 1;
       if (saves === 1) return problemResponse({
-        code: "validation_error", detail: "Confira os campos.", fields: { "body.notes": "Observação não permitida." },
+        code: "validation_error", detail: "Confira os campos.", fields: {
+          "body.due_date": "Vencimento não permitido.",
+          "body.notes": "Observação não permitida."
+        },
         request_id: "req", status: 422, title: "Dados inválidos", type: "problem"
       });
       throw new Error("offline");
@@ -846,25 +849,23 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   const amount = screen.getByLabelText("Valor (R$)");
   await user.clear(description);
   await user.clear(amount);
-  await user.clear(screen.getByLabelText("Vencimento"));
-  await user.type(screen.getByLabelText("Vencimento"), "31/02/2026");
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor válido.")).toBeVisible();
-  expect(screen.getByText("Informe uma data válida.")).toBeVisible();
-  expect(screen.getByLabelText("Vencimento")).toHaveFocus();
+  expect(description).toHaveFocus();
 
   fireEvent.change(description, { target: { value: "😀".repeat(256) } });
   expect(description).toHaveValue("😀".repeat(255));
   await user.type(amount, "2.500,00");
   await user.clear(screen.getByLabelText("Vencimento"));
-  await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
+  fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: "2026-08-10" } });
   fireEvent.change(screen.getByLabelText("Descrição"), {
     target: { value: "Aluguel" },
   });
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
-  await waitFor(() => expect(screen.getByLabelText("Observações")).toHaveFocus());
+  expect(screen.getByText("Vencimento não permitido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Vencimento")).toHaveFocus());
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Não foi possível atualizar a fatura.")).toBeVisible();
 });
@@ -902,6 +903,7 @@ it("reports edit regeneration and deletion failures", async () => {
 
 it.each(["resolve", "reject"] as const)("discards an edit save that %s after the route changes", async (outcome) => {
   const user = userEvent.setup();
+  let patchCalls = 0;
   const mutation = { signal: null as AbortSignal | null };
   let settle!: () => void;
   const pending = new Promise<Response>((resolve, reject) => {
@@ -913,6 +915,7 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
     ...detailHandlers(),
     ...secondDetailHandlers(),
     "PATCH /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": (init) => {
+      patchCalls += 1;
       mutation.signal = init?.signal ?? null;
       return pending;
     }
@@ -920,6 +923,8 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
   await screen.findByRole("heading", { name: "Editar Fatura" });
   await user.click(screen.getByRole("button", { name: "Salvar" }));
+  fireEvent.submit(screen.getByRole("button", { name: "Salvando..." }).closest("form")!);
+  expect(patchCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
   await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
   expect(mutation.signal?.aborted).toBe(true);
@@ -1078,6 +1083,7 @@ it("blocks a direct invoice compose URL when its artifact is not ready", async (
 
 it.each(["resolve", "reject"] as const)("discards a pending send that %s after a route change", async (outcome) => {
   const user = userEvent.setup();
+  let sendCalls = 0;
   let settleSend!: () => void;
   const pendingSend = new Promise<Response>((resolve, reject) => {
     settleSend = outcome === "resolve"
@@ -1094,12 +1100,17 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
       uuid: "billing-second"
     }),
     "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" }),
-    "POST /api/v1/billings/billing-public-uuid/communications/send": () => pendingSend
+    "POST /api/v1/billings/billing-public-uuid/communications/send": () => {
+      sendCalls += 1;
+      return pendingSend;
+    }
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await screen.findByRole("heading", { name: "Enviar fatura" });
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(sendCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
   expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
 

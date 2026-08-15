@@ -132,9 +132,9 @@ it("creates an organization from the exact legacy form and forwards analytics", 
     "POST /api/v1/organizations": (init) => {
       expect(JSON.parse(String(init?.body))).toEqual({
         name: "Ribeiro Imóveis",
-        pix_key: "",
-        pix_merchant_city: "",
-        pix_merchant_name: ""
+        pix_key: "+5571999999999",
+        pix_merchant_city: "SALVADOR",
+        pix_merchant_name: "Ribeiro"
       });
       return jsonResponse({
         capabilities: { can_create_billing: true, can_invite: true, can_manage: true, can_view_billing_stats: true },
@@ -155,6 +155,9 @@ it("creates an organization from the exact legacy form and forwards analytics", 
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await waitFor(() => expect(document.title).toBe("Nova organização - Rentivo"));
   await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
+  await user.type(screen.getByLabelText("Nome do recebedor"), "Ribeiro");
+  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/organizations/created-org-uuid"));
@@ -253,9 +256,13 @@ it("normalizes realistic body field errors and focuses the create control", asyn
 
   await user.type(screen.getByLabelText("Nome da organização"), " ");
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
-  expect(await screen.findByText("Nome é obrigatório.")).toBeVisible();
+  expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
+  expect(attempts).toBe(0);
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Criar organização" }));
+  expect(await screen.findByText("Nome é obrigatório.")).toBeVisible();
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Não foi possível criar a organização.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
@@ -319,6 +326,26 @@ it("loads and saves every legacy organization setting", async () => {
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
   view.unmount();
   expect(document.title).toBe("Anterior");
+});
+
+it("blocks incomplete organization PIX values locally and focuses the missing field", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/organizations/org-public-uuid": () => jsonResponse(detail)
+  });
+  renderEdit();
+  await screen.findByRole("heading", { name: "Editar Organização" });
+  await user.clear(screen.getByLabelText("Chave PIX"));
+  await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+  expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
+  expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
+  expect(fetchMock).toHaveBeenCalledOnce();
+
+  fireEvent.change(screen.getByLabelText("Nome do recebedor"), { target: { value: "M".repeat(26) } });
+  await user.clear(screen.getByLabelText("Cidade do recebedor"));
+  fireEvent.submit(screen.getByRole("button", { name: "Salvar" }).closest("form")!);
+  expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
 });
 
 it("retries edit loading, handles realistic field errors, and hides the form by capability", async () => {

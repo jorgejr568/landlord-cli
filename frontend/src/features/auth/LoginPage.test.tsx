@@ -78,6 +78,17 @@ describe("LoginPage", () => {
     });
   });
 
+  it("keeps an over-72-byte multibyte password local", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<LoginPage />);
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/login")).toBe(false);
+  });
+
   it("persists public MFA progress and navigates to verification", async () => {
     const user = userEvent.setup();
     renderAuth(<LoginPage />, {

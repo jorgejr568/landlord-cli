@@ -386,6 +386,14 @@ export async function installApiMocks(
       await fulfillJson(route, security);
       return;
     }
+    if (path === "/security/account-deletion-readiness" && method === "GET") {
+      const readiness: Schemas["AccountDeletionReadinessResponse"] = {
+        can_delete: true,
+        reason: null,
+      };
+      await fulfillJson(route, readiness);
+      return;
+    }
     if (path === "/security/pix" && method === "POST") {
       const update = body as Schemas["PixUpdateRequest"];
       security = {
