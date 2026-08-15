@@ -851,7 +851,7 @@ data class RemoteBillCommunication(
   val uuid: String,
   @SerialName("comm_type") val commType: String,
   val status: String,
-  @SerialName("created_at") val createdAt: String,
+  @SerialName("created_at") val createdAt: String? = null,
   @SerialName("sent_at") val sentAt: String? = null,
   @SerialName("recipient_name") val recipientName: String? = null,
   @SerialName("recipient_email") val recipientEmail: String? = null,

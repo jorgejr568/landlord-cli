@@ -507,7 +507,7 @@ data class BillCommunication(
   val id: CommunicationID,
   val commType: CommunicationType?,
   val status: String,
-  val createdAt: Instant,
+  val createdAt: Instant?,
   val sentAt: Instant?,
   val recipientName: String?,
   val recipientEmail: String?,

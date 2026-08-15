@@ -474,8 +474,8 @@ struct RemoteBill: Decodable {
   }
 }
 struct RemoteBillCommunication: Decodable {
-  let uuid, commType, status, createdAt: String
-  let sentAt, recipientName, recipientEmail, subject: String?
+  let uuid, commType, status: String
+  let createdAt, sentAt, recipientName, recipientEmail, subject: String?
   enum CodingKeys: String, CodingKey {
     case uuid, status, subject
     case commType = "comm_type"

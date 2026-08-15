@@ -660,7 +660,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
           id: CommunicationID(rawValue: communication.uuid),
           commType: CommunicationType(rawValue: communication.commType),
           status: communication.status,
-          createdAt: try WireDate.isoDate(communication.createdAt),
+          createdAt: try communication.createdAt.map(WireDate.isoDate),
           sentAt: try communication.sentAt.map(WireDate.isoDate),
           recipientName: communication.recipientName,
           recipientEmail: communication.recipientEmail,

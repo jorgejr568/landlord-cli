@@ -312,7 +312,7 @@ class APIRentivoStoreBillingTest {
           """"sent_at":"2026-08-15T10:01:00Z","recipient_name":"Morador",""" +
           """"recipient_email":"morador@example.com","subject":"Fatura disponível"},""" +
           """{"uuid":"comm-2","comm_type":"bill_ready","status":"queued",""" +
-          """"created_at":"2026-08-15T11:00:00Z","sent_at":null}],""" +
+          """"created_at":null,"sent_at":null}],""" +
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,""" +
@@ -377,6 +377,7 @@ class APIRentivoStoreBillingTest {
     assertEquals("morador@example.com", bill.communications.first().recipientEmail)
     assertEquals("sent", bill.communications.first().status)
     assertTrue(bill.communications.last().isRedacted)
+    assertNull(bill.communications.last().createdAt)
     assertEquals("application/pdf", bill.receipts.first().mediaType)
     assertEquals(1_536, bill.receipts.first().byteCount)
     assertNotNull(bill.receipts.first().createdAt)

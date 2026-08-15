@@ -322,7 +322,7 @@ struct BillDetailView: View {
               if index > 0 { Divider() }
               VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
                 HStack {
-                  Text(item.createdAt.formattedPTBR(time: .shortened))
+                  Text(item.createdAt?.formattedPTBR(time: .shortened) ?? "Data indisponível")
                     .font(RentivoTypography.metadata.monospacedDigit())
                   Spacer()
                   Text(item.deliveryLabel)

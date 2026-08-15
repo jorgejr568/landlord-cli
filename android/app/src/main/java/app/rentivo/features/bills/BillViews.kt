@@ -1230,7 +1230,7 @@ private fun BillCommunicationHistoryRow(item: BillCommunication) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
       Text(
-        text = BILL_HISTORY_DATE_FORMAT.format(item.createdAt),
+        text = item.createdAt?.let(BILL_HISTORY_DATE_FORMAT::format) ?: "Data indisponível",
         style = RentivoTypography.caption,
         color = RentivoColors.secondaryInk,
       )

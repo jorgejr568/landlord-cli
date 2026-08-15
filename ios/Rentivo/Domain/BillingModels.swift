@@ -678,7 +678,7 @@ public struct BillCommunication: Identifiable, Hashable, Codable, Sendable {
   public let id: CommunicationID
   public let commType: CommunicationType?
   public let status: String
-  public let createdAt: Date
+  public let createdAt: Date?
   public let sentAt: Date?
   public let recipientName: String?
   public let recipientEmail: String?
@@ -695,7 +695,7 @@ public struct BillCommunication: Identifiable, Hashable, Codable, Sendable {
 
   public init(
     id: CommunicationID, commType: CommunicationType?, status: String,
-    createdAt: Date, sentAt: Date?, recipientName: String?, recipientEmail: String?,
+    createdAt: Date?, sentAt: Date?, recipientName: String?, recipientEmail: String?,
     subject: String?
   ) {
     self.id = id

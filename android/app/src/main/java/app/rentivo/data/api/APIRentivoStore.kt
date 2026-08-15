@@ -907,7 +907,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
           id = CommunicationID(rawValue = communication.uuid),
           commType = CommunicationType.fromWire(communication.commType),
           status = communication.status,
-          createdAt = WireDate.isoDate(communication.createdAt),
+          createdAt = communication.createdAt?.let(WireDate::isoDate),
           sentAt = communication.sentAt?.let(WireDate::isoDate),
           recipientName = communication.recipientName,
           recipientEmail = communication.recipientEmail,
