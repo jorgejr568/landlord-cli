@@ -350,6 +350,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard let index = billIndex(billingID: billingID, billID: billID) else {
       throw DemoError.resourceNotFound
     }
+    let upload = try ReceiptUploadRules.validated(upload)
     let receipt = Receipt(
       id: ReceiptID(rawValue: UUID().uuidString),
       name: upload.filename,

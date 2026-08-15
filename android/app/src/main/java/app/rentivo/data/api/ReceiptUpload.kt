@@ -3,6 +3,7 @@ package app.rentivo.data.api
 import app.rentivo.data.ReceiptCaptureStore
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.FileUpload
+import app.rentivo.domain.ReceiptUploadRules
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -18,10 +19,10 @@ import kotlinx.coroutines.withContext
  * `ALLOWED_RECEIPT_TYPES` in `backend/rentivo/models/receipt.py`.
  */
 val ACCEPTED_RECEIPT_MEDIA_TYPES: Set<String> =
-  setOf("application/pdf", "image/jpeg", "image/png")
+  ReceiptUploadRules.allowedMediaTypes
 
 /** Mirrors `MAX_RECEIPT_SIZE` in `backend/rentivo/models/receipt.py`. */
-const val MAX_RECEIPT_UPLOAD_BYTES: Int = 10 * 1024 * 1024
+const val MAX_RECEIPT_UPLOAD_BYTES: Int = ReceiptUploadRules.maximumByteCount
 
 /** What everything not already accepted is re-encoded to before it is uploaded. */
 const val JPEG_MEDIA_TYPE: String = "image/jpeg"

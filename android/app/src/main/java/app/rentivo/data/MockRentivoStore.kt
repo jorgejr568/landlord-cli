@@ -11,6 +11,7 @@ import app.rentivo.domain.ActivityKind
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.AttachmentUploadRules
+import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
@@ -476,9 +477,10 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
+    val validatedUpload = ReceiptUploadRules.validated(upload)
     val receipt = Receipt(
       id = ReceiptID(rawValue = UUID.randomUUID().toString()),
-      name = upload.filename,
+      name = validatedUpload.filename,
       sortOrder = billsState[index].receipts.size,
     )
     billsState[index] = billsState[index].copy(
@@ -487,7 +489,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     recordActivity(
       kind = ActivityKind.BILL,
       title = "Comprovante adicionado",
-      detail = upload.filename,
+      detail = validatedUpload.filename,
     )
     return receipt
   }

@@ -14,6 +14,7 @@ import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.FileUpload
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.OrganizationRole
@@ -264,6 +265,29 @@ class MockRentivoStoreTest {
     val updated = store.bill(billingID = bill.billingID, id = bill.id)
     assertEquals(2, bill.receipts.size)
     assertEquals(reversed, updated.receipts.map { it.id })
+  }
+
+  @Test
+  fun receiptUploadsRejectFilesTheServerWouldSkip() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val before = store.bill(
+      billingID = StableID.billingAurora101,
+      id = StableID.billPaid,
+    ).receipts
+
+    val error = assertDemoError {
+      store.addReceipt(
+        billingID = StableID.billingAurora101,
+        billID = StableID.billPaid,
+        upload = FileUpload(ByteArray(0), "vazio.pdf", "application/pdf"),
+      )
+    }
+
+    assertEquals("O comprovante selecionado está vazio.", error.message)
+    assertEquals(
+      before,
+      store.bill(billingID = StableID.billingAurora101, id = StableID.billPaid).receipts,
+    )
   }
 
   @Test

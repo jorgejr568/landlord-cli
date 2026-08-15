@@ -29,6 +29,7 @@ import app.rentivo.domain.APIKeyScope
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.AttachmentUploadRules
+import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
 import app.rentivo.domain.BillDraft
@@ -307,9 +308,10 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     billID: BillID,
     upload: FileUpload,
   ): Receipt {
+    val validatedUpload = ReceiptUploadRules.validated(upload)
     val response = decodeMultipart<RemoteReceiptUpload>(
       path = "/api/v1/billings/${billingID.rawValue}/bills/${billID.rawValue}/receipts",
-      files = listOf(MultipartFile(field = "receipt_files", upload = upload)),
+      files = listOf(MultipartFile(field = "receipt_files", upload = validatedUpload)),
     )
     val receipt = response.items.firstOrNull() ?: throw LiveAPIError.InvalidResponse
     return Receipt(

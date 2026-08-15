@@ -237,6 +237,26 @@ import Testing
   #expect(updated.receipts.map(\.id) == reversed)
 }
 
+@Test @MainActor func receiptUploadsRejectFilesTheServerWouldSkip() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let before = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPaid
+  ).receipts
+
+  await #expect(throws: DemoError(message: "O comprovante selecionado está vazio.")) {
+    try await store.addReceipt(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billPaid,
+      upload: FileUpload(data: Data(), filename: "vazio.pdf", mediaType: "application/pdf")
+    )
+  }
+
+  let after = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPaid
+  ).receipts
+  #expect(after == before)
+}
+
 @Test @MainActor func communicationMutationUsesSharedActivityGraph() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let billing = try await store.billing(id: StableID.billingAurora101)

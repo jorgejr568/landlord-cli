@@ -55,6 +55,29 @@ public enum ReceiptUploadLimit {
   public static func exceedsLimit(byteCount: Int) -> Bool { byteCount > maxByteCount }
 }
 
+public enum ReceiptUploadRules {
+  /// Validates the final multipart bytes against the receipt model before a repository sends or
+  /// stores them. The backend silently skips invalid receipt parts, so letting one through would
+  /// otherwise look like a successful action that changed nothing.
+  public static func validated(_ upload: FileUpload) throws -> FileUpload {
+    let mediaType = upload.mediaType
+      .split(separator: ";", maxSplits: 1)
+      .first?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? ""
+    guard ReceiptMediaDescriptor.allowedMediaTypes.contains(mediaType) else {
+      throw DemoError(message: "Envie um comprovante em PDF, JPEG ou PNG.")
+    }
+    guard upload.byteCount > 0 else {
+      throw DemoError(message: "O comprovante selecionado está vazio.")
+    }
+    guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
+      throw DemoError(message: "O comprovante excede o limite de \(ReceiptUploadLimit.label).")
+    }
+    return FileUpload(data: upload.data, filename: upload.filename, mediaType: mediaType)
+  }
+}
+
 public enum ReceiptFilename {
   private static let gregorian = Calendar(identifier: .gregorian)
 

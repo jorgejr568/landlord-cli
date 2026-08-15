@@ -2,6 +2,7 @@ package app.rentivo.data.api
 
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillingID
+import app.rentivo.domain.DemoError
 import app.rentivo.domain.FileUpload
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockWebServer
@@ -133,14 +134,31 @@ class MultipartUploadEncodingTest {
         billingID = BillingID(rawValue = "billing-1"),
         billID = BillID(rawValue = "bill-1"),
         upload = FileUpload(
-          data = ByteArray(0),
-          filename = "vazio.pdf",
+          data = "%PDF-1.4".toByteArray(),
+          filename = "valido.pdf",
           mediaType = "application/pdf",
         ),
       )
     }.exceptionOrNull()
 
     assertEquals(LiveAPIError.InvalidResponse, error)
+  }
+
+  @Test
+  fun `an invalid receipt is rejected before the upload request`() = runTest {
+    val dispatcher = server.routeWithSession { unexpected(it) }
+    val store = authenticatedStore()
+
+    val error = runCatching {
+      store.addReceipt(
+        billingID = BillingID(rawValue = "billing-1"),
+        billID = BillID(rawValue = "bill-1"),
+        upload = FileUpload(ByteArray(0), "vazio.pdf", "application/pdf"),
+      )
+    }.exceptionOrNull()
+
+    assertEquals(DemoError("O comprovante selecionado está vazio."), error)
+    assertFalse(dispatcher.calls.any { it.route.endsWith("/receipts") })
   }
 
   @Test

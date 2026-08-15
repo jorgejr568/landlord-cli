@@ -168,6 +168,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return try bill(from: remote, billingID: billingID)
   }
   public func addReceipt(billingID: BillingID, billID: BillID, upload: FileUpload) async throws -> Receipt {
+    let upload = try ReceiptUploadRules.validated(upload)
     let response: RemoteReceiptUpload = try await decodeMultipart(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/receipts",
       files: [(field: "receipt_files", upload: upload)]
