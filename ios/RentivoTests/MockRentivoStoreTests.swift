@@ -141,7 +141,7 @@ import Testing
   try await store.acceptInvitation(id: invitation.id)
 
   do {
-    try await store.setOrganizationMFA(
+    _ = try await store.setOrganizationMFA(
       organizationID: invitation.organizationID,
       required: true
     )
@@ -409,11 +409,28 @@ import Testing
     userID: member.userID,
     role: .manager
   )
-  try await store.setOrganizationMFA(organizationID: organization.id, required: false)
+  _ = try await store.setOrganizationMFA(organizationID: organization.id, required: false)
 
   let updated = try await store.organization(id: organization.id)
   #expect(updated.members.first { $0.userID == member.userID }?.role == .manager)
   #expect(!updated.requiresMFA)
+}
+
+@Test @MainActor func mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let organization = try await store.organization(id: StableID.organizationHorizonte)
+  try await store.disableTOTP(password: "senha-valida")
+  for passkey in try await store.securitySummary().passkeys {
+    try await store.deletePasskey(id: passkey.id)
+  }
+
+  let policy = try await store.setOrganizationMFA(
+    organizationID: organization.id,
+    required: true
+  )
+
+  #expect(policy.enforceMFA)
+  #expect(policy.mfaSetupRequired)
 }
 
 @Test @MainActor func memberRoleCanBePromotedToAdmin() async throws {

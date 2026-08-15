@@ -29,6 +29,7 @@ import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.PasskeyAssertionPayload
 import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.OrganizationDraft
@@ -235,7 +236,10 @@ interface OrganizationRepository {
     role: OrganizationRole,
   ): Invitation
 
-  suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean)
+  suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy
 
   suspend fun transferBilling(billingID: BillingID, toOrganizationID: OrganizationID)
 }

@@ -355,7 +355,19 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     let organizationName = await remoteOrganization.map(organization(from:))?.name ?? "Organização"
     return Invitation(id: InvitationID(rawValue: response.uuid), organizationID: organizationID, organizationName: organizationName, email: response.invitedEmail, role: OrganizationRole(rawValue: response.role) ?? .viewer, status: InvitationStatus(rawValue: response.status) ?? .pending)
   }
-  public func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws { try await execute(path: "/api/v1/organizations/\(organizationID.rawValue)/mfa-policy", method: "PUT", body: RemoteMFAPolicy(enforceMFA: required)) }
+  public func setOrganizationMFA(
+    organizationID: OrganizationID, required: Bool
+  ) async throws -> OrganizationMFAPolicy {
+    let response: RemoteMFAPolicyResponse = try await decode(
+      path: "/api/v1/organizations/\(organizationID.rawValue)/mfa-policy",
+      method: "PUT",
+      body: RemoteMFAPolicy(enforceMFA: required)
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA: response.enforceMFA,
+      mfaSetupRequired: response.mfaSetupRequired
+    )
+  }
   public func transferBilling(billingID: BillingID, toOrganizationID: OrganizationID) async throws { try await execute(path: "/api/v1/billings/\(billingID.rawValue)/transfer", method: "POST", body: RemoteBillingTransfer(organizationID: toOrganizationID.rawValue)) }
   public func listPendingInvitations() async throws -> [Invitation] {
     let response: RemotePendingInvitationList = try await decode(path: "/api/v1/invites")

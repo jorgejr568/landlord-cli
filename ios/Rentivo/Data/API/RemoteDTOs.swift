@@ -19,6 +19,7 @@ struct RemoteOrganizationUpdate: Encodable { let name, pixKey, pixMerchantName, 
 struct RemoteMemberRole: Encodable { let role: String }
 struct RemoteInviteCreate: Encodable { let email, role: String }
 struct RemoteMFAPolicy: Encodable { let enforceMFA: Bool; enum CodingKeys: String, CodingKey { case enforceMFA = "enforce_mfa" } }
+struct RemoteMFAPolicyResponse: Decodable { let enforceMFA, mfaSetupRequired: Bool; enum CodingKeys: String, CodingKey { case enforceMFA = "enforce_mfa"; case mfaSetupRequired = "mfa_setup_required" } }
 struct RemoteBillingTransfer: Encodable { let organizationID: String; enum CodingKeys: String, CodingKey { case organizationID = "organization_uuid" } }
 struct RemoteInvitation: Decodable { let uuid, invitedEmail, role, status: String; enum CodingKeys: String, CodingKey { case uuid, role, status; case invitedEmail = "invited_email" } }
 struct RemotePendingInvitationList: Decodable { let items: [RemotePendingInvitation] }

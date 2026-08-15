@@ -166,7 +166,7 @@ struct OrganizationCapabilityGatingTests {
       )
     }
     await #expect(throws: DemoError.permissionDenied) {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      _ = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID, required: false
       )
     }
@@ -212,7 +212,7 @@ struct OrganizationCapabilityGatingTests {
     )
     #expect(organization.requiresMFA)
 
-    try await app.dependencies.organizations.setOrganizationMFA(
+    _ = try await app.dependencies.organizations.setOrganizationMFA(
       organizationID: organization.id, required: false
     )
 

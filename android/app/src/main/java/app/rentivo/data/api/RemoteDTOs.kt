@@ -120,6 +120,12 @@ data class RemoteInviteCreate(val email: String, val role: String)
 data class RemoteMFAPolicy(@SerialName("enforce_mfa") val enforceMFA: Boolean)
 
 @Serializable
+data class RemoteMFAPolicyResponse(
+  @SerialName("enforce_mfa") val enforceMFA: Boolean,
+  @SerialName("mfa_setup_required") val mfaSetupRequired: Boolean,
+)
+
+@Serializable
 data class RemoteBillingTransfer(@SerialName("organization_uuid") val organizationID: String)
 
 @Serializable

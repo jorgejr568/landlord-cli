@@ -696,7 +696,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return invitation
   }
 
-  public func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws {
+  public func setOrganizationMFA(
+    organizationID: OrganizationID, required: Bool
+  ) async throws -> OrganizationMFAPolicy {
     try await prepareOperation()
     try requireWriteAccess()
     try requireOrganizationCapability(id: organizationID, \.canManage)
@@ -708,6 +710,12 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       kind: .security,
       title: required ? "MFA obrigatório" : "MFA opcional",
       detail: snapshot.organizations[index].name
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA: required,
+      mfaSetupRequired: required
+        && !snapshot.security.totpEnabled
+        && snapshot.security.passkeys.isEmpty
     )
   }
 

@@ -39,6 +39,7 @@ import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
 import app.rentivo.domain.OrganizationMember
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
 import app.rentivo.domain.PasskeyAssertionPayload
@@ -837,7 +838,10 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return invitation
   }
 
-  override suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean) {
+  override suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy {
     prepareOperation()
     requireWriteAccess()
     requireOrganizationCapability(organizationID) { it.canManage }
@@ -847,6 +851,12 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       kind = ActivityKind.SECURITY,
       title = if (required) "MFA obrigatório" else "MFA opcional",
       detail = organizationsState[index].name,
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA = required,
+      mfaSetupRequired = required &&
+        !securityState.totpEnabled &&
+        securityState.passkeys.isEmpty(),
     )
   }
 

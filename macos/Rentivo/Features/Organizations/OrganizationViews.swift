@@ -664,11 +664,18 @@ struct OrganizationDetailView: View {
     runningAction = .policy
     defer { runningAction = nil }
     do {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      let policy = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
         required: !organization.requiresMFA
       )
       await refreshAll()
+      if policy.mfaSetupRequired {
+        app.selectedTab = .account
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          kind: .information
+        )
+      }
     } catch { app.reportFailure(error) }
   }
 

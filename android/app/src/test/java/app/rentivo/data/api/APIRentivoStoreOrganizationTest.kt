@@ -223,16 +223,23 @@ class APIRentivoStoreOrganizationTest {
     }
 
   @Test
-  fun `the mfa policy is written with the contract field name`() = runTest {
-    val dispatcher = server.routeWithSession { MockResponse().setResponseCode(204) }
+  fun `the mfa policy request maps whether the current user still needs setup`() = runTest {
+    val dispatcher = server.routeWithSession {
+      jsonResponse("""{"enforce_mfa":true,"mfa_setup_required":true}""")
+    }
     val store = authenticatedStore()
 
-    store.setOrganizationMFA(OrganizationID(rawValue = "organization-1"), required = true)
+    val policy = store.setOrganizationMFA(
+      OrganizationID(rawValue = "organization-1"),
+      required = true,
+    )
 
     assertEquals(
       """{"enforce_mfa":true}""",
       dispatcher.bodyOf("PUT /api/v1/organizations/organization-1/mfa-policy"),
     )
+    assertEquals(true, policy.enforceMFA)
+    assertEquals(true, policy.mfaSetupRequired)
   }
 
   @Test

@@ -93,6 +93,19 @@ public struct Organization: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+/// The effective result returned after changing an organization's MFA policy.
+/// `mfaSetupRequired` is user-specific: the server sets it when enforcing MFA
+/// leaves the current administrator without any enrolled MFA method.
+public struct OrganizationMFAPolicy: Hashable, Codable, Sendable {
+  public let enforceMFA: Bool
+  public let mfaSetupRequired: Bool
+
+  public init(enforceMFA: Bool, mfaSetupRequired: Bool) {
+    self.enforceMFA = enforceMFA
+    self.mfaSetupRequired = mfaSetupRequired
+  }
+}
+
 public struct OrganizationDraft: Hashable, Sendable {
   public var name: String
   public var pix: PixConfiguration?

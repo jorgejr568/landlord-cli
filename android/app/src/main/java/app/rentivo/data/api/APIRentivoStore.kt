@@ -61,6 +61,7 @@ import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
@@ -599,11 +600,18 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     )
   }
 
-  override suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean) {
-    execute(
+  override suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy {
+    val response = decode<RemoteMFAPolicy, RemoteMFAPolicyResponse>(
       path = "/api/v1/organizations/${organizationID.rawValue}/mfa-policy",
       method = "PUT",
       body = RemoteMFAPolicy(enforceMFA = required),
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA = response.enforceMFA,
+      mfaSetupRequired = response.mfaSetupRequired,
     )
   }
 

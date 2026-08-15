@@ -150,6 +150,7 @@ public protocol OrganizationRepository: AnyObject {
   func inviteMember(organizationID: OrganizationID, email: String, role: OrganizationRole) async throws
     -> Invitation
   func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws
+    -> OrganizationMFAPolicy
   func transferBilling(billingID: BillingID, toOrganizationID: OrganizationID) async throws
 }
 

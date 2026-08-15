@@ -572,11 +572,18 @@ struct OrganizationDetailView: View {
   private func toggleMFA() async {
     guard let organization = state.value else { return }
     do {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      let policy = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
         required: !organization.requiresMFA
       )
       await refreshAll()
+      if policy.mfaSetupRequired {
+        app.selectedTab = .account
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          kind: .information
+        )
+      }
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 

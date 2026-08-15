@@ -448,6 +448,22 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val organization = store.organization(id = StableID.organizationHorizonte)
+    store.disableTOTP(password = "senha-valida")
+    store.securitySummary().passkeys.forEach { store.deletePasskey(id = it.id) }
+
+    val policy = store.setOrganizationMFA(
+      organizationID = organization.id,
+      required = true,
+    )
+
+    assertTrue(policy.enforceMFA)
+    assertTrue(policy.mfaSetupRequired)
+  }
+
+  @Test
   fun memberRoleCanBePromotedToAdmin() = runTest {
     // Regression coverage for the role picker bug: promoting a member to admin must be a
     // supported mutation (the API accepts admin/manager/viewer).

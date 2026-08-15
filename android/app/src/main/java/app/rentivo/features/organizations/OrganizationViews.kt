@@ -73,6 +73,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.rentivo.R
 import app.rentivo.app.AppNotice
+import app.rentivo.app.AppTab
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
@@ -605,11 +606,18 @@ fun OrganizationDetailView(
   suspend fun toggleMFA() {
     val organization = state.value ?: return
     try {
-      app.dependencies.organizations.setOrganizationMFA(
+      val policy = app.dependencies.organizations.setOrganizationMFA(
         organizationID = organizationId,
         required = !organization.requiresMFA,
       )
       refreshAll()
+      if (policy.mfaSetupRequired) {
+        app.selectedTab = AppTab.ACCOUNT
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          AppNotice.Kind.INFORMATION,
+        )
+      }
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (throwable: Throwable) {

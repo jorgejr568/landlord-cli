@@ -71,6 +71,15 @@ data class Organization(
   val capabilities: OrganizationCapabilities = OrganizationCapabilities.full,
 )
 
+/**
+ * Effective policy returned after changing an organization's MFA requirement. The setup flag is
+ * user-specific: it is true when the current administrator still has no enrolled MFA method.
+ */
+data class OrganizationMFAPolicy(
+  val enforceMFA: Boolean,
+  val mfaSetupRequired: Boolean,
+)
+
 data class OrganizationDraft(
   val name: String,
   val pix: PixConfiguration?,
