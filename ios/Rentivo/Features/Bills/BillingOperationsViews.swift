@@ -166,6 +166,10 @@ private enum ExpenseWizardStep: Hashable {
   case review
 }
 
+private enum ExpenseFormFocus: Hashable {
+  case description
+}
+
 private struct ExpenseFormView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -180,6 +184,8 @@ private struct ExpenseFormView: View {
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @FocusState private var focusedField: ExpenseFormFocus?
+  @AccessibilityFocusState private var accessibilityFocusedField: ExpenseFormFocus?
 
   var body: some View {
     RentivoFormWizard(
@@ -196,6 +202,8 @@ private struct ExpenseFormView: View {
       case .details:
         RentivoWizardSection("Detalhes") {
           TextField("Descrição", text: $description)
+            .focused($focusedField, equals: .description)
+            .accessibilityFocused($accessibilityFocusedField, equals: .description)
           Picker("Categoria", selection: $category) {
             ForEach(ExpenseCategory.allCases, id: \.self) { category in
               Text(category.label).tag(category)
@@ -249,6 +257,7 @@ private struct ExpenseFormView: View {
     case .details:
       guard ExpenseInput.isValidDescription(description) else {
         submitErrorMessage = "Informe uma descrição válida para a despesa."
+        scheduleFocus(.description)
         return false
       }
     case .valueAndDate:
@@ -260,6 +269,13 @@ private struct ExpenseFormView: View {
       break
     }
     return true
+  }
+
+  private func scheduleFocus(_ field: ExpenseFormFocus) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 
   private func save() async {
@@ -456,6 +472,12 @@ private enum CommunicationWizardStep: Hashable {
   case review
 }
 
+private enum CommunicationComposerFocus: Hashable {
+  case recipient(RecipientID)
+  case subject
+  case message
+}
+
 struct CommunicationComposerView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -474,6 +496,8 @@ struct CommunicationComposerView: View {
   /// message has to stay inline.
   @State private var sendErrorMessage: String?
   @State private var appliedTemplateType: CommunicationType
+  @FocusState private var focusedField: CommunicationComposerFocus?
+  @AccessibilityFocusState private var accessibilityFocusedField: CommunicationComposerFocus?
   private let initialCommType: CommunicationType
 
   init(billing: Billing, bill: Bill) {
@@ -508,7 +532,7 @@ struct CommunicationComposerView: View {
       descriptors: descriptors,
       selectedStep: $selectedStep,
       isDirty: isDirty,
-      isBusy: isSending,
+      isBusy: isSending || (selectedStep == .review && bill.isRenderingPDF),
       primaryTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await send() } }
@@ -576,6 +600,8 @@ struct CommunicationComposerView: View {
                 .foregroundStyle(RentivoColors.secondaryInk)
             }
           }
+          .focused($focusedField, equals: .recipient(recipient.id))
+          .accessibilityFocused($accessibilityFocusedField, equals: .recipient(recipient.id))
         }
       }
       inlineError
@@ -588,8 +614,12 @@ struct CommunicationComposerView: View {
       subtitle: "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}."
     ) {
       TextField("Assunto", text: $subject)
+        .focused($focusedField, equals: .subject)
+        .accessibilityFocused($accessibilityFocusedField, equals: .subject)
       TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
         .lineLimit(5...12)
+        .focused($focusedField, equals: .message)
+        .accessibilityFocused($accessibilityFocusedField, equals: .message)
       inlineError
     }
   }
@@ -653,17 +683,31 @@ struct CommunicationComposerView: View {
     case .recipients:
       guard !selectedRecipients.isEmpty else {
         sendErrorMessage = "Selecione ao menos um destinatário."
+        if let recipient = billing.recipients.first {
+          scheduleFocus(.recipient(recipient.id))
+        }
         return false
       }
     case .message:
       if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
         sendErrorMessage = message
+        scheduleFocus(CommunicationContent.normalizedSubject(subject).isEmpty
+          || CommunicationContent.normalizedSubject(subject).unicodeScalars.count
+            > CommunicationContent.maximumSubjectLength
+          ? .subject : .message)
         return false
       }
     case .template, .review:
       break
     }
     return true
+  }
+
+  private func scheduleFocus(_ field: CommunicationComposerFocus) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 
   private var ownerScopeLabel: String {

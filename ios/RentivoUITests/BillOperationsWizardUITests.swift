@@ -28,6 +28,60 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
   }
 
+  func testBillWizardFocusesFirstInvalidLine() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+
+    let createBill = app.buttons["bill.create"]
+    scrollTo(createBill, in: app)
+    createBill.tap()
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 2 de 5"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 3 de 5"].waitForExistence(timeout: 2))
+    let descriptions = app.textFields.matching(
+      NSPredicate(format: "placeholderValue == %@", "Descrição")
+    )
+    XCTAssertGreaterThan(descriptions.count, 0)
+    let firstDescription = descriptions.firstMatch
+    firstDescription.tap()
+    firstDescription.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 255))
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertTrue(app.staticTexts["Descreva todos os itens da fatura."].waitForExistence(timeout: 2))
+    assertFocused(firstDescription)
+  }
+
+  func testExpenseWizardFocusesDescriptionWhenDetailsAreInvalid() throws {
+    let app = launchAndSignInAndOpenExpenses()
+
+    app.buttons["Adicionar"].tap()
+    let description = app.textFields["Descrição"]
+    app.buttons["wizard.continue"].tap()
+
+    assertFocused(description)
+  }
+
+  func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+
+    let regenerate = app.buttons["Regenerar documento"]
+    scrollTo(regenerate, in: app)
+    regenerate.tap()
+    XCTAssertTrue(app.staticTexts["Renderizando…"].waitForExistence(timeout: 2))
+
+    let communicate = app.buttons["Enviar comunicação"]
+    scrollTo(communicate, in: app)
+    communicate.tap()
+    for _ in 0..<4 {
+      app.buttons["wizard.continue"].tap()
+    }
+
+    XCTAssertFalse(app.buttons["wizard.commit"].isEnabled)
+  }
+
   private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {
     let app = launchAndSignIn()
     app.tabBars.buttons["Cobranças"].tap()
@@ -78,5 +132,12 @@ final class BillOperationsWizardUITests: XCTestCase {
       attempts += 1
     }
     XCTAssertTrue(element.exists)
+  }
+
+  private func assertFocused(_ element: XCUIElement, timeout: TimeInterval = 2) {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasFocus == true"), object: element
+    )
+    XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: timeout), .completed)
   }
 }

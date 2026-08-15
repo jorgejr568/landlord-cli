@@ -51,6 +51,10 @@ private enum BillWizardStep: Hashable {
   case review
 }
 
+private enum BillFormFocus: Hashable {
+  case lineDescription(BillLineItemID)
+}
+
 struct BillFormView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -73,6 +77,8 @@ struct BillFormView: View {
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @FocusState private var focusedField: BillFormFocus?
+  @AccessibilityFocusState private var accessibilityFocusedField: BillFormFocus?
   private let initialReferenceMonth: ReferenceMonth
   private let initialDueDate: DateOnly?
   private let initialHasDueDate: Bool
@@ -264,6 +270,8 @@ struct BillFormView: View {
   private func lineRow(_ index: Int, canRemove: Bool) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.small) {
       TextField("Descrição", text: $lines[index].description)
+        .focused($focusedField, equals: .lineDescription(lines[index].id))
+        .accessibilityFocused($accessibilityFocusedField, equals: .lineDescription(lines[index].id))
       CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
       if canRemove {
         Button("Remover item", role: .destructive) {
@@ -282,7 +290,44 @@ struct BillFormView: View {
     submitErrorMessage = nil
     guard selectedStep == .items else { return true }
     issues = draft.validate()
+    focusFirstInvalidLine()
     return issues.isEmpty
+  }
+
+  /// Validation aggregates a row's problems into one message. Returning focus to that row's
+  /// description gives keyboard users a deterministic first correction point, including extras
+  /// that were just added to the invoice.
+  private func focusFirstInvalidLine() {
+    guard let issue = issues.first(where: { $0.field == .itemDescription || $0.field == .itemAmount })
+    else { return }
+    let invalidLine: EditableBillLine?
+    switch issue.field {
+    case .itemDescription:
+      invalidLine = lines.first {
+        $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          || $0.description.unicodeScalars.count > 255
+      }
+    case .itemAmount:
+      invalidLine = lines.first {
+        ($0.kind == .extra && $0.centavos <= 0)
+          || ($0.kind != .extra && $0.centavos < 0)
+      }
+        ?? (Money.fitsPersistedTotal(lines.lazy.map(\.centavos)) ? nil : lines.first)
+    default:
+      invalidLine = nil
+    }
+    if let invalidLine {
+      scheduleFocus(.lineDescription(invalidLine.id))
+    }
+  }
+
+  /// The Continue button becomes first responder for the validation action. Deferring the field
+  /// assignment by one main-actor turn lets that button resign before SwiftUI restores focus.
+  private func scheduleFocus(_ field: BillFormFocus) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 
   private var draft: BillDraft {
