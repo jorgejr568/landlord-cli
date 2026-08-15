@@ -27,4 +27,3 @@ export function DirtyFormGuard({ isDirty }: { isDirty: boolean }) {
 
   return dataRouter ? createElement(DataRouterBlocker, { isDirty }) : null;
 }
-

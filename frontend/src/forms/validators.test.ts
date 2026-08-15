@@ -69,4 +69,3 @@ it("enforces bcrypt's 72-byte password limit instead of counting characters", ()
   expect(validatePassword("á".repeat(36))).toEqual({ value: "á".repeat(36) });
   expect(validatePassword("á".repeat(37))).toEqual({ error: "Senha muito longa." });
 });
-
