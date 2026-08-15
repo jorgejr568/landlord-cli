@@ -1054,7 +1054,7 @@ private fun BillingSection(
 ) {
   var expanded by remember { mutableStateOf(false) }
   val owned = billings.filter { it.owner.workspaceID.rawValue == organization.id.rawValue }
-  val personal = billings.filter { !it.owner.isOrganization }
+  val personal = billings.filter { it.canTransferToOrganization }
 
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
     SectionTitle(title = "Cobranças", icon = Icons.Filled.House)

@@ -44,7 +44,7 @@ enum OrganizationBillingIndex {
 
   /// The cobranças that belong to no organization — the transfer menu's candidates.
   static func personal(_ billings: [Billing]) -> [Billing] {
-    billings.filter { !$0.owner.isOrganization }
+    billings.filter(\.canTransferToOrganization)
   }
 }
 

@@ -169,6 +169,10 @@ data class Billing(
   val canGenerateBills: Boolean
     get() = capabilities.canCreateBills && !pixNeedsSetup
 
+  /** Transfer candidates must be user-owned and authorized by the backend capability. */
+  val canTransferToOrganization: Boolean
+    get() = !owner.isOrganization && capabilities.canTransfer
+
   fun template(type: CommunicationType): CommunicationTemplate? =
     communicationTemplates.firstOrNull { it.commType == type }
 }

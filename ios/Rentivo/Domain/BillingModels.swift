@@ -243,6 +243,12 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     capabilities.canCreateBills && !pixNeedsSetup
   }
 
+  /// The transfer endpoint accepts only user-owned cobranças and advertises authorization through
+  /// the per-billing capability returned by the backend.
+  public var canTransferToOrganization: Bool {
+    !owner.isOrganization && capabilities.canTransfer
+  }
+
   public func template(for type: CommunicationType) -> CommunicationTemplate? {
     communicationTemplates.first { $0.commType == type }
   }

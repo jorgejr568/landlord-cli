@@ -91,14 +91,16 @@ struct OrganizationBillingIndexTests {
     #expect((index[empty] ?? []).count == 0)
   }
 
-  @Test("only cobranças outside every organization are offered for transfer")
-  func personalBillingsExcludeOrganizationOwned() {
+  @Test("only capability-authorized personal cobranças are offered for transfer")
+  func personalBillingsRequireTransferCapability() {
     let owned = billing(
       "b1", owner: .organization(id: OrganizationID(rawValue: "org-horizonte"), name: "Horizonte")
     )
     let personal = billing("b2", owner: .user(id: 7, name: "Pessoal"))
+    var denied = billing("b3", owner: .user(id: 7, name: "Pessoal"))
+    denied.capabilities = .viewer
 
-    #expect(OrganizationBillingIndex.personal([owned, personal]) == [personal])
+    #expect(OrganizationBillingIndex.personal([owned, denied, personal]) == [personal])
   }
 
   @Test("grouping agrees with the per-organization filter it replaced")

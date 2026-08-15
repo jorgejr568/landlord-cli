@@ -31,6 +31,24 @@ private fun makeBill(
 )
 
 class BillLifecycleTest {
+  @Test
+  fun `only transferable personal billings can be moved into an organization`() {
+    val transferable = Billing(
+      id = BillingID("transferable"), name = "Pessoal", description = "",
+      owner = BillingOwner.User(id = 7, name = "Pessoal"), items = emptyList(),
+      capabilities = BillingCapabilities.full,
+    )
+    val denied = transferable.copy(id = BillingID("denied"), capabilities = BillingCapabilities.viewer)
+    val organizationOwned = transferable.copy(
+      id = BillingID("organization"),
+      owner = BillingOwner.Organization(id = OrganizationID("org-1"), name = "Organização"),
+    )
+
+    assertTrue(transferable.canTransferToOrganization)
+    assertFalse(denied.canTransferToOrganization)
+    assertFalse(organizationOwned.canTransferToOrganization)
+  }
+
 
   @Test
   fun draftCanPublishButCannotBecomeDelayedDirectly() {

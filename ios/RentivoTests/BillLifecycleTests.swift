@@ -172,3 +172,23 @@ private func makeBill(status: BillStatus = .draft, availableTransitions: [BillSt
   #expect(bill.effectiveTotal == Money(centavos: 99_900))
   #expect(bill.total == Money(centavos: 180_000))
 }
+
+@Test func onlyTransferablePersonalBillingsCanBeMovedIntoAnOrganization() {
+  let transferable = Billing(
+    id: BillingID(rawValue: "transferable"), name: "Pessoal", description: "",
+    owner: .user(id: 7, name: "Pessoal"), items: [], capabilities: .full
+  )
+  let denied = Billing(
+    id: BillingID(rawValue: "denied"), name: "Sem acesso", description: "",
+    owner: .user(id: 7, name: "Pessoal"), items: [], capabilities: .viewer
+  )
+  let organizationOwned = Billing(
+    id: BillingID(rawValue: "organization"), name: "Organização", description: "",
+    owner: .organization(id: OrganizationID(rawValue: "org-1"), name: "Organização"),
+    items: [], capabilities: .full
+  )
+
+  #expect(transferable.canTransferToOrganization)
+  #expect(!denied.canTransferToOrganization)
+  #expect(!organizationOwned.canTransferToOrganization)
+}

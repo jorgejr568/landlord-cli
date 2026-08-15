@@ -508,7 +508,7 @@ struct OrganizationDetailView: View {
           }
         }
       }
-      let personal = billings.filter { !$0.owner.isOrganization }
+      let personal = billings.filter(\.canTransferToOrganization)
       if !personal.isEmpty && organization.capabilities.canCreateBilling {
         Menu {
           ForEach(personal) { billing in
