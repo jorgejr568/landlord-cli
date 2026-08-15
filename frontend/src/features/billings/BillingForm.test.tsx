@@ -50,6 +50,9 @@ it("preserves the create form structure and filters owners by capability instead
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={organizations} saving={false} values={values} />);
 
   expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  expect(screen.getByLabelText("Nome do imóvel")).toHaveAttribute("maxLength", "255");
+  expect(screen.getByRole("textbox", { name: /^Descrição$/ })).toHaveAttribute("maxLength", "2000");
+  expect(screen.getByLabelText("Descrição do item 1")).toHaveAttribute("maxLength", "255");
   expect(screen.getByRole("heading", { name: "Detalhes" }).closest(".panel")).not.toBeNull();
   expect(screen.getByRole("option", { name: "Minha conta" })).toBeVisible();
   expect(screen.getByRole("option", { name: "Permitida por capability" })).toBeVisible();

@@ -19,6 +19,8 @@ it("adds, edits and removes recipients with the legacy row classes", async () =>
 
   expect(screen.getByRole("heading", { name: "Destinatários" })).toBeVisible();
   expect(screen.getByLabelText("Nome do destinatário 1").closest(".item-grid")).not.toBeNull();
+  expect(screen.getByLabelText("Nome do destinatário 1")).toHaveAttribute("maxLength", "255");
+  expect(screen.getByLabelText("E-mail do destinatário 1")).toHaveAttribute("maxLength", "320");
   await user.clear(screen.getByLabelText("Nome do destinatário 1"));
   await user.type(screen.getByLabelText("Nome do destinatário 1"), "José");
   expect(onChange).toHaveBeenLastCalledWith([{ ...values[0], name: "José" }]);

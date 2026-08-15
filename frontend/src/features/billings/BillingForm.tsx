@@ -131,12 +131,12 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <div className="form-grid">
             <div className="field field--full">
               <label className="field__label" htmlFor="name">Nome do imóvel</label>
-              <input aria-describedby={fieldErrors.name ? "name-error" : undefined} autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", event.target.value)} placeholder="Ex.: Apartamento 302 — Ed. Aurora" required type="text" value={form.name} />
+              <input aria-describedby={fieldErrors.name ? "name-error" : undefined} autoFocus className="input" id="name" maxLength={255} name="name" onChange={(event) => setField("name", event.target.value)} placeholder="Ex.: Apartamento 302 — Ed. Aurora" required type="text" value={form.name} />
               <FieldError id="name-error" message={fieldErrors.name} />
             </div>
             <div className="field field--full">
               <label className="field__label" htmlFor="description">Descrição</label>
-              <input aria-describedby={fieldErrors.description ? "description-error" : undefined} className="input" id="description" name="description" onChange={(event) => setField("description", event.target.value)} placeholder="Inquilino, endereço ou nota interna" type="text" value={form.description} />
+              <input aria-describedby={fieldErrors.description ? "description-error" : undefined} className="input" id="description" maxLength={2000} name="description" onChange={(event) => setField("description", event.target.value)} placeholder="Inquilino, endereço ou nota interna" type="text" value={form.description} />
               <FieldError id="description-error" message={fieldErrors.description} />
             </div>
           </div>
@@ -194,7 +194,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                   <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
                     <div className="field mb-0">
                       <label className="field__label" htmlFor={`${item.id}-description`}>Descrição</label>
-                      <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && fieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
+                      <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && fieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} maxLength={255} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
                       <FieldError id={`${item.id}-description-error`} message={descriptionError} />
                       <FieldError id={`${item.id}-uuid-error`} message={uuidError} />
                     </div>

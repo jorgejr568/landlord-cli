@@ -68,6 +68,7 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
                       className="input"
                       disabled={locked}
                       id={`${kind}-${contact.id}-name`}
+                      maxLength={255}
                       name={`${kind}-${index}-name`}
                       onChange={(event) => update(index, "name", event.target.value)}
                       placeholder={isRecipient ? "Ex.: João" : "Ex.: Ana"}
@@ -84,6 +85,7 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
                       className="input"
                       disabled={locked}
                       id={`${kind}-${contact.id}-email`}
+                      maxLength={320}
                       name={`${kind}-${index}-email`}
                       onChange={(event) => update(index, "email", event.target.value)}
                       placeholder={isRecipient ? "joao@email.com" : "ana@email.com"}
