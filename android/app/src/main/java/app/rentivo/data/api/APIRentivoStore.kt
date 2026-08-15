@@ -38,6 +38,7 @@ import app.rentivo.domain.BillLineItem
 import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
@@ -897,6 +898,15 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       // the whole decode, since a missing action button is a much smaller failure than an error.
       availableTransitions = remote.availableTransitions.mapNotNull {
         BillStatus.fromWire(it.target)
+      },
+      availableTransitionActions = remote.availableTransitions.mapNotNull { transition ->
+        val target = BillStatus.fromWire(transition.target) ?: return@mapNotNull null
+        BillTransition(
+          target = target,
+          label = transition.label,
+          style = transition.style,
+          requiresConfirmation = transition.requiresConfirmation,
+        )
       },
       serverTotal = Money(centavos = remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,

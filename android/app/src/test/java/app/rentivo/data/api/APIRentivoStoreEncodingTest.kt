@@ -33,7 +33,8 @@ private const val CREATED_BILL_BODY =
     """"due_date":"2026-07-10","status_updated_at":null,"line_items":[""" +
     """{"description":"Água","amount":4200,"item_type":"variable"},""" +
     """{"description":"Taxa extra","amount":1000,"item_type":"extra"}],"receipts":[],""" +
-    """"total_amount":5200,"available_transitions":[{"target":"published"}]}"""
+    """"total_amount":5200,"available_transitions":[{"target":"published",""" +
+      """"label":"Publicar","style":"primary","requires_confirmation":false}]}"""
 
 class APIRentivoStoreEncodingTest {
 

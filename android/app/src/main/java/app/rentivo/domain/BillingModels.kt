@@ -473,6 +473,33 @@ object BillPDFPolling {
   fun shouldPoll(bill: Bill?): Boolean = bill?.isRenderingPDF == true
 }
 
+data class BillTransition(
+  val target: BillStatus,
+  val label: String,
+  val style: String,
+  val requiresConfirmation: Boolean,
+) {
+  companion object {
+    fun fallback(target: BillStatus, current: BillStatus): BillTransition {
+      val consequential = target == BillStatus.PAID || target == BillStatus.CANCELLED ||
+        (current == BillStatus.PUBLISHED && target == BillStatus.DRAFT) ||
+        (current == BillStatus.SENT && target == BillStatus.PUBLISHED) ||
+        (current == BillStatus.PAID && target == BillStatus.SENT) ||
+        (current == BillStatus.CANCELLED && target == BillStatus.DRAFT)
+      val destructive = target == BillStatus.CANCELLED ||
+        (current == BillStatus.PUBLISHED && target == BillStatus.DRAFT) ||
+        (current == BillStatus.SENT && target == BillStatus.PUBLISHED) ||
+        (current == BillStatus.PAID && target == BillStatus.SENT)
+      return BillTransition(
+        target = target,
+        label = "Marcar como ${target.label.lowercase()}",
+        style = if (destructive) "danger" else "primary",
+        requiresConfirmation = consequential,
+      )
+    }
+  }
+}
+
 data class Bill(
   val id: BillID,
   val billingID: BillingID,
@@ -493,6 +520,8 @@ data class Bill(
    * (see [effectiveTransitions]).
    */
   val availableTransitions: List<BillStatus>? = null,
+  /** Labels, visual style, and confirmation policy supplied with the transition targets. */
+  val availableTransitionActions: List<BillTransition>? = null,
   /**
    * Server-authoritative total for this bill, when the API supplies it. `null` means "not
    * provided by this response" — callers fall back to the computed [total] (see [effectiveTotal]).
@@ -528,6 +557,11 @@ data class Bill(
 
   fun canTransition(target: BillStatus): Boolean = effectiveTransitions.contains(target)
 
+  val effectiveTransitionActions: List<BillTransition>
+    get() = availableTransitionActions ?: effectiveTransitions.sortedBy { it.wire }.map {
+      BillTransition.fallback(target = it, current = status)
+    }
+
   /**
    * Folds a freshly returned *bill summary* into this loaded bill: render state, action gates and
    * status come from [updated], while detail-only data (receipts, line items) stays as loaded.
@@ -541,6 +575,7 @@ data class Bill(
     hasRecibo = updated.hasRecibo,
     status = updated.status,
     availableTransitions = updated.availableTransitions,
+    availableTransitionActions = updated.availableTransitionActions,
   )
 }
 

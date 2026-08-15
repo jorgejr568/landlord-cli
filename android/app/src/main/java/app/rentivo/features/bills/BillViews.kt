@@ -121,6 +121,7 @@ import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillPDFPolling
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingItem
@@ -747,6 +748,7 @@ fun BillDetailScreen(
   var showingCommunication by remember { mutableStateOf(false) }
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  var pendingTransition by remember { mutableStateOf<BillTransition?>(null) }
   val mutationGate = remember { MutationGate() }
   /**
    * Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when the
@@ -904,8 +906,12 @@ fun BillDetailScreen(
         billing = currentBilling,
         bill = bill,
         modifier = Modifier.padding(padding),
-        onTransition = { status ->
-          scope.launch { mutationGate.run { transition(bill.status, status) } }
+        onTransition = { action ->
+          if (action.requiresConfirmation) {
+            pendingTransition = action
+          } else {
+            scope.launch { mutationGate.run { transition(bill.status, action.target) } }
+          }
         },
         onOpenInvoice = { scope.launch { downloadInvoice() } },
         onOpenRecibo = { scope.launch { downloadRecibo() } },
@@ -958,6 +964,32 @@ fun BillDetailScreen(
       containerColor = RentivoColors.surface,
     )
   }
+
+  pendingTransition?.let { action ->
+    AlertDialog(
+      onDismissRequest = { pendingTransition = null },
+      title = { Text(text = action.label) },
+      text = { Text(text = "Confirme a alteração de status desta fatura.") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            pendingTransition = null
+            val currentStatus = state.value?.status ?: return@TextButton
+            scope.launch { mutationGate.run { transition(currentStatus, action.target) } }
+          },
+        ) {
+          Text(
+            text = action.label,
+            color = if (action.style == "danger") RentivoColors.coral else RentivoColors.emerald,
+          )
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { pendingTransition = null }) { Text(text = "Cancelar") }
+      },
+      containerColor = RentivoColors.surface,
+    )
+  }
 }
 
 @Composable
@@ -965,7 +997,7 @@ private fun BillDetailContent(
   billing: Billing,
   bill: Bill,
   modifier: Modifier = Modifier,
-  onTransition: (BillStatus) -> Unit,
+  onTransition: (BillTransition) -> Unit,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1119,30 +1151,30 @@ private fun BillLineItemsSection(bill: Bill) {
 }
 
 @Composable
-private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit) {
+private fun BillLifecycleSection(bill: Bill, onTransition: (BillTransition) -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
     SectionTitle(title = "Ciclo da fatura", icon = Icons.Filled.Autorenew)
     // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
     // over the local `BillStatus` state machine, when the API supplies them.
-    if (bill.effectiveTransitions.isEmpty()) {
+    if (bill.effectiveTransitionActions.isEmpty()) {
       IconLabel(
         text = "Esta fatura está em um estado final.",
         icon = Icons.Filled.CheckCircle,
         style = RentivoTypography.body,
       )
     } else {
-      bill.effectiveTransitions.sortedBy { it.wire }.forEach { status ->
+      bill.effectiveTransitionActions.forEach { action ->
         // `.borderedProminent`, not the brutalist plate: the lifecycle actions are a stack of
         // equally weighted system buttons, and outlining each one turned the section into a wall.
         RentivoProminentButton(
-          onClick = { onTransition(status) },
+          onClick = { onTransition(action) },
           modifier = Modifier
             .fillMaxWidth()
-            .testTag("bill.transition.${status.wire}"),
+            .testTag("bill.transition.${action.target.wire}"),
         ) {
-          Icon(imageVector = status.icon, contentDescription = null)
+          Icon(imageVector = action.target.icon, contentDescription = null)
           Text(
-            text = "Marcar como ${status.label.lowercase()}",
+            text = action.label,
             style = RentivoTypography.body,
           )
         }

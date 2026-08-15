@@ -483,9 +483,14 @@ struct RemoteBillCapabilities: Decodable {
     case canOpenRecibo = "can_open_recibo"
   }
 }
-// `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,
-// but the domain only models the allowed target statuses today, so only `target` is decoded.
-struct RemoteAvailableTransition: Decodable { let target: String }
+struct RemoteAvailableTransition: Decodable {
+  let target, label, style: String
+  let requiresConfirmation: Bool
+  enum CodingKeys: String, CodingKey {
+    case target, label, style
+    case requiresConfirmation = "requires_confirmation"
+  }
+}
 struct RemoteBillLine: Decodable { let description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case description, amount; case itemType = "item_type" } }
 struct RemoteExpenseList: Decodable { let items: [RemoteExpense] }
 struct RemoteExpense: Decodable { let uuid, description, category, incurredOn: String; let amount: Int; enum CodingKeys: String, CodingKey { case uuid, description, category, amount; case incurredOn = "incurred_on" } }

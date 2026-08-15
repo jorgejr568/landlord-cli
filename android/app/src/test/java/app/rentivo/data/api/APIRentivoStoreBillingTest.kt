@@ -312,7 +312,8 @@ class APIRentivoStoreBillingTest {
           """"can_delete_receipts":true,"can_reorder_receipts":true},"available_transitions":[""" +
           """{"target":"paid","label":"Marcar como paga","style":"primary",""" +
           """"requires_confirmation":false},{"target":"delayed_payment","label":"Atrasada",""" +
-          """"style":"secondary","requires_confirmation":true},{"target":"teleported"}]}"""
+          """"style":"secondary","requires_confirmation":true},{"target":"teleported",""" +
+          """"label":"Teletransportar","style":"primary","requires_confirmation":true}]}"""
       )
 
       // An older payload that predates `pdf_render_status`/`capabilities` on the wire.
@@ -355,6 +356,10 @@ class APIRentivoStoreBillingTest {
 
     // An unrecognized transition target is dropped, not fatal.
     assertEquals(listOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.availableTransitions)
+    assertEquals("Marcar como paga", bill.availableTransitionActions?.first()?.label)
+    assertEquals("primary", bill.availableTransitionActions?.first()?.style)
+    assertFalse(bill.availableTransitionActions?.first()?.requiresConfirmation ?: true)
+    assertTrue(bill.availableTransitionActions?.last()?.requiresConfirmation == true)
     assertEquals(Money(centavos = 10_000), bill.serverTotal)
     assertEquals(Money(centavos = 10_000), bill.effectiveTotal)
     assertEquals(setOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.effectiveTransitions)

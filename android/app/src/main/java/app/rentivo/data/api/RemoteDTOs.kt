@@ -860,10 +860,13 @@ data class RemoteBillCapabilities(
   @SerialName("can_open_recibo") val canOpenRecibo: Boolean? = null,
 )
 
-// `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,
-// but the domain only models the allowed target statuses today, so only `target` is decoded.
 @Serializable
-data class RemoteAvailableTransition(val target: String)
+data class RemoteAvailableTransition(
+  val target: String,
+  val label: String,
+  val style: String,
+  @SerialName("requires_confirmation") val requiresConfirmation: Boolean,
+)
 
 @Serializable
 data class RemoteBillLine(

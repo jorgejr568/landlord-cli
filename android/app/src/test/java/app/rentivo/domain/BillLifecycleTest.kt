@@ -204,6 +204,23 @@ class BillLifecycleTest {
   }
 
   @Test
+  fun billFallbackTransitionActionsConfirmConsequentialChanges() {
+    val bill = makeBill(
+      status = BillStatus.SENT,
+      availableTransitions = listOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT),
+    )
+
+    assertTrue(bill.effectiveTransitionActions.first { it.target == BillStatus.PAID }
+      .requiresConfirmation)
+    assertEquals(
+      "primary",
+      bill.effectiveTransitionActions.first { it.target == BillStatus.PAID }.style,
+    )
+    assertFalse(bill.effectiveTransitionActions.first { it.target == BillStatus.DELAYED_PAYMENT }
+      .requiresConfirmation)
+  }
+
+  @Test
   fun billTreatsAnEmptyServerTransitionListAsAuthoritative() {
     val bill = makeBill(status = BillStatus.DRAFT, availableTransitions = emptyList())
     assertTrue(bill.effectiveTransitions.isEmpty())

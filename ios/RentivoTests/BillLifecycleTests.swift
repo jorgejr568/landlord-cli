@@ -152,6 +152,15 @@ private func makeBill(status: BillStatus = .draft, availableTransitions: [BillSt
   #expect(!bill.canTransition(to: .published))
 }
 
+@Test func billFallbackTransitionActionsConfirmConsequentialChanges() {
+  let bill = makeBill(status: .sent, availableTransitions: [.paid, .delayedPayment])
+  let actions = bill.effectiveTransitionActions
+
+  #expect(actions.first(where: { $0.target == .paid })?.requiresConfirmation == true)
+  #expect(actions.first(where: { $0.target == .paid })?.style == "primary")
+  #expect(actions.first(where: { $0.target == .delayedPayment })?.requiresConfirmation == false)
+}
+
 @Test func billFallsBackToComputedTotalWhenServerOmitsIt() {
   let bill = makeBill()
   #expect(bill.effectiveTotal == bill.total)

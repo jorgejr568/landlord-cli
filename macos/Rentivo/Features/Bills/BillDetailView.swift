@@ -14,6 +14,7 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
+  @State private var pendingTransition: BillTransition?
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
   @State private var pollGeneration = 0
@@ -66,6 +67,20 @@ struct BillDetailView: View {
     .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
       Button("Excluir fatura", role: .destructive) { Task { await deleteBill() } }
       Button("Cancelar", role: .cancel) {}
+    }
+    .confirmationDialog(
+      pendingTransition?.label ?? "Alterar status da fatura?",
+      isPresented: Binding(presence: $pendingTransition),
+      presenting: pendingTransition
+    ) { action in
+      Button(action.label, role: action.style == "danger" ? .destructive : nil) {
+        pendingTransition = nil
+        guard let currentStatus = state.value?.status else { return }
+        Task { await transition(from: currentStatus, to: action.target) }
+      }
+      Button("Cancelar", role: .cancel) {}
+    } message: { _ in
+      Text("Confirme a alteração de status desta fatura.")
     }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
@@ -256,30 +271,32 @@ struct BillDetailView: View {
       SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
       // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
       // over the local `BillStatus` state machine, when the API supplies them.
-      if bill.effectiveTransitions.isEmpty {
+      if bill.effectiveTransitionActions.isEmpty {
         Label("Esta fatura está em um estado final.", systemImage: "checkmark.circle")
           .foregroundStyle(RentivoColors.secondaryInk)
       } else {
-        ForEach(
-          bill.effectiveTransitions.sorted { $0.rawValue < $1.rawValue },
-          id: \.self
-        ) { status in
+        ForEach(bill.effectiveTransitionActions, id: \.target) { action in
           Button {
-            Task { await transition(from: bill.status, to: status) }
+            if action.requiresConfirmation {
+              pendingTransition = action
+            } else {
+              Task { await transition(from: bill.status, to: action.target) }
+            }
           } label: {
             HStack(spacing: RentivoSpacing.small) {
-              if transitioningTo == status {
+              if transitioningTo == action.target {
                 ProgressView()
                   .controlSize(.small)
                   .tint(.white)
               }
-              Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
+              Label(action.label, systemImage: action.target.symbol)
             }
             .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
           .disabled(transitioningTo != nil)
-          .accessibilityIdentifier("bill.transition.\(status.rawValue)")
+          .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
         }
       }
     }

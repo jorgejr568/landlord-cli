@@ -138,9 +138,22 @@ import Testing
   let bill = try await store.bill(billingID: BillingID(rawValue: "billing-1"), id: BillID(rawValue: "bill-1"))
 
   #expect(bill.availableTransitions == [.paid, .delayedPayment])
+  #expect(
+    bill.availableTransitionActions == [
+      BillTransition(
+        target: .paid, label: "Marcar como paga", style: "primary",
+        requiresConfirmation: false
+      ),
+      BillTransition(
+        target: .delayedPayment, label: "Marcar como atrasada", style: "secondary",
+        requiresConfirmation: true
+      ),
+    ]
+  )
   #expect(bill.serverTotal == Money(centavos: 10_000))
   #expect(bill.effectiveTotal == Money(centavos: 10_000))
   #expect(bill.effectiveTransitions == Set([.paid, .delayedPayment]))
+  #expect(bill.effectiveTransitionActions.last?.requiresConfirmation == true)
 }
 
 @MainActor

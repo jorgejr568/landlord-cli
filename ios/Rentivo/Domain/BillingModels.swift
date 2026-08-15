@@ -630,6 +630,40 @@ public enum CommunicationContent {
   }
 }
 
+public struct BillTransition: Hashable, Codable, Sendable {
+  public let target: BillStatus
+  public let label: String
+  public let style: String
+  public let requiresConfirmation: Bool
+
+  public init(
+    target: BillStatus, label: String, style: String, requiresConfirmation: Bool
+  ) {
+    self.target = target
+    self.label = label
+    self.style = style
+    self.requiresConfirmation = requiresConfirmation
+  }
+
+  fileprivate init(fallbackTarget target: BillStatus, from current: BillStatus) {
+    let consequential = target == .paid || target == .cancelled
+      || (current == .published && target == .draft)
+      || (current == .sent && target == .published)
+      || (current == .paid && target == .sent)
+      || (current == .cancelled && target == .draft)
+    let destructive = target == .cancelled
+      || (current == .published && target == .draft)
+      || (current == .sent && target == .published)
+      || (current == .paid && target == .sent)
+    self.init(
+      target: target,
+      label: "Marcar como \(target.label.lowercased())",
+      style: destructive ? "danger" : "primary",
+      requiresConfirmation: consequential
+    )
+  }
+}
+
 public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID
@@ -646,6 +680,9 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   /// supplies them. `nil` means "not provided by this response" — callers
   /// should fall back to `status.allowedTransitions` (see `effectiveTransitions`).
   public var availableTransitions: [BillStatus]?
+  /// Presentation and confirmation policy accompanying `availableTransitions` on current API
+  /// responses. Kept separately so older snapshots that only carry statuses still decode.
+  public var availableTransitionActions: [BillTransition]?
   /// Server-authoritative total for this bill, when the API supplies it.
   /// `nil` means "not provided by this response" — callers should fall back
   /// to the locally computed `total` (see `effectiveTotal`).
@@ -668,6 +705,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     lineItems: [BillLineItem],
     receipts: [Receipt],
     availableTransitions: [BillStatus]? = nil,
+    availableTransitionActions: [BillTransition]? = nil,
     serverTotal: Money? = nil,
     pdfRenderStatus: PDFRenderStatus? = nil,
     hasInvoice: Bool = false,
@@ -684,6 +722,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     self.lineItems = lineItems
     self.receipts = receipts
     self.availableTransitions = availableTransitions
+    self.availableTransitionActions = availableTransitionActions
     self.serverTotal = serverTotal
     self.pdfRenderStatus = pdfRenderStatus
     self.hasInvoice = hasInvoice
@@ -712,6 +751,15 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     return status.allowedTransitions
   }
 
+  /// Server-authored labels/styles/confirmation gates, with a conservative local policy for demo
+  /// and legacy payloads that only have status targets.
+  public var effectiveTransitionActions: [BillTransition] {
+    if let availableTransitionActions { return availableTransitionActions }
+    return effectiveTransitions.sorted { $0.rawValue < $1.rawValue }.map {
+      BillTransition(fallbackTarget: $0, from: status)
+    }
+  }
+
   public func canTransition(to target: BillStatus) -> Bool {
     effectiveTransitions.contains(target)
   }
@@ -728,6 +776,7 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     merged.hasRecibo = updated.hasRecibo
     merged.status = updated.status
     merged.availableTransitions = updated.availableTransitions
+    merged.availableTransitionActions = updated.availableTransitionActions
     return merged
   }
 }

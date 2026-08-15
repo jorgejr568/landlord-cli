@@ -651,6 +651,13 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.
       availableTransitions: remote.availableTransitions.compactMap { BillStatus(rawValue: $0.target) },
+      availableTransitionActions: remote.availableTransitions.compactMap { transition in
+        guard let target = BillStatus(rawValue: transition.target) else { return nil }
+        return BillTransition(
+          target: target, label: transition.label, style: transition.style,
+          requiresConfirmation: transition.requiresConfirmation
+        )
+      },
       serverTotal: Money(centavos: remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,
       // and an absent capabilities object stays permissive so older payloads keep working.
