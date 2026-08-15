@@ -189,6 +189,15 @@ class ValidationTest {
     assertFalse(EmailAddress.isValid("ana"))
     assertFalse(EmailAddress.isValid("ana@example"))
     assertFalse(EmailAddress.isValid("ana @example.com"))
+    assertFalse(EmailAddress.isValid(".ana@example.com"))
+    assertFalse(EmailAddress.isValid("ana.@example.com"))
+    assertFalse(EmailAddress.isValid("ana..silva@example.com"))
+    assertFalse(EmailAddress.isValid("ana()@example.com"))
+    assertFalse(EmailAddress.isValid("ana@example..com"))
+    assertFalse(EmailAddress.isValid("ana@-example.com"))
+    assertFalse(EmailAddress.isValid("ana@example-.com"))
+    assertFalse(EmailAddress.isValid("${"a".repeat(65)}@example.com"))
+    assertFalse(EmailAddress.isValid("ana@${"a".repeat(64)}.com"))
   }
 
   @Test

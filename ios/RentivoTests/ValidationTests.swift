@@ -149,6 +149,15 @@ import Testing
   #expect(!EmailAddress.isValid("ana"))
   #expect(!EmailAddress.isValid("ana@example"))
   #expect(!EmailAddress.isValid("ana @example.com"))
+  #expect(!EmailAddress.isValid(".ana@example.com"))
+  #expect(!EmailAddress.isValid("ana.@example.com"))
+  #expect(!EmailAddress.isValid("ana..silva@example.com"))
+  #expect(!EmailAddress.isValid("ana()@example.com"))
+  #expect(!EmailAddress.isValid("ana@example..com"))
+  #expect(!EmailAddress.isValid("ana@-example.com"))
+  #expect(!EmailAddress.isValid("ana@example-.com"))
+  #expect(!EmailAddress.isValid("\(String(repeating: "a", count: 65))@example.com"))
+  #expect(!EmailAddress.isValid("ana@\(String(repeating: "a", count: 64)).com"))
 }
 
 @Test func invoiceDraftRejectsBlankRowsAndNegativeValues() {

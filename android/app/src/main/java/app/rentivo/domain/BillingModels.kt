@@ -83,12 +83,28 @@ data class BillingRecipient(
 )
 
 object EmailAddress {
-  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
-  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
-  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
-  private val PATTERN = Regex("""^[^\s@]+@[^\s@]+\.[^\s@]+$""")
+  private val LOCAL_PATTERN = Regex("""[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+""")
+  private val DOMAIN_LABEL_PATTERN = Regex("""[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?""")
 
-  fun isValid(email: String): Boolean = PATTERN.matches(email)
+  /**
+   * Mirrors `ContactInput` at the API boundary so a billing draft accepted here is accepted by
+   * the backend as well. Authentication addresses intentionally use a different server contract.
+   */
+  fun isValid(email: String): Boolean {
+    val value = email.trim()
+    if (value.length !in 3..320 || value.count { it == '@' } != 1 || value.any { it.isWhitespace() }) {
+      return false
+    }
+    val (local, domain) = value.split('@', limit = 2)
+    if (
+      local.isEmpty() || local.length > 64 || local.startsWith('.') || local.endsWith('.') ||
+      ".." in local || !LOCAL_PATTERN.matches(local) || domain.length > 253
+    ) {
+      return false
+    }
+    val labels = domain.split('.')
+    return labels.size >= 2 && labels.all(DOMAIN_LABEL_PATTERN::matches)
+  }
 }
 
 data class BillingCapabilities(

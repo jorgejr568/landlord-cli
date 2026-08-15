@@ -95,12 +95,31 @@ public struct BillingRecipient: Identifiable, Hashable, Codable, Sendable {
 }
 
 public enum EmailAddress {
-  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
-  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
-  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
+  private static let localPattern = #"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$"#
+  private static let domainLabelPattern = #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$"#
+
+  /// Mirrors `ContactInput` at the API boundary so a billing draft accepted here is accepted by
+  /// the backend as well. Authentication addresses intentionally use a different server contract.
   public static func isValid(_ email: String) -> Bool {
-    let pattern = #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#
-    return email.range(of: pattern, options: .regularExpression) != nil
+    let value = email.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard (3...320).contains(value.count), value.filter({ $0 == "@" }).count == 1,
+      !value.contains(where: \.isWhitespace)
+    else { return false }
+
+    let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+    guard parts.count == 2 else { return false }
+    let local = String(parts[0])
+    let domain = String(parts[1])
+    guard !local.isEmpty, local.count <= 64, !local.hasPrefix("."), !local.hasSuffix("."),
+      !local.contains(".."),
+      local.range(of: localPattern, options: .regularExpression) != nil,
+      domain.count <= 253
+    else { return false }
+
+    let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+    return labels.count >= 2 && labels.allSatisfy {
+      String($0).range(of: domainLabelPattern, options: .regularExpression) != nil
+    }
   }
 }
 
