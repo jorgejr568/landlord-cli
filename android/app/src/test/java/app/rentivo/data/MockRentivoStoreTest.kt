@@ -370,6 +370,40 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun sendingCommunicationNormalizesAndValidatesContent() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val billing = store.billing(id = StableID.billingAurora101)
+    val recipient = billing.recipients.first()
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "  Assunto  ",
+      message = "  Corpo  ",
+      acknowledgeWarning = false,
+      saveScope = null,
+    )
+    val record = store.snapshot.communications.first()
+    assertEquals("Assunto", record.subject)
+    assertEquals("Corpo", record.message)
+
+    assertDemoError {
+      store.sendCommunication(
+        billingID = billing.id,
+        billID = StableID.billPublished,
+        commType = CommunicationType.BILL_READY,
+        recipientIDs = listOf(recipient.id),
+        subject = "   ",
+        message = "Corpo",
+        acknowledgeWarning = false,
+        saveScope = null,
+      )
+    }
+  }
+
+  @Test
   fun creatingExpenseRejectsZeroOrNegativeAmounts() = runTest {
     // Matches the server contract: `ExpenseCreateRequest.amount` requires `exclusiveMinimum: 0`.
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)

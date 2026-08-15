@@ -550,6 +550,33 @@ public func communicationSendIsDisabled(
   isSending || !hasSelectedRecipients || isRenderingPDF
 }
 
+public enum CommunicationContent {
+  public static let maximumSubjectLength = 998
+  public static let maximumMessageByteCount = 4_096
+
+  public static func normalizedSubject(_ subject: String) -> String {
+    subject.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  public static func normalizedMessage(_ message: String) -> String {
+    message.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  public static func validationMessage(subject: String, message: String) -> String? {
+    let subject = normalizedSubject(subject)
+    let message = normalizedMessage(message)
+    if subject.isEmpty { return "Informe o assunto." }
+    if subject.unicodeScalars.count > maximumSubjectLength {
+      return "O assunto deve ter no máximo 998 caracteres."
+    }
+    if message.isEmpty { return "Informe o corpo da mensagem." }
+    if message.utf8.count > maximumMessageByteCount {
+      return "A mensagem deve ter no máximo 4096 bytes."
+    }
+    return nil
+  }
+}
+
 public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID

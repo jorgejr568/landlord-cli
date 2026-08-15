@@ -289,3 +289,23 @@ import Testing
   #expect(!ExpenseInput.isValidDescription(String(repeating: "d", count: 2_001)))
   #expect(ExpenseInput.normalizedDescription("  Pintura  ") == "Pintura")
 }
+
+@Test func communicationContentMirrorsTheServerContract() {
+  #expect(CommunicationContent.validationMessage(subject: "   ", message: "Corpo") != nil)
+  #expect(CommunicationContent.validationMessage(subject: "Assunto", message: "   ") != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: String(repeating: "a", count: 998),
+    message: String(repeating: "b", count: 4_096)
+  ) == nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: String(repeating: "a", count: 999), message: "Corpo"
+  ) != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: "Assunto", message: String(repeating: "b", count: 4_097)
+  ) != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: "Assunto", message: String(repeating: "😀", count: 1_025)
+  ) != nil)
+  #expect(CommunicationContent.normalizedSubject("  Assunto  ") == "Assunto")
+  #expect(CommunicationContent.normalizedMessage("  Corpo  ") == "Corpo")
+}

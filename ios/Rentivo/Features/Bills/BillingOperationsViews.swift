@@ -568,6 +568,12 @@ struct CommunicationComposerView: View {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
+    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
+      sendErrorMessage = message
+      return
+    }
+    let normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    let normalizedMessage = CommunicationContent.normalizedMessage(message)
     isSending = true
     defer { isSending = false }
     do {
@@ -577,8 +583,8 @@ struct CommunicationComposerView: View {
         billID: bill.id,
         commType: commType,
         recipientIDs: orderedIDs,
-        subject: subject,
-        message: message,
+        subject: normalizedSubject,
+        message: normalizedMessage,
         acknowledgeWarning: false,
         saveScope: saveScope
       )

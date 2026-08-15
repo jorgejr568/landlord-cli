@@ -511,17 +511,22 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     let byID = Dictionary(uniqueKeysWithValues: billing.recipients.map { ($0.id, $0) })
     let selected = recipientIDs.compactMap { byID[$0] }
     guard selected.count == recipientIDs.count else { throw DemoError.operationFailed }
+    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
+      throw DemoError(message: message)
+    }
+    let normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    let normalizedMessage = CommunicationContent.normalizedMessage(message)
     let communication = CommunicationRecord(
       id: CommunicationID(rawValue: UUID().uuidString),
       billingID: billingID,
       billID: billID,
       recipients: selected.map(\.email),
-      subject: subject,
-      message: message,
+      subject: normalizedSubject,
+      message: normalizedMessage,
       sentAt: Date()
     )
     snapshot.communications.insert(communication, at: 0)
-    recordActivity(kind: .bill, title: "Comunicação simulada", detail: subject)
+    recordActivity(kind: .bill, title: "Comunicação simulada", detail: normalizedSubject)
     return selected.count
   }
 

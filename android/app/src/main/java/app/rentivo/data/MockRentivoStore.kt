@@ -19,6 +19,7 @@ import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.CommunicationContent
 import app.rentivo.domain.CommunicationID
 import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationRecord
@@ -639,17 +640,21 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     val byID = billing.recipients.associateBy { it.id }
     val selected = recipientIDs.mapNotNull { byID[it] }
     if (selected.size != recipientIDs.size) throw DemoError.operationFailed
+    val validationMessage = CommunicationContent.validationMessage(subject = subject, message = message)
+    if (validationMessage != null) throw DemoError(message = validationMessage)
+    val normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    val normalizedMessage = CommunicationContent.normalizedMessage(message)
     val communication = CommunicationRecord(
       id = CommunicationID(rawValue = UUID.randomUUID().toString()),
       billingID = billingID,
       billID = billID,
       recipients = selected.map { it.email },
-      subject = subject,
-      message = message,
+      subject = normalizedSubject,
+      message = normalizedMessage,
       sentAt = Instant.now(),
     )
     communicationsState.add(0, communication)
-    recordActivity(kind = ActivityKind.BILL, title = "Comunicação simulada", detail = subject)
+    recordActivity(kind = ActivityKind.BILL, title = "Comunicação simulada", detail = normalizedSubject)
     return selected.size
   }
 

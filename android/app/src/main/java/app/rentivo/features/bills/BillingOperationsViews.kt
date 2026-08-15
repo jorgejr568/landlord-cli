@@ -108,6 +108,7 @@ import app.rentivo.domain.Bill
 import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
+import app.rentivo.domain.CommunicationContent
 import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
@@ -907,6 +908,13 @@ private class CommunicationComposerState(
       app.showNotice("Selecione ao menos um destinatário.", AppNotice.Kind.WARNING)
       return
     }
+    val validationMessage = CommunicationContent.validationMessage(subject = subject, message = message)
+    if (validationMessage != null) {
+      app.showNotice(validationMessage, AppNotice.Kind.WARNING)
+      return
+    }
+    val normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    val normalizedMessage = CommunicationContent.normalizedMessage(message)
     isSending = true
     try {
       val orderedIDs = billing.recipients.map { it.id }.filter(selectedRecipients::contains)
@@ -915,8 +923,8 @@ private class CommunicationComposerState(
         billID = bill.id,
         commType = commType,
         recipientIDs = orderedIDs,
-        subject = subject,
-        message = message,
+        subject = normalizedSubject,
+        message = normalizedMessage,
         acknowledgeWarning = false,
         saveScope = saveScope,
       )

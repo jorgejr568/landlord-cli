@@ -421,6 +421,42 @@ it("sends selected recipients and applies templates without requesting a preview
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
 });
 
+it("validates and normalizes communication content before sending", async () => {
+  let sends = 0;
+  let sendBody: Record<string, unknown> | undefined;
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/communications/send": (init) => {
+      sends += 1;
+      sendBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return jsonResponse({ queued_count: 1 }, 202);
+    }
+  });
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  const subject = await screen.findByLabelText("Assunto");
+  const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  expect(subject).toHaveAttribute("maxlength", "998");
+  expect(body).toHaveAttribute("maxlength", "4096");
+
+  fireEvent.change(subject, { target: { value: "   " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("Informe o assunto.")).toBeVisible();
+  await waitFor(() => expect(subject).toHaveFocus());
+  expect(sends).toBe(0);
+
+  fireEvent.change(subject, { target: { value: "  Assunto  " } });
+  fireEvent.change(body, { target: { value: "😀".repeat(1_025) } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("A mensagem deve ter no máximo 4096 bytes.")).toBeVisible();
+  await waitFor(() => expect(body).toHaveFocus());
+  expect(sends).toBe(0);
+
+  fireEvent.change(body, { target: { value: "  Corpo  " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  await waitFor(() => expect(sends).toBe(1));
+  expect(sendBody).toMatchObject({ body: "Corpo", subject: "Assunto" });
+});
+
 it("shows compose empty, severe moderation, load retry, and body field errors", async () => {
   const user = userEvent.setup();
   let billLoads = 0;

@@ -2,6 +2,8 @@ package app.rentivo.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -375,5 +377,28 @@ class ValidationTest {
     assertTrue(ExpenseInput.isValidDescription("d".repeat(2_000)))
     assertFalse(ExpenseInput.isValidDescription("d".repeat(2_001)))
     assertEquals("Pintura", ExpenseInput.normalizedDescription("  Pintura  "))
+  }
+
+  @Test
+  fun communicationContentMirrorsTheServerContract() {
+    assertNotNull(CommunicationContent.validationMessage(subject = "   ", message = "Corpo"))
+    assertNotNull(CommunicationContent.validationMessage(subject = "Assunto", message = "   "))
+    assertNull(
+      CommunicationContent.validationMessage(
+        subject = "a".repeat(998),
+        message = "b".repeat(4_096),
+      )
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "a".repeat(999), message = "Corpo")
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "Assunto", message = "b".repeat(4_097))
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "Assunto", message = "😀".repeat(1_025))
+    )
+    assertEquals("Assunto", CommunicationContent.normalizedSubject("  Assunto  "))
+    assertEquals("Corpo", CommunicationContent.normalizedMessage("  Corpo  "))
   }
 }

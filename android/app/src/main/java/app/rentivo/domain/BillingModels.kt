@@ -581,6 +581,29 @@ object ExpenseInput {
   }
 }
 
+object CommunicationContent {
+  const val maximumSubjectLength: Int = 998
+  const val maximumMessageByteCount: Int = 4_096
+
+  fun normalizedSubject(subject: String): String = subject.trim()
+
+  fun normalizedMessage(message: String): String = message.trim()
+
+  fun validationMessage(subject: String, message: String): String? {
+    val normalizedSubject = normalizedSubject(subject)
+    val normalizedMessage = normalizedMessage(message)
+    return when {
+      normalizedSubject.isEmpty() -> "Informe o assunto."
+      normalizedSubject.apiCharacterCount() > maximumSubjectLength ->
+        "O assunto deve ter no máximo 998 caracteres."
+      normalizedMessage.isEmpty() -> "Informe o corpo da mensagem."
+      normalizedMessage.toByteArray(Charsets.UTF_8).size > maximumMessageByteCount ->
+        "A mensagem deve ter no máximo 4096 bytes."
+      else -> null
+    }
+  }
+}
+
 data class Expense(
   val id: ExpenseID,
   val billingID: BillingID,

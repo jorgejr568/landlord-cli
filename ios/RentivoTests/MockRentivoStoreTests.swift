@@ -340,6 +340,39 @@ import Testing
   }
 }
 
+@Test @MainActor func sendingCommunicationNormalizesAndValidatesContent() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipient = try #require(billing.recipients.first)
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "  Assunto  ",
+    message: "  Corpo  ",
+    acknowledgeWarning: false,
+    saveScope: nil
+  )
+  let record = try #require(store.snapshot.communications.first)
+  #expect(record.subject == "Assunto")
+  #expect(record.message == "Corpo")
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: billing.id,
+      billID: StableID.billPublished,
+      commType: .billReady,
+      recipientIDs: [recipient.id],
+      subject: "   ",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
+}
+
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {
   // Matches the server contract: `ExpenseCreateRequest.amount` requires
   // `exclusiveMinimum: 0`.
