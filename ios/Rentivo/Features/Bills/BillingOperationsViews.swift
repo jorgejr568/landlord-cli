@@ -5,6 +5,7 @@ struct BillingOperationsLinks: View {
   let billingID: BillingID
   let capabilities: BillingCapabilities
   let onMutation: () async -> Void
+  @State private var showingExport = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
@@ -35,14 +36,18 @@ struct BillingOperationsLinks: View {
           }
           if capabilities.canCreateExports {
             Divider()
-            NavigationLink {
-              ExportSimulationView(billingID: billingID)
+            Button {
+              showingExport = true
             } label: {
               OperationRow(title: "Exportar dados", symbol: "square.and.arrow.up.fill")
             }
+            .buttonStyle(.plain)
           }
         }
       }
+    }
+    .fullScreenCover(isPresented: $showingExport) {
+      ExportSimulationView(billingID: billingID)
     }
   }
 }
@@ -114,12 +119,10 @@ struct ExpenseListView: View {
         }
       }
     }
-    .sheet(isPresented: $showingAdd) {
-      NavigationStack {
-        ExpenseFormView(billingID: billingID) {
-          await load()
-          await onMutation()
-        }
+    .fullScreenCover(isPresented: $showingAdd) {
+      ExpenseFormView(billingID: billingID) {
+        await load()
+        await onMutation()
       }
     }
     .confirmationDialog(
@@ -157,6 +160,12 @@ struct ExpenseListView: View {
   }
 }
 
+private enum ExpenseWizardStep: Hashable {
+  case details
+  case valueAndDate
+  case review
+}
+
 private struct ExpenseFormView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -166,52 +175,106 @@ private struct ExpenseFormView: View {
   @State private var centavos = 0
   @State private var category: ExpenseCategory = .maintenance
   @State private var incurredOn = Date()
+  @State private var selectedStep: ExpenseWizardStep = .details
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
 
   var body: some View {
-    Form {
-      TextField("Descrição", text: $description)
-      CurrencyCentavosField("Valor em centavos", centavos: $centavos)
-      Picker("Categoria", selection: $category) {
-        ForEach(ExpenseCategory.allCases, id: \.self) { category in
-          Text(category.label).tag(category)
-        }
-      }
-      DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
-      if let submitErrorMessage {
-        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
-          .accessibilityIdentifier("expense.form.error")
-      }
-    }
-    .navigationTitle("Nova despesa")
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
-      }
-      ToolbarItem(placement: .confirmationAction) {
-        // The spinner is the only sign the request is still in flight: everything else this form
-        // does while saving is a disable, which on a stalled request reads as a frozen sheet.
-        Button {
-          Task { await save() }
-        } label: {
-          HStack(spacing: RentivoSpacing.small) {
-            if saving { ProgressView() }
-            Text("Salvar")
+    RentivoFormWizard(
+      title: "Nova despesa",
+      descriptors: descriptors,
+      selectedStep: $selectedStep,
+      isDirty: isDirty,
+      isBusy: saving,
+      primaryTitle: "Salvar",
+      onValidateAndAdvance: validateAndAdvance,
+      onCommit: { Task { await save() } }
+    ) { step in
+      switch step {
+      case .details:
+        RentivoWizardSection("Detalhes") {
+          TextField("Descrição", text: $description)
+          Picker("Categoria", selection: $category) {
+            ForEach(ExpenseCategory.allCases, id: \.self) { category in
+              Text(category.label).tag(category)
+            }
           }
+          .pickerStyle(.menu)
+          validationError
         }
-        .disabled(saving || !ExpenseInput.isValidDescription(description) || centavos <= 0)
+      case .valueAndDate:
+        RentivoWizardSection("Valor e data") {
+          CurrencyCentavosField("Valor em centavos", centavos: $centavos)
+          DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
+          validationError
+        }
+      case .review:
+        RentivoWizardSection("Resumo") {
+          RentivoWizardReviewRow(label: "Descrição", value: ExpenseInput.normalizedDescription(description))
+          RentivoWizardReviewRow(label: "Categoria", value: category.label)
+          RentivoWizardReviewRow(label: "Valor", value: Money(centavos: centavos).formatted())
+          RentivoWizardReviewRow(label: "Data", value: selectedDate.displayFormatted)
+          validationError
+        }
       }
     }
-    .interactiveDismissDisabled(saving)
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<ExpenseWizardStep>] {
+    [
+      RentivoWizardStepDescriptor(id: .details, title: "Detalhes"),
+      RentivoWizardStepDescriptor(id: .valueAndDate, title: "Valor e data"),
+      RentivoWizardStepDescriptor(id: .review, title: "Revisar despesa"),
+    ]
+  }
+
+  @ViewBuilder
+  private var validationError: some View {
+    if let submitErrorMessage {
+      Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+        .foregroundStyle(RentivoColors.coral)
+        .accessibilityIdentifier("expense.form.error")
+    }
+  }
+
+  private var isDirty: Bool {
+    !description.isEmpty || centavos != 0 || category != .maintenance || selectedDate != DateOnly(from: Date())
+  }
+
+  private func validateAndAdvance() -> Bool {
+    submitErrorMessage = nil
+    switch selectedStep {
+    case .details:
+      guard ExpenseInput.isValidDescription(description) else {
+        submitErrorMessage = "Informe uma descrição válida para a despesa."
+        return false
+      }
+    case .valueAndDate:
+      guard centavos > 0 else {
+        submitErrorMessage = "Informe um valor maior que zero."
+        return false
+      }
+    case .review:
+      break
+    }
+    return true
   }
 
   private func save() async {
     guard !saving else { return }
     submitErrorMessage = nil
+    guard ExpenseInput.isValidDescription(description) else {
+      submitErrorMessage = "Informe uma descrição válida para a despesa."
+      selectedStep = .details
+      return
+    }
+    guard centavos > 0 else {
+      submitErrorMessage = "Informe um valor maior que zero."
+      selectedStep = .valueAndDate
+      return
+    }
     saving = true
     defer { saving = false }
     do {
@@ -385,6 +448,14 @@ struct DownloadShareView: View {
   }
 }
 
+private enum CommunicationWizardStep: Hashable {
+  case channel
+  case recipients
+  case message
+  case template
+  case review
+}
+
 struct CommunicationComposerView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -396,12 +467,14 @@ struct CommunicationComposerView: View {
   @State private var subject: String
   @State private var message: String
   @State private var saveScope: CommunicationSaveScope?
+  @State private var selectedStep: CommunicationWizardStep = .channel
   @State private var isSending = false
   /// Why the last send attempt failed, be it the local recipient check or a server rejection.
   /// The composer is presented in a sheet and the global notice banner renders behind it, so the
   /// message has to stay inline.
   @State private var sendErrorMessage: String?
   @State private var appliedTemplateType: CommunicationType
+  private let initialCommType: CommunicationType
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -413,6 +486,7 @@ struct CommunicationComposerView: View {
     _subject = State(initialValue: template?.subject ?? "")
     _message = State(initialValue: template?.body ?? "")
     _appliedTemplateType = State(initialValue: initialType)
+    initialCommType = initialType
   }
 
   private var availableTypes: [CommunicationType] {
@@ -424,117 +498,172 @@ struct CommunicationComposerView: View {
     }
   }
 
-  private var sendDisabled: Bool {
-    // Defense in depth: the detail screen already disables the entry point while the PDF renders,
-    // but a composer opened just before the render started must not attach a stale document.
-    communicationSendIsDisabled(
-      isSending: isSending,
-      hasSelectedRecipients: !selectedRecipients.isEmpty,
-      isRenderingPDF: bill.isRenderingPDF
-    ) || !availableTypes.contains(commType)
-  }
-
   private var attachmentDescription: String {
     commType == .paymentReceipt ? "recibo" : "PDF da fatura"
   }
 
   var body: some View {
-    Form {
-      if billing.recipients.isEmpty {
-        Section {
-          Text("Nenhum destinatário cadastrado. Adicione destinatários na cobrança antes de enviar.")
-            .foregroundStyle(RentivoColors.secondaryInk)
-        }
-      } else {
-        if availableTypes.count > 1 {
-          Section {
-            Picker("Tipo", selection: $commType) {
-              ForEach(availableTypes, id: \.self) { type in
-                Text(type.label).tag(type)
-              }
-            }
-            .pickerStyle(.segmented)
-          }
-        }
-
-        Section {
-          ForEach(billing.recipients) { recipient in
-            Toggle(isOn: binding(for: recipient.id)) {
-              VStack(alignment: .leading) {
-                Text(recipient.name).font(.subheadline.weight(.semibold))
-                Text(recipient.email)
-                  .font(.caption)
-                  .foregroundStyle(RentivoColors.secondaryInk)
-              }
-            }
-          }
-        } header: {
-          Text("Destinatários")
-        } footer: {
-          Text("Cada destinatário recebe um e-mail separado com o \(attachmentDescription) anexado.")
-        }
-
-        Section {
-          TextField("Assunto", text: $subject)
-          TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
-            .lineLimit(5...12)
-        } header: {
-          Text("Mensagem")
-        } footer: {
-          Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
-        }
-
-        Section {
-          Picker("Salvar modelo", selection: $saveScope) {
-            Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
-            Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
-            if billing.capabilities.canEdit {
-              Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
-            }
-          }
-        } footer: {
-          Text("O modelo salvo preenche automaticamente as próximas comunicações.")
-        }
-
-        if let sendErrorMessage {
-          Section {
-            Label(sendErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("comm.error")
-          }
-        }
-
-        Section {
-          Button {
-            Task { await send() }
-          } label: {
-            HStack(spacing: RentivoSpacing.small) {
-              if isSending {
-                ProgressView()
-                  .tint(.white)
-              }
-              Text(isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())")
-            }
-            .frame(maxWidth: .infinity)
-          }
-          .buttonStyle(RentivoButtonStyle())
-          .disabled(sendDisabled)
-          .accessibilityIdentifier("comm.send")
-          .listRowBackground(Color.clear)
-          .listRowInsets(EdgeInsets())
-        }
-      }
-    }
-    .navigationTitle("Enviar \(commType.label.lowercased())")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }
-          .disabled(isSending)
+    RentivoFormWizard(
+      title: "Enviar \(commType.label.lowercased())",
+      descriptors: descriptors,
+      selectedStep: $selectedStep,
+      isDirty: isDirty,
+      isBusy: isSending,
+      primaryTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
+      onValidateAndAdvance: validateAndAdvance,
+      onCommit: { Task { await send() } }
+    ) { step in
+      switch step {
+      case .channel:
+        channelStep
+      case .recipients:
+        recipientsStep
+      case .message:
+        messageStep
+      case .template:
+        templateStep
+      case .review:
+        reviewStep
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .interactiveDismissDisabled(isSending)
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<CommunicationWizardStep>] {
+    [
+      RentivoWizardStepDescriptor(id: .channel, title: "Canal"),
+      RentivoWizardStepDescriptor(id: .recipients, title: "Destinatários"),
+      RentivoWizardStepDescriptor(id: .message, title: "Mensagem"),
+      RentivoWizardStepDescriptor(id: .template, title: "Modelo"),
+      RentivoWizardStepDescriptor(id: .review, title: "Revisar envio"),
+    ]
+  }
+
+  private var channelStep: some View {
+    RentivoWizardSection("Canal") {
+      if availableTypes.count > 1 {
+        Picker("Tipo", selection: $commType) {
+          ForEach(availableTypes, id: \.self) { type in
+            Text(type.label).tag(type)
+          }
+        }
+        .pickerStyle(.segmented)
+      } else if let type = availableTypes.first {
+        RentivoWizardReviewRow(label: "Tipo", value: type.label)
+      } else {
+        Label("Esta fatura ainda não está pronta para envio.", systemImage: "exclamationmark.circle.fill")
+          .foregroundStyle(RentivoColors.coral)
+      }
+      inlineError
+    }
+  }
+
+  private var recipientsStep: some View {
+    RentivoWizardSection(
+      "Destinatários",
+      subtitle: "Cada destinatário recebe um e-mail separado com o \(attachmentDescription) anexado."
+    ) {
+      if billing.recipients.isEmpty {
+        Text("Nenhum destinatário cadastrado. Adicione destinatários na cobrança antes de enviar.")
+          .foregroundStyle(RentivoColors.secondaryInk)
+      } else {
+        ForEach(billing.recipients) { recipient in
+          Toggle(isOn: binding(for: recipient.id)) {
+            VStack(alignment: .leading) {
+              Text(recipient.name).font(.subheadline.weight(.semibold))
+              Text(recipient.email)
+                .font(.caption)
+                .foregroundStyle(RentivoColors.secondaryInk)
+            }
+          }
+        }
+      }
+      inlineError
+    }
+  }
+
+  private var messageStep: some View {
+    RentivoWizardSection(
+      "Mensagem",
+      subtitle: "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}."
+    ) {
+      TextField("Assunto", text: $subject)
+      TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
+        .lineLimit(5...12)
+      inlineError
+    }
+  }
+
+  private var templateStep: some View {
+    RentivoWizardSection(
+      "Modelo",
+      subtitle: "O modelo salvo preenche automaticamente as próximas comunicações."
+    ) {
+      Picker("Salvar modelo", selection: $saveScope) {
+        Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
+        Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
+        if billing.capabilities.canEdit {
+          Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
+        }
+      }
+      .pickerStyle(.menu)
+      inlineError
+    }
+  }
+
+  private var reviewStep: some View {
+    RentivoWizardSection("Prévia") {
+      RentivoWizardReviewRow(label: "Canal", value: commType.label)
+      RentivoWizardReviewRow(label: "Destinatários", value: "\(selectedRecipients.count)")
+      RentivoWizardReviewRow(label: "Assunto", value: CommunicationContent.normalizedSubject(subject))
+      RentivoWizardReviewRow(label: "Anexo", value: attachmentDescription)
+      if bill.isRenderingPDF {
+        Label("Aguarde a geração do PDF antes de enviar.", systemImage: "clock.fill")
+          .foregroundStyle(RentivoColors.secondaryInk)
+      }
+      inlineError
+    }
+  }
+
+  @ViewBuilder
+  private var inlineError: some View {
+    if let sendErrorMessage {
+      Label(sendErrorMessage, systemImage: "exclamationmark.circle.fill")
+        .foregroundStyle(RentivoColors.coral)
+        .accessibilityIdentifier("comm.error")
+    }
+  }
+
+  private var isDirty: Bool {
+    commType != initialCommType
+      || selectedRecipients != Set(billing.recipients.map(\.id))
+      || subject != (billing.template(for: commType)?.subject ?? "")
+      || message != (billing.template(for: commType)?.body ?? "")
+      || saveScope != nil
+  }
+
+  private func validateAndAdvance() -> Bool {
+    sendErrorMessage = nil
+    switch selectedStep {
+    case .channel:
+      guard availableTypes.contains(commType) else {
+        sendErrorMessage = "Esta comunicação não está disponível para a fatura atual."
+        return false
+      }
+    case .recipients:
+      guard !selectedRecipients.isEmpty else {
+        sendErrorMessage = "Selecione ao menos um destinatário."
+        return false
+      }
+    case .message:
+      if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
+        sendErrorMessage = message
+        return false
+      }
+    case .template, .review:
+      break
+    }
+    return true
   }
 
   private var ownerScopeLabel: String {
@@ -564,6 +693,10 @@ struct CommunicationComposerView: View {
   private func send() async {
     guard !isSending else { return }
     sendErrorMessage = nil
+    guard availableTypes.contains(commType), !bill.isRenderingPDF else {
+      sendErrorMessage = "Aguarde a fatura ficar pronta antes de enviar."
+      return
+    }
     guard !selectedRecipients.isEmpty else {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
@@ -594,34 +727,69 @@ struct CommunicationComposerView: View {
   }
 }
 
+private enum ExportWizardStep: Hashable {
+  case format
+  case contents
+  case review
+}
+
 struct ExportSimulationView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   @State private var format = BillingExportContract.formats[0]
+  @State private var selectedStep: ExportWizardStep = .format
+  @State private var requestingExport = false
 
   var body: some View {
-    Form {
-      Picker("Formato", selection: $format) {
-        ForEach(BillingExportContract.formats, id: \.self) { format in
-          Text(format.uppercased()).tag(format)
+    RentivoFormWizard(
+      title: "Exportar",
+      descriptors: descriptors,
+      selectedStep: $selectedStep,
+      isDirty: format != BillingExportContract.formats[0],
+      isBusy: requestingExport,
+      primaryTitle: "Solicitar exportação",
+      onValidateAndAdvance: { true },
+      onCommit: { Task { await requestExport() } }
+    ) { step in
+      switch step {
+      case .format:
+        RentivoWizardSection("Formato") {
+          Picker("Formato", selection: $format) {
+            ForEach(BillingExportContract.formats, id: \.self) { format in
+              Text(format.uppercased()).tag(format)
+            }
+          }
+          .pickerStyle(.segmented)
+        }
+      case .contents:
+        RentivoWizardSection("Conteúdo") {
+          ForEach(BillingExportContract.includedSections, id: \.self) { section in
+            Label(section, systemImage: "doc.text")
+          }
+        }
+      case .review:
+        RentivoWizardSection("Resumo") {
+          RentivoWizardReviewRow(label: "Formato", value: format.uppercased())
+          RentivoWizardReviewRow(
+            label: "Conteúdo", value: BillingExportContract.includedSections.joined(separator: ", ")
+          )
         }
       }
-      .pickerStyle(.segmented)
-      Section("Conteúdo") {
-        ForEach(BillingExportContract.includedSections, id: \.self) { section in
-          Label(section, systemImage: "doc.text")
-        }
-      }
-      Button("Solicitar exportação") {
-        Task { await requestExport() }
-      }
-      .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
-      .listRowBackground(Color.clear)
     }
-    .navigationTitle("Exportar")
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<ExportWizardStep>] {
+    [
+      RentivoWizardStepDescriptor(id: .format, title: "Formato"),
+      RentivoWizardStepDescriptor(id: .contents, title: "Conteúdo"),
+      RentivoWizardStepDescriptor(id: .review, title: "Revisar exportação"),
+    ]
   }
 
   private func requestExport() async {
+    guard !requestingExport else { return }
+    requestingExport = true
+    defer { requestingExport = false }
     do {
       try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
       app.showNotice("Exportação \(format.uppercased()) enfileirada.")
