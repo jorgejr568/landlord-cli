@@ -165,6 +165,12 @@ struct ProfilePixView: View {
     case review
   }
 
+  private enum Field: Hashable {
+    case key
+    case merchantName
+    case city
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   @State private var form = ProfilePIXForm()
@@ -173,6 +179,7 @@ struct ProfilePixView: View {
   @State private var validationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @FocusState private var focusedField: Field?
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -236,6 +243,7 @@ struct ProfilePixView: View {
         TextField("Chave PIX", text: $form.key)
           .textInputAutocapitalization(.never)
           .disabled(isDemoViewerLocked)
+          .focused($focusedField, equals: .key)
         if isDemoViewerLocked { readOnlyNotice }
       }
     case .recipient:
@@ -245,9 +253,11 @@ struct ProfilePixView: View {
       ) {
         TextField("Nome do recebedor", text: $form.merchantName)
           .disabled(isDemoViewerLocked)
+          .focused($focusedField, equals: .merchantName)
         TextField("Cidade", text: $form.merchantCity)
           .textInputAutocapitalization(.characters)
           .disabled(isDemoViewerLocked)
+          .focused($focusedField, equals: .city)
         if let validationMessage { errorLabel(validationMessage) }
       }
       RentivoWizardSection("Herança") {
@@ -312,10 +322,26 @@ struct ProfilePixView: View {
     guard step == .recipient else { return true }
     guard form.isSavable else {
       validationMessage = profilePIXValidationMessage
+      routeToFirstInvalidField()
       return false
     }
     validationMessage = nil
     return true
+  }
+
+  private func routeToFirstInvalidField() {
+    let key = form.key.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if key.isEmpty {
+      step = .key
+      focusedField = .key
+    } else if name.isEmpty || name.unicodeScalars.count > 25 {
+      step = .recipient
+      focusedField = .merchantName
+    } else {
+      step = .recipient
+      focusedField = .city
+    }
   }
 
   private var profilePIXValidationMessage: String {
@@ -341,7 +367,7 @@ struct ProfilePixView: View {
     guard !saving else { return }
     guard form.isSavable else {
       validationMessage = profilePIXValidationMessage
-      step = .recipient
+      routeToFirstInvalidField()
       return
     }
     submitErrorMessage = nil

@@ -187,6 +187,14 @@ private struct APIKeyFormView: View {
     case review
   }
 
+  private enum Field: Hashable {
+    case name
+    case scope(APIKeyScope)
+    case access(WorkspaceID)
+    case expiration
+    case optionsRetry
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let key: APIKeyMetadata?
@@ -202,6 +210,7 @@ private struct APIKeyFormView: View {
   @State private var saving = false
   @State private var baselineScopes: Set<APIKeyScope>
   @State private var baselineExpiresAt: Date?
+  @FocusState private var focusedField: Field?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
   private let initialName: String
@@ -266,6 +275,7 @@ private struct APIKeyFormView: View {
         subtitle: "Use um nome que deixe claro onde esta chave será usada."
       ) {
         TextField("Nome", text: $name)
+          .focused($focusedField, equals: .name)
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .scopes:
@@ -331,6 +341,7 @@ private struct APIKeyFormView: View {
             in: Date().addingTimeInterval(60)...options.maximumExpiration(),
             displayedComponents: .date
           )
+          .focused($focusedField, equals: .expiration)
         } else if let key {
           RentivoWizardReviewRow(label: "Expira em", value: key.expiresAt.formattedPTBR())
         } else {
@@ -406,29 +417,37 @@ private struct APIKeyFormView: View {
         validationMessage = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           ? "Informe o nome da chave."
           : "O nome da chave deve ter até 255 caracteres."
+        focusedField = .name
         return false
       }
     case .scopes:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento das opções antes de continuar."
+        focusedField = .optionsRetry
         return false
       }
       guard !scopes.isEmpty else {
         validationMessage = "Selecione ao menos um escopo."
+        if let scope = options.value?.scopes.first { focusedField = .scope(scope) }
         return false
       }
     case .access:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento dos acessos antes de continuar."
+        focusedField = .optionsRetry
         return false
       }
       guard !allDraftGrants.isEmpty else {
         validationMessage = "Selecione ao menos um acesso."
+        if let resourceID = options.value?.personalWorkspace.resourceID {
+          focusedField = .access(resourceID)
+        }
         return false
       }
     case .expiration:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento da validade antes de continuar."
+        focusedField = .optionsRetry
         return false
       }
     case .review:
@@ -456,6 +475,7 @@ private struct APIKeyFormView: View {
       Label(error.message, systemImage: "exclamationmark.triangle.fill")
         .foregroundStyle(RentivoColors.coral)
       Button("Tentar novamente") { Task { await loadOptions() } }
+        .focused($focusedField, equals: .optionsRetry)
     }
   }
 
@@ -469,6 +489,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .focused($focusedField, equals: .scope(scope))
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -481,6 +502,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .focused($focusedField, equals: .access(id))
   }
 
   private func save() async {

@@ -181,6 +181,13 @@ struct OrganizationFormView: View {
     case review
   }
 
+  private enum Field: Hashable {
+    case name
+    case pixKey
+    case merchantName
+    case city
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let organization: Organization?
@@ -194,6 +201,7 @@ struct OrganizationFormView: View {
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var step: Step = .organization
+  @FocusState private var focusedField: Field?
   private let initialName: String
   private let initialPixKey: String
   private let initialMerchantName: String
@@ -252,6 +260,7 @@ struct OrganizationFormView: View {
           : "Atualize o nome exibido para membros e cobranças."
       ) {
         TextField("Nome", text: $name)
+          .focused($focusedField, equals: .name)
         if let nameValidationMessage {
           validationLabel(nameValidationMessage)
         }
@@ -263,9 +272,12 @@ struct OrganizationFormView: View {
       ) {
         TextField("Chave", text: $pixKey)
           .textInputAutocapitalization(.never)
+          .focused($focusedField, equals: .pixKey)
         TextField("Nome do recebedor", text: $merchantName)
+          .focused($focusedField, equals: .merchantName)
         TextField("Cidade", text: $city)
           .textInputAutocapitalization(.characters)
+          .focused($focusedField, equals: .city)
         if let pixValidationMessage {
           validationLabel(pixValidationMessage)
         }
@@ -314,15 +326,25 @@ struct OrganizationFormView: View {
     switch step {
     case .organization:
       nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
+      if nameValidationMessage != nil { focusedField = .name }
       return nameValidationMessage == nil
     case .pix:
       pixValidationMessage = OrganizationDraft.pixValidationMessage(
         key: pixKey, merchantName: merchantName, city: city
       )
+      if pixValidationMessage != nil { focusedField = firstInvalidPixField }
       return pixValidationMessage == nil
     case .review:
       return true
     }
+  }
+
+  private var firstInvalidPixField: Field {
+    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 25 { return .merchantName }
+    if normalizedCity.isEmpty || normalizedCity.unicodeScalars.count > 15 { return .city }
+    return .pixKey
   }
 
   private func save() async {
@@ -349,6 +371,7 @@ struct OrganizationFormView: View {
       nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
       submitErrorMessage = nameValidationMessage
       step = nameValidationMessage == nil ? .pix : .organization
+      focusedField = nameValidationMessage == nil ? firstInvalidPixField : .name
       return
     }
     saving = true

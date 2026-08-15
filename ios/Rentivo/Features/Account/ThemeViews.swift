@@ -1,5 +1,33 @@
 import SwiftUI
 
+enum ThemeWizardRules {
+  static let invalidColorMessage = "Use uma cor hexadecimal no formato #RRGGBB."
+
+  static func colorValidationMessage(_ value: String) -> String? {
+    value.range(of: #"^#[0-9A-Fa-f]{6}$"#, options: .regularExpression) == nil
+      ? invalidColorMessage : nil
+  }
+
+  static func loadedValuesToApply(
+    _ loaded: ThemeValues,
+    requestDraft: ThemeValues,
+    currentDraft: ThemeValues,
+    requestDraftRevision: Int,
+    currentDraftRevision: Int
+  ) -> ThemeValues? {
+    requestDraftRevision == currentDraftRevision && requestDraft == currentDraft ? loaded : nil
+  }
+}
+
+private enum ThemeWizardField: Hashable {
+  case primary
+  case primaryLight
+  case secondary
+  case secondaryDark
+  case textColor
+  case textContrast
+}
+
 struct ThemeEditorView: View {
   private enum Step: CaseIterable {
     case typography
@@ -18,12 +46,16 @@ struct ThemeEditorView: View {
   @State private var error: DemoError?
   @State private var step: Step = .typography
   @State private var saving = false
+  @State private var validationMessage: String?
+  @State private var resetRequested = false
+  @State private var draftRevision = 0
+  @FocusState private var focusedField: ThemeWizardField?
 
   /// True once the user has changed a field since the last successful load/save.
   /// Guards against `.task(id:)` reloads (triggered by unrelated `app.dataRevision`
   /// bumps) silently overwriting in-progress, unsaved color edits.
   private var isDirty: Bool {
-    values != (loadedValues ?? .rentivo)
+    resetRequested || values != (loadedValues ?? .rentivo)
   }
 
   var body: some View {
@@ -33,8 +65,8 @@ struct ThemeEditorView: View {
       selectedStep: $step,
       isDirty: isDirty,
       isBusy: saving,
-      primaryTitle: step == .review ? (record?.canEdit == true ? "Salvar" : "Concluir") : "Continuar",
-      onValidateAndAdvance: { true },
+      primaryTitle: primaryTitle,
+      onValidateAndAdvance: validateCurrentStep,
       onCommit: commit
     ) { selectedStep in
       stepContent(selectedStep)
@@ -43,6 +75,10 @@ struct ThemeEditorView: View {
     .task(id: app.dataRevision) {
       guard !isDirty else { return }
       await load()
+    }
+    .onChange(of: values) {
+      draftRevision &+= 1
+      if resetRequested { resetRequested = false }
     }
     .alert(
       "Não foi possível atualizar",
@@ -62,6 +98,12 @@ struct ThemeEditorView: View {
       .init(id: .preview, title: "Prévia"),
       .init(id: .review, title: "Revisão"),
     ]
+  }
+
+  private var primaryTitle: String {
+    guard step == .review else { return "Continuar" }
+    guard record?.canEdit == true else { return "Concluir" }
+    return resetRequested ? "Restaurar" : "Salvar"
   }
 
   @ViewBuilder
@@ -84,18 +126,38 @@ struct ThemeEditorView: View {
         "Cores principais",
         subtitle: "Informe cores hexadecimais usadas nos destaques da marca."
       ) {
-        ThemeColorField(title: "Primária", value: $values.primary)
-        ThemeColorField(title: "Primária clara", value: $values.primaryLight)
-        ThemeColorField(title: "Secundária", value: $values.secondary)
+        ThemeColorField(
+          title: "Primária", value: $values.primary, field: .primary,
+          focusedField: $focusedField
+        )
+        ThemeColorField(
+          title: "Primária clara", value: $values.primaryLight, field: .primaryLight,
+          focusedField: $focusedField
+        )
+        ThemeColorField(
+          title: "Secundária", value: $values.secondary, field: .secondary,
+          focusedField: $focusedField
+        )
+        if let validationMessage { validationLabel(validationMessage) }
       }
     case .textAndContrast:
       RentivoWizardSection(
         "Texto e contraste",
         subtitle: "Ajuste superfícies escuras e a legibilidade do texto."
       ) {
-        ThemeColorField(title: "Secundária escura", value: $values.secondaryDark)
-        ThemeColorField(title: "Texto", value: $values.textColor)
-        ThemeColorField(title: "Texto de contraste", value: $values.textContrast)
+        ThemeColorField(
+          title: "Secundária escura", value: $values.secondaryDark, field: .secondaryDark,
+          focusedField: $focusedField
+        )
+        ThemeColorField(
+          title: "Texto", value: $values.textColor, field: .textColor,
+          focusedField: $focusedField
+        )
+        ThemeColorField(
+          title: "Texto de contraste", value: $values.textContrast, field: .textContrast,
+          focusedField: $focusedField
+        )
+        if let validationMessage { validationLabel(validationMessage) }
       }
     case .preview:
       inheritanceSection
@@ -107,8 +169,14 @@ struct ThemeEditorView: View {
       }
       if record?.canReset == true {
         RentivoWizardSection("Herança") {
-          Button("Restaurar herança", role: .destructive) { Task { await reset() } }
+          Button(resetRequested ? "Manter personalização" : "Restaurar herança", role: .destructive) {
+            resetRequested.toggle()
+          }
             .disabled(saving)
+          if resetRequested {
+            Label("Restauração selecionada", systemImage: "checkmark.circle.fill")
+              .foregroundStyle(RentivoColors.emerald)
+          }
         }
       }
     case .review:
@@ -119,8 +187,19 @@ struct ThemeEditorView: View {
         RentivoWizardReviewRow(label: "Cor primária", value: values.primary)
         RentivoWizardReviewRow(
           label: "Configuração",
-          value: record?.stored == nil && !isDirty ? "Tema herdado" : "Personalização deste nível"
+          value: resetRequested
+            ? "Restaurar herança"
+            : (record?.stored == nil && !isDirty ? "Tema herdado" : "Personalização deste nível")
         )
+      }
+      if resetRequested {
+        RentivoWizardSection("Alteração selecionada") {
+          Label(
+            "Restaurar herança removerá a personalização somente depois da confirmação final.",
+            systemImage: "arrow.triangle.branch"
+          )
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
     }
   }
@@ -154,7 +233,10 @@ struct ThemeEditorView: View {
   }
 
   private func commit() {
-    if record?.canEdit == true {
+    guard validateAllColorsAndRoute() else { return }
+    if resetRequested, record?.canReset == true {
+      Task { await reset() }
+    } else if record?.canEdit == true {
       Task { await save() }
     } else {
       dismiss()
@@ -162,12 +244,78 @@ struct ThemeEditorView: View {
   }
 
   private func load() async {
+    let requestDraftRevision = draftRevision
+    let requestDraft = values
     do {
       let loaded = try await app.dependencies.themes.theme(target: target)
       record = loaded
-      values = loaded.stored ?? loaded.effective
-      loadedValues = values
+      guard let loadedValuesToApply = ThemeWizardRules.loadedValuesToApply(
+        loaded.stored ?? loaded.effective,
+        requestDraft: requestDraft,
+        currentDraft: values,
+        requestDraftRevision: requestDraftRevision,
+        currentDraftRevision: draftRevision
+      ) else { return }
+      values = loadedValuesToApply
+      loadedValues = loadedValuesToApply
     } catch { self.error = DemoError(error) }
+  }
+
+  private func validateCurrentStep() -> Bool {
+    validationMessage = nil
+    switch step {
+    case .primaryColors:
+      return validateColors([.primary, .primaryLight, .secondary])
+    case .textAndContrast:
+      return validateColors([.secondaryDark, .textColor, .textContrast])
+    case .typography, .preview, .review:
+      return true
+    }
+  }
+
+  private func validateAllColorsAndRoute() -> Bool {
+    let primaryFields: [ThemeWizardField] = [.primary, .primaryLight, .secondary]
+    if let invalid = primaryFields.first(where: { ThemeWizardRules.colorValidationMessage(value(for: $0)) != nil }) {
+      step = .primaryColors
+      validationMessage = ThemeWizardRules.invalidColorMessage
+      focusedField = invalid
+      return false
+    }
+    let contrastFields: [ThemeWizardField] = [.secondaryDark, .textColor, .textContrast]
+    if let invalid = contrastFields.first(where: { ThemeWizardRules.colorValidationMessage(value(for: $0)) != nil }) {
+      step = .textAndContrast
+      validationMessage = ThemeWizardRules.invalidColorMessage
+      focusedField = invalid
+      return false
+    }
+    return true
+  }
+
+  private func validateColors(_ fields: [ThemeWizardField]) -> Bool {
+    guard let invalid = fields.first(where: { ThemeWizardRules.colorValidationMessage(value(for: $0)) != nil }) else {
+      return true
+    }
+    validationMessage = ThemeWizardRules.invalidColorMessage
+    focusedField = invalid
+    return false
+  }
+
+  private func value(for field: ThemeWizardField) -> String {
+    switch field {
+    case .primary: values.primary
+    case .primaryLight: values.primaryLight
+    case .secondary: values.secondary
+    case .secondaryDark: values.secondaryDark
+    case .textColor: values.textColor
+    case .textContrast: values.textContrast
+    }
+  }
+
+  private func validationLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("theme.form.validation")
   }
 
   private func save() async {
@@ -188,8 +336,10 @@ struct ThemeEditorView: View {
     defer { saving = false }
     do {
       try await app.dependencies.themes.resetTheme(target: target)
+      resetRequested = false
       await load()
       app.showNotice("Herança de tema restaurada.")
+      dismiss()
     } catch { self.error = DemoError(error) }
   }
 }
@@ -197,6 +347,8 @@ struct ThemeEditorView: View {
 private struct ThemeColorField: View {
   let title: String
   @Binding var value: String
+  let field: ThemeWizardField
+  let focusedField: FocusState<ThemeWizardField?>.Binding
 
   var body: some View {
     HStack {
@@ -207,6 +359,7 @@ private struct ThemeColorField: View {
       TextField(title, text: $value)
         .textInputAutocapitalization(.characters)
         .font(.system(.body, design: .monospaced))
+        .focused(focusedField, equals: field)
     }
   }
 }

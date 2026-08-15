@@ -186,6 +186,12 @@ private struct ChangePasswordView: View {
     case review
   }
 
+  private enum Field: Hashable {
+    case current
+    case new
+    case confirmation
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   @State private var currentPassword = ""
@@ -194,6 +200,7 @@ private struct ChangePasswordView: View {
   @State private var isSaving = false
   @State private var validationMessage: String?
   @State private var step: Step = .current
+  @FocusState private var focusedField: Field?
 
   var body: some View {
     RentivoFormWizard(
@@ -233,6 +240,7 @@ private struct ChangePasswordView: View {
       ) {
         SecureField("Senha atual", text: $currentPassword)
           .textContentType(.password)
+          .focused($focusedField, equals: .current)
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .new:
@@ -242,8 +250,10 @@ private struct ChangePasswordView: View {
       ) {
         SecureField("Nova senha", text: $newPassword)
           .textContentType(.newPassword)
+          .focused($focusedField, equals: .new)
         SecureField("Confirmar nova senha", text: $confirmPassword)
           .textContentType(.newPassword)
+          .focused($focusedField, equals: .confirmation)
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .review:
@@ -276,15 +286,18 @@ private struct ChangePasswordView: View {
     case .current:
       guard !currentPassword.isEmpty else {
         validationMessage = "Informe sua senha atual."
+        focusedField = .current
         return false
       }
     case .new:
       guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
         validationMessage = "Informe e confirme a nova senha."
+        focusedField = newPassword.isEmpty ? .new : .confirmation
         return false
       }
       guard newPassword == confirmPassword else {
         validationMessage = "As senhas não coincidem."
+        focusedField = .confirmation
         return false
       }
     case .review:
@@ -298,16 +311,19 @@ private struct ChangePasswordView: View {
     guard !currentPassword.isEmpty else {
       validationMessage = "Informe sua senha atual."
       step = .current
+      focusedField = .current
+      return
+    }
+    guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
+      validationMessage = "Informe e confirme a nova senha."
+      step = .new
+      focusedField = newPassword.isEmpty ? .new : .confirmation
       return
     }
     guard newPassword == confirmPassword else {
       validationMessage = "As senhas não coincidem."
       step = .new
-      return
-    }
-    guard !newPassword.isEmpty else {
-      validationMessage = "Informe e confirme a nova senha."
-      step = .new
+      focusedField = .confirmation
       return
     }
     validationMessage = nil

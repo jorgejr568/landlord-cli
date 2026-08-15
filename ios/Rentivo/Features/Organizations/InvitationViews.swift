@@ -189,6 +189,7 @@ struct InviteMemberView: View {
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var step: Step = .person
+  @FocusState private var emailIsFocused: Bool
 
   var body: some View {
     RentivoFormWizard(
@@ -225,6 +226,7 @@ struct InviteMemberView: View {
         TextField("E-mail", text: $email)
           .keyboardType(.emailAddress)
           .textInputAutocapitalization(.never)
+          .focused($emailIsFocused)
         if let emailValidationMessage { errorLabel(emailValidationMessage) }
       }
     case .permission:
@@ -287,6 +289,7 @@ struct InviteMemberView: View {
     submitErrorMessage = nil
     guard step == .person else { return true }
     emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
+    emailIsFocused = emailValidationMessage != nil
     return emailValidationMessage == nil
   }
 
@@ -295,6 +298,7 @@ struct InviteMemberView: View {
     if let message = OrganizationInviteEmail.validationMessage(email) {
       emailValidationMessage = message
       step = .person
+      emailIsFocused = true
       return
     }
     submitErrorMessage = nil
