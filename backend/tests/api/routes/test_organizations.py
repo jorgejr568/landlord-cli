@@ -187,6 +187,7 @@ class FakeOrganizationService:
         self.remove_attempts: list[tuple[int, int, str | None]] = []
         self.remove_result = True
         self.mfa_updates: list[tuple[int, bool]] = []
+        self.create_error: ValueError | None = None
         self.update_error: ValueError | None = None
 
     def list_user_organizations(self, user_id: int) -> list[Organization]:
@@ -217,6 +218,8 @@ class FakeOrganizationService:
         pix_merchant_name: str = "",
         pix_merchant_city: str = "",
     ) -> Organization:
+        if self.create_error is not None:
+            raise self.create_error
         self.created_names.append((name, created_by))
         organization = Organization(
             id=99,
@@ -860,6 +863,22 @@ def test_create_organization_rejects_partial_pix(organization_harness: Organizat
 
     assert response.status_code == 422
     assert organization_harness.organization.created_names == []
+
+
+def test_create_organization_maps_atomic_service_validation_errors(
+    organization_harness: OrganizationHarness,
+) -> None:
+    organization_harness.organization.create_error = ValueError("invalid pix")
+
+    response = organization_harness.client.post(
+        "/api/v1/organizations",
+        json={"name": "Nova Administradora"},
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert organization_harness.audit.calls == []
 
 
 def test_patch_organization_replaces_only_supplied_settings_and_audits(
