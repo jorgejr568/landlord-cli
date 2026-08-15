@@ -237,6 +237,14 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
   public func template(for type: CommunicationType) -> CommunicationTemplate? {
     communicationTemplates.first { $0.commType == type }
   }
+
+  mutating func replaceCommunicationTemplate(_ template: CommunicationTemplate) {
+    if let index = communicationTemplates.firstIndex(where: { $0.commType == template.commType }) {
+      communicationTemplates[index] = template
+    } else {
+      communicationTemplates.append(template)
+    }
+  }
 }
 
 public struct BillingDraft: Hashable, Sendable {

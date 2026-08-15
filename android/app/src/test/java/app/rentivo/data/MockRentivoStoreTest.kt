@@ -453,6 +453,42 @@ class MockRentivoStoreTest {
       "Modelo pessoal",
       store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
     )
+
+    store.sendCommunication(
+      billingID = StableID.billingAurora202,
+      billID = StableID.billSent,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(sibling.recipients.first().id),
+      subject = "Novo modelo pessoal",
+      message = "Novo corpo pessoal",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.OWNER,
+    )
+    assertEquals(
+      "Modelo da cobrança",
+      store.billing(id = billing.id).template(CommunicationType.BILL_READY)?.subject,
+    )
+    assertEquals(
+      "Novo modelo pessoal",
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
+
+    val created = store.createBilling(
+      BillingDraft(name = "Nova cobrança", description = "", owner = billing.owner, items = emptyList())
+    )
+    assertEquals("Novo modelo pessoal", created.template(CommunicationType.BILL_READY)?.subject)
+
+    store.transferBilling(
+      billingID = StableID.billingAurora202,
+      toOrganizationID = StableID.organizationHorizonte,
+    )
+    val systemSubject = MockFixtures.defaultCommunicationTemplates
+      .first { it.commType == CommunicationType.BILL_READY }
+      .subject
+    assertEquals(
+      systemSubject,
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
   }
 
   @Test

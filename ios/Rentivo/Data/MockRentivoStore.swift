@@ -1,5 +1,17 @@
 import Foundation
 
+private enum CommunicationOwnerKey: Hashable {
+  case user(Int)
+  case organization(OrganizationID)
+
+  init(_ owner: BillingOwner) {
+    switch owner {
+    case .user(let id, _): self = .user(id)
+    case .organization(let id, _): self = .organization(id)
+    }
+  }
+}
+
 @MainActor
 public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingRepository,
   BillRepository, ExpenseRepository, AttachmentRepository, CommunicationRepository, FileDownloadRepository, ExportRepository,
@@ -63,6 +75,8 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   private var viewerMode = false
   private var delayEnabled = false
   private var shouldFailNextOperation = false
+  private var ownerCommunicationTemplates: [CommunicationOwnerKey: [CommunicationType: CommunicationTemplate]] = [:]
+  private var billingTemplateOverrides: [BillingID: Set<CommunicationType>] = [:]
   /// Remaining `bill(billingID:id:)` fetches before a regenerated bill settles back to
   /// `.succeeded`, keyed by bill.
   private var pendingRenderTicks: [BillID: Int] = [:]
@@ -96,6 +110,8 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     delayEnabled = false
     shouldFailNextOperation = false
     pendingRenderTicks = [:]
+    ownerCommunicationTemplates = [:]
+    billingTemplateOverrides = [:]
   }
 
   public func profile() async throws -> UserProfile {
@@ -137,7 +153,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func createBilling(_ draft: BillingDraft) async throws -> Billing {
     try await prepareOperation()
     try requireWriteAccess()
-    let billing = Billing(
+    var billing = Billing(
       id: BillingID(rawValue: UUID().uuidString),
       name: draft.name,
       description: draft.description,
@@ -150,6 +166,11 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       // then system default), so a fresh billing is never template-less in production.
       communicationTemplates: MockFixtures.defaultCommunicationTemplates
     )
+    if let templates = ownerCommunicationTemplates[CommunicationOwnerKey(draft.owner)] {
+      for template in templates.values {
+        billing.replaceCommunicationTemplate(template)
+      }
+    }
     snapshot.billings.insert(billing, at: 0)
     recordActivity(kind: .billing, title: "Cobrança criada", detail: billing.name)
     return billing
@@ -188,6 +209,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
     let name = snapshot.billings[index].name
     snapshot.billings.remove(at: index)
+    billingTemplateOverrides[id] = nil
     snapshot.bills.removeAll { $0.billingID == id }
     snapshot.expenses.removeAll { $0.billingID == id }
     snapshot.attachments[id] = nil
@@ -762,6 +784,12 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       id: organization.id,
       name: organization.name
     )
+    for commType in CommunicationType.allCases
+    where billingTemplateOverrides[billingID]?.contains(commType) != true {
+      let template = ownerCommunicationTemplates[CommunicationOwnerKey(snapshot.billings[billingIndex].owner)]?[commType]
+        ?? MockFixtures.defaultCommunicationTemplates.first { $0.commType == commType }
+      if let template { snapshot.billings[billingIndex].replaceCommunicationTemplate(template) }
+    }
     recordActivity(
       kind: .billing,
       title: "Cobrança transferida",
@@ -1064,21 +1092,21 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     subject: String,
     body: String
   ) {
-    let targetIDs: Set<BillingID>
+    let template = CommunicationTemplate(commType: commType, subject: subject, body: body)
     switch scope {
     case .billing:
-      targetIDs = [billing.id]
+      billingTemplateOverrides[billing.id, default: []].insert(commType)
+      if let index = snapshot.billings.firstIndex(where: { $0.id == billing.id }) {
+        snapshot.billings[index].replaceCommunicationTemplate(template)
+      }
     case .owner:
-      targetIDs = Set(snapshot.billings.filter { $0.owner == billing.owner }.map(\.id))
-    }
-    let template = CommunicationTemplate(commType: commType, subject: subject, body: body)
-    for index in snapshot.billings.indices where targetIDs.contains(snapshot.billings[index].id) {
-      if let templateIndex = snapshot.billings[index].communicationTemplates.firstIndex(
-        where: { $0.commType == commType }
-      ) {
-        snapshot.billings[index].communicationTemplates[templateIndex] = template
-      } else {
-        snapshot.billings[index].communicationTemplates.append(template)
+      let ownerKey = CommunicationOwnerKey(billing.owner)
+      ownerCommunicationTemplates[ownerKey, default: [:]][commType] = template
+      for index in snapshot.billings.indices
+      where CommunicationOwnerKey(snapshot.billings[index].owner) == ownerKey
+        && billingTemplateOverrides[snapshot.billings[index].id]?.contains(commType) != true
+      {
+        snapshot.billings[index].replaceCommunicationTemplate(template)
       }
     }
   }

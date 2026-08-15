@@ -418,6 +418,33 @@ import Testing
   let updated = try await store.billing(id: billing.id)
   #expect(updated.template(for: .billReady)?.subject == "Modelo da cobrança")
   #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == "Modelo pessoal")
+
+  _ = try await store.sendCommunication(
+    billingID: StableID.billingAurora202,
+    billID: StableID.billSent,
+    commType: .billReady,
+    recipientIDs: [try #require(sibling.recipients.first).id],
+    subject: "Novo modelo pessoal",
+    message: "Novo corpo pessoal",
+    acknowledgeWarning: false,
+    saveScope: .owner
+  )
+  #expect(try await store.billing(id: billing.id).template(for: .billReady)?.subject == "Modelo da cobrança")
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == "Novo modelo pessoal")
+
+  let created = try await store.createBilling(
+    BillingDraft(name: "Nova cobrança", description: "", owner: billing.owner, items: [])
+  )
+  #expect(created.template(for: .billReady)?.subject == "Novo modelo pessoal")
+
+  try await store.transferBilling(
+    billingID: StableID.billingAurora202,
+    toOrganizationID: StableID.organizationHorizonte
+  )
+  let systemSubject = try #require(
+    MockFixtures.defaultCommunicationTemplates.first { $0.commType == .billReady }
+  ).subject
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == systemSubject)
 }
 
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {

@@ -114,6 +114,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   private val apiKeysState: MutableList<APIKeyMetadata> = baseline.apiKeys.toMutableList()
   private val themesState: MutableMap<ThemeTarget, ThemeValues> = baseline.themes.toMutableMap()
   private val activitiesState: MutableList<RecentActivity> = baseline.activities.toMutableList()
+  private val ownerCommunicationTemplates:
+    MutableMap<CommunicationOwnerKey, MutableMap<CommunicationType, CommunicationTemplate>> = mutableMapOf()
+  private val billingTemplateOverrides: MutableMap<BillingID, MutableSet<CommunicationType>> = mutableMapOf()
 
   private var emptyModeEnabled = false
   private var viewerModeEnabled = false
@@ -230,6 +233,8 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     operationDelayEnabled = false
     shouldFailNextOperation = false
     pendingRenderTicks.clear()
+    ownerCommunicationTemplates.clear()
+    billingTemplateOverrides.clear()
   }
 
   override suspend fun profile(): UserProfile {
@@ -271,7 +276,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun createBilling(draft: BillingDraft): Billing {
     prepareOperation()
     requireWriteAccess()
-    val billing = Billing(
+    var billing = Billing(
       id = BillingID(rawValue = UUID.randomUUID().toString()),
       name = draft.name,
       description = draft.description,
@@ -284,6 +289,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       // then system default), so a fresh billing is never template-less in production.
       communicationTemplates = MockFixtures.defaultCommunicationTemplates,
     )
+    ownerCommunicationTemplates[CommunicationOwnerKey(draft.owner)]?.values?.forEach { template ->
+      billing = billing.withCommunicationTemplate(template)
+    }
     billingsState.add(0, billing)
     recordActivity(kind = ActivityKind.BILLING, title = "Cobrança criada", detail = billing.name)
     return billing
@@ -320,6 +328,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     if (index < 0) throw DemoError.resourceNotFound
     val name = billingsState[index].name
     billingsState.removeAt(index)
+    billingTemplateOverrides.remove(id)
     billsState.removeAll { it.billingID == id }
     expensesState.removeAll { it.billingID == id }
     attachmentsState.remove(id)
@@ -914,6 +923,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     billingsState[billingIndex] = billingsState[billingIndex].copy(
       owner = BillingOwner.Organization(id = organization.id, name = organization.name),
     )
+    for (commType in CommunicationType.entries) {
+      if (billingTemplateOverrides[billingID]?.contains(commType) == true) continue
+      val template = ownerCommunicationTemplates[CommunicationOwnerKey(billingsState[billingIndex].owner)]?.get(commType)
+        ?: MockFixtures.defaultCommunicationTemplates.firstOrNull { it.commType == commType }
+      if (template != null) {
+        billingsState[billingIndex] = billingsState[billingIndex].withCommunicationTemplate(template)
+      }
+    }
     recordActivity(
       kind = ActivityKind.BILLING,
       title = "Cobrança transferida",
@@ -1232,20 +1249,42 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     subject: String,
     body: String,
   ) {
-    val targetIDs = when (scope) {
-      CommunicationSaveScope.BILLING -> setOf(billing.id)
-      CommunicationSaveScope.OWNER -> billingsState
-        .filter { it.owner == billing.owner }
-        .mapTo(mutableSetOf()) { it.id }
-    }
     val template = CommunicationTemplate(commType = commType, subject = subject, body = body)
-    billingsState.replaceAll { candidate ->
-      if (candidate.id !in targetIDs) return@replaceAll candidate
-      val templates = candidate.communicationTemplates.toMutableList()
-      val index = templates.indexOfFirst { it.commType == commType }
-      if (index >= 0) templates[index] = template else templates.add(template)
-      candidate.copy(communicationTemplates = templates)
+    when (scope) {
+      CommunicationSaveScope.BILLING -> {
+        billingTemplateOverrides.getOrPut(billing.id, ::mutableSetOf).add(commType)
+        billingsState.replaceAll { candidate ->
+          if (candidate.id == billing.id) candidate.withCommunicationTemplate(template) else candidate
+        }
+      }
+      CommunicationSaveScope.OWNER -> {
+        val ownerKey = CommunicationOwnerKey(billing.owner)
+        ownerCommunicationTemplates.getOrPut(ownerKey, ::mutableMapOf)[commType] = template
+        billingsState.replaceAll { candidate ->
+          if (
+            CommunicationOwnerKey(candidate.owner) == ownerKey &&
+            billingTemplateOverrides[candidate.id]?.contains(commType) != true
+          ) candidate.withCommunicationTemplate(template) else candidate
+        }
+      }
     }
+  }
+
+  private data class CommunicationOwnerKey(val type: String, val id: String) {
+    constructor(owner: BillingOwner) : this(
+      type = if (owner is BillingOwner.User) "user" else "organization",
+      id = when (owner) {
+        is BillingOwner.User -> owner.id.toString()
+        is BillingOwner.Organization -> owner.id.rawValue
+      },
+    )
+  }
+
+  private fun Billing.withCommunicationTemplate(template: CommunicationTemplate): Billing {
+    val templates = communicationTemplates.toMutableList()
+    val index = templates.indexOfFirst { it.commType == template.commType }
+    if (index >= 0) templates[index] = template else templates.add(template)
+    return copy(communicationTemplates = templates)
   }
 
   private fun recordActivity(kind: ActivityKind, title: String, detail: String) {
