@@ -44,4 +44,36 @@ import Testing
     #expect(expenseFormFocusTarget(step: .valueAndDate, descriptionIsValid: true, centavos: 0) == .amount)
     #expect(expenseFormFocusTarget(step: .review, descriptionIsValid: true, centavos: 100) == nil)
   }
+
+  @Test func asyncWizardLoadsApplyOnlyToTheUnchangedDraftThatStartedTheRequest() {
+    #expect(
+      RentivoAsyncDraftLoadRules.shouldApply(
+        requestDraft: "original",
+        currentDraft: "original",
+        requestRevision: 7,
+        currentRevision: 7
+      )
+    )
+    #expect(
+      !RentivoAsyncDraftLoadRules.shouldApply(
+        requestDraft: "original",
+        currentDraft: "edited",
+        requestRevision: 7,
+        currentRevision: 7
+      )
+    )
+    #expect(
+      !RentivoAsyncDraftLoadRules.shouldApply(
+        requestDraft: "original",
+        currentDraft: "original",
+        requestRevision: 7,
+        currentRevision: 8
+      )
+    )
+  }
+
+  @Test func asyncWizardReadinessGatesOnlyItsPrimaryAction() {
+    #expect(!RentivoAsyncDraftLoadRules.isPrimaryEnabled(hasLoadedBaseline: false))
+    #expect(RentivoAsyncDraftLoadRules.isPrimaryEnabled(hasLoadedBaseline: true))
+  }
 #endif

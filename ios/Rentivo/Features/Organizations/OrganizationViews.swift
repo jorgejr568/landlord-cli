@@ -202,6 +202,7 @@ struct OrganizationFormView: View {
   @State private var saving = false
   @State private var step: Step = .organization
   @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
   private let initialName: String
   private let initialPixKey: String
   private let initialMerchantName: String
@@ -261,6 +262,8 @@ struct OrganizationFormView: View {
       ) {
         TextField("Nome", text: $name)
           .focused($focusedField, equals: .name)
+          .accessibilityFocused($accessibilityFocusedField, equals: .name)
+          .accessibilityIdentifier("organization.form.name")
         if let nameValidationMessage {
           validationLabel(nameValidationMessage)
         }
@@ -273,11 +276,17 @@ struct OrganizationFormView: View {
         TextField("Chave", text: $pixKey)
           .textInputAutocapitalization(.never)
           .focused($focusedField, equals: .pixKey)
+          .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
+          .accessibilityIdentifier("organization.form.pix.key")
         TextField("Nome do recebedor", text: $merchantName)
           .focused($focusedField, equals: .merchantName)
+          .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
+          .accessibilityIdentifier("organization.form.pix.merchant-name")
         TextField("Cidade", text: $city)
           .textInputAutocapitalization(.characters)
           .focused($focusedField, equals: .city)
+          .accessibilityFocused($accessibilityFocusedField, equals: .city)
+          .accessibilityIdentifier("organization.form.pix.city")
         if let pixValidationMessage {
           validationLabel(pixValidationMessage)
         }
@@ -326,13 +335,13 @@ struct OrganizationFormView: View {
     switch step {
     case .organization:
       nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
-      if nameValidationMessage != nil { focusedField = .name }
+      if nameValidationMessage != nil { scheduleFocus(.name) }
       return nameValidationMessage == nil
     case .pix:
       pixValidationMessage = OrganizationDraft.pixValidationMessage(
         key: pixKey, merchantName: merchantName, city: city
       )
-      if pixValidationMessage != nil { focusedField = firstInvalidPixField }
+      if pixValidationMessage != nil { scheduleFocus(firstInvalidPixField) }
       return pixValidationMessage == nil
     case .review:
       return true
@@ -371,7 +380,7 @@ struct OrganizationFormView: View {
       nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
       submitErrorMessage = nameValidationMessage
       step = nameValidationMessage == nil ? .pix : .organization
-      focusedField = nameValidationMessage == nil ? firstInvalidPixField : .name
+      scheduleFocus(nameValidationMessage == nil ? firstInvalidPixField : .name)
       return
     }
     saving = true
@@ -387,6 +396,13 @@ struct OrganizationFormView: View {
       dismiss()
       app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
     } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 }
 

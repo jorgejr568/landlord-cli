@@ -45,4 +45,13 @@ import Testing
 
     #expect(BillingWizardFocusRules.firstFixedOverflowIndex(in: items) == 2)
   }
+
+  @Test func emptyBillingItemsFocusTheStableAddItemControl() {
+    #expect(
+      BillingWizardFocusRules.itemTarget(
+        issues: [ValidationIssue(field: .items, message: "Adicione ao menos um item recorrente.")],
+        items: []
+      ) == .addItem
+    )
+  }
 #endif

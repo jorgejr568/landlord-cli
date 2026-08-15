@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum RentivoAsyncDraftLoadRules {
+  static func shouldApply<Draft: Equatable>(
+    requestDraft: Draft,
+    currentDraft: Draft,
+    requestRevision: Int,
+    currentRevision: Int
+  ) -> Bool {
+    requestRevision == currentRevision && requestDraft == currentDraft
+  }
+
+  static func isPrimaryEnabled(hasLoadedBaseline: Bool) -> Bool {
+    hasLoadedBaseline
+  }
+}
+
 struct RentivoWizardStepDescriptor<Step: Hashable>: Identifiable {
   let id: Step
   let title: String

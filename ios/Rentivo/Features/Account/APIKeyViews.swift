@@ -211,6 +211,7 @@ private struct APIKeyFormView: View {
   @State private var baselineScopes: Set<APIKeyScope>
   @State private var baselineExpiresAt: Date?
   @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
   private let initialName: String
@@ -277,6 +278,8 @@ private struct APIKeyFormView: View {
       ) {
         TextField("Nome", text: $name)
           .focused($focusedField, equals: .name)
+          .accessibilityFocused($accessibilityFocusedField, equals: .name)
+          .accessibilityIdentifier("api-key.form.name")
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .scopes:
@@ -341,6 +344,8 @@ private struct APIKeyFormView: View {
             displayedComponents: .date
           )
           .focused($focusedField, equals: .expiration)
+          .accessibilityFocused($accessibilityFocusedField, equals: .expiration)
+          .accessibilityIdentifier("api-key.form.expiration")
         } else if let key {
           RentivoWizardReviewRow(label: "Expira em", value: key.expiresAt.formattedPTBR())
         } else {
@@ -415,37 +420,37 @@ private struct APIKeyFormView: View {
         validationMessage = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           ? "Informe o nome da chave."
           : "O nome da chave deve ter até 255 caracteres."
-        focusedField = .name
+        scheduleFocus(.name)
         return false
       }
     case .scopes:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento das opções antes de continuar."
-        focusedField = .optionsRetry
+        scheduleFocus(.optionsRetry)
         return false
       }
       guard !scopes.isEmpty else {
         validationMessage = "Selecione ao menos um escopo."
-        if let scope = options.value?.scopes.first { focusedField = .scope(scope) }
+        if let scope = options.value?.scopes.first { scheduleFocus(.scope(scope)) }
         return false
       }
     case .access:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento dos acessos antes de continuar."
-        focusedField = .optionsRetry
+        scheduleFocus(.optionsRetry)
         return false
       }
       guard !allDraftGrants.isEmpty else {
         validationMessage = "Selecione ao menos um acesso."
         if let resourceID = options.value?.personalWorkspace.resourceID {
-          focusedField = .access(resourceID)
+          scheduleFocus(.access(resourceID))
         }
         return false
       }
     case .expiration:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento da validade antes de continuar."
-        focusedField = .optionsRetry
+        scheduleFocus(.optionsRetry)
         return false
       }
     case .review:
@@ -474,6 +479,8 @@ private struct APIKeyFormView: View {
         .foregroundStyle(RentivoColors.coral)
       Button("Tentar novamente") { Task { await loadOptions() } }
         .focused($focusedField, equals: .optionsRetry)
+        .accessibilityFocused($accessibilityFocusedField, equals: .optionsRetry)
+        .accessibilityIdentifier("api-key.form.options.retry")
     }
   }
 
@@ -483,6 +490,8 @@ private struct APIKeyFormView: View {
         .foregroundStyle(RentivoColors.secondaryInk)
       Button("Tentar novamente") { Task { await loadOptions() } }
         .focused($focusedField, equals: .optionsRetry)
+        .accessibilityFocused($accessibilityFocusedField, equals: .optionsRetry)
+        .accessibilityIdentifier("api-key.form.options.retry")
     }
   }
 
@@ -497,6 +506,8 @@ private struct APIKeyFormView: View {
       )
     )
     .focused($focusedField, equals: .scope(scope))
+    .accessibilityFocused($accessibilityFocusedField, equals: .scope(scope))
+    .accessibilityIdentifier("api-key.form.scope.\(scope.rawValue)")
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -510,6 +521,15 @@ private struct APIKeyFormView: View {
       )
     )
     .focused($focusedField, equals: .access(id))
+    .accessibilityFocused($accessibilityFocusedField, equals: .access(id))
+    .accessibilityIdentifier("api-key.form.access.\(id.rawValue)")
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 
   private func save() async {

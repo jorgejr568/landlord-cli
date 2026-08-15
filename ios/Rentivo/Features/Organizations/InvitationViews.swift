@@ -190,6 +190,7 @@ struct InviteMemberView: View {
   @State private var saving = false
   @State private var step: Step = .person
   @FocusState private var emailIsFocused: Bool
+  @AccessibilityFocusState private var emailIsAccessibilityFocused: Bool
 
   var body: some View {
     RentivoFormWizard(
@@ -227,6 +228,8 @@ struct InviteMemberView: View {
           .keyboardType(.emailAddress)
           .textInputAutocapitalization(.never)
           .focused($emailIsFocused)
+          .accessibilityFocused($emailIsAccessibilityFocused)
+          .accessibilityIdentifier("invite.form.email")
         if let emailValidationMessage { errorLabel(emailValidationMessage) }
       }
     case .permission:
@@ -239,6 +242,7 @@ struct InviteMemberView: View {
             Text(role.label).tag(role)
           }
         }
+        .accessibilityIdentifier("invite.form.role")
         if organization.requiresMFA {
           Label(
             "Esta organização exige MFA. A pessoa precisará configurar um fator de autenticação ao aceitar o convite.",
@@ -289,7 +293,7 @@ struct InviteMemberView: View {
     submitErrorMessage = nil
     guard step == .person else { return true }
     emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
-    emailIsFocused = emailValidationMessage != nil
+    if emailValidationMessage != nil { scheduleEmailFocus() }
     return emailValidationMessage == nil
   }
 
@@ -298,7 +302,7 @@ struct InviteMemberView: View {
     if let message = OrganizationInviteEmail.validationMessage(email) {
       emailValidationMessage = message
       step = .person
-      emailIsFocused = true
+      scheduleEmailFocus()
       return
     }
     submitErrorMessage = nil
@@ -314,5 +318,12 @@ struct InviteMemberView: View {
       dismiss()
       app.showNotice("Convite enviado.")
     } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private func scheduleEmailFocus() {
+    Task { @MainActor in
+      emailIsFocused = true
+      emailIsAccessibilityFocused = true
+    }
   }
 }

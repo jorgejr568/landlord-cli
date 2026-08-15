@@ -52,6 +52,21 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertTrue(backButtons.element(boundBy: backButtons.count - 1).isEnabled)
   }
 
+  func testSuccessfulExportDismissesTheWizardAndShowsConfirmation() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let export = app.buttons["Exportar dados"]
+    scrollTo(export, in: app)
+    export.tap()
+
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.commit"].tap()
+
+    XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["Exportação CSV enfileirada."].waitForExistence(timeout: 3))
+  }
+
   private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {
     let app = launchAndSignIn()
     app.tabBars.buttons["Cobranças"].tap()

@@ -831,10 +831,12 @@ private enum ExportWizardStep: Hashable {
 
 struct ExportSimulationView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   let billingID: BillingID
   @State private var format = BillingExportContract.formats[0]
   @State private var selectedStep: ExportWizardStep = .format
   @State private var requestingExport = false
+  @State private var exportErrorMessage: String?
 
   var body: some View {
     RentivoFormWizard(
@@ -870,6 +872,13 @@ struct ExportSimulationView: View {
             label: "Conteúdo", value: BillingExportContract.includedSections.joined(separator: ", ")
           )
         }
+        if let exportErrorMessage {
+          RentivoWizardSection("Não foi possível exportar") {
+            Label(exportErrorMessage, systemImage: "exclamationmark.circle.fill")
+              .foregroundStyle(RentivoColors.coral)
+              .accessibilityIdentifier("export.form.error")
+          }
+        }
       }
     }
   }
@@ -884,11 +893,13 @@ struct ExportSimulationView: View {
 
   private func requestExport() async {
     guard !requestingExport else { return }
+    exportErrorMessage = nil
     requestingExport = true
     defer { requestingExport = false }
     do {
       try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
+      dismiss()
       app.showNotice("Exportação \(format.uppercased()) enfileirada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch { exportErrorMessage = DemoError(error).message }
   }
 }

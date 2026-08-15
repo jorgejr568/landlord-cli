@@ -179,7 +179,11 @@ struct ProfilePixView: View {
   @State private var validationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var profileLoaded = false
+  @State private var profileLoadErrorMessage: String?
+  @State private var draftRevision = 0
   @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -195,6 +199,9 @@ struct ProfilePixView: View {
       selectedStep: $step,
       isDirty: isDirty,
       isBusy: saving,
+      isPrimaryEnabled: RentivoAsyncDraftLoadRules.isPrimaryEnabled(
+        hasLoadedBaseline: profileLoaded
+      ),
       primaryTitle: primaryTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: commit
@@ -202,16 +209,8 @@ struct ProfilePixView: View {
       stepContent(selectedStep)
     }
     .interactiveDismissDisabled(isDirty || saving)
-    .task {
-      guard !isDirty else { return }
-      do {
-        let loaded = ProfilePIXForm(profile: try await app.loadProfile())
-        form = loaded
-        loadedForm = loaded
-      } catch {
-        submitErrorMessage = DemoError(error).message
-      }
-    }
+    .task { await loadProfile() }
+    .onChange(of: form) { draftRevision &+= 1 }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
@@ -227,6 +226,7 @@ struct ProfilePixView: View {
   }
 
   private var primaryTitle: String {
+    guard profileLoaded else { return "Carregando perfil…" }
     guard step == .review else { return "Continuar" }
     if isDemoViewerLocked { return "Concluir" }
     return form.configuration.isEmpty ? "Limpar" : "Salvar"
@@ -242,9 +242,16 @@ struct ProfilePixView: View {
       ) {
         TextField("Chave PIX", text: $form.key)
           .textInputAutocapitalization(.never)
-          .disabled(isDemoViewerLocked)
+          .disabled(isDemoViewerLocked || !profileLoaded)
           .focused($focusedField, equals: .key)
+          .accessibilityFocused($accessibilityFocusedField, equals: .key)
+          .accessibilityIdentifier("profile.pix.key")
         if isDemoViewerLocked { readOnlyNotice }
+        if let profileLoadErrorMessage {
+          errorLabel(profileLoadErrorMessage)
+          Button("Tentar novamente") { Task { await loadProfile() } }
+            .accessibilityIdentifier("profile.pix.retry")
+        }
       }
     case .recipient:
       RentivoWizardSection(
@@ -252,12 +259,16 @@ struct ProfilePixView: View {
         subtitle: "Estes dados acompanham a chave nas cobranças pessoais."
       ) {
         TextField("Nome do recebedor", text: $form.merchantName)
-          .disabled(isDemoViewerLocked)
+          .disabled(isDemoViewerLocked || !profileLoaded)
           .focused($focusedField, equals: .merchantName)
+          .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
+          .accessibilityIdentifier("profile.pix.merchant-name")
         TextField("Cidade", text: $form.merchantCity)
           .textInputAutocapitalization(.characters)
-          .disabled(isDemoViewerLocked)
+          .disabled(isDemoViewerLocked || !profileLoaded)
           .focused($focusedField, equals: .city)
+          .accessibilityFocused($accessibilityFocusedField, equals: .city)
+          .accessibilityIdentifier("profile.pix.city")
         if let validationMessage { errorLabel(validationMessage) }
       }
       RentivoWizardSection("Herança") {
@@ -334,13 +345,13 @@ struct ProfilePixView: View {
     let name = form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     if key.isEmpty {
       step = .key
-      focusedField = .key
+      scheduleFocus(.key)
     } else if name.isEmpty || name.unicodeScalars.count > 25 {
       step = .recipient
-      focusedField = .merchantName
+      scheduleFocus(.merchantName)
     } else {
       step = .recipient
-      focusedField = .city
+      scheduleFocus(.city)
     }
   }
 
@@ -360,6 +371,36 @@ struct ProfilePixView: View {
       dismiss()
     } else {
       Task { await save() }
+    }
+  }
+
+  private func loadProfile() async {
+    let requestDraft = form
+    let requestRevision = draftRevision
+    profileLoadErrorMessage = nil
+    do {
+      let loaded = ProfilePIXForm(profile: try await app.loadProfile())
+      guard RentivoAsyncDraftLoadRules.shouldApply(
+        requestDraft: requestDraft,
+        currentDraft: form,
+        requestRevision: requestRevision,
+        currentRevision: draftRevision
+      ) else {
+        profileLoadErrorMessage = "O perfil mudou durante o carregamento. Tente novamente para atualizar os dados."
+        return
+      }
+      form = loaded
+      loadedForm = loaded
+      profileLoaded = true
+    } catch {
+      profileLoadErrorMessage = DemoError(error).message
+    }
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
     }
   }
 

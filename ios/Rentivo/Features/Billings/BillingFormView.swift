@@ -63,6 +63,10 @@ private struct EditableRecipient: Identifiable {
 }
 
 enum BillingWizardFocusRules {
+  enum ItemTarget: Equatable {
+    case addItem
+  }
+
   enum PIXTarget: Equatable {
     case key
     case merchantName
@@ -112,6 +116,10 @@ enum BillingWizardFocusRules {
     }
     return nil
   }
+
+  static func itemTarget(issues: [ValidationIssue], items: [ItemAmount]) -> ItemTarget? {
+    issues.contains(where: { $0.field == .items }) && items.isEmpty ? .addItem : nil
+  }
 }
 
 struct BillingFormView: View {
@@ -138,6 +146,7 @@ struct BillingFormView: View {
     case description
     case itemDescription(Int)
     case itemAmount(Int)
+    case addItem
     case pixKey
     case pixMerchantName
     case pixMerchantCity
@@ -172,6 +181,7 @@ struct BillingFormView: View {
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded: Bool
   @FocusState private var focusedField: FocusedField?
+  @AccessibilityFocusState private var accessibilityFocusedField: FocusedField?
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -194,7 +204,8 @@ struct BillingFormView: View {
       descriptors: Step.allCases.map { RentivoWizardStepDescriptor(id: $0, title: $0.title) },
       selectedStep: $step,
       isDirty: isDirty,
-      isBusy: isPrimaryActionBusy,
+      isBusy: saving,
+      isPrimaryEnabled: organizationsLoaded,
       primaryTitle: primaryActionTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
@@ -216,9 +227,12 @@ struct BillingFormView: View {
       RentivoWizardSection("Identificação", subtitle: "Defina a cobrança e seu responsável.") {
         TextField("Nome", text: $name)
           .focused($focusedField, equals: .name)
+          .accessibilityFocused($accessibilityFocusedField, equals: .name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
           .focused($focusedField, equals: .description)
+          .accessibilityFocused($accessibilityFocusedField, equals: .description)
+          .accessibilityIdentifier("billing.form.description")
           .lineLimit(2...4)
         if billing == nil {
           Picker("Responsável", selection: $ownerID) {
@@ -248,6 +262,7 @@ struct BillingFormView: View {
             }
             TextField("Descrição do item", text: $items[index].description)
               .focused($focusedField, equals: .itemDescription(index))
+              .accessibilityFocused($accessibilityFocusedField, equals: .itemDescription(index))
               .accessibilityIdentifier("billing.form.item.\(index).description")
             Picker("Tipo", selection: $items[index].type) {
               ForEach(BillingItemType.allCases, id: \.self) { type in
@@ -263,7 +278,8 @@ struct BillingFormView: View {
               CurrencyCentavosField(
                 "Valor do item",
                 centavos: $items[index].centavos,
-                isFocused: itemAmountFocusBinding(for: index)
+                isFocused: itemAmountFocusBinding(for: index),
+                isAccessibilityFocused: itemAmountAccessibilityFocusBinding(for: index)
               )
                 .accessibilityIdentifier("billing.form.item.\(index).amount")
             }
@@ -275,6 +291,8 @@ struct BillingFormView: View {
         } label: {
           Label("Adicionar item", systemImage: "plus.circle.fill")
         }
+        .focused($focusedField, equals: .addItem)
+        .accessibilityFocused($accessibilityFocusedField, equals: .addItem)
         .accessibilityIdentifier("billing.form.items.add")
         HStack {
           Text("Subtotal fixo")
@@ -289,14 +307,17 @@ struct BillingFormView: View {
       RentivoWizardSection("PIX opcional", subtitle: "Deixe em branco para herdar o PIX do responsável.") {
         TextField("Chave PIX própria", text: $pixKey)
           .focused($focusedField, equals: .pixKey)
+          .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
           .textInputAutocapitalization(.never)
           .accessibilityIdentifier("billing.form.pix.key")
         if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           TextField("Nome do recebedor", text: $pixMerchantName)
             .focused($focusedField, equals: .pixMerchantName)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantName)
             .accessibilityIdentifier("billing.form.pix.merchantName")
           TextField("Cidade do recebedor", text: $pixMerchantCity)
             .focused($focusedField, equals: .pixMerchantCity)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
             .textInputAutocapitalization(.characters)
             .accessibilityIdentifier("billing.form.pix.merchantCity")
         }
@@ -319,9 +340,11 @@ struct BillingFormView: View {
               }
               TextField("Nome do destinatário", text: $recipients[index].name)
                 .focused($focusedField, equals: .recipientName(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .recipientName(index))
                 .accessibilityIdentifier("billing.form.recipient.\(index).name")
               TextField("E-mail do destinatário", text: $recipients[index].email)
                 .focused($focusedField, equals: .recipientEmail(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .recipientEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -351,9 +374,11 @@ struct BillingFormView: View {
               }
               TextField("Nome para resposta", text: $replyTo[index].name)
                 .focused($focusedField, equals: .replyToName(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .replyToName(index))
                 .accessibilityIdentifier("billing.form.reply-to.\(index).name")
               TextField("E-mail para resposta", text: $replyTo[index].email)
                 .focused($focusedField, equals: .replyToEmail(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .replyToEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -429,10 +454,6 @@ struct BillingFormView: View {
 
   private var selectedOwner: BillingOwner? {
     billing?.owner ?? ownerChoices.first(where: { $0.id == ownerID })
-  }
-
-  private var isPrimaryActionBusy: Bool {
-    saving || !organizationsLoaded
   }
 
   private var primaryActionTitle: String {
@@ -541,14 +562,19 @@ struct BillingFormView: View {
   private func focusFirstInvalidControl() {
     switch step {
     case .essentials:
-      focusedField = validationIssues.contains(where: { $0.field == .name }) ? .name : .description
+      scheduleFocus(validationIssues.contains(where: { $0.field == .name }) ? .name : .description)
     case .items:
-      if validationIssues.contains(where: { $0.field == .itemDescription }),
+      if BillingWizardFocusRules.itemTarget(
+        issues: validationIssues,
+        items: items.map { .init(type: $0.type, centavos: $0.centavos) }
+      ) == .addItem {
+        scheduleFocus(.addItem)
+      } else if validationIssues.contains(where: { $0.field == .itemDescription }),
         let index = firstInvalidItemDescriptionIndex {
-        focusedField = .itemDescription(index)
+        scheduleFocus(.itemDescription(index))
       } else if validationIssues.contains(where: { $0.field == .itemAmount }),
         let index = firstInvalidItemAmountIndex {
-        focusedField = .itemAmount(index)
+        scheduleFocus(.itemAmount(index))
       }
     case .pix:
       focusPIXField()
@@ -575,9 +601,9 @@ struct BillingFormView: View {
       merchantName: pixMerchantName,
       merchantCity: pixMerchantCity
     ) {
-    case .key: focusedField = .pixKey
-    case .merchantName: focusedField = .pixMerchantName
-    case .merchantCity: focusedField = .pixMerchantCity
+    case .key: scheduleFocus(.pixKey)
+    case .merchantName: scheduleFocus(.pixMerchantName)
+    case .merchantCity: scheduleFocus(.pixMerchantCity)
     }
   }
 
@@ -592,6 +618,13 @@ struct BillingFormView: View {
     Binding(
       get: { focusedField == .itemAmount(index) },
       set: { focusedField = $0 ? .itemAmount(index) : nil }
+    )
+  }
+
+  private func itemAmountAccessibilityFocusBinding(for index: Int) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == .itemAmount(index) },
+      set: { accessibilityFocusedField = $0 ? .itemAmount(index) : nil }
     )
   }
 
@@ -624,10 +657,17 @@ struct BillingFormView: View {
 
   private func focusContact(_ contact: EditableRecipient, at index: Int, isReplyTo: Bool) {
     switch (isReplyTo, BillingWizardFocusRules.contactTarget(name: contact.name, email: contact.email)) {
-    case (false, .name): focusedField = .recipientName(index)
-    case (false, .email): focusedField = .recipientEmail(index)
-    case (true, .name): focusedField = .replyToName(index)
-    case (true, .email): focusedField = .replyToEmail(index)
+    case (false, .name): scheduleFocus(.recipientName(index))
+    case (false, .email): scheduleFocus(.recipientEmail(index))
+    case (true, .name): scheduleFocus(.replyToName(index))
+    case (true, .email): scheduleFocus(.replyToEmail(index))
+    }
+  }
+
+  private func scheduleFocus(_ field: FocusedField) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
     }
   }
 

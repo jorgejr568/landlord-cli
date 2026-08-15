@@ -201,6 +201,7 @@ private struct ChangePasswordView: View {
   @State private var validationMessage: String?
   @State private var step: Step = .current
   @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
 
   var body: some View {
     RentivoFormWizard(
@@ -241,6 +242,8 @@ private struct ChangePasswordView: View {
         SecureField("Senha atual", text: $currentPassword)
           .textContentType(.password)
           .focused($focusedField, equals: .current)
+          .accessibilityFocused($accessibilityFocusedField, equals: .current)
+          .accessibilityIdentifier("password.form.current")
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .new:
@@ -251,9 +254,13 @@ private struct ChangePasswordView: View {
         SecureField("Nova senha", text: $newPassword)
           .textContentType(.newPassword)
           .focused($focusedField, equals: .new)
+          .accessibilityFocused($accessibilityFocusedField, equals: .new)
+          .accessibilityIdentifier("password.form.new")
         SecureField("Confirmar nova senha", text: $confirmPassword)
           .textContentType(.newPassword)
           .focused($focusedField, equals: .confirmation)
+          .accessibilityFocused($accessibilityFocusedField, equals: .confirmation)
+          .accessibilityIdentifier("password.form.confirmation")
         if let validationMessage { errorLabel(validationMessage) }
       }
     case .review:
@@ -286,18 +293,18 @@ private struct ChangePasswordView: View {
     case .current:
       guard !currentPassword.isEmpty else {
         validationMessage = "Informe sua senha atual."
-        focusedField = .current
+        scheduleFocus(.current)
         return false
       }
     case .new:
       guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
         validationMessage = "Informe e confirme a nova senha."
-        focusedField = newPassword.isEmpty ? .new : .confirmation
+        scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
         return false
       }
       guard newPassword == confirmPassword else {
         validationMessage = "As senhas não coincidem."
-        focusedField = .confirmation
+        scheduleFocus(.confirmation)
         return false
       }
     case .review:
@@ -311,19 +318,19 @@ private struct ChangePasswordView: View {
     guard !currentPassword.isEmpty else {
       validationMessage = "Informe sua senha atual."
       step = .current
-      focusedField = .current
+      scheduleFocus(.current)
       return
     }
     guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
       validationMessage = "Informe e confirme a nova senha."
       step = .new
-      focusedField = newPassword.isEmpty ? .new : .confirmation
+      scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
       return
     }
     guard newPassword == confirmPassword else {
       validationMessage = "As senhas não coincidem."
       step = .new
-      focusedField = .confirmation
+      scheduleFocus(.confirmation)
       return
     }
     validationMessage = nil
@@ -342,6 +349,13 @@ private struct ChangePasswordView: View {
       } catch {
         validationMessage = DemoError(error).message
       }
+    }
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
     }
   }
 }

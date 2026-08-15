@@ -15,7 +15,12 @@ enum ThemeWizardRules {
     requestDraftRevision: Int,
     currentDraftRevision: Int
   ) -> ThemeValues? {
-    requestDraftRevision == currentDraftRevision && requestDraft == currentDraft ? loaded : nil
+    RentivoAsyncDraftLoadRules.shouldApply(
+      requestDraft: requestDraft,
+      currentDraft: currentDraft,
+      requestRevision: requestDraftRevision,
+      currentRevision: currentDraftRevision
+    ) ? loaded : nil
   }
 }
 
@@ -26,6 +31,17 @@ private enum ThemeWizardField: Hashable {
   case secondaryDark
   case textColor
   case textContrast
+
+  var accessibilityIdentifier: String {
+    switch self {
+    case .primary: "primary"
+    case .primaryLight: "primary-light"
+    case .secondary: "secondary"
+    case .secondaryDark: "secondary-dark"
+    case .textColor: "text"
+    case .textContrast: "text-contrast"
+    }
+  }
 }
 
 struct ThemeEditorView: View {
@@ -49,7 +65,10 @@ struct ThemeEditorView: View {
   @State private var validationMessage: String?
   @State private var resetRequested = false
   @State private var draftRevision = 0
+  @State private var themeLoaded = false
+  @State private var readinessMessage: String?
   @FocusState private var focusedField: ThemeWizardField?
+  @AccessibilityFocusState private var accessibilityFocusedField: ThemeWizardField?
 
   /// True once the user has changed a field since the last successful load/save.
   /// Guards against `.task(id:)` reloads (triggered by unrelated `app.dataRevision`
@@ -65,11 +84,24 @@ struct ThemeEditorView: View {
       selectedStep: $step,
       isDirty: isDirty,
       isBusy: saving,
+      isPrimaryEnabled: RentivoAsyncDraftLoadRules.isPrimaryEnabled(
+        hasLoadedBaseline: themeLoaded
+      ),
       primaryTitle: primaryTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: commit
     ) { selectedStep in
-      stepContent(selectedStep)
+      VStack(alignment: .leading, spacing: RentivoSpacing.section) {
+        stepContent(selectedStep)
+          .disabled(!themeLoaded)
+        if let readinessMessage {
+          RentivoWizardSection("Tema indisponível") {
+            validationLabel(readinessMessage)
+            Button("Tentar novamente") { Task { await load() } }
+              .accessibilityIdentifier("theme.form.retry")
+          }
+        }
+      }
     }
     .interactiveDismissDisabled(isDirty || saving)
     .task(id: app.dataRevision) {
@@ -84,7 +116,11 @@ struct ThemeEditorView: View {
       "Não foi possível atualizar",
       isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
     ) {
-      Button("OK") { error = nil }
+      Button("Tentar novamente") {
+        error = nil
+        Task { await load() }
+      }
+      Button("Cancelar", role: .cancel) { error = nil }
     } message: {
       Text(error?.message ?? "")
     }
@@ -101,6 +137,7 @@ struct ThemeEditorView: View {
   }
 
   private var primaryTitle: String {
+    guard themeLoaded else { return "Carregando tema…" }
     guard step == .review else { return "Continuar" }
     guard record?.canEdit == true else { return "Concluir" }
     return resetRequested ? "Restaurar" : "Salvar"
@@ -117,9 +154,11 @@ struct ThemeEditorView: View {
         Picker("Fonte de títulos", selection: $values.headerFont) {
           ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
         }
+        .accessibilityIdentifier("theme.form.header-font")
         Picker("Fonte de texto", selection: $values.textFont) {
           ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
         }
+        .accessibilityIdentifier("theme.form.text-font")
       }
     case .primaryColors:
       RentivoWizardSection(
@@ -128,15 +167,18 @@ struct ThemeEditorView: View {
       ) {
         ThemeColorField(
           title: "Primária", value: $values.primary, field: .primary,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         ThemeColorField(
           title: "Primária clara", value: $values.primaryLight, field: .primaryLight,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         ThemeColorField(
           title: "Secundária", value: $values.secondary, field: .secondary,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         if let validationMessage { validationLabel(validationMessage) }
       }
@@ -147,15 +189,18 @@ struct ThemeEditorView: View {
       ) {
         ThemeColorField(
           title: "Secundária escura", value: $values.secondaryDark, field: .secondaryDark,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         ThemeColorField(
           title: "Texto", value: $values.textColor, field: .textColor,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         ThemeColorField(
           title: "Texto de contraste", value: $values.textContrast, field: .textContrast,
-          focusedField: $focusedField
+          focusedField: $focusedField,
+          accessibilityFocusedField: $accessibilityFocusedField
         )
         if let validationMessage { validationLabel(validationMessage) }
       }
@@ -173,6 +218,7 @@ struct ThemeEditorView: View {
             resetRequested.toggle()
           }
             .disabled(saving)
+            .accessibilityIdentifier("theme.form.reset")
           if resetRequested {
             Label("Restauração selecionada", systemImage: "checkmark.circle.fill")
               .foregroundStyle(RentivoColors.emerald)
@@ -246,19 +292,27 @@ struct ThemeEditorView: View {
   private func load() async {
     let requestDraftRevision = draftRevision
     let requestDraft = values
+    readinessMessage = nil
     do {
       let loaded = try await app.dependencies.themes.theme(target: target)
-      record = loaded
       guard let loadedValuesToApply = ThemeWizardRules.loadedValuesToApply(
         loaded.stored ?? loaded.effective,
         requestDraft: requestDraft,
         currentDraft: values,
         requestDraftRevision: requestDraftRevision,
         currentDraftRevision: draftRevision
-      ) else { return }
+      ) else {
+        readinessMessage = "O tema mudou durante o carregamento. Tente novamente para atualizar os dados."
+        return
+      }
+      record = loaded
       values = loadedValuesToApply
       loadedValues = loadedValuesToApply
-    } catch { self.error = DemoError(error) }
+      themeLoaded = true
+    } catch {
+      self.error = DemoError(error)
+      if record == nil { themeLoaded = false }
+    }
   }
 
   private func validateCurrentStep() -> Bool {
@@ -278,14 +332,14 @@ struct ThemeEditorView: View {
     if let invalid = primaryFields.first(where: { ThemeWizardRules.colorValidationMessage(value(for: $0)) != nil }) {
       step = .primaryColors
       validationMessage = ThemeWizardRules.invalidColorMessage
-      focusedField = invalid
+      scheduleFocus(invalid)
       return false
     }
     let contrastFields: [ThemeWizardField] = [.secondaryDark, .textColor, .textContrast]
     if let invalid = contrastFields.first(where: { ThemeWizardRules.colorValidationMessage(value(for: $0)) != nil }) {
       step = .textAndContrast
       validationMessage = ThemeWizardRules.invalidColorMessage
-      focusedField = invalid
+      scheduleFocus(invalid)
       return false
     }
     return true
@@ -296,7 +350,7 @@ struct ThemeEditorView: View {
       return true
     }
     validationMessage = ThemeWizardRules.invalidColorMessage
-    focusedField = invalid
+    scheduleFocus(invalid)
     return false
   }
 
@@ -342,6 +396,13 @@ struct ThemeEditorView: View {
       dismiss()
     } catch { self.error = DemoError(error) }
   }
+
+  private func scheduleFocus(_ field: ThemeWizardField) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
+  }
 }
 
 private struct ThemeColorField: View {
@@ -349,6 +410,7 @@ private struct ThemeColorField: View {
   @Binding var value: String
   let field: ThemeWizardField
   let focusedField: FocusState<ThemeWizardField?>.Binding
+  let accessibilityFocusedField: AccessibilityFocusState<ThemeWizardField?>.Binding
 
   var body: some View {
     HStack {
@@ -360,6 +422,8 @@ private struct ThemeColorField: View {
         .textInputAutocapitalization(.characters)
         .font(.system(.body, design: .monospaced))
         .focused(focusedField, equals: field)
+        .accessibilityFocused(accessibilityFocusedField, equals: field)
+        .accessibilityIdentifier("theme.form.color.\(field.accessibilityIdentifier)")
     }
   }
 }
