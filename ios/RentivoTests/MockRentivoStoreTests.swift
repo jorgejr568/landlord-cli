@@ -161,9 +161,11 @@ import Testing
   let store = MockRentivoStore(fixtures: .canonical)
   let invitation = try #require(try await store.listPendingInvitations().first)
 
-  try await store.acceptInvitation(id: invitation.id)
+  let outcome = try await store.acceptInvitation(id: invitation.id)
 
   #expect(try await store.listPendingInvitations().isEmpty)
+  #expect(outcome.organizationID == invitation.organizationID)
+  #expect(!outcome.mfaSetupRequired)
   let organization = try await store.organization(id: invitation.organizationID)
   #expect(organization.members.contains { $0.userID == store.currentUser.id })
 }

@@ -205,9 +205,11 @@ class MockRentivoStoreTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val invitation = store.listPendingInvitations().first()
 
-    store.acceptInvitation(id = invitation.id)
+    val outcome = store.acceptInvitation(id = invitation.id)
 
     assertTrue(store.listPendingInvitations().isEmpty())
+    assertEquals(invitation.organizationID, outcome.organizationID)
+    assertFalse(outcome.mfaSetupRequired)
     val organization = store.organization(id = invitation.organizationID)
     assertTrue(organization.members.any { it.userID == store.currentUser.id })
   }

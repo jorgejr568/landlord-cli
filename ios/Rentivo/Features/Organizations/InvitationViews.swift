@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InvitationListView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   let onMutation: () async -> Void
   @State private var state: LoadState<[Invitation]> = .idle
   /// What the last refresh or accept/decline has to say, shown above the list: the global notice
@@ -136,13 +137,23 @@ struct InvitationListView: View {
     respondingID = invitation.id
     defer { respondingID = nil }
     do {
+      var acceptance: InvitationAcceptance?
       if accept {
-        try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
+        acceptance = try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
       } else {
         try await app.dependencies.invitations.declineInvitation(id: invitation.id)
       }
       await load()
       await onMutation()
+      if acceptance?.mfaSetupRequired == true {
+        dismiss()
+        app.selectedTab = .account
+        app.showNotice(
+          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
+          kind: .warning
+        )
+        return
+      }
       // The confirmation goes in the same slot as a failure rather than through `app.showNotice`:
       // the global banner would render behind this sheet and the user would never see it.
       notice = .confirmation(accept ? "Convite aceito." : "Convite recusado.")

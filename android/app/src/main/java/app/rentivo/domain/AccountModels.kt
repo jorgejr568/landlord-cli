@@ -179,6 +179,11 @@ data class Invitation(
   val status: InvitationStatus,
 )
 
+data class InvitationAcceptance(
+  val organizationID: OrganizationID,
+  val mfaSetupRequired: Boolean,
+)
+
 data class Passkey(
   val id: PasskeyID,
   val name: String,

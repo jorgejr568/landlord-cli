@@ -39,6 +39,7 @@ import app.rentivo.domain.ExpenseInput
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
 import app.rentivo.domain.MFAChallenge
@@ -961,8 +962,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return invitationsState.filter { it.status == InvitationStatus.PENDING }
   }
 
-  override suspend fun acceptInvitation(id: InvitationID) {
+  override suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance {
     respondToInvitation(id = id, status = InvitationStatus.ACCEPTED)
+    val invitation = invitationsState.firstOrNull { it.id == id }
+      ?: throw DemoError.resourceNotFound
+    return InvitationAcceptance(
+      organizationID = invitation.organizationID,
+      mfaSetupRequired = securityState.setupRequired,
+    )
   }
 
   override suspend fun declineInvitation(id: InvitationID) {
@@ -1332,11 +1339,20 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
         userID = profileState.id,
         email = profileState.email,
         role = invitation.role,
+        isCurrentUser = true,
       )
       organizationsState[organizationIndex] = organizationsState[organizationIndex].copy(
         members = organizationsState[organizationIndex].members + membership,
         currentUserRole = invitation.role,
         capabilities = OrganizationCapabilities.forRole(invitation.role),
+      )
+      val organizationEnforced = organizationsState.any { organization ->
+        organization.requiresMFA && organization.members.any { it.userID == profileState.id }
+      }
+      securityState = securityState.copy(
+        organizationEnforced = organizationEnforced,
+        setupRequired = organizationEnforced &&
+          !securityState.totpEnabled && securityState.passkeys.isEmpty(),
       )
     }
     recordActivity(

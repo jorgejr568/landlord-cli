@@ -371,7 +371,16 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       )
     }
   }
-  public func acceptInvitation(id: InvitationID) async throws { try await execute(path: "/api/v1/invites/\(id.rawValue)/accept", method: "POST") }
+  @discardableResult
+  public func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance {
+    let response: RemoteInvitationAcceptance = try await decode(
+      path: "/api/v1/invites/\(id.rawValue)/accept", method: "POST"
+    )
+    return InvitationAcceptance(
+      organizationID: OrganizationID(rawValue: response.organizationUUID),
+      mfaSetupRequired: response.mfaSetupRequired
+    )
+  }
   public func declineInvitation(id: InvitationID) async throws { try await execute(path: "/api/v1/invites/\(id.rawValue)/decline", method: "POST") }
   public func changePassword(
     currentPassword: String, newPassword: String, confirmPassword: String

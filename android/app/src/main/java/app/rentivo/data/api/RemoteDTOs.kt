@@ -163,6 +163,12 @@ data class RemotePendingInvitation(
 )
 
 @Serializable
+data class RemoteInvitationAcceptance(
+  @SerialName("organization_uuid") val organizationUUID: String,
+  @SerialName("mfa_setup_required") val mfaSetupRequired: Boolean,
+)
+
+@Serializable
 data class RemoteSecuritySummary(
   val profile: RemoteProfile,
   val totp: RemoteTOTPStatus,

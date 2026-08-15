@@ -826,8 +826,16 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return snapshot.invitations.filter { $0.status == .pending }
   }
 
-  public func acceptInvitation(id: InvitationID) async throws {
+  @discardableResult
+  public func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance {
     try await respondToInvitation(id: id, status: .accepted)
+    guard let invitation = snapshot.invitations.first(where: { $0.id == id }) else {
+      throw DemoError.resourceNotFound
+    }
+    return InvitationAcceptance(
+      organizationID: invitation.organizationID,
+      mfaSetupRequired: snapshot.security.setupRequired
+    )
   }
 
   public func declineInvitation(id: InvitationID) async throws {
@@ -1161,11 +1169,17 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       let membership = OrganizationMember(
         userID: snapshot.profile.id,
         email: snapshot.profile.email,
-        role: invitation.role
+        role: invitation.role,
+        isCurrentUser: true
       )
       snapshot.organizations[organizationIndex].members.append(membership)
       snapshot.organizations[organizationIndex].currentUserRole = invitation.role
       snapshot.organizations[organizationIndex].capabilities = .forRole(invitation.role)
+      snapshot.security.organizationEnforced = snapshot.organizations.contains {
+        $0.requiresMFA && $0.members.contains(where: { $0.userID == snapshot.profile.id })
+      }
+      snapshot.security.setupRequired = snapshot.security.organizationEnforced
+        && !snapshot.security.totpEnabled && snapshot.security.passkeys.isEmpty
     }
     recordActivity(
       kind: .invitation,

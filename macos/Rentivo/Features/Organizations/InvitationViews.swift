@@ -3,6 +3,7 @@ import SwiftUI
 
 struct InvitationListView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   let onMutation: () async -> Void
   @State private var state: LoadState<[Invitation]> = .idle
   @State private var respondingID: InvitationID?
@@ -77,14 +78,23 @@ struct InvitationListView: View {
     respondFailureMessage = nil
     defer { respondingID = nil }
     do {
+      var acceptance: InvitationAcceptance?
       if accept {
-        try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
+        acceptance = try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
       } else {
         try await app.dependencies.invitations.declineInvitation(id: invitation.id)
       }
       app.showNotice(accept ? "Convite aceito." : "Convite recusado.")
       await load()
       await onMutation()
+      if acceptance?.mfaSetupRequired == true {
+        dismiss()
+        app.selectedTab = .account
+        app.showNotice(
+          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
+          kind: .warning
+        )
+      }
     } catch {
       // This whole list is presented as a sheet, and the global banner renders behind it — a
       // failure reported there would read as the button doing nothing at all.

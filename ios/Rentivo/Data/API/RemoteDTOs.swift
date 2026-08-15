@@ -45,6 +45,14 @@ struct RemotePendingInvitation: Decodable {
     case organizationName = "organization_name"
   }
 }
+struct RemoteInvitationAcceptance: Decodable {
+  let organizationUUID: String
+  let mfaSetupRequired: Bool
+  enum CodingKeys: String, CodingKey {
+    case organizationUUID = "organization_uuid"
+    case mfaSetupRequired = "mfa_setup_required"
+  }
+}
 struct RemoteSecuritySummary: Decodable {
   let profile: RemoteProfile
   let totp: RemoteTOTPStatus

@@ -59,6 +59,7 @@ import app.rentivo.domain.ExpenseCategory
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
 import app.rentivo.domain.MFAChallenge
@@ -637,8 +638,15 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     }
   }
 
-  override suspend fun acceptInvitation(id: InvitationID) {
-    execute(path = "/api/v1/invites/${id.rawValue}/accept", method = "POST")
+  override suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance {
+    val response = decode<RemoteInvitationAcceptance>(
+      path = "/api/v1/invites/${id.rawValue}/accept",
+      method = "POST",
+    )
+    return InvitationAcceptance(
+      organizationID = OrganizationID(rawValue = response.organizationUUID),
+      mfaSetupRequired = response.mfaSetupRequired,
+    )
   }
 
   override suspend fun declineInvitation(id: InvitationID) {

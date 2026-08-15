@@ -159,7 +159,8 @@ public protocol OrganizationRepository: AnyObject {
 @MainActor
 public protocol InvitationRepository: AnyObject {
   func listPendingInvitations() async throws -> [Invitation]
-  func acceptInvitation(id: InvitationID) async throws
+  @discardableResult
+  func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance
   func declineInvitation(id: InvitationID) async throws
 }
 

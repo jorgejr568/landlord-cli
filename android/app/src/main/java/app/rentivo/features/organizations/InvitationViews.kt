@@ -47,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
+import app.rentivo.app.AppTab
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MutationGate
@@ -113,13 +114,24 @@ fun InvitationListView(
 
   suspend fun respond(invitation: Invitation, accept: Boolean) {
     try {
+      var requiresMFASetup = false
       if (accept) {
-        app.dependencies.invitations.acceptInvitation(id = invitation.id)
+        requiresMFASetup = app.dependencies.invitations
+          .acceptInvitation(id = invitation.id).mfaSetupRequired
       } else {
         app.dependencies.invitations.declineInvitation(id = invitation.id)
       }
       load()
       onMutation()
+      if (requiresMFASetup) {
+        onDismiss()
+        app.selectedTab = AppTab.ACCOUNT
+        app.showNotice(
+          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
+          AppNotice.Kind.WARNING,
+        )
+        return
+      }
       app.showNotice(if (accept) "Convite aceito." else "Convite recusado.")
     } catch (cancellation: CancellationException) {
       throw cancellation

@@ -25,6 +25,7 @@ import app.rentivo.domain.ExpenseCategory
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MobileLoginOutcome
@@ -253,7 +254,7 @@ interface OrganizationRepository {
 interface InvitationRepository {
   suspend fun listPendingInvitations(): List<Invitation>
 
-  suspend fun acceptInvitation(id: InvitationID)
+  suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance
 
   suspend fun declineInvitation(id: InvitationID)
 }

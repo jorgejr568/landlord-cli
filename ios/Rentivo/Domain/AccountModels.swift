@@ -229,6 +229,16 @@ public struct Invitation: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+public struct InvitationAcceptance: Hashable, Sendable {
+  public let organizationID: OrganizationID
+  public let mfaSetupRequired: Bool
+
+  public init(organizationID: OrganizationID, mfaSetupRequired: Bool) {
+    self.organizationID = organizationID
+    self.mfaSetupRequired = mfaSetupRequired
+  }
+}
+
 public struct Passkey: Identifiable, Hashable, Codable, Sendable {
   public let id: PasskeyID
   public var name: String
