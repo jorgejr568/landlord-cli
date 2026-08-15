@@ -223,6 +223,10 @@ public struct ProfilePIXForm: Equatable, Sendable {
   public var configuration: PixConfiguration {
     PixConfiguration(key: key, merchantName: merchantName, merchantCity: merchantCity)
   }
+
+  public var isSavable: Bool {
+    configuration.isEmpty || configuration.isComplete
+  }
 }
 
 public enum ActivityKind: String, Codable, Sendable {

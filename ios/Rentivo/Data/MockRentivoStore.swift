@@ -115,7 +115,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
     try await prepareOperation()
     guard !viewerMode else { throw DemoError.permissionDenied }
-    snapshot.profile.pix = pix
+    snapshot.profile.pix = pix.isEmpty ? nil : pix
     recordActivity(kind: .billing, title: "PIX atualizado", detail: pix.key)
     return snapshot.profile
   }

@@ -186,7 +186,7 @@ struct ProfilePixView: View {
       if !isDemoViewerLocked {
         Button("Salvar") { Task { await save() } }
           .disabled(
-            !form.configuration.isComplete
+            !form.isSavable
           )
           .accessibilityIdentifier("profile.pix.save")
       }

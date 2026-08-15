@@ -215,6 +215,9 @@ data class ProfilePIXForm(
   val configuration: PixConfiguration
     get() = PixConfiguration(key = key, merchantName = merchantName, merchantCity = merchantCity)
 
+  val isSavable: Boolean
+    get() = configuration.isEmpty || configuration.isComplete
+
   companion object {
     fun from(profile: UserProfile? = null): ProfilePIXForm = ProfilePIXForm(
       key = profile?.pix?.key ?: "",

@@ -17,6 +17,7 @@ import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.RecipientID
 import app.rentivo.domain.StableID
 import app.rentivo.domain.ThemeSource
@@ -507,6 +508,16 @@ class MockRentivoStoreTest {
     assertTrue(created.secret.startsWith("rntv-v1-"))
     assertTrue(metadata.any { it.id == created.metadata.id })
     assertFalse(metadata.toString().contains(created.secret))
+  }
+
+  @Test
+  fun clearingProfilePIXRemovesTheConfiguration() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val profile = store.updatePix(PixConfiguration(key = "", merchantName = "", merchantCity = ""))
+
+    assertNull(profile.pix)
+    assertNull(store.profile().pix)
   }
 
   @Test

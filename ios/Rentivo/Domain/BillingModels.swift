@@ -74,6 +74,12 @@ public struct PixConfiguration: Hashable, Codable, Sendable {
       && !merchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && !merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
+
+  public var isEmpty: Bool {
+    key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && merchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 }
 
 public struct BillingRecipient: Identifiable, Hashable, Codable, Sendable {

@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private class SampleLocalizedError(
@@ -169,6 +170,19 @@ class ModelsTest {
     val seeded = ProfilePIXForm.from(UserProfile(id = 1, email = "ana@rentivo.com.br", pix = pix))
     assertEquals(pix, seeded.configuration)
     assertNotNull(seeded.configuration)
+  }
+
+  @Test
+  fun profilePixFormAllowsClearingOrSavingACompleteConfiguration() {
+    val form = ProfilePIXForm.from()
+    assertTrue(form.isSavable)
+
+    form.key = "ana@example.com"
+    assertFalse(form.isSavable)
+    form.merchantName = "ANA"
+    assertFalse(form.isSavable)
+    form.merchantCity = "RECIFE"
+    assertTrue(form.isSavable)
   }
 
   @Test

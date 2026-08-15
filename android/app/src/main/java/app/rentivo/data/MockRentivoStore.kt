@@ -248,7 +248,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun updatePix(pix: PixConfiguration): UserProfile {
     prepareOperation()
     if (viewerModeEnabled) throw DemoError.permissionDenied
-    profileState = profileState.copy(pix = pix)
+    profileState = profileState.copy(pix = pix.takeUnless { it.isEmpty })
     recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = pix.key)
     return profileState
   }

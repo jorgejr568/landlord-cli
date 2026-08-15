@@ -69,6 +69,11 @@ data class PixConfiguration(
     get() = key.trim().isNotEmpty() &&
       merchantName.trim().isNotEmpty() &&
       merchantCity.trim().isNotEmpty()
+
+  val isEmpty: Boolean
+    get() = key.trim().isEmpty() &&
+      merchantName.trim().isEmpty() &&
+      merchantCity.trim().isEmpty()
 }
 
 data class BillingRecipient(

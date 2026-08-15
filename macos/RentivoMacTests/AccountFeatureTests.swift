@@ -27,15 +27,19 @@ struct AccountProfilePIXTests {
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
-  @Test("a partially filled PIX form is incomplete, so Salvar stays disabled")
-  func partiallyFilledPIXFormIsIncomplete() {
+  @Test("an empty or complete PIX form is savable, but a partial one is not")
+  func pixFormSavabilityMatchesTheServerContract() {
     var form = ProfilePIXForm()
+    #expect(form.isSavable)
     #expect(form.configuration.isComplete == false)
     form.key = "jorge@example.com"
+    #expect(form.isSavable == false)
     #expect(form.configuration.isComplete == false)
     form.merchantName = "JORGE JUNIOR"
+    #expect(form.isSavable == false)
     #expect(form.configuration.isComplete == false)
     form.merchantCity = "SALVADOR"
+    #expect(form.isSavable)
     #expect(form.configuration.isComplete)
   }
 

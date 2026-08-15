@@ -220,7 +220,7 @@ struct ProfilePixView: View {
               Text("Salvar")
             }
           }
-          .disabled(!hasLoaded || isSaving || !form.configuration.isComplete)
+          .disabled(!hasLoaded || isSaving || !form.isSavable)
           .accessibilityIdentifier("profile.pix.save")
         }
       }

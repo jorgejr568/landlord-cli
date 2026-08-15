@@ -475,6 +475,17 @@ import Testing
   #expect(!String(describing: metadata).contains(created.secret))
 }
 
+@Test @MainActor func clearingProfilePIXRemovesTheConfiguration() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let profile = try await store.updatePix(
+    PixConfiguration(key: "", merchantName: "", merchantCity: "")
+  )
+
+  #expect(profile.pix == nil)
+  #expect(try await store.profile().pix == nil)
+}
+
 @Test @MainActor func revokedAPIKeyRemainsInHistoryAndCannotBeRevokedAgain() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let key = try #require(try await store.listAPIKeys().first)

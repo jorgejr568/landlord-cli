@@ -368,7 +368,7 @@ fun ProfilePixView(onBack: () -> Unit) {
                 }
               }
             },
-            enabled = form.configuration.isComplete,
+            enabled = form.isSavable,
             modifier = Modifier.testTag("profile.pix.save"),
           ) {
             Text(text = "Salvar", color = RentivoColors.emerald)
