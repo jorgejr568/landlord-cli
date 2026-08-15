@@ -92,7 +92,14 @@ data class OrganizationDraft(
   val name: String,
   val pix: PixConfiguration?,
 ) {
-  val isValid: Boolean get() = nameValidationMessage(name) == null
+  val isValid: Boolean
+    get() = nameValidationMessage(name) == null && pix?.let {
+      pixValidationMessage(
+        key = it.key,
+        merchantName = it.merchantName,
+        city = it.merchantCity,
+      ) == null
+    } != false
 
   companion object {
     const val nameLimit: Int = 255
@@ -103,6 +110,22 @@ data class OrganizationDraft(
         normalized.isEmpty() -> "Informe o nome da organização."
         normalized.codePointCount(0, normalized.length) > nameLimit ->
           "O nome da organização deve ter até 255 caracteres."
+        else -> null
+      }
+    }
+
+    fun pixValidationMessage(key: String, merchantName: String, city: String): String? {
+      val normalizedKey = key.trim()
+      val normalizedName = merchantName.trim()
+      val normalizedCity = city.trim()
+      return when {
+        normalizedKey.isEmpty() -> null
+        normalizedName.isEmpty() || normalizedCity.isEmpty() ->
+          "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+        normalizedName.codePointCount(0, normalizedName.length) > 25 ->
+          "O nome do recebedor deve ter até 25 caracteres."
+        normalizedCity.codePointCount(0, normalizedCity.length) > 15 ->
+          "A cidade do recebedor deve ter até 15 caracteres."
         else -> null
       }
     }

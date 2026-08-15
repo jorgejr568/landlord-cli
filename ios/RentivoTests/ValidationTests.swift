@@ -330,3 +330,31 @@ import Testing
   #expect(OrganizationDraft(name: String(repeating: "😀", count: 256), pix: nil).isValid == false)
   #expect(OrganizationDraft.nameLimit == 255)
 }
+
+@Test func organizationPIXFieldsMirrorTheServerCharacterLimits() {
+  let combiningCharacter = "e\u{301}"
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: String(repeating: "😀", count: 25), city: String(repeating: "😀", count: 15)
+    ) == nil
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: String(repeating: combiningCharacter, count: 13), city: "RECIFE"
+    ) == "O nome do recebedor deve ter até 25 caracteres."
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: "ANA", city: String(repeating: combiningCharacter, count: 8)
+    ) == "A cidade do recebedor deve ter até 15 caracteres."
+  )
+  #expect(
+    OrganizationDraft(
+      name: "Imobiliária",
+      pix: PixConfiguration(
+        key: "pix", merchantName: String(repeating: combiningCharacter, count: 13),
+        merchantCity: "RECIFE"
+      )
+    ).isValid == false
+  )
+}

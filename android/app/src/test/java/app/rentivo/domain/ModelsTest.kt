@@ -294,6 +294,44 @@ class ModelsTest {
   }
 
   @Test
+  fun organizationPIXFieldsMirrorTheServerCharacterLimits() {
+    val combiningCharacter = "e\u0301"
+    assertNull(
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = "😀".repeat(25),
+        city = "😀".repeat(15),
+      ),
+    )
+    assertEquals(
+      "O nome do recebedor deve ter até 25 caracteres.",
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = combiningCharacter.repeat(13),
+        city = "RECIFE",
+      ),
+    )
+    assertEquals(
+      "A cidade do recebedor deve ter até 15 caracteres.",
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = "ANA",
+        city = combiningCharacter.repeat(8),
+      ),
+    )
+    assertFalse(
+      OrganizationDraft(
+        name = "Imobiliária",
+        pix = PixConfiguration(
+          key = "pix",
+          merchantName = combiningCharacter.repeat(13),
+          merchantCity = "RECIFE",
+        ),
+      ).isValid,
+    )
+  }
+
+  @Test
   fun organizationInviteEmailsMirrorTheServerContract() {
     assertEquals("ana@example.com", OrganizationInviteEmail.normalized("  ANA@EXAMPLE.COM\n"))
     assertTrue(OrganizationInviteEmail.isValid("a@b"))

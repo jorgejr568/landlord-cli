@@ -263,17 +263,9 @@ struct OrganizationFormView: View {
     // limits (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city`
     // maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
     // 422 on data the form already accepted.
-    if trimmedKey.isEmpty {
-      pixValidationMessage = nil
-    } else if trimmedMerchantName.isEmpty || trimmedCity.isEmpty {
-      pixValidationMessage = "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-    } else if trimmedMerchantName.count > 25 {
-      pixValidationMessage = "O nome do recebedor deve ter até 25 caracteres."
-    } else if trimmedCity.count > 15 {
-      pixValidationMessage = "A cidade do recebedor deve ter até 15 caracteres."
-    } else {
-      pixValidationMessage = nil
-    }
+    pixValidationMessage = OrganizationDraft.pixValidationMessage(
+      key: trimmedKey, merchantName: trimmedMerchantName, city: trimmedCity
+    )
     guard pixValidationMessage == nil else { return }
     let pix: PixConfiguration? =
       trimmedKey.isEmpty

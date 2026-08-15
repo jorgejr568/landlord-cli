@@ -408,15 +408,11 @@ fun OrganizationFormView(
     // (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city` maxLength 15)
     // so the follow-up PATCH in `createOrganization`/`updateOrganization` can't 422 on data the form
     // already accepted.
-    pixValidationMessage = when {
-      trimmedKey.isEmpty() -> null
-      trimmedMerchantName.isEmpty() || trimmedCity.isEmpty() ->
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-
-      trimmedMerchantName.length > 25 -> "O nome do recebedor deve ter até 25 caracteres."
-      trimmedCity.length > 15 -> "A cidade do recebedor deve ter até 15 caracteres."
-      else -> null
-    }
+    pixValidationMessage = OrganizationDraft.pixValidationMessage(
+      key = trimmedKey,
+      merchantName = trimmedMerchantName,
+      city = trimmedCity,
+    )
     if (pixValidationMessage != null) return
     val pix = if (trimmedKey.isEmpty()) {
       null

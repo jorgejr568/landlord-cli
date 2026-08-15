@@ -16,19 +16,9 @@ enum OrganizationFormValidation {
   /// maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
   /// 422 on data the form already accepted. Returns `nil` when the section is valid.
   static func pixMessage(key: String, merchantName: String, city: String) -> String? {
-    if key.isEmpty {
-      return nil
-    }
-    if merchantName.isEmpty || city.isEmpty {
-      return "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-    }
-    if merchantName.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
-    }
-    if city.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
-    }
-    return nil
+    OrganizationDraft.pixValidationMessage(
+      key: key, merchantName: merchantName, city: city
+    )
   }
 }
 

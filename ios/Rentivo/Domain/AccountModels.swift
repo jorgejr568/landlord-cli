@@ -126,6 +126,11 @@ public struct OrganizationDraft: Hashable, Sendable {
 
   public var isValid: Bool {
     Self.nameValidationMessage(name) == nil
+      && pix.map {
+        Self.pixValidationMessage(
+          key: $0.key, merchantName: $0.merchantName, city: $0.merchantCity
+        ) == nil
+      } ?? true
   }
 
   public static func nameValidationMessage(_ name: String) -> String? {
@@ -133,6 +138,25 @@ public struct OrganizationDraft: Hashable, Sendable {
     if normalized.isEmpty { return "Informe o nome da organização." }
     if normalized.unicodeScalars.count > nameLimit {
       return "O nome da organização deve ter até 255 caracteres."
+    }
+    return nil
+  }
+
+  public static func pixValidationMessage(
+    key: String, merchantName: String, city: String
+  ) -> String? {
+    let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedKey.isEmpty { return nil }
+    if normalizedName.isEmpty || normalizedCity.isEmpty {
+      return "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+    }
+    if normalizedName.unicodeScalars.count > 25 {
+      return "O nome do recebedor deve ter até 25 caracteres."
+    }
+    if normalizedCity.unicodeScalars.count > 15 {
+      return "A cidade do recebedor deve ter até 15 caracteres."
     }
     return nil
   }

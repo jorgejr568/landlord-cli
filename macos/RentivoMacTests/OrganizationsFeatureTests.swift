@@ -41,6 +41,19 @@ struct OrganizationFormValidationTests {
         key: "chave", merchantName: "ANA", city: String(repeating: "B", count: 16)
       ) == "A cidade do recebedor deve ter até 15 caracteres."
     )
+    let combiningCharacter = "e\u{301}"
+    #expect(
+      OrganizationFormValidation.pixMessage(
+        key: "chave", merchantName: String(repeating: "😀", count: 25),
+        city: String(repeating: "😀", count: 15)
+      ) == nil
+    )
+    #expect(
+      OrganizationFormValidation.pixMessage(
+        key: "chave", merchantName: String(repeating: combiningCharacter, count: 13),
+        city: "SALVADOR"
+      ) == "O nome do recebedor deve ter até 25 caracteres."
+    )
   }
 }
 
