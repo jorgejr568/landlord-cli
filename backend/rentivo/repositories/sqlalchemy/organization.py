@@ -41,23 +41,60 @@ class SQLAlchemyOrganizationRepository(OrganizationRepository):
             created_at=row["created_at"],
         )
 
-    @traced("organization_repo.create")
-    def create(self, org: Organization) -> Organization:
-        org_uuid = str(ULID())
-        now = _now()
+    def _insert(self, org: Organization) -> int:
         result = self.conn.execute(
             text(
-                "INSERT INTO organizations (uuid, name, created_by, created_at, updated_at) "
-                "VALUES (:uuid, :name, :created_by, :created_at, :updated_at)"
+                "INSERT INTO organizations "
+                "(uuid, name, created_by, pix_key, pix_merchant_name, pix_merchant_city, created_at, updated_at) "
+                "VALUES (:uuid, :name, :created_by, :pix_key, :pix_merchant_name, :pix_merchant_city, "
+                ":created_at, :updated_at)"
             ),
-            {"uuid": org_uuid, "name": org.name, "created_by": org.created_by, "created_at": now, "updated_at": now},
+            {
+                "uuid": str(ULID()),
+                "name": org.name,
+                "created_by": org.created_by,
+                "pix_key": self.encryption.encrypt(org.pix_key),
+                "pix_merchant_name": self.encryption.encrypt(org.pix_merchant_name),
+                "pix_merchant_city": self.encryption.encrypt(org.pix_merchant_city),
+                "created_at": _now(),
+                "updated_at": _now(),
+            },
         )
-        org_id = result.lastrowid
-        self.conn.commit()
+        return result.lastrowid
+
+    def _created(self, org_id: int) -> Organization:
         created = self.get_by_id(org_id)
         if created is None:
             raise RuntimeError(f"Failed to retrieve org after create (id={org_id})")
         return created
+
+    @traced("organization_repo.create")
+    def create(self, org: Organization) -> Organization:
+        org_id = self._insert(org)
+        self.conn.commit()
+        return self._created(org_id)
+
+    @traced("organization_repo.create_with_admin")
+    def create_with_admin(self, org: Organization) -> Organization:
+        try:
+            org_id = self._insert(org)
+            self.conn.execute(
+                text(
+                    "INSERT INTO organization_members (organization_id, user_id, role, created_at) "
+                    "VALUES (:org_id, :user_id, :role, :created_at)"
+                ),
+                {
+                    "org_id": org_id,
+                    "user_id": org.created_by,
+                    "role": "admin",
+                    "created_at": _now(),
+                },
+            )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return self._created(org_id)
 
     @traced("organization_repo.get_by_id")
     def get_by_id(self, org_id: int) -> Organization | None:

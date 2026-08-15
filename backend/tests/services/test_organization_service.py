@@ -12,14 +12,14 @@ class TestOrganizationService:
         self.service = OrganizationService(self.mock_repo)
 
     def test_create_organization(self):
-        self.mock_repo.create.return_value = Organization(id=1, name="Test Org", created_by=5)
+        self.mock_repo.create_with_admin.return_value = Organization(id=1, name="Test Org", created_by=5)
         org = self.service.create_organization("Test Org", 5)
-        self.mock_repo.create.assert_called_once()
-        self.mock_repo.add_member.assert_called_once_with(1, 5, "admin")
+        self.mock_repo.create_with_admin.assert_called_once()
+        self.mock_repo.add_member.assert_not_called()
         assert org.name == "Test Org"
 
     def test_create_organization_validates_and_persists_pix_before_the_insert(self):
-        self.mock_repo.create.side_effect = lambda org: org.model_copy(update={"id": 1})
+        self.mock_repo.create_with_admin.side_effect = lambda org: org.model_copy(update={"id": 1})
 
         org = self.service.create_organization(
             "Test Org",
@@ -29,7 +29,7 @@ class TestOrganizationService:
             pix_merchant_city="  Recife  ",
         )
 
-        persisted = self.mock_repo.create.call_args.args[0]
+        persisted = self.mock_repo.create_with_admin.call_args.args[0]
         assert persisted.pix_key == "owner@example.com"
         assert persisted.pix_merchant_name == "Teste"
         assert persisted.pix_merchant_city == "Recife"
@@ -39,7 +39,7 @@ class TestOrganizationService:
         with pytest.raises(ValueError):
             self.service.create_organization("Test Org", 5, pix_key="invalid pix")
 
-        self.mock_repo.create.assert_not_called()
+        self.mock_repo.create_with_admin.assert_not_called()
 
     def test_get_by_id(self):
         self.mock_repo.get_by_id.return_value = Organization(id=1, name="Test Org")

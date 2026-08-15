@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import structlog
 
-from rentivo.models.organization import Organization, OrganizationMember, OrgRole
+from rentivo.models.organization import Organization, OrganizationMember
 from rentivo.observability import traced
 from rentivo.pix import validate_pix_key
 from rentivo.repositories.base import OrganizationRepository
@@ -31,8 +31,7 @@ class OrganizationService:
             pix_merchant_name=pix_merchant_name.strip(),
             pix_merchant_city=pix_merchant_city.strip(),
         )
-        created = self.repo.create(org)
-        self.repo.add_member(created.id, created_by, OrgRole.ADMIN.value)
+        created = self.repo.create_with_admin(org)
         logger.info(
             "organization_created",
             org_id=created.id,

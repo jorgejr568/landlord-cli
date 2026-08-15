@@ -19,6 +19,64 @@ class TestOrganizationRepoCRUD:
         assert org.name == "Test Org"
         assert org.created_by == user.id
 
+    def test_create_persists_encrypted_pix_settings(self, org_repo, user_repo):
+        user = _create_user(user_repo)
+
+        org = org_repo.create(
+            Organization(
+                name="Test Org",
+                created_by=user.id,
+                pix_key="owner@example.com",
+                pix_merchant_name="Test Org",
+                pix_merchant_city="Recife",
+            )
+        )
+
+        assert org.pix_key == "owner@example.com"
+        assert org.pix_merchant_name == "Test Org"
+        assert org.pix_merchant_city == "Recife"
+
+    def test_create_with_admin_rolls_back_the_organization_when_membership_fails(
+        self, org_repo, user_repo, db_connection
+    ):
+        from sqlalchemy import text
+
+        user = _create_user(user_repo)
+        original_execute = db_connection.execute
+
+        def fail_membership(statement, parameters=None, *args, **kwargs):
+            if "INSERT INTO organization_members" in str(statement):
+                raise RuntimeError("membership insert failed")
+            return original_execute(statement, parameters, *args, **kwargs)
+
+        with patch.object(db_connection, "execute", side_effect=fail_membership):
+            with pytest.raises(RuntimeError, match="membership insert failed"):
+                org_repo.create_with_admin(Organization(name="Orphan", created_by=user.id))
+
+        count = original_execute(
+            text("SELECT COUNT(*) FROM organizations WHERE name = :name"),
+            {"name": "Orphan"},
+        ).scalar_one()
+        assert count == 0
+
+    def test_create_with_admin_persists_the_aggregate_before_returning(self, org_repo, user_repo):
+        user = _create_user(user_repo)
+
+        org = org_repo.create_with_admin(
+            Organization(
+                name="Atomic Org",
+                created_by=user.id,
+                pix_key="atomic@example.com",
+                pix_merchant_name="Atomic Org",
+                pix_merchant_city="Recife",
+            )
+        )
+
+        member = org_repo.get_member(org.id, user.id)
+        assert member is not None
+        assert member.role == "admin"
+        assert org.pix_key == "atomic@example.com"
+
     def test_get_by_id(self, org_repo, user_repo):
         user = _create_user(user_repo)
         created = org_repo.create(Organization(name="Test Org", created_by=user.id))
