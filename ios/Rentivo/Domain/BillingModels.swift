@@ -275,8 +275,20 @@ public struct BillingDraft: Hashable, Sendable {
 
   public func validate() -> [ValidationIssue] {
     var issues: [ValidationIssue] = []
-    if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedName.isEmpty {
       issues.append(ValidationIssue(field: .name, message: "Informe o nome da cobrança."))
+    } else if normalizedName.unicodeScalars.count > 255 {
+      issues.append(
+        ValidationIssue(field: .name, message: "O nome deve ter no máximo 255 caracteres.")
+      )
+    }
+    if description.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 2_000 {
+      issues.append(
+        ValidationIssue(
+          field: .description, message: "A descrição deve ter no máximo 2000 caracteres."
+        )
+      )
     }
     if items.isEmpty {
       issues.append(
@@ -288,6 +300,15 @@ public struct BillingDraft: Hashable, Sendable {
     }) {
       issues.append(
         ValidationIssue(field: .itemDescription, message: "Descreva todos os itens.")
+      )
+    } else if items.contains(where: {
+      $0.description.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255
+    }) {
+      issues.append(
+        ValidationIssue(
+          field: .itemDescription,
+          message: "Descreva todos os itens em até 255 caracteres."
+        )
       )
     }
     if items.contains(where: { $0.amount.centavos < 0 }) {
@@ -303,8 +324,21 @@ public struct BillingDraft: Hashable, Sendable {
         )
       )
     }
+    if let pixOverride,
+      (pixOverride.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count
+        > 25
+        || pixOverride.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
+          .count > 15)
+    {
+      issues.append(
+        ValidationIssue(
+          field: .pix, message: "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade."
+        )
+      )
+    }
     if recipients.contains(where: {
-      $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      let normalizedName = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      return normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255
         || !EmailAddress.isValid($0.email.trimmingCharacters(in: .whitespacesAndNewlines))
     }) {
       issues.append(
@@ -325,16 +359,24 @@ public struct BillingDraft: Hashable, Sendable {
         )
       }
     }
+    if let replyTo, !EmailAddress.isValid(replyTo) {
+      issues.append(
+        ValidationIssue(field: .replyTo, message: "Informe um e-mail válido para resposta.")
+      )
+    }
     return issues
   }
 }
 
 public enum ValidationField: Hashable, Sendable {
   case name
+  case description
   case items
   case itemDescription
   case itemAmount
+  case pix
   case recipient
+  case replyTo
 }
 
 public struct ValidationIssue: Hashable, Sendable {
@@ -645,6 +687,13 @@ public struct BillDraft: Hashable, Sendable {
     }) {
       issues.append(
         ValidationIssue(field: .itemDescription, message: "Descreva todos os itens da fatura.")
+      )
+    } else if lineItems.contains(where: { $0.description.unicodeScalars.count > 255 }) {
+      issues.append(
+        ValidationIssue(
+          field: .itemDescription,
+          message: "Descreva todos os itens da fatura em até 255 caracteres."
+        )
       )
     }
     if lineItems.contains(where: { $0.kind != .extra && $0.amount.centavos < 0 }) {

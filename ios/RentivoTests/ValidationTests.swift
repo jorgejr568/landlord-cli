@@ -142,6 +142,36 @@ import Testing
   #expect(draft.validate().map(\.field) == [.recipient])
 }
 
+@Test func billingDraftMirrorsEveryServerTextLimit() {
+  let draft = BillingDraft(
+    name: String(repeating: "n", count: 256),
+    description: String(repeating: "d", count: 2_001),
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: String(repeating: "i", count: 256), amount: .zero,
+        type: .fixed, sortOrder: 0
+      )
+    ],
+    pixOverride: PixConfiguration(
+      key: "pix", merchantName: String(repeating: "m", count: 26),
+      merchantCity: String(repeating: "c", count: 16)
+    ),
+    recipients: [
+      BillingRecipient(
+        id: RecipientID(rawValue: "r1"), name: String(repeating: "r", count: 256),
+        email: "ana@example.com"
+      )
+    ],
+    replyTo: "resposta-invalida"
+  )
+
+  #expect(
+    draft.validate().map(\.field)
+      == [.name, .description, .itemDescription, .pix, .recipient, .replyTo]
+  )
+}
+
 @Test func emailValidationAcceptsAddressesTheServerAccepts() {
   #expect(EmailAddress.isValid("ana@example.com"))
   #expect(EmailAddress.isValid("ana+cobranca@sub.example.com.br"))
@@ -177,6 +207,23 @@ import Testing
   )
 
   #expect(draft.validate().map(\.field) == [.itemDescription, .itemAmount])
+}
+
+@Test func invoiceDraftRejectsDescriptionsBeyondTheServerLimit() {
+  let draft = BillDraft(
+    billingID: StableID.billingAurora101,
+    referenceMonth: ReferenceMonth(year: 2026, month: 8),
+    dueDate: nil,
+    notes: "",
+    lineItems: [
+      BillLineItem(
+        id: UUID(), description: String(repeating: "i", count: 256), amount: .zero,
+        kind: .fixed
+      )
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemDescription])
 }
 
 @Test func invoiceDraftAllowsZeroAmountForFixedAndVariableLineItems() {

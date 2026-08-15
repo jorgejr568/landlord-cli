@@ -179,14 +179,34 @@ data class BillingDraft(
 ) {
   fun validate(): List<ValidationIssue> {
     val issues = mutableListOf<ValidationIssue>()
-    if (name.trim().isEmpty()) {
+    val normalizedName = name.trim()
+    if (normalizedName.isEmpty()) {
       issues.add(ValidationIssue(ValidationField.NAME, "Informe o nome da cobrança."))
+    } else if (normalizedName.apiCharacterCount() > 255) {
+      issues.add(
+        ValidationIssue(ValidationField.NAME, "O nome deve ter no máximo 255 caracteres.")
+      )
+    }
+    if (description.trim().apiCharacterCount() > 2_000) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.DESCRIPTION,
+          "A descrição deve ter no máximo 2000 caracteres.",
+        )
+      )
     }
     if (items.isEmpty()) {
       issues.add(ValidationIssue(ValidationField.ITEMS, "Adicione ao menos um item recorrente."))
     }
     if (items.any { it.description.trim().isEmpty() }) {
       issues.add(ValidationIssue(ValidationField.ITEM_DESCRIPTION, "Descreva todos os itens."))
+    } else if (items.any { it.description.trim().apiCharacterCount() > 255 }) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_DESCRIPTION,
+          "Descreva todos os itens em até 255 caracteres.",
+        )
+      )
     }
     if (items.any { it.amount.centavos < 0 }) {
       issues.add(
@@ -202,7 +222,25 @@ data class BillingDraft(
       )
     }
     if (
-      recipients.any { it.name.trim().isEmpty() || !EmailAddress.isValid(it.email.trim()) }
+      pixOverride != null &&
+      (
+        pixOverride.merchantName.trim().apiCharacterCount() > 25 ||
+          pixOverride.merchantCity.trim().apiCharacterCount() > 15
+        )
+    ) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.PIX,
+          "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade.",
+        )
+      )
+    }
+    if (
+      recipients.any {
+        val recipientName = it.name.trim()
+        recipientName.isEmpty() || recipientName.apiCharacterCount() > 255 ||
+          !EmailAddress.isValid(it.email.trim())
+      }
     ) {
       issues.add(
         ValidationIssue(
@@ -220,6 +258,11 @@ data class BillingDraft(
         )
       }
     }
+    if (replyTo != null && !EmailAddress.isValid(replyTo)) {
+      issues.add(
+        ValidationIssue(ValidationField.REPLY_TO, "Informe um e-mail válido para resposta.")
+      )
+    }
     return issues
   }
 
@@ -235,11 +278,16 @@ data class BillingDraft(
 
 enum class ValidationField {
   NAME,
+  DESCRIPTION,
   ITEMS,
   ITEM_DESCRIPTION,
   ITEM_AMOUNT,
+  PIX,
   RECIPIENT,
+  REPLY_TO,
 }
+
+private fun String.apiCharacterCount(): Int = codePointCount(0, length)
 
 data class ValidationIssue(
   val field: ValidationField,
@@ -472,6 +520,13 @@ data class BillDraft(
     if (lineItems.any { it.description.trim().isEmpty() }) {
       issues.add(
         ValidationIssue(ValidationField.ITEM_DESCRIPTION, "Descreva todos os itens da fatura.")
+      )
+    } else if (lineItems.any { it.description.apiCharacterCount() > 255 }) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_DESCRIPTION,
+          "Descreva todos os itens da fatura em até 255 caracteres.",
+        )
       )
     }
     if (lineItems.any { it.kind != BillLineItemKind.EXTRA && it.amount.centavos < 0 }) {

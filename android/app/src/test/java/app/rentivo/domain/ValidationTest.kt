@@ -182,6 +182,42 @@ class ValidationTest {
   }
 
   @Test
+  fun billingDraftMirrorsEveryServerTextLimit() {
+    val draft = BillingDraft(
+      name = "n".repeat(256),
+      description = "d".repeat(2_001),
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "i".repeat(256), amount = Money.zero,
+          type = BillingItemType.FIXED, sortOrder = 0,
+        )
+      ),
+      pixOverride = PixConfiguration(
+        key = "pix", merchantName = "m".repeat(26), merchantCity = "c".repeat(16),
+      ),
+      recipients = listOf(
+        BillingRecipient(
+          id = RecipientID("r1"), name = "r".repeat(256), email = "ana@example.com",
+        )
+      ),
+      replyTo = "resposta-invalida",
+    )
+
+    assertEquals(
+      listOf(
+        ValidationField.NAME,
+        ValidationField.DESCRIPTION,
+        ValidationField.ITEM_DESCRIPTION,
+        ValidationField.PIX,
+        ValidationField.RECIPIENT,
+        ValidationField.REPLY_TO,
+      ),
+      draft.validate().map { it.field },
+    )
+  }
+
+  @Test
   fun emailValidationAcceptsAddressesTheServerAccepts() {
     assertTrue(EmailAddress.isValid("ana@example.com"))
     assertTrue(EmailAddress.isValid("ana+cobranca@sub.example.com.br"))
@@ -224,6 +260,23 @@ class ValidationTest {
       listOf("Descreva todos os itens da fatura.", "Os valores não podem ser negativos."),
       draft.validate().map { it.message },
     )
+  }
+
+  @Test
+  fun invoiceDraftRejectsDescriptionsBeyondTheServerLimit() {
+    val draft = BillDraft(
+      billingID = StableID.billingAurora101,
+      referenceMonth = ReferenceMonth(year = 2026, month = 8),
+      dueDate = null,
+      notes = "",
+      lineItems = listOf(
+        BillLineItem.generated(
+          description = "i".repeat(256), amount = Money.zero, kind = BillLineItemKind.FIXED,
+        )
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_DESCRIPTION), draft.validate().map { it.field })
   }
 
   @Test
