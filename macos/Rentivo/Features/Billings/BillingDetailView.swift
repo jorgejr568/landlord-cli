@@ -116,7 +116,9 @@ struct BillingDetailView: View {
           .font(RentivoTypography.bodyStrong)
         HStack {
           Label(
-            billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado",
+            billing.pixNeedsSetup
+              ? "PIX pendente"
+              : (billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado"),
             systemImage: "qrcode"
           )
           Spacer()
@@ -195,6 +197,11 @@ struct BillingDetailView: View {
           .buttonStyle(.plain)
           .accessibilityLabel("Gerar fatura")
           .accessibilityIdentifier("bill.create")
+          .disabled(!data.billing.canGenerateBills)
+          .help(
+            data.billing.canGenerateBills
+              ? "Gerar fatura" : "Configure a chave PIX, o nome e a cidade do recebedor primeiro."
+          )
         }
       }
       if data.bills.isEmpty {

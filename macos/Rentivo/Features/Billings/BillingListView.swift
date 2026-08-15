@@ -201,10 +201,12 @@ private struct BillingPortfolioCard: View {
   }
 
   private var pixLabel: String {
-    item.billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado"
+    if item.billing.pixNeedsSetup { return "PIX pendente" }
+    return item.billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado"
   }
 
   private var pixSymbol: String {
-    item.billing.pixOverride?.isComplete == true ? "qrcode" : "arrow.triangle.branch"
+    if item.billing.pixNeedsSetup { return "exclamationmark.triangle.fill" }
+    return item.billing.pixOverride?.isComplete == true ? "qrcode" : "arrow.triangle.branch"
   }
 }

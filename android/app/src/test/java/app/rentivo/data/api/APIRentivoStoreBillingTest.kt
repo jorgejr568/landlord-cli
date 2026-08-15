@@ -73,7 +73,8 @@ class APIRentivoStoreBillingTest {
         """{"uuid":"billing-1","name":"Apartamento","description":"Aluguel",""" +
           """"owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1",""" +
           """"description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"",""" +
-          """"pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],""" +
+          """"pix_merchant_name":"","pix_merchant_city":"","pix_needs_setup":true,""" +
+          """"recipients":[],"reply_to":[],""" +
           """"communication_templates":[{"comm_type":"bill_ready",""" +
           """"subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},""" +
           """{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}",""" +
@@ -193,6 +194,8 @@ class APIRentivoStoreBillingTest {
     val billing = store.billing(BillingID(rawValue = "billing-1"))
 
     assertNull(billing.pixOverride)
+    assertTrue(billing.pixNeedsSetup)
+    assertFalse(billing.canGenerateBills)
     assertEquals(BillingOwner.User(id = 7, name = "Ana"), billing.owner)
   }
 

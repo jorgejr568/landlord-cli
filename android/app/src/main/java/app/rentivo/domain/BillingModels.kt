@@ -155,6 +155,7 @@ data class Billing(
   val owner: BillingOwner,
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
+  val pixNeedsSetup: Boolean = false,
   val recipients: List<BillingRecipient> = emptyList(),
   val replyTo: List<BillingRecipient> = emptyList(),
   val communicationTemplates: List<CommunicationTemplate> = emptyList(),
@@ -163,6 +164,10 @@ data class Billing(
   val fixedSubtotal: Money
     get() = items.filter { it.type == BillingItemType.FIXED }
       .fold(Money.zero) { total, item -> total + item.amount }
+
+  /** The backend rejects bill creation until the effective PIX configuration is complete. */
+  val canGenerateBills: Boolean
+    get() = capabilities.canCreateBills && !pixNeedsSetup
 
   fun template(type: CommunicationType): CommunicationTemplate? =
     communicationTemplates.firstOrNull { it.commType == type }

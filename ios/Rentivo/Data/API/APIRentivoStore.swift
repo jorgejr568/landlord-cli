@@ -672,6 +672,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
           sortOrder: index)
       },
       pixOverride: pix(key: remote.pixKey, name: remote.pixMerchantName, city: remote.pixMerchantCity),
+      pixNeedsSetup: remote.pixNeedsSetup ?? false,
       recipients: remote.recipients.compactMap { contact in
         guard let name = contact.name, let email = contact.email else { return nil }
         return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)

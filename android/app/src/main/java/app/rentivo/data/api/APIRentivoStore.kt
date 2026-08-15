@@ -933,6 +933,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       )
     },
     pixOverride = pix(remote.pixKey, remote.pixMerchantName, remote.pixMerchantCity),
+    pixNeedsSetup = remote.pixNeedsSetup ?: false,
     recipients = remote.recipients.mapNotNull { contact ->
       val name = contact.name ?: return@mapNotNull null
       val email = contact.email ?: return@mapNotNull null

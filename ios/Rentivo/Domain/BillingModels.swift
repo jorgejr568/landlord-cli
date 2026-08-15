@@ -201,6 +201,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
   public var owner: BillingOwner
   public var items: [BillingItem]
   public var pixOverride: PixConfiguration?
+  public var pixNeedsSetup: Bool
   public var recipients: [BillingRecipient]
   public var replyTo: [BillingRecipient]
   public var communicationTemplates: [CommunicationTemplate]
@@ -213,6 +214,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     owner: BillingOwner,
     items: [BillingItem],
     pixOverride: PixConfiguration? = nil,
+    pixNeedsSetup: Bool = false,
     recipients: [BillingRecipient] = [],
     replyTo: [BillingRecipient] = [],
     communicationTemplates: [CommunicationTemplate] = [],
@@ -224,6 +226,7 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
     self.owner = owner
     self.items = items
     self.pixOverride = pixOverride
+    self.pixNeedsSetup = pixNeedsSetup
     self.recipients = recipients
     self.replyTo = replyTo
     self.communicationTemplates = communicationTemplates
@@ -232,6 +235,12 @@ public struct Billing: Identifiable, Hashable, Codable, Sendable {
 
   public var fixedSubtotal: Money {
     items.filter { $0.type == .fixed }.map(\.amount).reduce(.zero, +)
+  }
+
+  /// Creating a bill needs both the write capability and a complete effective PIX configuration.
+  /// The backend exposes these as separate fields and rejects creation when PIX is incomplete.
+  public var canGenerateBills: Bool {
+    capabilities.canCreateBills && !pixNeedsSetup
   }
 
   public func template(for type: CommunicationType) -> CommunicationTemplate? {

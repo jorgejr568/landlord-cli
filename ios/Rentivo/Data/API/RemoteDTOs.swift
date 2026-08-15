@@ -412,12 +412,13 @@ struct RemoteBilling: Decodable {
   let owner: RemoteOwner
   let items: [RemoteBillingItem]
   let pixKey, pixMerchantName, pixMerchantCity: String
+  let pixNeedsSetup: Bool?
   let recipients, replyTo: [RemoteBillingContact]
   // Optional so a payload without the field keeps decoding; the live billing detail contract
   // always includes it.
   let communicationTemplates: [RemoteCommunicationTemplate]?
   let capabilities: RemoteBillingCapabilities
-  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case communicationTemplates = "communication_templates" }
+  enum CodingKeys: String, CodingKey { case uuid, name, description, owner, items, recipients, capabilities; case replyTo = "reply_to"; case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city"; case pixNeedsSetup = "pix_needs_setup"; case communicationTemplates = "communication_templates" }
 }
 struct RemoteBillingContact: Decodable { let uuid: String; let name, email: String? }
 struct RemoteCommunicationTemplate: Decodable {

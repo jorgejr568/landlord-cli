@@ -756,6 +756,7 @@ data class RemoteBilling(
   @SerialName("pix_key") val pixKey: String,
   @SerialName("pix_merchant_name") val pixMerchantName: String,
   @SerialName("pix_merchant_city") val pixMerchantCity: String,
+  @SerialName("pix_needs_setup") val pixNeedsSetup: Boolean? = null,
   val recipients: List<RemoteBillingContact>,
   @SerialName("reply_to") val replyTo: List<RemoteBillingContact>,
   // Optional so a payload without the field keeps decoding; the live billing detail contract
