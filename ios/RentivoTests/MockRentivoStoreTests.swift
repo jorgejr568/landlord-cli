@@ -419,6 +419,7 @@ import Testing
 @Test @MainActor func mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let organization = try await store.organization(id: StableID.organizationHorizonte)
+  _ = try await store.setOrganizationMFA(organizationID: organization.id, required: false)
   try await store.disableTOTP(password: "senha-valida")
   for passkey in try await store.securitySummary().passkeys {
     try await store.deletePasskey(id: passkey.id)
@@ -431,6 +432,19 @@ import Testing
 
   #expect(policy.enforceMFA)
   #expect(policy.mfaSetupRequired)
+  let summary = try await store.securitySummary()
+  #expect(summary.organizationEnforced)
+  #expect(summary.setupRequired)
+}
+
+@Test @MainActor func enforcedOrganizationProtectsTheLastMFAFactor() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  try await store.disableTOTP(password: "senha-valida")
+  let passkey = try #require(try await store.securitySummary().passkeys.first)
+
+  await #expect(throws: DemoError.permissionDenied) {
+    try await store.deletePasskey(id: passkey.id)
+  }
 }
 
 @Test @MainActor func memberRoleCanBePromotedToAdmin() async throws {
@@ -547,12 +561,13 @@ import Testing
   #expect(try await store.securitySummary().totpEnabled)
 
   try await store.disableTOTP(password: "senha-de-demonstração")
-  let codes = try await store.regenerateRecoveryCodes()
 
   let summary = try await store.securitySummary()
   #expect(!summary.totpEnabled)
-  #expect(codes.count == 8)
-  #expect(summary.recoveryCodeCount == 8)
+  #expect(summary.recoveryCodeCount == 0)
+  await #expect(throws: DemoError.self) {
+    _ = try await store.regenerateRecoveryCodes()
+  }
 }
 
 @Test @MainActor func demoStoreReportsNoLiveSessionToRestoreRevokeOrDelete() async throws {

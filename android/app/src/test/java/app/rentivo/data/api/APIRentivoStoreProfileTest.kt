@@ -47,7 +47,8 @@ class APIRentivoStoreProfileTest {
       "GET /api/v1/security" -> jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"chave-abc",""" +
           """"pix_merchant_name":"Ana","pix_merchant_city":"Sao Paulo"},""" +
-          """"totp":{"enabled":true,"recovery_codes_remaining":5},"mfa":{},"passkeys":[""" +
+          """"totp":{"enabled":true,"recovery_codes_remaining":5},""" +
+          """"mfa":{"setup_required":false,"organization_enforced":true},"passkeys":[""" +
           """{"uuid":"passkey-1","name":"iPhone de Ana",""" +
           """"created_at":"2026-07-20T10:15:30.123456+00:00","last_used_at":null}]}"""
       )
@@ -125,7 +126,7 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"passkeys":[]}"""
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[]}"""
       )
     }
     val store = authenticatedStore()
@@ -142,6 +143,8 @@ class APIRentivoStoreProfileTest {
 
     val summary = store.securitySummary()
 
+    assertEquals(false, summary.setupRequired)
+    assertEquals(true, summary.organizationEnforced)
     val passkey = summary.passkeys.first()
     assertEquals(2026, passkey.createdAt.atZone(saoPaulo).year)
     assertEquals(true, summary.totpEnabled)
@@ -158,7 +161,7 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"mfa":{},"passkeys":[{"uuid":"passkey-1","name":"iPhone de Ana",""" +
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[{"uuid":"passkey-1","name":"iPhone de Ana",""" +
           """"created_at":"2026-07-20T10:15:30",""" +
           """"last_used_at":"2026-07-20T18:42:11.063639"}]}"""
       )
@@ -195,7 +198,8 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"a@b.c","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"passkeys":[{"uuid":"passkey-1","name":"iPhone","created_at":"ontem",""" +
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[""" +
+          """{"uuid":"passkey-1","name":"iPhone","created_at":"ontem",""" +
           """"last_used_at":null}]}"""
       )
     }

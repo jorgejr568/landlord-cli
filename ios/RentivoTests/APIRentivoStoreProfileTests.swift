@@ -34,6 +34,8 @@ import Testing
   _ = try #require(try await store.restoreSession())
   let summary = try await store.securitySummary()
 
+  #expect(!summary.setupRequired)
+  #expect(summary.organizationEnforced)
   let passkey = try #require(summary.passkeys.first)
   let year = Calendar(identifier: .gregorian).component(.year, from: passkey.createdAt)
   #expect(year == 2026)
@@ -145,7 +147,7 @@ private final class NaiveTimestampURLProtocol: URLProtocol, @unchecked Sendable 
       {
         "profile": {"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"","pix_merchant_city":""},
         "totp": {"enabled": false, "recovery_codes_remaining": 0},
-        "mfa": {},
+        "mfa": {"setup_required": false, "organization_enforced": false},
         "passkeys": [
           {"uuid":"passkey-1","name":"iPhone de Ana","created_at":"2026-07-20T10:15:30","last_used_at":"2026-07-20T18:42:11.063639"}
         ]
@@ -181,7 +183,7 @@ private final class ProfileURLProtocol: URLProtocol, @unchecked Sendable {
       {
         "profile": {"email":"ana@rentivo.com.br","pix_key":"chave-abc","pix_merchant_name":"Ana","pix_merchant_city":"Sao Paulo"},
         "totp": {"enabled": true, "recovery_codes_remaining": 5},
-        "mfa": {},
+        "mfa": {"setup_required": false, "organization_enforced": true},
         "passkeys": [
           {"uuid":"passkey-1","name":"iPhone de Ana","created_at":"2026-07-20T10:15:30.123456+00:00","last_used_at": null}
         ]

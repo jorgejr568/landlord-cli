@@ -706,6 +706,10 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       throw DemoError.resourceNotFound
     }
     snapshot.organizations[index].requiresMFA = required
+    snapshot.security.organizationEnforced = snapshot.organizations.contains { $0.requiresMFA }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security,
       title: required ? "MFA obrigatório" : "MFA opcional",
@@ -713,9 +717,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     )
     return OrganizationMFAPolicy(
       enforceMFA: required,
-      mfaSetupRequired: required
-        && !snapshot.security.totpEnabled
-        && snapshot.security.passkeys.isEmpty
+      mfaSetupRequired: snapshot.security.setupRequired
     )
   }
 
@@ -765,7 +767,16 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   private func setTOTPEnabled(_ enabled: Bool) async throws {
     try await prepareOperation()
     try requireWriteAccess()
+    if !enabled && snapshot.security.organizationEnforced
+      && snapshot.security.passkeys.isEmpty
+    {
+      throw DemoError.permissionDenied
+    }
     snapshot.security.totpEnabled = enabled
+    if !enabled { snapshot.security.recoveryCodeCount = 0 }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !enabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security,
       title: enabled ? "TOTP ativado" : "TOTP desativado",
@@ -800,6 +811,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func regenerateRecoveryCodes() async throws -> [String] {
     try await prepareOperation()
     try requireWriteAccess()
+    guard snapshot.security.totpEnabled else { throw DemoError.operationFailed }
     let codes = [
       "RNTV-7K2P", "RNTV-4M9Q", "RNTV-8X3L", "RNTV-2N6C",
       "RNTV-5B1W", "RNTV-9J4R", "RNTV-3F8T", "RNTV-6D2H",
@@ -815,7 +827,15 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard snapshot.security.passkeys.contains(where: { $0.id == id }) else {
       throw DemoError.resourceNotFound
     }
+    if snapshot.security.organizationEnforced && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.count == 1
+    {
+      throw DemoError.permissionDenied
+    }
     snapshot.security.passkeys.removeAll { $0.id == id }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security, title: "Chave de acesso removida", detail: snapshot.profile.email)
   }

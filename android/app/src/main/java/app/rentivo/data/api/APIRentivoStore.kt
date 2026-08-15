@@ -682,6 +682,8 @@ class APIRentivoStore(private val client: LiveAPIClient) :
           lastUsedAt = it.lastUsedAt?.let(WireDate::isoDate),
         )
       },
+      setupRequired = response.mfa.setupRequired,
+      organizationEnforced = response.mfa.organizationEnforced,
     )
   }
 

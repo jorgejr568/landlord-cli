@@ -151,7 +151,14 @@ data class RemotePendingInvitation(
 data class RemoteSecuritySummary(
   val profile: RemoteProfile,
   val totp: RemoteTOTPStatus,
+  val mfa: RemoteMFAStatus,
   val passkeys: List<RemotePasskey>,
+)
+
+@Serializable
+data class RemoteMFAStatus(
+  @SerialName("setup_required") val setupRequired: Boolean,
+  @SerialName("organization_enforced") val organizationEnforced: Boolean,
 )
 
 @Serializable

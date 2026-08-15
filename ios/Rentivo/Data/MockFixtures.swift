@@ -258,7 +258,9 @@ public struct MockFixtures: Sendable {
             createdAt: Date(timeIntervalSince1970: 1_736_640_000),
             lastUsedAt: now
           )
-        ]
+        ],
+        setupRequired: false,
+        organizationEnforced: true
       ),
       apiKeys: [integrationKey],
       themes: [

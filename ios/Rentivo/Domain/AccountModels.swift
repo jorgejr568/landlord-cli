@@ -176,11 +176,21 @@ public struct SecuritySummary: Hashable, Codable, Sendable {
   public var totpEnabled: Bool
   public var recoveryCodeCount: Int
   public var passkeys: [Passkey]
+  public var setupRequired: Bool
+  public var organizationEnforced: Bool
 
-  public init(totpEnabled: Bool, recoveryCodeCount: Int, passkeys: [Passkey]) {
+  public init(
+    totpEnabled: Bool,
+    recoveryCodeCount: Int,
+    passkeys: [Passkey],
+    setupRequired: Bool = false,
+    organizationEnforced: Bool = false
+  ) {
     self.totpEnabled = totpEnabled
     self.recoveryCodeCount = recoveryCodeCount
     self.passkeys = passkeys
+    self.setupRequired = setupRequired
+    self.organizationEnforced = organizationEnforced
   }
 }
 

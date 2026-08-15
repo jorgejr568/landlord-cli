@@ -371,6 +371,8 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
               lastUsedAt = now,
             )
           ),
+          setupRequired = false,
+          organizationEnforced = true,
         ),
         apiKeys = listOf(integrationKey),
         themes = mapOf(

@@ -393,8 +393,19 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func securitySummary() async throws -> SecuritySummary {
     let response: RemoteSecuritySummary = try await decode(path: "/api/v1/security")
-    return SecuritySummary(totpEnabled: response.totp.enabled, recoveryCodeCount: response.totp.recoveryCodesRemaining,
-      passkeys: try response.passkeys.map { Passkey(id: PasskeyID(rawValue: $0.uuid), name: $0.name, createdAt: try WireDate.isoDate($0.createdAt), lastUsedAt: try $0.lastUsedAt.map(WireDate.isoDate)) })
+    return SecuritySummary(
+      totpEnabled: response.totp.enabled,
+      recoveryCodeCount: response.totp.recoveryCodesRemaining,
+      passkeys: try response.passkeys.map {
+        Passkey(
+          id: PasskeyID(rawValue: $0.uuid), name: $0.name,
+          createdAt: try WireDate.isoDate($0.createdAt),
+          lastUsedAt: try $0.lastUsedAt.map(WireDate.isoDate)
+        )
+      },
+      setupRequired: response.mfa.setupRequired,
+      organizationEnforced: response.mfa.organizationEnforced
+    )
   }
   public func beginTOTPEnrollment() async throws -> TOTPEnrollment {
     let response: RemoteTOTPSetup = try await decode(path: "/api/v1/security/totp/setup", method: "POST")

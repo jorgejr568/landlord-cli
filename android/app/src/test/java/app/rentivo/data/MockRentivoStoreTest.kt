@@ -451,6 +451,7 @@ class MockRentivoStoreTest {
   fun mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val organization = store.organization(id = StableID.organizationHorizonte)
+    store.setOrganizationMFA(organizationID = organization.id, required = false)
     store.disableTOTP(password = "senha-valida")
     store.securitySummary().passkeys.forEach { store.deletePasskey(id = it.id) }
 
@@ -461,6 +462,21 @@ class MockRentivoStoreTest {
 
     assertTrue(policy.enforceMFA)
     assertTrue(policy.mfaSetupRequired)
+    val summary = store.securitySummary()
+    assertTrue(summary.organizationEnforced)
+    assertTrue(summary.setupRequired)
+  }
+
+  @Test
+  fun enforcedOrganizationProtectsTheLastMfaFactor() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    store.disableTOTP(password = "senha-valida")
+    val passkey = store.securitySummary().passkeys.first()
+
+    assertEquals(
+      DemoError.permissionDenied,
+      runCatching { store.deletePasskey(id = passkey.id) }.exceptionOrNull(),
+    )
   }
 
   @Test
@@ -594,12 +610,14 @@ class MockRentivoStoreTest {
     assertTrue(store.securitySummary().totpEnabled)
 
     store.disableTOTP(password = "senha-de-demonstração")
-    val codes = store.regenerateRecoveryCodes()
 
     val summary = store.securitySummary()
     assertFalse(summary.totpEnabled)
-    assertEquals(8, codes.size)
-    assertEquals(8, summary.recoveryCodeCount)
+    assertEquals(0, summary.recoveryCodeCount)
+    assertEquals(
+      DemoError.operationFailed,
+      runCatching { store.regenerateRecoveryCodes() }.exceptionOrNull(),
+    )
   }
 
   @Test

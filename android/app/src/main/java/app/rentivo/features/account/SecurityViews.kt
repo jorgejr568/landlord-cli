@@ -130,6 +130,17 @@ fun SecurityView(onBack: () -> Unit) {
             .padding(RentivoSpacing.page),
           verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large),
         ) {
+          if (summary.setupRequired) {
+            AccountSection(
+              title = "MFA obrigatório",
+              rows = listOf({
+                AccountFootnote(
+                  text = "Sua organização exige autenticação multifator. Configure o " +
+                    "aplicativo autenticador ou uma chave de acesso para continuar.",
+                )
+              }),
+            )
+          }
           AccountSection(
             title = "Senha",
             rows = listOf({
@@ -160,6 +171,20 @@ fun SecurityView(onBack: () -> Unit) {
                       onClick = { showingDisableTOTP = true },
                     )
                   })
+                  add({
+                    AccountTextButtonRow(
+                      title = "Gerar novos códigos de recuperação",
+                      onClick = {
+                        scope.launch {
+                          warnOnFailure {
+                            recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
+                            load()
+                            showingRecoveryCodes = true
+                          }
+                        }
+                      },
+                    )
+                  })
                 } else {
                   add({
                     AccountTextButtonRow(
@@ -174,20 +199,6 @@ fun SecurityView(onBack: () -> Unit) {
                     )
                   })
                 }
-                add({
-                  AccountTextButtonRow(
-                    title = "Gerar novos códigos de recuperação",
-                    onClick = {
-                      scope.launch {
-                        warnOnFailure {
-                          recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
-                          load()
-                          showingRecoveryCodes = true
-                        }
-                      }
-                    },
-                  )
-                })
               }
               add({
                 AccountLabeledRow(
@@ -220,6 +231,14 @@ fun SecurityView(onBack: () -> Unit) {
                     "Rentivo. Ela ficará disponível automaticamente neste aplicativo.",
                 )
               })
+              if (summary.organizationEnforced) {
+                add({
+                  AccountFootnote(
+                    text = "Sua organização exige que ao menos um fator de autenticação " +
+                      "permaneça ativo.",
+                  )
+                })
+              }
             },
           )
         }

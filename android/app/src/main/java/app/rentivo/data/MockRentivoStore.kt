@@ -853,6 +853,13 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireOrganizationCapability(organizationID) { it.canManage }
     val index = organizationIndex(organizationID) ?: throw DemoError.resourceNotFound
     organizationsState[index] = organizationsState[index].copy(requiresMFA = required)
+    val organizationEnforced = organizationsState.any { it.requiresMFA }
+    securityState = securityState.copy(
+      organizationEnforced = organizationEnforced,
+      setupRequired = organizationEnforced &&
+        !securityState.totpEnabled &&
+        securityState.passkeys.isEmpty(),
+    )
     recordActivity(
       kind = ActivityKind.SECURITY,
       title = if (required) "MFA obrigatório" else "MFA opcional",
@@ -860,9 +867,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     )
     return OrganizationMFAPolicy(
       enforceMFA = required,
-      mfaSetupRequired = required &&
-        !securityState.totpEnabled &&
-        securityState.passkeys.isEmpty(),
+      mfaSetupRequired = securityState.setupRequired,
     )
   }
 
@@ -912,7 +917,16 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   private suspend fun setTOTPEnabled(enabled: Boolean) {
     prepareOperation()
     requireWriteAccess()
-    securityState = securityState.copy(totpEnabled = enabled)
+    if (!enabled && securityState.organizationEnforced && securityState.passkeys.isEmpty()) {
+      throw DemoError.permissionDenied
+    }
+    securityState = securityState.copy(
+      totpEnabled = enabled,
+      recoveryCodeCount = if (enabled) securityState.recoveryCodeCount else 0,
+      setupRequired = securityState.organizationEnforced &&
+        !enabled &&
+        securityState.passkeys.isEmpty(),
+    )
     recordActivity(
       kind = ActivityKind.SECURITY,
       title = if (enabled) "TOTP ativado" else "TOTP desativado",
@@ -944,6 +958,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun regenerateRecoveryCodes(): List<String> {
     prepareOperation()
     requireWriteAccess()
+    if (!securityState.totpEnabled) throw DemoError.operationFailed
     val codes = listOf(
       "RNTV-7K2P", "RNTV-4M9Q", "RNTV-8X3L", "RNTV-2N6C",
       "RNTV-5B1W", "RNTV-9J4R", "RNTV-3F8T", "RNTV-6D2H",
@@ -961,8 +976,18 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     prepareOperation()
     requireWriteAccess()
     if (securityState.passkeys.none { it.id == id }) throw DemoError.resourceNotFound
+    if (
+      securityState.organizationEnforced &&
+      !securityState.totpEnabled &&
+      securityState.passkeys.size == 1
+    ) {
+      throw DemoError.permissionDenied
+    }
     securityState = securityState.copy(
       passkeys = securityState.passkeys.filterNot { it.id == id },
+      setupRequired = securityState.organizationEnforced &&
+        !securityState.totpEnabled &&
+        securityState.passkeys.size == 1,
     )
     recordActivity(
       kind = ActivityKind.SECURITY,

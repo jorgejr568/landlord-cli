@@ -31,8 +31,20 @@ struct RemotePendingInvitation: Decodable {
     case organizationName = "organization_name"
   }
 }
-struct RemoteSecuritySummary: Decodable { let profile: RemoteProfile; let totp: RemoteTOTPStatus; let passkeys: [RemotePasskey] }
+struct RemoteSecuritySummary: Decodable {
+  let profile: RemoteProfile
+  let totp: RemoteTOTPStatus
+  let mfa: RemoteMFAStatus
+  let passkeys: [RemotePasskey]
+}
 struct RemoteTOTPStatus: Decodable { let enabled: Bool; let recoveryCodesRemaining: Int; enum CodingKeys: String, CodingKey { case enabled; case recoveryCodesRemaining = "recovery_codes_remaining" } }
+struct RemoteMFAStatus: Decodable {
+  let setupRequired, organizationEnforced: Bool
+  enum CodingKeys: String, CodingKey {
+    case setupRequired = "setup_required"
+    case organizationEnforced = "organization_enforced"
+  }
+}
 struct RemoteTOTPSetup: Decodable {
   let secret, provisioningURI, qrCodeBase64: String
   enum CodingKeys: String, CodingKey {

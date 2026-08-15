@@ -126,6 +126,8 @@ data class SecuritySummary(
   val totpEnabled: Boolean,
   val recoveryCodeCount: Int,
   val passkeys: List<Passkey>,
+  val setupRequired: Boolean = false,
+  val organizationEnforced: Boolean = false,
 )
 
 data class TOTPEnrollment(
