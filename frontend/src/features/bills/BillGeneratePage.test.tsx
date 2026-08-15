@@ -208,6 +208,25 @@ it("keeps bill generation available but omits receipt files without files:write"
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-without-receipt"));
 });
 
+it("rejects invalid receipt files before generating a bill", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.type(screen.getByLabelText("Água"), "10,00");
+  const input = screen.getByLabelText("Anexar comprovantes");
+  fireEvent.change(input, { target: { files: [new File(["text"], "notes.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
+  expect(input).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+});
+
 it("validates dates and extras locally, removes rows, and focuses nested API errors", async () => {
   const user = userEvent.setup();
   let attempts = 0;

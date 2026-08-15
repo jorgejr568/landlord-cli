@@ -10,6 +10,7 @@ import { formatFileSize } from "../../lib/format";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { BillCapabilities, Receipt } from "./billSupport";
 import { multipartBodySerializer } from "./billSupport";
+import { receiptFileError } from "./receiptFiles";
 
 export interface ReceiptManagerProps {
   billingUuid: string;
@@ -98,6 +99,12 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
     event.preventDefault();
     if (files.length === 0) {
       setError("Selecione ao menos um comprovante.");
+      fileRef.current?.focus();
+      return;
+    }
+    const validationError = receiptFileError(files);
+    if (validationError) {
+      setError(validationError);
       fileRef.current?.focus();
       return;
     }

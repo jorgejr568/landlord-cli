@@ -168,6 +168,27 @@ it("focuses empty uploads and surfaces upload, delete, and reorder failures", as
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 
+it("rejects unsupported, empty, and oversized receipts before upload", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({});
+  render(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={vi.fn()} receipts={receipts} />);
+
+  const input = screen.getByLabelText("Anexar comprovantes");
+  fireEvent.change(input, { target: { files: [new File(["text"], "notes.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+  expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
+  expect(input).toHaveFocus();
+
+  fireEvent.change(input, { target: { files: [new File([], "empty.pdf", { type: "application/pdf" })] } });
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+  expect(await screen.findByText("O arquivo empty.pdf está vazio.")).toBeVisible();
+
+  fireEvent.change(input, { target: { files: [new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })] } });
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+  expect(await screen.findByText("O arquivo large.png excede o limite de 10 MB.")).toBeVisible();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it("deduplicates uploads, shows progress and skipped counts, merges latest state, and focuses success", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();

@@ -12,6 +12,7 @@ import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Billing } from "./billSupport";
 import { multipartBodySerializer } from "./billSupport";
+import { receiptFileError } from "./receiptFiles";
 
 interface ExtraRow {
   amount: string;
@@ -48,6 +49,7 @@ export function BillGeneratePage() {
   const [files, setFiles] = useState<File[]>([]);
   const nextExtraKey = useRef(0);
   const referenceRef = useRef<HTMLInputElement>(null);
+  const receiptRef = useRef<HTMLInputElement>(null);
   const variableRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const loadController = useRef<AbortController | null>(null);
@@ -153,6 +155,14 @@ export function BillGeneratePage() {
       setFieldErrors(localErrors);
       focusError(Object.keys(localErrors)[0]);
       return;
+    }
+    if (billing.capabilities.can_upload_bill_receipts) {
+      const validationError = receiptFileError(files);
+      if (validationError) {
+        setActionError(validationError);
+        receiptRef.current?.focus();
+        return;
+      }
     }
     const payload: BillCreatePayload = {
       due_date: parsedDate,
@@ -267,7 +277,7 @@ export function BillGeneratePage() {
           </div>
 
           <div className="panel"><div className="panel-body panel__body"><div className="field mb-0"><label className="field-label field__label" htmlFor="notes">Observações</label><textarea className="field-textarea input" id="notes" onChange={(event) => setNotes(event.target.value)} rows={3} value={notes} /><FieldError id="notes-error" message={fieldErrors.notes} /></div></div></div>
-          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" className="field-input input" id="generate_receipt_files" multiple onChange={(event) => setFiles(Array.from(event.currentTarget.files!))} type="file" /><small className="text-muted">PDF, JPG ou PNG. Maximo 10 MB cada. Voce pode selecionar varios arquivos.</small></div></div></div> : null}
+          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" className="field-input input" id="generate_receipt_files" multiple onChange={(event) => setFiles(Array.from(event.currentTarget.files!))} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small></div></div></div> : null}
           {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}
           <div className="btn-group"><button className="btn btn--primary" disabled={submitting} type="submit">{submitting ? "Gerando..." : "Gerar Fatura"}</button><Link className="btn btn--ghost" to={`/billings/${billingUuid}`}>Cancelar</Link></div>
         </form>
