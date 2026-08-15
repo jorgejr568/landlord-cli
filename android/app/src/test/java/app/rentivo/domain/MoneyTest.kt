@@ -32,6 +32,14 @@ class MoneyTest {
   }
 
   @Test
+  fun moneyFormatsTheMinimumLongWithoutOverflowingItsMagnitude() {
+    assertEquals(
+      "-R$ 92.233.720.368.547.758,08",
+      Money(centavos = Long.MIN_VALUE).formatted(),
+    )
+  }
+
+  @Test
   fun moneyGroupsEveryThousandsBoundary() {
     assertEquals("R$ 1.234.567,89", Money(centavos = 123_456_789).formatted())
     assertEquals("R$ 999,99", Money(centavos = 99_999).formatted())

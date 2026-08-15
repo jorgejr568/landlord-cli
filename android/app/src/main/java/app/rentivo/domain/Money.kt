@@ -1,7 +1,5 @@
 package app.rentivo.domain
 
-import kotlin.math.absoluteValue
-
 /**
  * Integer centavos, never floating point.
  *
@@ -19,19 +17,20 @@ data class Money(val centavos: Long) : Comparable<Money> {
 
   /** e.g. `R$ 2.450,00`, and `-R$ 0,50` for negative amounts. */
   fun formatted(): String {
-    val magnitude = centavos.absoluteValue
-    val units = magnitude / 100
-    val fraction = magnitude % 100
+    // Parsing the decimal representation avoids `abs(Long.MIN_VALUE)`, whose magnitude cannot be
+    // represented by a signed Long and therefore remains negative.
+    val digits = centavos.toString().removePrefix("-")
+    val units = digits.dropLast(2).ifEmpty { "0" }
+    val fraction = digits.takeLast(2).padStart(2, '0')
     val sign = if (centavos < 0) "-" else ""
     return sign + CURRENCY_PREFIX + groupThousands(units) + DECIMAL_SEPARATOR +
-      fraction.toString().padStart(2, '0')
+      fraction
   }
 
-  private fun groupThousands(units: Long): String {
-    val digits = units.toString()
-    val builder = StringBuilder(digits.length + digits.length / 3)
-    for ((index, digit) in digits.withIndex()) {
-      if (index > 0 && (digits.length - index) % 3 == 0) builder.append(GROUPING_SEPARATOR)
+  private fun groupThousands(units: String): String {
+    val builder = StringBuilder(units.length + units.length / 3)
+    for ((index, digit) in units.withIndex()) {
+      if (index > 0 && (units.length - index) % 3 == 0) builder.append(GROUPING_SEPARATOR)
       builder.append(digit)
     }
     return builder.toString()

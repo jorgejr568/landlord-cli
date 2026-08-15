@@ -595,13 +595,14 @@ private fun APIKeyFormScreen(
     }
   }
 
-  if (showingDatePicker && options != null) {
+  val expiryOptions = options
+  if (showingDatePicker && expiryOptions != null) {
     ExpiryDatePicker(
       initial = expiresAt,
       minimum = Instant.now().plusSeconds(60),
-      maximum = options!!.maximumExpiration(),
+      maximum = expiryOptions.maximumExpiration(),
       onDismiss = { showingDatePicker = false },
-      onSelect = { expiresAt = options!!.clampedExpiration(it) },
+      onSelect = { expiresAt = expiryOptions.clampedExpiration(it) },
     )
   }
 }
