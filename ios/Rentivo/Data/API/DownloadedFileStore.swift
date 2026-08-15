@@ -15,9 +15,16 @@ public struct DownloadedFileStore: Sendable {
   /// locked and the file is not already open, instead of inheriting the container default.
   /// `.atomic` is preserved from the original write so a partial file is never observable as a
   /// complete one.
-  public static let writingOptions: Data.WritingOptions = [
-    .atomic, .completeFileProtectionUnlessOpen,
-  ]
+  public static let writingOptions: Data.WritingOptions = {
+    #if os(iOS)
+      return [.atomic, .completeFileProtectionUnlessOpen]
+    #else
+      // Darwin exposes iOS file-protection flags to macOS, but a command-line/package process can
+      // create a file it is then forbidden to reopen. macOS relies on its app-container and normal
+      // filesystem protection; the iOS app retains the stronger locked-device class above.
+      return [.atomic]
+    #endif
+  }()
 
   public let directory: URL
 

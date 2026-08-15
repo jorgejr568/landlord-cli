@@ -57,12 +57,46 @@ public struct FileUpload: Hashable, Sendable {
 
   public var byteCount: Int { data.count }
 
-  public static func from(url: URL) throws -> Self {
+  public static func from(url: URL, policy: FileUploadPolicy? = nil) throws -> Self {
     let filename = url.lastPathComponent
     let mediaType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
       ?? "application/octet-stream"
+    if policy == .rentivoDocument {
+      guard RentivoUploadPolicy.allowedMediaTypes.contains(mediaType.lowercased()) else {
+        throw FileUploadValidationError.unsupportedType
+      }
+      let values = try url.resourceValues(forKeys: [.fileSizeKey])
+      guard let fileSize = values.fileSize, fileSize <= RentivoUploadPolicy.maxByteCount else {
+        throw FileUploadValidationError.tooLarge
+      }
+    }
     return try Self(data: Data(contentsOf: url), filename: filename, mediaType: mediaType)
   }
+
+  /// Claims a document-picker URL and performs its metadata/data reads off the UI actor.
+  public nonisolated static func fromSecurityScoped(
+    url: URL, policy: FileUploadPolicy? = nil
+  ) async throws -> Self {
+    let accessGranted = url.startAccessingSecurityScopedResource()
+    defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+    return try from(url: url, policy: policy)
+  }
+}
+
+public enum FileUploadPolicy: Hashable, Sendable {
+  case rentivoDocument
+}
+
+public enum RentivoUploadPolicy {
+  public static let maxByteCount = 10 * 1024 * 1024
+  public static let allowedMediaTypes: Set<String> = [
+    "application/pdf", "image/jpeg", "image/png",
+  ]
+}
+
+public enum FileUploadValidationError: Error, Equatable, Sendable {
+  case unsupportedType
+  case tooLarge
 }
 
 public enum AttachmentUploadRules {

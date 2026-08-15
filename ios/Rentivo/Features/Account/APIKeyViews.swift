@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct APIKeyListView: View {
   @Environment(AppModel.self) private var app
@@ -144,7 +145,10 @@ private struct APIKeyCard: View {
           dateColumn("Expira em", value: key.expiresAt, alignment: .trailing)
         }
         Label(
-          ptBRCount(key.grants.count, singular: "acesso", plural: "acessos"),
+          ptBRCount(
+            key.grants.count + key.unavailableGrantCount,
+            singular: "acesso", plural: "acessos"
+          ),
           systemImage: "person.2.fill"
         )
         .font(.caption.weight(.semibold))
@@ -195,8 +199,11 @@ private struct APIKeyFormView: View {
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var confirmingDiscard = false
+  @State private var expiresAtEdited = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
+  private let initialDraftState: NativeAPIKeyDraftState
 
   init(
     key: APIKeyMetadata? = nil,
@@ -205,10 +212,16 @@ private struct APIKeyFormView: View {
     self.key = key
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
+    let name = key?.name ?? "Nova integração"
+    let scopes = key?.scopes ?? [.profileRead, .billingsRead]
+    let grantIDs = Set(grants.filter(\.available).map(\.resourceID))
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
-    originalGrantIDs = Set(grants.filter(\.available).map(\.resourceID))
-    _name = State(initialValue: key?.name ?? "Nova integração")
-    _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
+    originalGrantIDs = grantIDs
+    initialDraftState = NativeAPIKeyDraftState(
+      name: name, scopes: scopes, resourceIDs: grantIDs
+    )
+    _name = State(initialValue: name)
+    _scopes = State(initialValue: scopes)
     _grantIDs = State(initialValue: originalGrantIDs)
     _expiresAt = State(initialValue: key?.expiresAt ?? Date())
   }
@@ -228,6 +241,10 @@ private struct APIKeyFormView: View {
         case .failed(let error):
           optionsFailure(error)
         }
+        if let key, key.unsupportedScopeCount > 0 {
+          Text("Alguns escopos desta chave exigem uma versão mais nova do app e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
       Section("Acesso") {
         switch options {
@@ -243,12 +260,16 @@ private struct APIKeyFormView: View {
         case .failed(let error):
           optionsFailure(error)
         }
+        if let key, key.unavailableGrantCount > 0 {
+          Text("Alguns acessos protegidos não podem ser editados neste dispositivo e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
       if key == nil, let options = options.value {
         Section("Validade") {
           DatePicker(
             "Expira em",
-            selection: $expiresAt,
+            selection: expiresAtBinding,
             in: Date().addingTimeInterval(60)...options.maximumExpiration(),
             displayedComponents: .date
           )
@@ -265,7 +286,10 @@ private struct APIKeyFormView: View {
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
+        .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         // The spinner is the only sign the request is still in flight: everything else this form
@@ -284,8 +308,29 @@ private struct APIKeyFormView: View {
         )
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
     .task { await loadOptions() }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeAPIKeyDraftState(name: name, scopes: scopes, resourceIDs: grantIDs)
+      .hasChanges(from: initialDraftState, expirationEdited: expiresAtEdited)
+  }
+
+  private var expiresAtBinding: Binding<Date> {
+    Binding(
+      get: { expiresAt },
+      set: { value in
+        expiresAt = value
+        expiresAtEdited = true
+      }
+    )
   }
 
   private func loadOptions() async {
@@ -318,6 +363,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .disabled((key?.unsupportedScopeCount ?? 0) > 0)
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -330,6 +376,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .disabled((key?.unavailableGrantCount ?? 0) > 0)
   }
 
   private func save() async {
@@ -349,7 +396,11 @@ private struct APIKeyFormView: View {
       name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
       grants: grants,
-      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt)
+      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt),
+      shouldUpdateGrants: key == nil
+        || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != originalGrantIDs),
+      shouldUpdateScopes: key == nil
+        || ((key?.unsupportedScopeCount ?? 0) == 0 && scopes != key?.scopes)
     )
     saving = true
     defer { saving = false }
@@ -358,7 +409,7 @@ private struct APIKeyFormView: View {
         _ = try await app.dependencies.apiKeys.updateAPIKey(
           id: key.id,
           draft: draft,
-          updateGrants: grantIDs != originalGrantIDs
+          updateGrants: draft.shouldUpdateGrants
         )
         dismiss()
         await onSaved(nil)
@@ -370,6 +421,7 @@ private struct APIKeyFormView: View {
       }
     } catch { submitErrorMessage = DemoError(error).message }
   }
+
 }
 
 private struct APIKeySecretView: View {
@@ -390,6 +442,16 @@ private struct APIKeySecretView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(RentivoColors.surface)
           .clipShape(RoundedRectangle(cornerRadius: 12))
+        HStack {
+          Button {
+            UIPasteboard.general.string = created.secret
+          } label: {
+            Label("Copiar segredo", systemImage: "doc.on.doc")
+          }
+          ShareLink(item: created.secret) {
+            Label("Compartilhar", systemImage: "square.and.arrow.up")
+          }
+        }
         Spacer()
         Button("Já copiei") { dismiss() }
           .buttonStyle(RentivoButtonStyle())

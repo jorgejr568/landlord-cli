@@ -46,17 +46,21 @@ func makeIsolatedDownloadsStore() -> DownloadedFileStore {
   // runners do not). Probe with a direct write using the same options in the same directory: when
   // the environment honors them, hold the store's file to the full end-to-end contract; when it
   // does not, the options the store passes are the only part that is the store's to guarantee.
-  let probe = store.directory.appendingPathComponent("protection-probe")
-  try Data("probe".utf8).write(to: probe, options: DownloadedFileStore.writingOptions)
-  let probeProtection =
-    try FileManager.default.attributesOfItem(atPath: probe.path)[.protectionKey]
-    as? FileProtectionType
-  if probeProtection == .completeUnlessOpen {
-    let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
-    #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
-  } else {
-    #expect(DownloadedFileStore.writingOptions.contains(.completeFileProtectionUnlessOpen))
-  }
+  #if os(iOS)
+    let probe = store.directory.appendingPathComponent("protection-probe")
+    try Data("probe".utf8).write(to: probe, options: DownloadedFileStore.writingOptions)
+    let probeProtection =
+      try FileManager.default.attributesOfItem(atPath: probe.path)[.protectionKey]
+      as? FileProtectionType
+    if probeProtection == .completeUnlessOpen {
+      let attributes = try FileManager.default.attributesOfItem(atPath: file.fileURL.path)
+      #expect(attributes[.protectionKey] as? FileProtectionType == .completeUnlessOpen)
+    } else {
+      #expect(DownloadedFileStore.writingOptions.contains(.completeFileProtectionUnlessOpen))
+    }
+  #else
+    #expect(DownloadedFileStore.writingOptions == [.atomic])
+  #endif
 }
 
 private final class ProtectedDownloadURLProtocol: URLProtocol, @unchecked Sendable {

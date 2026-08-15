@@ -1,9 +1,11 @@
 import SwiftUI
+import UIKit
 
 struct SecurityView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<SecuritySummary> = .idle
   @State private var recoveryCodes: [String] = []
+  @State private var isRegeneratingCodes = false
   @State private var showingRecoveryCodes = false
   @State private var enrollment: TOTPEnrollment?
   @State private var showingDisableTOTP = false
@@ -42,9 +44,19 @@ struct SecurityView: View {
           if !isDemoViewerLocked {
             if summary.totpEnabled {
               Button("Desativar", role: .destructive) { showingDisableTOTP = true }
-              Button("Gerar novos códigos de recuperação") {
+              Button {
                 Task { await regenerateCodes() }
+              } label: {
+                if isRegeneratingCodes {
+                  HStack(spacing: RentivoSpacing.small) {
+                    ProgressView().controlSize(.small)
+                    Text("Gerando…")
+                  }
+                } else {
+                  Text("Gerar novos códigos de recuperação")
+                }
               }
+              .disabled(isRegeneratingCodes)
             } else {
               Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
             }
@@ -101,6 +113,7 @@ struct SecurityView: View {
     .alert("Desativar autenticação em duas etapas", isPresented: $showingDisableTOTP) {
       SecureField("Senha atual", text: $password)
       Button("Desativar", role: .destructive) { Task { await disableTOTP() } }
+        .disabled(!BcryptPasswordRules.isAccepted(password))
       Button("Cancelar", role: .cancel) { password = "" }
     } message: {
       Text("Confirme sua senha para desativar o aplicativo autenticador.")
@@ -159,6 +172,9 @@ struct SecurityView: View {
   }
 
   private func regenerateCodes() async {
+    guard !isRegeneratingCodes else { return }
+    isRegeneratingCodes = true
+    defer { isRegeneratingCodes = false }
     do {
       recoveryCodes = try await app.dependencies.security.regenerateRecoveryCodes()
       await load()
@@ -207,13 +223,22 @@ private struct ChangePasswordView: View {
 
       Section {
         Button("Salvar nova senha", action: save)
-          .disabled(isSaving || currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty)
+          .disabled(
+            isSaving || !BcryptPasswordRules.isAccepted(currentPassword)
+              || !BcryptPasswordRules.isAccepted(newPassword) || newPassword != confirmPassword
+          )
       }
     }
     .navigationTitle("Senha")
   }
 
   private func save() {
+    guard BcryptPasswordRules.isAccepted(currentPassword),
+      BcryptPasswordRules.isAccepted(newPassword)
+    else {
+      validationMessage = BcryptPasswordRules.limitMessage
+      return
+    }
     guard newPassword == confirmPassword else {
       validationMessage = "As senhas não coincidem."
       return
@@ -259,6 +284,16 @@ private struct RecoveryCodeView: View {
               .clipShape(RoundedRectangle(cornerRadius: 10))
           }
         }
+        HStack {
+          Button {
+            UIPasteboard.general.string = codes.joined(separator: "\n")
+          } label: {
+            Label("Copiar códigos", systemImage: "doc.on.doc")
+          }
+          ShareLink(item: codes.joined(separator: "\n")) {
+            Label("Compartilhar", systemImage: "square.and.arrow.up")
+          }
+        }
         Spacer()
       }
       .padding(RentivoSpacing.page)
@@ -296,6 +331,9 @@ private struct TOTPEnrollmentView: View {
         TextField("Código do autenticador", text: $code)
           .keyboardType(.numberPad)
           .textContentType(.oneTimeCode)
+          .onChange(of: code) { _, value in
+            code = String(value.filter(\.isNumber).prefix(6))
+          }
         if let errorMessage {
           Label(errorMessage, systemImage: "exclamationmark.circle.fill")
             .font(.footnote)
@@ -312,7 +350,7 @@ private struct TOTPEnrollmentView: View {
           }
         }
         .buttonStyle(RentivoButtonStyle())
-        .disabled(isConfirming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(isConfirming || code.count != 6)
         Spacer()
       }
       .padding(RentivoSpacing.page)
