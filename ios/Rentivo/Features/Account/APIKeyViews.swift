@@ -241,6 +241,7 @@ private struct APIKeyFormView: View {
       selectedStep: $step,
       isDirty: isDirty,
       isBusy: saving,
+      isPrimaryEnabled: step == .identification || options.value != nil,
       primaryTitle: step == .review ? (key == nil ? "Criar" : "Salvar") : "Continuar",
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
@@ -289,8 +290,7 @@ private struct APIKeyFormView: View {
         case .idle, .loading:
           ProgressView("Carregando opções…")
         case .empty:
-          Text("Nenhum escopo de integração está disponível.")
-            .foregroundStyle(RentivoColors.secondaryInk)
+          optionsUnavailable("Nenhum escopo de integração está disponível.")
         case .failed(let error):
           optionsFailure(error)
         }
@@ -320,8 +320,7 @@ private struct APIKeyFormView: View {
         case .idle, .loading:
           ProgressView("Carregando espaços de trabalho…")
         case .empty:
-          Text("Nenhum acesso está disponível.")
-            .foregroundStyle(RentivoColors.secondaryInk)
+          optionsUnavailable("Nenhum acesso está disponível.")
         case .failed(let error):
           optionsFailure(error)
         }
@@ -394,8 +393,7 @@ private struct APIKeyFormView: View {
     case .failed(let error):
       optionsFailure(error)
     case .empty:
-      Text("As opções da chave estão indisponíveis.")
-        .foregroundStyle(RentivoColors.secondaryInk)
+      optionsUnavailable("As opções da chave estão indisponíveis.")
     case .loaded:
       EmptyView()
     }
@@ -474,6 +472,15 @@ private struct APIKeyFormView: View {
     VStack(alignment: .leading, spacing: RentivoSpacing.small) {
       Label(error.message, systemImage: "exclamationmark.triangle.fill")
         .foregroundStyle(RentivoColors.coral)
+      Button("Tentar novamente") { Task { await loadOptions() } }
+        .focused($focusedField, equals: .optionsRetry)
+    }
+  }
+
+  private func optionsUnavailable(_ message: String) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+      Text(message)
+        .foregroundStyle(RentivoColors.secondaryInk)
       Button("Tentar novamente") { Task { await loadOptions() } }
         .focused($focusedField, equals: .optionsRetry)
     }
