@@ -69,9 +69,7 @@ final class RentivoUITests: XCTestCase {
     app.buttons["billing.create"].tap()
 
     XCTAssertTrue(app.navigationBars["Nova cobrança"].waitForExistence(timeout: 2))
-    app.buttons["billing.form.save"].tap()
-    app.swipeUp()
-    app.swipeUp()
+    app.buttons["wizard.continue"].tap()
     XCTAssertTrue(
       app.staticTexts.matching(identifier: "billing.form.validation").firstMatch
         .waitForExistence(timeout: 2)
@@ -86,7 +84,10 @@ final class RentivoUITests: XCTestCase {
     scrollTo(app.buttons["bill.create"], in: app)
     app.buttons["bill.create"].tap()
     XCTAssertTrue(app.navigationBars["Gerar fatura"].waitForExistence(timeout: 2))
-    app.buttons["bill.form.save"].tap()
+    for _ in 0..<4 {
+      app.buttons["wizard.continue"].tap()
+    }
+    app.buttons["wizard.commit"].tap()
     XCTAssertTrue(app.staticTexts["Fatura criada como rascunho."].waitForExistence(timeout: 3))
 
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
@@ -112,13 +113,21 @@ final class RentivoUITests: XCTestCase {
     let theme = app.buttons["billing.theme"]
     scrollTo(theme, in: app)
     theme.tap()
-    XCTAssertTrue(app.navigationBars["Aparência"].waitForExistence(timeout: 2))
-    XCTAssertTrue(app.buttons["theme.save"].exists)
+    let continueButton = app.buttons["wizard.continue"]
+    XCTAssertTrue(continueButton.waitForExistence(timeout: 2))
+    continueButton.tap()
     let primary = app.textFields["Primária"]
+    XCTAssertTrue(primary.waitForExistence(timeout: 2))
     primary.tap()
-    primary.typeText("0")
-    app.buttons["theme.save"].tap()
-    XCTAssertTrue(waitForValue(of: primary, containing: "0"))
+    primary.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7))
+    primary.typeText("#123456")
+    XCTAssertTrue(waitForValue(of: primary, containing: "#123456"))
+    for _ in 0..<3 {
+      app.buttons["wizard.continue"].tap()
+    }
+    XCTAssertTrue(app.staticTexts["Etapa 5 de 5"].exists)
+    app.buttons["wizard.commit"].tap()
+    XCTAssertTrue(app.staticTexts["Tema atualizado."].waitForExistence(timeout: 3))
   }
 
   func testExpenseCreationJourney() throws {
@@ -133,9 +142,11 @@ final class RentivoUITests: XCTestCase {
     app.buttons["Adicionar"].tap()
     app.textFields["Descrição"].tap()
     app.textFields["Descrição"].typeText("Reparo da fechadura")
+    app.buttons["wizard.continue"].tap()
     app.textFields["Valor em centavos"].tap()
     app.textFields["Valor em centavos"].typeText("12500")
-    app.buttons["Salvar"].tap()
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.commit"].tap()
     XCTAssertTrue(app.staticTexts["Reparo da fechadura"].waitForExistence(timeout: 3))
   }
 
@@ -268,7 +279,17 @@ final class RentivoUITests: XCTestCase {
     let button = app.buttons["bill.transition.\(status)"]
     scrollTo(button, in: app)
     button.tap()
-    XCTAssertFalse(button.waitForExistence(timeout: 1))
+
+    // Consequential transitions add a confirmation action; ordinary transitions proceed
+    // immediately. Querying the action itself avoids runtime differences in whether SwiftUI
+    // exposes confirmationDialog as an alert, menu, or sheet.
+    let confirmationActions = app.buttons.matching(
+      identifier: "bill.transition.confirm.\(status)"
+    )
+    if confirmationActions.firstMatch.waitForExistence(timeout: 1) {
+      confirmationActions.element(boundBy: 0).tap()
+    }
+    XCTAssertFalse(button.waitForExistence(timeout: 3))
   }
 
   private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {

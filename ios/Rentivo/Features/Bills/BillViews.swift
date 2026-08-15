@@ -477,6 +477,7 @@ struct BillDetailView: View {
         guard let currentStatus = state.value?.status else { return }
         Task { await transition(from: currentStatus, to: action.target) }
       }
+      .accessibilityIdentifier("bill.transition.confirm.\(action.target.rawValue)")
       Button("Cancelar", role: .cancel) {}
     } message: { _ in
       Text("Confirme a alteração de status desta fatura.")
