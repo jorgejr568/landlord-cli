@@ -69,6 +69,7 @@ export function OrganizationForm({
                 autoFocus
                 className={inputClass}
                 id="name"
+                maxLength={255}
                 onChange={(event) => update("name", event.target.value)}
                 placeholder="Ex.: Ribeiro Imóveis"
                 ref={(element) => { refs.current.name = element; }}
@@ -101,7 +102,7 @@ export function OrganizationForm({
         <div className="panel-body">
           <div className="field mb-0">
             <label className={labelClass} htmlFor="name">Nome</label>
-            <input aria-describedby={describedBy("name")} className={inputClass} id="name" onChange={(event) => update("name", event.target.value)} ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
+            <input aria-describedby={describedBy("name")} className={inputClass} id="name" maxLength={255} onChange={(event) => update("name", event.target.value)} ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
             <FieldError id="name-error" message={fieldErrors.name} />
           </div>
         </div>

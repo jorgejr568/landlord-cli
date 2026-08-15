@@ -309,3 +309,10 @@ import Testing
   #expect(CommunicationContent.normalizedSubject("  Assunto  ") == "Assunto")
   #expect(CommunicationContent.normalizedMessage("  Corpo  ") == "Corpo")
 }
+
+@Test func organizationNamesMirrorTheServerContract() {
+  #expect(OrganizationDraft(name: "   ", pix: nil).isValid == false)
+  #expect(OrganizationDraft(name: String(repeating: "😀", count: 255), pix: nil).isValid)
+  #expect(OrganizationDraft(name: String(repeating: "😀", count: 256), pix: nil).isValid == false)
+  #expect(OrganizationDraft.nameLimit == 255)
+}

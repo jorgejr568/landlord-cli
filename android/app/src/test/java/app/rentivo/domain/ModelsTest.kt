@@ -284,4 +284,12 @@ class ModelsTest {
     assertEquals(listOf("csv", "xlsx"), BillingExportContract.formats)
     assertEquals(listOf("Faturas"), BillingExportContract.includedSections)
   }
+
+  @Test
+  fun organizationNamesMirrorTheServerContract() {
+    assertFalse(OrganizationDraft(name = "   ", pix = null).isValid)
+    assertTrue(OrganizationDraft(name = "😀".repeat(255), pix = null).isValid)
+    assertFalse(OrganizationDraft(name = "😀".repeat(256), pix = null).isValid)
+    assertEquals(255, OrganizationDraft.nameLimit)
+  }
 }

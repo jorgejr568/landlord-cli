@@ -63,6 +63,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("caps organization names at the backend limit", () => {
+  renderCreate();
+
+  expect(screen.getByLabelText("Nome da organização")).toHaveAttribute("maxlength", "255");
+});
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}</output>;

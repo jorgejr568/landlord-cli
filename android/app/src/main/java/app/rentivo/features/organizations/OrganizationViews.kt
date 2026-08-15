@@ -428,6 +428,7 @@ fun OrganizationFormView(
       )
     }
     val draft = OrganizationDraft(name = name, pix = pix)
+    if (!draft.isValid) return
     try {
       if (existing != null) {
         app.dependencies.organizations.updateOrganization(id = existing.id, draft = draft)
@@ -451,7 +452,7 @@ fun OrganizationFormView(
       SheetTopBar(
         title = if (existing == null) "Nova organização" else "Editar organização",
         confirmTitle = "Salvar",
-        confirmEnabled = name.isNotEmpty(),
+        confirmEnabled = OrganizationDraft(name = name, pix = null).isValid,
         confirmTestTag = "organization.form.save",
         onCancel = onDismiss,
         onConfirm = { scope.launch { save() } },
@@ -477,6 +478,15 @@ fun OrganizationFormView(
           )
         }),
       )
+      OrganizationDraft.nameValidationMessage(name)
+        ?.takeIf { name.isNotEmpty() }
+        ?.let { message ->
+          Text(
+            text = message,
+            color = RentivoColors.coral,
+            style = RentivoTypography.metadata,
+          )
+        }
       FormSection(
         title = "PIX",
         rows = listOf(

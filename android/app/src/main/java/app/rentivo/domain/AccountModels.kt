@@ -92,7 +92,21 @@ data class OrganizationDraft(
   val name: String,
   val pix: PixConfiguration?,
 ) {
-  val isValid: Boolean get() = name.trim().isNotEmpty()
+  val isValid: Boolean get() = nameValidationMessage(name) == null
+
+  companion object {
+    const val nameLimit: Int = 255
+
+    fun nameValidationMessage(name: String): String? {
+      val normalized = name.trim()
+      return when {
+        normalized.isEmpty() -> "Informe o nome da organização."
+        normalized.codePointCount(0, normalized.length) > nameLimit ->
+          "O nome da organização deve ter até 255 caracteres."
+        else -> null
+      }
+    }
+  }
 }
 
 enum class InvitationStatus(val wire: String) {

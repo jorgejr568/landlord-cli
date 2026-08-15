@@ -114,6 +114,8 @@ public struct OrganizationMFAPolicy: Hashable, Codable, Sendable {
 }
 
 public struct OrganizationDraft: Hashable, Sendable {
+  public static let nameLimit = 255
+
   public var name: String
   public var pix: PixConfiguration?
 
@@ -123,7 +125,16 @@ public struct OrganizationDraft: Hashable, Sendable {
   }
 
   public var isValid: Bool {
-    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    Self.nameValidationMessage(name) == nil
+  }
+
+  public static func nameValidationMessage(_ name: String) -> String? {
+    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalized.isEmpty { return "Informe o nome da organização." }
+    if normalized.unicodeScalars.count > nameLimit {
+      return "O nome da organização deve ter até 255 caracteres."
+    }
+    return nil
   }
 }
 

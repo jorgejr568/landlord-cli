@@ -276,6 +276,9 @@ struct OrganizationFormView: View {
     Form {
       RentivoSection("Organização") {
         TextField("Nome", text: $name)
+        if !name.isEmpty, let message = OrganizationDraft.nameValidationMessage(name) {
+          Text(message).foregroundStyle(RentivoColors.coral)
+        }
       }
       RentivoSection("PIX") {
         TextField("Chave", text: $pixKey)
@@ -307,7 +310,7 @@ struct OrganizationFormView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
-          .disabled(saving || name.isEmpty)
+          .disabled(saving || !OrganizationDraft(name: name, pix: nil).isValid)
           .accessibilityIdentifier("organization.form.save")
       }
     }
@@ -330,6 +333,10 @@ struct OrganizationFormView: View {
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    guard draft.isValid else {
+      submitFailureMessage = OrganizationDraft.nameValidationMessage(name)
+      return
+    }
     submitFailureMessage = nil
     saving = true
     defer { saving = false }

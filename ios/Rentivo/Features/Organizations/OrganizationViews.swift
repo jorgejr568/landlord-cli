@@ -203,6 +203,9 @@ struct OrganizationFormView: View {
     Form {
       Section("Organização") {
         TextField("Nome", text: $name)
+        if !name.isEmpty, let message = OrganizationDraft.nameValidationMessage(name) {
+          Text(message).foregroundStyle(RentivoColors.coral)
+        }
       }
       Section("PIX") {
         TextField("Chave", text: $pixKey)
@@ -243,7 +246,7 @@ struct OrganizationFormView: View {
             Text("Salvar")
           }
         }
-        .disabled(saving || name.isEmpty)
+        .disabled(saving || !OrganizationDraft(name: name, pix: nil).isValid)
       }
     }
     .interactiveDismissDisabled(saving)
@@ -277,6 +280,10 @@ struct OrganizationFormView: View {
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    guard draft.isValid else {
+      submitErrorMessage = OrganizationDraft.nameValidationMessage(name)
+      return
+    }
     saving = true
     defer { saving = false }
     do {
