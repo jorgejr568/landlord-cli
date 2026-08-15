@@ -35,7 +35,7 @@ Thanks for contributing! This guide covers the workflow; for environment setup s
 - `make frontend-check` runs the React coverage suite (100% for authored code), typechecks, lint, and the production build; `make openapi-check` verifies the committed FastAPI snapshot and generated TypeScript contract.
 - `make e2e` runs Playwright workflows and visual parity. Use `make e2e-update` only after reviewing and approving an intentional UI difference.
 - `make ios-test` runs the `RentivoCore` Swift package suite. It needs a full Xcode toolchain (Swift Testing is unavailable in CommandLineTools alone) and has no coverage gate configured.
-- `make macos-test` runs the `RentivoMacTests` target against a `platform=macOS` destination — no simulator — and covers the macOS app layer only; the layers beneath it are `make ios-test`'s job. It also needs a full Xcode toolchain and has no coverage gate.
+- `make macos-test` runs the `RentivoMacTests` unit target and the signed `RentivoMacUITests` UI target against a `platform=macOS` destination — no simulator — and covers the macOS app layer only; the layers beneath it are `make ios-test`'s job. It also needs a full Xcode toolchain and has no coverage gate.
 - `make android-test` runs the Android unit tests on the JVM — no emulator — but needs a JDK 21 toolchain and the Android SDK (`android/local.properties` or `ANDROID_HOME`).
 - `make scripts-test` runs the shell and Python tests for `scripts/`. CI's `scripts` job is never path-filtered, because it owns the tests for the changed-area classifier that gates every other job.
 

@@ -58,7 +58,7 @@ struct HomeView: View {
 
   var body: some View {
     PageStateView(state: state) { data in
-      HomeContent(data: data) { await load() }
+      HomeContent(data: data)
     } retry: {
       await load()
     }
@@ -132,10 +132,6 @@ struct BillRoute: Hashable {
 private struct HomeContent: View {
   @Environment(AppModel.self) private var app
   let data: HomeData
-  /// Reloads the dashboard after a bill opened from here is mutated on its
-  /// detail screen (status transition, edit, deletion), so the summary cards
-  /// and the "Próximas faturas" list don't go stale behind the pushed view.
-  let reload: () async -> Void
 
   /// Above this width the detail column fits two columns of cards side by side. Below it the
   /// sections stack in the iOS order instead of being squeezed.
@@ -164,9 +160,10 @@ private struct HomeContent: View {
         .frame(maxWidth: Self.contentMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
       }
+      .accessibilityIdentifier("home.scroll")
     }
     .navigationDestination(for: BillRoute.self) { route in
-      BillDetailView(billingID: route.billingID, billID: route.billID, onMutation: reload)
+      BillDetailView(billingID: route.billingID, billID: route.billID)
     }
   }
 

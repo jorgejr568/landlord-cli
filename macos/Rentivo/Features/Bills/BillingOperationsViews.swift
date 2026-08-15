@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct BillingOperationsLinks: View {
   let billingID: BillingID
   let capabilities: BillingCapabilities
-  let onMutation: () async -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
@@ -16,12 +15,12 @@ struct BillingOperationsLinks: View {
             NavigationLink {
               ExpenseListView(
                 billingID: billingID,
-                canWrite: capabilities.canWriteExpenses,
-                onMutation: onMutation
+                canWrite: capabilities.canWriteExpenses
               )
             } label: {
               OperationRow(title: "Despesas", symbol: "wrench.and.screwdriver.fill")
             }
+            .accessibilityIdentifier("billing.expenses")
           }
           if capabilities.canReadAttachments {
             Divider()
@@ -72,7 +71,6 @@ struct ExpenseListView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   let canWrite: Bool
-  let onMutation: () async -> Void
   @State private var state: LoadState<[Expense]> = .idle
   @State private var showingAdd = false
   @State private var pendingDeletion: Expense?
@@ -122,6 +120,7 @@ struct ExpenseListView: View {
     }
     .background(RentivoColors.paper)
     .navigationTitle("Despesas")
+    .accessibilityIdentifier("expense.list")
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         if canWrite {
@@ -136,8 +135,7 @@ struct ExpenseListView: View {
     .sheet(isPresented: $showingAdd) {
       NavigationStack {
         ExpenseFormView(billingID: billingID) {
-          await load()
-          await onMutation()
+          app.invalidateData()
         }
       }
       .rentivoSheetFrame()
@@ -170,8 +168,7 @@ struct ExpenseListView: View {
   private func remove(_ expense: Expense) async {
     do {
       try await app.dependencies.expenses.deleteExpense(billingID: billingID, expenseID: expense.id)
-      await load()
-      await onMutation()
+      app.invalidateData()
     } catch { app.reportFailure(error) }
   }
 }

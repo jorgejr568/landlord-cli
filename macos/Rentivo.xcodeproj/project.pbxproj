@@ -14,11 +14,19 @@
 			remoteGlobalIDString = B20000000000000000000011;
 			remoteInfo = Rentivo;
 		};
+		B20000000000000000000052 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B20000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B20000000000000000000011;
+			remoteInfo = Rentivo;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		B20000000000000000000031 /* Rentivo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rentivo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B20000000000000000000032 /* RentivoMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RentivoMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000033 /* RentivoMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RentivoMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,11 +40,17 @@
 			path = RentivoMacTests;
 			sourceTree = "<group>";
 		};
+		B20000000000000000000023 /* RentivoMacUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RentivoMacUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B20000000000000000000061 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		B20000000000000000000064 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B20000000000000000000067 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -45,6 +59,7 @@
 			children = (
 				B20000000000000000000021 /* Rentivo */,
 				B20000000000000000000022 /* RentivoMacTests */,
+				B20000000000000000000023 /* RentivoMacUITests */,
 				B20000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +69,7 @@
 			children = (
 				B20000000000000000000031 /* Rentivo.app */,
 				B20000000000000000000032 /* RentivoMacTests.xctest */,
+				B20000000000000000000033 /* RentivoMacUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -103,6 +119,27 @@
 			productReference = B20000000000000000000032 /* RentivoMacTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B20000000000000000000013 /* RentivoMacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B20000000000000000000043 /* Build configuration list for PBXNativeTarget "RentivoMacUITests" */;
+			buildPhases = (
+				B20000000000000000000066 /* Sources */,
+				B20000000000000000000067 /* Frameworks */,
+				B20000000000000000000068 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (
+				B20000000000000000000054 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B20000000000000000000023 /* RentivoMacUITests */,
+			);
+			name = RentivoMacUITests;
+			packageProductDependencies = ();
+			productName = RentivoMacUITests;
+			productReference = B20000000000000000000033 /* RentivoMacUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -115,6 +152,7 @@
 				TargetAttributes = {
 					B20000000000000000000011 = {CreatedOnToolsVersion = 26.6; };
 					B20000000000000000000012 = {CreatedOnToolsVersion = 26.6; TestTargetID = B20000000000000000000011; };
+					B20000000000000000000013 = {CreatedOnToolsVersion = 26.6; TestTargetID = B20000000000000000000011; };
 				};
 			};
 			buildConfigurationList = B20000000000000000000040 /* Build configuration list for PBXProject "Rentivo" */;
@@ -137,6 +175,7 @@
 			targets = (
 				B20000000000000000000011 /* Rentivo */,
 				B20000000000000000000012 /* RentivoMacTests */,
+				B20000000000000000000013 /* RentivoMacUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -144,15 +183,18 @@
 /* Begin PBXResourcesBuildPhase section */
 		B20000000000000000000062 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		B20000000000000000000065 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B20000000000000000000068 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B20000000000000000000060 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		B20000000000000000000063 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B20000000000000000000066 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		B20000000000000000000053 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = B20000000000000000000011 /* Rentivo */; targetProxy = B20000000000000000000051 /* PBXContainerItemProxy */; };
+		B20000000000000000000054 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = B20000000000000000000011 /* Rentivo */; targetProxy = B20000000000000000000052 /* PBXContainerItemProxy */; };
 /* End PBXTargetDependency section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -288,12 +330,37 @@
 			};
 			name = Release;
 		};
+		B20000000000000000000077 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = br.com.rentivo.macos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Rentivo;
+			};
+			name = Debug;
+		};
+		B20000000000000000000078 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = br.com.rentivo.macos.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = Rentivo;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		B20000000000000000000040 /* Build configuration list for PBXProject "Rentivo" */ = {isa = XCConfigurationList; buildConfigurations = (B20000000000000000000071 /* Debug */, B20000000000000000000072 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		B20000000000000000000041 /* Build configuration list for PBXNativeTarget "Rentivo" */ = {isa = XCConfigurationList; buildConfigurations = (B20000000000000000000073 /* Debug */, B20000000000000000000074 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		B20000000000000000000042 /* Build configuration list for PBXNativeTarget "RentivoMacTests" */ = {isa = XCConfigurationList; buildConfigurations = (B20000000000000000000075 /* Debug */, B20000000000000000000076 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		B20000000000000000000043 /* Build configuration list for PBXNativeTarget "RentivoMacUITests" */ = {isa = XCConfigurationList; buildConfigurations = (B20000000000000000000077 /* Debug */, B20000000000000000000078 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = B20000000000000000000001 /* Project object */;

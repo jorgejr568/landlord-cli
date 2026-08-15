@@ -275,6 +275,13 @@ final class AppModel {
     refreshDemoState(reloadContent: true)
   }
 
+  /// Invalidates every data-backed screen after a mutation without threading view-capturing
+  /// callbacks through navigation destinations. Those callbacks form recursive SwiftUI view
+  /// graphs when a destination is pushed from another destination.
+  func invalidateData() {
+    dataRevision += 1
+  }
+
   private func refreshDemoState(reloadContent: Bool) {
     demoSettings = dependencies.demo.demoSettings
     if reloadContent { dataRevision += 1 }

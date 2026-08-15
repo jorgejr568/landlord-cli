@@ -6,7 +6,6 @@ struct BillDetailView: View {
   @Environment(\.dismiss) private var dismiss
   let billingID: BillingID
   let billID: BillID
-  let onMutation: () async -> Void
 
   @State private var state: LoadState<Bill> = .idle
   @State private var billing: Billing?
@@ -33,6 +32,7 @@ struct BillDetailView: View {
   var body: some View {
     PageStateView(state: state) { bill in
       content(bill)
+        .accessibilityIdentifier("bill.detail")
     } retry: {
       await load()
     }
@@ -49,7 +49,7 @@ struct BillDetailView: View {
       if let billing, let bill = state.value {
         NavigationStack {
           BillFormView(billing: billing, bill: bill) {
-            await refreshAll()
+            refreshAll()
           }
         }
         .rentivoSheetFrame()
@@ -90,21 +90,15 @@ struct BillDetailView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: RentivoSpacing.section) {
         summaryCard(bill)
-
-        // Wide windows read the fatura as two related halves: what it is made of and what
-        // document it produced, next to where it stands and what backs it up.
-        BillingAdaptiveColumns {
-          lineItems(bill)
-          document(bill)
-        } trailing: {
-          lifecycleSection(bill)
-          ReceiptManagerView(
-            billingID: billingID,
-            bill: bill,
-            capabilities: bill.capabilities
-          ) { await refreshAll() }
-          communicationHistory(bill)
-        }
+        lineItems(bill)
+        document(bill)
+        lifecycleSection(bill)
+        ReceiptManagerView(
+          billingID: billingID,
+          bill: bill,
+          capabilities: bill.capabilities
+        ) { refreshAll() }
+        communicationHistory(bill)
 
         if bill.capabilities.canCompose {
           Button {
@@ -355,9 +349,7 @@ struct BillDetailView: View {
         bills: app.dependencies.bills
       )
       billing = pair.billing
-      withAnimation(BillingsMotion.load) {
-        state = .loaded(pair.bill)
-      }
+      state = .loaded(pair.bill)
     } catch {
       state.settleFailure(error, reportingTo: app)
     }
@@ -392,9 +384,8 @@ struct BillDetailView: View {
     }
   }
 
-  private func refreshAll() async {
-    await load()
-    await onMutation()
+  private func refreshAll() {
+    app.invalidateData()
   }
 
   private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
@@ -405,7 +396,7 @@ struct BillDetailView: View {
       try await app.dependencies.bills.transitionBill(
         billingID: billingID, billID: billID, from: currentStatus, to: status)
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
-      await refreshAll()
+      refreshAll()
     } catch {
       app.reportFailure(error)
     }
@@ -414,7 +405,7 @@ struct BillDetailView: View {
   private func deleteBill() async {
     do {
       try await app.dependencies.bills.deleteBill(billingID: billingID, billID: billID)
-      await onMutation()
+      app.invalidateData()
       dismiss()
     } catch {
       app.reportFailure(error)
@@ -431,7 +422,7 @@ struct BillDetailView: View {
       state = .loaded(bill.applyingRenderMetadata(from: queued))
       pollGeneration += 1
       app.showNotice("Documento enfileirado para regeneração.")
-      await onMutation()
+      app.invalidateData()
     } catch { app.reportFailure(error) }
   }
 
