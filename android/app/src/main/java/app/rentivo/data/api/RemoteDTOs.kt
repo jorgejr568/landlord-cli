@@ -838,6 +838,7 @@ data class RemoteBillCapabilities(
   @SerialName("can_delete_receipts") val canDeleteReceipts: Boolean,
   @SerialName("can_reorder_receipts") val canReorderReceipts: Boolean,
   @SerialName("can_compose") val canCompose: Boolean,
+  @SerialName("can_open_recibo") val canOpenRecibo: Boolean? = null,
 )
 
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

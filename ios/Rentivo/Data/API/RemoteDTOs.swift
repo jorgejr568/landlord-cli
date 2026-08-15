@@ -446,6 +446,7 @@ struct RemoteBillCapabilities: Decodable {
   let canDownloadInvoice, canDownloadRecibo, canSendInvoice, canSendRecibo, canRegenerate: Bool
   let canEdit, canDelete, canTransition, canUploadReceipts, canDeleteReceipts: Bool
   let canReorderReceipts, canCompose: Bool
+  let canOpenRecibo: Bool?
   enum CodingKeys: String, CodingKey {
     case canDownloadInvoice = "can_download_invoice"; case canDownloadRecibo = "can_download_recibo"
     case canSendInvoice = "can_send_invoice"; case canSendRecibo = "can_send_recibo"
@@ -453,6 +454,7 @@ struct RemoteBillCapabilities: Decodable {
     case canEdit = "can_edit"; case canDelete = "can_delete"; case canTransition = "can_transition"
     case canUploadReceipts = "can_upload_receipts"; case canDeleteReceipts = "can_delete_receipts"
     case canReorderReceipts = "can_reorder_receipts"; case canCompose = "can_compose"
+    case canOpenRecibo = "can_open_recibo"
   }
 }
 // `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,

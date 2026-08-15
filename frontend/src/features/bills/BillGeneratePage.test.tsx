@@ -89,7 +89,7 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
         available_transitions: [], capabilities: {
           can_compose: true,
           can_delete: true, can_delete_receipts: true, can_download_invoice: true,
-          can_download_recibo: false, can_edit: true, can_regenerate: true,
+          can_download_recibo: false, can_open_recibo: false, can_edit: true, can_regenerate: true,
           can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: false,
           can_transition: true, can_upload_receipts: true
         }, communications: [], created_at: "2026-07-18T10:00:00Z", due_date: "2026-08-10",

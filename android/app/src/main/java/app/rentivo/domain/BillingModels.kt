@@ -413,6 +413,7 @@ data class BillCapabilities(
   val canDeleteReceipts: Boolean = true,
   val canReorderReceipts: Boolean = true,
   val canCompose: Boolean = true,
+  val canOpenRecibo: Boolean = false,
 ) {
   companion object {
     /**
@@ -421,7 +422,7 @@ data class BillCapabilities(
      */
     val permissive = BillCapabilities(
       canDownloadInvoice = true, canDownloadRecibo = true, canSendInvoice = true,
-      canSendRecibo = true, canRegenerate = true,
+      canSendRecibo = true, canRegenerate = true, canOpenRecibo = true,
     )
   }
 }

@@ -1684,6 +1684,8 @@ export interface components {
             can_download_recibo: boolean;
             /** Can Edit */
             can_edit: boolean;
+            /** Can Open Recibo */
+            can_open_recibo: boolean;
             /** Can Regenerate */
             can_regenerate: boolean;
             /** Can Reorder Receipts */

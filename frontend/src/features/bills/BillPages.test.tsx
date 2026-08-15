@@ -18,7 +18,7 @@ type Bill = components["schemas"]["BillDetailResponse"];
 const capabilities: components["schemas"]["BillCapabilitiesResponse"] = {
   can_compose: true,
   can_delete: true, can_delete_receipts: true, can_download_invoice: true,
-  can_download_recibo: true, can_edit: true, can_regenerate: true,
+  can_download_recibo: true, can_open_recibo: true, can_edit: true, can_regenerate: true,
   can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: true,
   can_transition: true, can_upload_receipts: true
 };
@@ -488,7 +488,7 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
     ...bill,
     capabilities: {
       can_compose: false, can_delete: false, can_delete_receipts: false,
-      can_download_invoice: false, can_download_recibo: false, can_edit: false,
+      can_download_invoice: false, can_download_recibo: false, can_open_recibo: false, can_edit: false,
       can_regenerate: false, can_reorder_receipts: false, can_send_invoice: false,
       can_send_recibo: false, can_transition: false, can_upload_receipts: false
     },

@@ -1211,10 +1211,7 @@ private fun BillDocumentSection(
           .weight(1f)
           .testTag("bill.pdf.regenerate"),
       )
-      if (bill.status == BillStatus.PAID) {
-        // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
-        // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
-        // would disable a button the endpoint would have served.
+      if (bill.capabilities.canOpenRecibo) {
         RentivoTonalButton(
           text = "Abrir recibo",
           onClick = onOpenRecibo,

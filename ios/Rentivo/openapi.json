@@ -619,6 +619,10 @@
             "title": "Can Edit",
             "type": "boolean"
           },
+          "can_open_recibo": {
+            "title": "Can Open Recibo",
+            "type": "boolean"
+          },
           "can_regenerate": {
             "title": "Can Regenerate",
             "type": "boolean"
@@ -654,6 +658,7 @@
           "can_reorder_receipts",
           "can_download_invoice",
           "can_download_recibo",
+          "can_open_recibo",
           "can_compose",
           "can_send_invoice",
           "can_send_recibo"

@@ -378,10 +378,7 @@ struct BillDetailView: View {
             // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(!bill.capabilities.canRegenerate)
-            if bill.status == .paid {
-              // Gated on the pending render alone: iOS opens `GET .../recibo`, which renders the
-              // recibo inline when no file is stored yet, so `canDownloadRecibo` (a
-              // stored-file gate) would disable a button the endpoint would have served.
+            if bill.capabilities.canOpenRecibo {
               Button("Abrir recibo") { Task { await downloadRecibo() } }
                 .disabled(bill.isRenderingPDF)
             }

@@ -42,7 +42,7 @@ const receipts: Receipt[] = [
 const capabilities = {
   can_compose: true,
   can_delete: true, can_delete_receipts: true, can_download_invoice: true,
-  can_download_recibo: false, can_edit: true, can_regenerate: true,
+  can_download_recibo: false, can_open_recibo: false, can_edit: true, can_regenerate: true,
   can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: false,
   can_transition: true, can_upload_receipts: true
 };

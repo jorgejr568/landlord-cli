@@ -931,6 +931,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       canDeleteReceipts = remote.canDeleteReceipts,
       canReorderReceipts = remote.canReorderReceipts,
       canCompose = remote.canCompose,
+      canOpenRecibo = remote.canOpenRecibo ?: false,
     )
   }
 

@@ -201,6 +201,7 @@ def _capabilities(access: BillAccess, services: RequestServices) -> BillCapabili
         can_reorder_receipts=can_manage_files,
         can_download_invoice=files_read and invoice_downloadable(bill),
         can_download_recibo=files_read and recibo_downloadable(bill),
+        can_open_recibo=files_read and recibo_released(bill) and not is_rendering(bill),
         can_compose=can_compose,
         can_send_invoice=can_compose and invoice_downloadable(bill),
         can_send_recibo=can_compose and recibo_downloadable(bill),

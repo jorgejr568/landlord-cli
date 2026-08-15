@@ -146,6 +146,7 @@ import Testing
   #expect(bill.capabilities.canReorderReceipts)
   #expect(!bill.capabilities.canDownloadInvoice)
   #expect(!bill.capabilities.canDownloadRecibo)
+  #expect(!bill.capabilities.canOpenRecibo)
   #expect(bill.capabilities.canCompose)
   #expect(!bill.capabilities.canSendInvoice)
   #expect(bill.capabilities.canSendRecibo)
@@ -313,13 +314,13 @@ private final class BillDetailURLProtocol: URLProtocol, @unchecked Sendable {
     case "/api/v1/auth/session":
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
     case "/api/v1/billings/billing-1/bills/bill-1":
-      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":true},"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
+      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_open_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":true},"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
     case "/api/v1/billings/billing-1/bills/bill-legacy":
       // An older payload that predates `pdf_render_status`/`capabilities` on the wire.
       body = #"{"uuid":"bill-legacy","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":0,"pdf_render_status":null,"available_transitions":[]}"#
     case "/api/v1/billings/billing-1/bills/bill-1/regenerate":
       statusCode = 202
-      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":false},"available_transitions":[]}"#
+      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_open_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":false},"available_transitions":[]}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }

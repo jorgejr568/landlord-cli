@@ -358,6 +358,7 @@ class APIRentivoStoreBillingTest {
     assertTrue(bill.capabilities.canReorderReceipts)
     assertFalse(bill.capabilities.canDownloadInvoice)
     assertFalse(bill.capabilities.canDownloadRecibo)
+    assertFalse(bill.capabilities.canOpenRecibo)
     assertTrue(bill.capabilities.canCompose)
     assertFalse(bill.capabilities.canSendInvoice)
     assertTrue(bill.capabilities.canSendRecibo)

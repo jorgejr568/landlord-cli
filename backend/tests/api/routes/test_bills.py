@@ -487,6 +487,7 @@ def test_viewer_has_read_only_capabilities_even_with_every_scope(api: BillsAPI) 
         "can_reorder_receipts": False,
         "can_download_invoice": True,
         "can_download_recibo": False,
+        "can_open_recibo": False,
         "can_compose": False,
         "can_send_invoice": False,
         "can_send_recibo": False,
@@ -518,8 +519,10 @@ def test_communication_capabilities_require_both_scopes_and_ready_artifacts(api:
     assert missing_response.json()["capabilities"]["can_compose"] is True
     assert missing_response.json()["capabilities"]["can_send_invoice"] is True
     assert missing_response.json()["capabilities"]["can_download_recibo"] is False
+    assert missing_response.json()["capabilities"]["can_open_recibo"] is True
     assert missing_response.json()["capabilities"]["can_send_recibo"] is False
     assert ready_response.json()["capabilities"]["can_download_recibo"] is True
+    assert ready_response.json()["capabilities"]["can_open_recibo"] is True
     assert ready_response.json()["capabilities"]["can_send_recibo"] is True
 
 
@@ -545,10 +548,11 @@ def test_document_capabilities_are_disabled_only_while_the_pdf_renders(
     assert capabilities["can_download_invoice"] is available
     assert capabilities["can_send_invoice"] is available
     assert capabilities["can_download_recibo"] is available
+    assert capabilities["can_open_recibo"] is available
     assert capabilities["can_send_recibo"] is available
 
 
-def test_capabilities_still_require_stored_documents_when_no_render_is_pending(api: BillsAPI) -> None:
+def test_stored_downloads_and_sends_stay_disabled_but_on_demand_recibo_is_available(api: BillsAPI) -> None:
     bill = _updated_bill(BILL, status="paid", pdf_path=None, recibo_pdf_path=None, pdf_render_status="succeeded")
     api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: bill if uuid == BILL.uuid else None
 
@@ -557,6 +561,7 @@ def test_capabilities_still_require_stored_documents_when_no_render_is_pending(a
     assert capabilities["can_download_invoice"] is False
     assert capabilities["can_send_invoice"] is False
     assert capabilities["can_download_recibo"] is False
+    assert capabilities["can_open_recibo"] is True
     assert capabilities["can_send_recibo"] is False
 
 

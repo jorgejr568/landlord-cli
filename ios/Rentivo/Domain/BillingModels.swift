@@ -501,6 +501,7 @@ public enum PDFRenderStatus: String, Hashable, Codable, Sendable {
 public struct BillCapabilities: Hashable, Codable, Sendable {
   public var canDownloadInvoice: Bool
   public var canDownloadRecibo: Bool
+  public var canOpenRecibo: Bool
   public var canSendInvoice: Bool
   public var canSendRecibo: Bool
   public var canRegenerate: Bool
@@ -524,10 +525,12 @@ public struct BillCapabilities: Hashable, Codable, Sendable {
     canUploadReceipts: Bool = true,
     canDeleteReceipts: Bool = true,
     canReorderReceipts: Bool = true,
-    canCompose: Bool = true
+    canCompose: Bool = true,
+    canOpenRecibo: Bool = false
   ) {
     self.canDownloadInvoice = canDownloadInvoice
     self.canDownloadRecibo = canDownloadRecibo
+    self.canOpenRecibo = canOpenRecibo
     self.canSendInvoice = canSendInvoice
     self.canSendRecibo = canSendRecibo
     self.canRegenerate = canRegenerate
@@ -544,7 +547,7 @@ public struct BillCapabilities: Hashable, Codable, Sendable {
   /// server concern; without an answer the client must not invent restrictions of its own.
   public static let permissive = BillCapabilities(
     canDownloadInvoice: true, canDownloadRecibo: true, canSendInvoice: true,
-    canSendRecibo: true, canRegenerate: true
+    canSendRecibo: true, canRegenerate: true, canOpenRecibo: true
   )
 }
 

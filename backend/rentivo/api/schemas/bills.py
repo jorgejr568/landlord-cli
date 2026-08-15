@@ -100,6 +100,7 @@ class BillCapabilitiesResponse(_StrictModel):
     can_reorder_receipts: bool
     can_download_invoice: bool
     can_download_recibo: bool
+    can_open_recibo: bool
     can_compose: bool
     can_send_invoice: bool
     can_send_recibo: bool

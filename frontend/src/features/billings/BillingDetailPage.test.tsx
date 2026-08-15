@@ -36,6 +36,7 @@ const billing: Billing = {
 };
 const billCapabilities: components["schemas"]["BillCapabilitiesResponse"] = {
   can_compose: true, can_delete: true, can_delete_receipts: true, can_download_invoice: true, can_download_recibo: true,
+  can_open_recibo: true,
   can_edit: true, can_regenerate: true, can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: true,
   can_transition: true, can_upload_receipts: true
 };
