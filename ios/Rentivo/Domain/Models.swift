@@ -49,6 +49,9 @@ public struct DemoError: Error, Equatable, LocalizedError, Sendable {
   public static let invalidAmount = DemoError(
     message: "O valor informado deve ser maior que zero."
   )
+  public static let invalidDescription = DemoError(
+    message: "Informe uma descrição com no máximo 2000 caracteres."
+  )
 }
 
 public enum StableID {

@@ -30,6 +30,7 @@ import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.Expense
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.ExpenseInput
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
@@ -538,16 +539,22 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     // Matches the server contract: `ExpenseCreateRequest.amount` requires
     // `exclusiveMinimum: 0`, so a zero or negative expense always 422s.
     if (amount.centavos <= 0) throw DemoError.invalidAmount
+    if (!ExpenseInput.isValidDescription(description)) throw DemoError.invalidDescription
+    val normalizedDescription = ExpenseInput.normalizedDescription(description)
     val expense = Expense(
       id = ExpenseID(rawValue = UUID.randomUUID().toString()),
       billingID = billingID,
-      description = description,
+      description = normalizedDescription,
       amount = amount,
       category = category,
       incurredOn = incurredOn,
     )
     expensesState.add(0, expense)
-    recordActivity(kind = ActivityKind.EXPENSE, title = "Despesa adicionada", detail = description)
+    recordActivity(
+      kind = ActivityKind.EXPENSE,
+      title = "Despesa adicionada",
+      detail = normalizedDescription,
+    )
     return expense
   }
 

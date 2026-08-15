@@ -401,16 +401,20 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     // Matches the server contract: `ExpenseCreateRequest.amount` requires
     // `exclusiveMinimum: 0`, so a zero or negative expense always 422s.
     guard amount.centavos > 0 else { throw DemoError.invalidAmount }
+    guard ExpenseInput.isValidDescription(description) else {
+      throw DemoError.invalidDescription
+    }
+    let normalizedDescription = ExpenseInput.normalizedDescription(description)
     let expense = Expense(
       id: ExpenseID(rawValue: UUID().uuidString),
       billingID: billingID,
-      description: description,
+      description: normalizedDescription,
       amount: amount,
       category: category,
       incurredOn: incurredOn
     )
     snapshot.expenses.insert(expense, at: 0)
-    recordActivity(kind: .expense, title: "Despesa adicionada", detail: description)
+    recordActivity(kind: .expense, title: "Despesa adicionada", detail: normalizedDescription)
     return expense
   }
 

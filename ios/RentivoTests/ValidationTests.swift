@@ -282,3 +282,10 @@ import Testing
 
   #expect(draft.validate().isEmpty)
 }
+
+@Test func expenseDescriptionsMirrorTheServerContract() {
+  #expect(!ExpenseInput.isValidDescription("   "))
+  #expect(ExpenseInput.isValidDescription(String(repeating: "d", count: 2_000)))
+  #expect(!ExpenseInput.isValidDescription(String(repeating: "d", count: 2_001)))
+  #expect(ExpenseInput.normalizedDescription("  Pintura  ") == "Pintura")
+}

@@ -115,6 +115,7 @@ import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.Expense
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.ExpenseInput
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Money
 import app.rentivo.domain.RecipientID
@@ -314,7 +315,7 @@ private fun ExpenseFormSheet(
     app.mutate {
       app.dependencies.expenses.createExpense(
         billingID = billingID,
-        description = description,
+        description = ExpenseInput.normalizedDescription(description),
         category = category,
         incurredOn = DateOnly.from(incurredOn),
         amount = Money(centavos = centavos),
@@ -329,7 +330,7 @@ private fun ExpenseFormSheet(
   FormSheet(
     title = "",
     onDismiss = onDismiss,
-    saveEnabled = description.isNotEmpty() && centavos > 0,
+    saveEnabled = ExpenseInput.isValidDescription(description) && centavos > 0,
     onSave = { scope.launch { save() } },
   ) {
     Text(

@@ -368,4 +368,12 @@ class ValidationTest {
 
     assertTrue(draft.validate().isEmpty())
   }
+
+  @Test
+  fun expenseDescriptionsMirrorTheServerContract() {
+    assertFalse(ExpenseInput.isValidDescription("   "))
+    assertTrue(ExpenseInput.isValidDescription("d".repeat(2_000)))
+    assertFalse(ExpenseInput.isValidDescription("d".repeat(2_001)))
+    assertEquals("Pintura", ExpenseInput.normalizedDescription("  Pintura  "))
+  }
 }

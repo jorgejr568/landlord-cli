@@ -398,6 +398,33 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun creatingExpenseNormalizesAndValidatesItsDescription() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val created = store.createExpense(
+      billingID = StableID.billingAurora101,
+      description = "  Pintura  ",
+      category = ExpenseCategory.MAINTENANCE,
+      incurredOn = DateOnly(year = 2026, month = 7, day = 20),
+      amount = Money(centavos = 100),
+    )
+    assertEquals("Pintura", created.description)
+
+    listOf("   ", "d".repeat(2_001)).forEach { invalid ->
+      val failure = assertDemoError {
+        store.createExpense(
+          billingID = StableID.billingAurora101,
+          description = invalid,
+          category = ExpenseCategory.MAINTENANCE,
+          incurredOn = DateOnly(year = 2026, month = 7, day = 20),
+          amount = Money(centavos = 100),
+        )
+      }
+      assertEquals(DemoError.invalidDescription, failure)
+    }
+  }
+
+  @Test
   fun deletingExpenseUpdatesDashboard() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val expense = store.listExpenses(billingID = StableID.billingAurora101).first()

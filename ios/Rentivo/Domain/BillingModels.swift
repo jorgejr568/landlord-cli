@@ -732,6 +732,20 @@ public enum ExpenseCategory: String, CaseIterable, Codable, Sendable {
   }
 }
 
+public enum ExpenseInput {
+  public static let maximumDescriptionLength = 2_000
+
+  public static func normalizedDescription(_ description: String) -> String {
+    description.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  public static func isValidDescription(_ description: String) -> Bool {
+    let normalized = normalizedDescription(description)
+    return !normalized.isEmpty
+      && normalized.unicodeScalars.count <= maximumDescriptionLength
+  }
+}
+
 public struct Expense: Identifiable, Hashable, Codable, Sendable {
   public let id: ExpenseID
   public let billingID: BillingID

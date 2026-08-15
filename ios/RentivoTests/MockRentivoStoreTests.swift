@@ -372,6 +372,34 @@ import Testing
   }
 }
 
+@Test @MainActor func creatingExpenseNormalizesAndValidatesItsDescription() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let created = try await store.createExpense(
+    billingID: StableID.billingAurora101,
+    description: "  Pintura  ",
+    category: .maintenance,
+    incurredOn: DateOnly(year: 2026, month: 7, day: 20),
+    amount: Money(centavos: 100)
+  )
+  #expect(created.description == "Pintura")
+
+  for invalid in ["   ", String(repeating: "d", count: 2_001)] {
+    do {
+      _ = try await store.createExpense(
+        billingID: StableID.billingAurora101,
+        description: invalid,
+        category: .maintenance,
+        incurredOn: DateOnly(year: 2026, month: 7, day: 20),
+        amount: Money(centavos: 100)
+      )
+      Issue.record("Expected the invalid expense description to be rejected")
+    } catch let error as DemoError {
+      #expect(error == .invalidDescription)
+    }
+  }
+}
+
 @Test @MainActor func deletingExpenseUpdatesDashboard() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let expense = try #require(

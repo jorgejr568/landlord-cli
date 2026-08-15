@@ -570,6 +570,17 @@ enum class ExpenseCategory(val wire: String) {
   }
 }
 
+object ExpenseInput {
+  const val maximumDescriptionLength: Int = 2_000
+
+  fun normalizedDescription(description: String): String = description.trim()
+
+  fun isValidDescription(description: String): Boolean {
+    val normalized = normalizedDescription(description)
+    return normalized.isNotEmpty() && normalized.apiCharacterCount() <= maximumDescriptionLength
+  }
+}
+
 data class Expense(
   val id: ExpenseID,
   val billingID: BillingID,

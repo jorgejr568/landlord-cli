@@ -179,6 +179,7 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
   });
   renderPage();
   await screen.findByText("IPTU 2026");
+  expect(screen.getByLabelText("Descrição da despesa")).toHaveAttribute("maxLength", "2000");
 
   await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
   expect(await screen.findByText("Exportação CSV solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
@@ -215,6 +216,28 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
   expect(screen.getByRole("heading", { name: "Despesas" })).toHaveFocus();
   expect(billingGets).toBe(3);
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
+});
+
+it("rejects a whitespace-only expense description before calling the API", async () => {
+  let expensePosts = 0;
+  installFetch((key) => {
+    if (key === "POST /api/v1/billings/billing-public/expenses") {
+      expensePosts += 1;
+      return jsonResponse(expense, 201);
+    }
+    return dataResponse(key);
+  });
+  renderPage();
+  const description = await screen.findByLabelText("Descrição da despesa");
+  fireEvent.change(description, { target: { value: "   " } });
+  fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
+
+  fireEvent.submit(description.closest("form")!);
+
+  expect(await screen.findByText("Informe a descrição da despesa.")).toBeVisible();
+  expect(description).toHaveFocus();
+  expect(expensePosts).toBe(0);
 });
 
 it("confirms transfer and uses the public organization UUID before navigating", async () => {
@@ -342,7 +365,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
   await screen.findByLabelText("Valor da despesa (R$)");
   await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
-  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "abc");
+  await user.type(screen.getByLabelText("Valor da despesa (R$)"), "10,00");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa" }));
   expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
   expect(screen.getByLabelText("Valor da despesa (R$)")).toHaveFocus();
@@ -769,7 +792,12 @@ const staleMutationFailures: Array<{
     endpoint: "POST /api/v1/billings/billing-public/expenses",
     errorText: "Não foi possível adicionar a despesa.",
     mutation: "expense creation",
-    run: async () => { fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!); }
+    run: async () => {
+      fireEvent.change(screen.getByLabelText("Descrição da despesa"), { target: { value: "Pintura" } });
+      fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
+      fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
+      fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
+    }
   },
   {
     endpoint: "DELETE /api/v1/billings/billing-public/expenses/expense-public",

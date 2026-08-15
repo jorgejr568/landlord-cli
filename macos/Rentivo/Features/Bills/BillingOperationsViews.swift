@@ -218,7 +218,7 @@ private struct ExpenseFormView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
-          .disabled(saving || description.isEmpty || centavos <= 0)
+          .disabled(saving || !ExpenseInput.isValidDescription(description) || centavos <= 0)
       }
     }
     .interactiveDismissDisabled(saving)
@@ -232,7 +232,7 @@ private struct ExpenseFormView: View {
     do {
       _ = try await app.dependencies.expenses.createExpense(
         billingID: billingID,
-        description: description,
+        description: ExpenseInput.normalizedDescription(description),
         category: category,
         incurredOn: selectedDate,
         amount: Money(centavos: centavos)

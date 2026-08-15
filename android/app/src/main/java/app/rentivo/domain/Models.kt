@@ -73,6 +73,9 @@ class DemoError(override val message: String) : Exception(message), LocalizedErr
     val invalidAmount = DemoError(
       message = "O valor informado deve ser maior que zero."
     )
+    val invalidDescription = DemoError(
+      message = "Informe uma descrição com no máximo 2000 caracteres."
+    )
   }
 }
 
