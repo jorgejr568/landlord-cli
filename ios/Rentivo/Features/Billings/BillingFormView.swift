@@ -85,7 +85,7 @@ struct BillingFormView: View {
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
-  @State private var organizationsLoaded = false
+  @State private var organizationsLoaded: Bool
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -99,6 +99,7 @@ struct BillingFormView: View {
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
     _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _organizationsLoaded = State(initialValue: billing != nil)
   }
 
   var body: some View {
@@ -108,9 +109,11 @@ struct BillingFormView: View {
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
           .lineLimit(2...4)
-        Picker("Responsável", selection: $ownerID) {
-          ForEach(ownerChoices, id: \.id) { owner in
-            Text(owner.name).tag(owner.id)
+        if billing == nil {
+          Picker("Responsável", selection: $ownerID) {
+            ForEach(ownerChoices, id: \.id) { owner in
+              Text(owner.name).tag(owner.id)
+            }
           }
         }
       }
@@ -234,6 +237,7 @@ struct BillingFormView: View {
     }
     .interactiveDismissDisabled(saving)
     .task {
+      guard billing == nil else { return }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -243,15 +247,9 @@ struct BillingFormView: View {
     var owners: [BillingOwner] = [
       .user(id: app.currentUser.id, name: "Pessoal")
     ]
-    if let currentOwner = billing?.owner,
-      !owners.contains(where: { $0.id == currentOwner.id })
-    {
-      owners.append(currentOwner)
-    }
     let existingIDs = Set(owners.map(\.id))
-    let organizationOwners =
-      organizations
-      .map { BillingOwner.organization(id: $0.id, name: $0.name) }
+    let organizationOwners = organizations
+      .compactMap(\.billingOwnerForCreation)
       .filter { !existingIDs.contains($0.id) }
     owners.append(contentsOf: organizationOwners)
     return owners
@@ -259,7 +257,12 @@ struct BillingFormView: View {
 
   private func save() async {
     submitErrorMessage = nil
-    guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
+    let owner: BillingOwner
+    if let billing {
+      owner = billing.owner
+    } else if let selected = ownerChoices.first(where: { $0.id == ownerID }) {
+      owner = selected
+    } else {
       submitErrorMessage = "Não foi possível confirmar o responsável."
       return
     }

@@ -69,7 +69,15 @@ data class Organization(
   val requiresMFA: Boolean,
   val currentUserRole: OrganizationRole,
   val capabilities: OrganizationCapabilities = OrganizationCapabilities.full,
-)
+) {
+  /** Roles are descriptive; the capability returned by the API is authoritative. */
+  val billingOwnerForCreation: BillingOwner?
+    get() = if (capabilities.canCreateBilling) {
+      BillingOwner.Organization(id = id, name = name)
+    } else {
+      null
+    }
+}
 
 /**
  * Effective policy returned after changing an organization's MFA requirement. The setup flag is

@@ -91,6 +91,13 @@ public struct Organization: Identifiable, Hashable, Codable, Sendable {
     self.currentUserRole = currentUserRole
     self.capabilities = capabilities
   }
+
+  /// A billing can be created in this workspace only when the server says the current principal
+  /// has that capability. Roles alone are not authoritative for API-key principals.
+  public var billingOwnerForCreation: BillingOwner? {
+    guard capabilities.canCreateBilling else { return nil }
+    return .organization(id: id, name: name)
+  }
 }
 
 /// The effective result returned after changing an organization's MFA policy.

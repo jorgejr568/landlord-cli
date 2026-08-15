@@ -178,19 +178,21 @@ fun BillingFormView(
   var pixRecipientRequiredMessage by remember { mutableStateOf<String?>(null) }
   var saving by remember { mutableStateOf(false) }
   var organizations by remember { mutableStateOf(emptyList<Organization>()) }
-  var organizationsLoaded by remember { mutableStateOf(false) }
+  var organizationsLoaded by remember { mutableStateOf(existing != null) }
 
   val ownerChoices = ownerChoices(
     currentUserID = app.currentUser.id,
-    currentOwner = existing?.owner,
     organizations = organizations,
   )
 
   suspend fun save() {
-    val owner = ownerChoices.firstOrNull { it.workspaceID == ownerID }
-    if (owner == null) {
-      app.showNotice("Não foi possível confirmar o responsável.", AppNotice.Kind.WARNING)
-      return
+    val owner = if (existing != null) {
+      existing.owner
+    } else {
+      ownerChoices.firstOrNull { it.workspaceID == ownerID } ?: run {
+        app.showNotice("Não foi possível confirmar o responsável.", AppNotice.Kind.WARNING)
+        return
+      }
     }
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched, so
     // it is dropped rather than reported as invalid. Partially filled rows still fail validation
@@ -243,6 +245,7 @@ fun BillingFormView(
   }
 
   LaunchedEffect(Unit) {
+    if (existing != null) return@LaunchedEffect
     organizations = try {
       app.dependencies.organizations.listOrganizations()
     } catch (cancellation: CancellationException) {
@@ -328,6 +331,7 @@ fun BillingFormView(
           ownerID = ownerID,
           onOwnerIDChange = { ownerID = it },
           ownerChoices = ownerChoices,
+          showsOwnerPicker = existing == null,
         )
       }
       item { ItemsSection(items = items) }
@@ -361,24 +365,19 @@ fun BillingFormView(
 }
 
 /**
- * "Pessoal", the billing's current owner when it is something else, and every organization the user
- * belongs to — deduplicated by workspace id, in that order.
+ * "Pessoal" followed by organizations for which the API explicitly grants billing creation.
  */
 private fun ownerChoices(
   currentUserID: Int,
-  currentOwner: BillingOwner?,
   organizations: List<Organization>,
 ): List<BillingOwner> {
   val owners = mutableListOf<BillingOwner>(
     BillingOwner.User(id = currentUserID, name = "Pessoal")
   )
-  if (currentOwner != null && owners.none { it.workspaceID == currentOwner.workspaceID }) {
-    owners.add(currentOwner)
-  }
   val existingIDs = owners.map { it.workspaceID }.toSet()
   owners.addAll(
     organizations
-      .map { BillingOwner.Organization(id = it.id, name = it.name) }
+      .mapNotNull { it.billingOwnerForCreation }
       .filterNot { existingIDs.contains(it.workspaceID) }
   )
   return owners
@@ -393,6 +392,7 @@ private fun IdentificationSection(
   ownerID: WorkspaceID,
   onOwnerIDChange: (WorkspaceID) -> Unit,
   ownerChoices: List<BillingOwner>,
+  showsOwnerPicker: Boolean,
 ) {
   FormSection(title = "Identificação") {
     FormTextField(
@@ -408,12 +408,14 @@ private fun IdentificationSection(
       onValueChange = onDescriptionChange,
       singleLine = false,
     )
-    RentivoListDivider()
-    OwnerPickerRow(
-      ownerID = ownerID,
-      onOwnerIDChange = onOwnerIDChange,
-      ownerChoices = ownerChoices,
-    )
+    if (showsOwnerPicker) {
+      RentivoListDivider()
+      OwnerPickerRow(
+        ownerID = ownerID,
+        onOwnerIDChange = onOwnerIDChange,
+        ownerChoices = ownerChoices,
+      )
+    }
   }
 }
 

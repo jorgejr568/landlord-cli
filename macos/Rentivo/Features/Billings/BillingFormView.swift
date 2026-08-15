@@ -63,22 +63,18 @@ struct EditableRecipient: Identifiable {
   }
 }
 
-/// Who a cobrança can be filed under: the signed-in user, the owner it already has (which may be
-/// an organization the user can no longer list), and every other organization they belong to.
+/// Who a new cobrança can be filed under. The capability returned by the server is authoritative;
+/// membership and role labels alone do not grant creation.
 enum BillingFormOwnerChoices {
   static func choices(
     currentUserID: Int,
-    existingOwner: BillingOwner?,
     organizations: [Organization]
   ) -> [BillingOwner] {
     var owners: [BillingOwner] = [.user(id: currentUserID, name: "Pessoal")]
-    if let existingOwner, !owners.contains(where: { $0.id == existingOwner.id }) {
-      owners.append(existingOwner)
-    }
     let existingIDs = Set(owners.map(\.id))
     owners.append(
       contentsOf: organizations
-        .map { BillingOwner.organization(id: $0.id, name: $0.name) }
+        .compactMap(\.billingOwnerForCreation)
         .filter { !existingIDs.contains($0.id) }
     )
     return owners
@@ -133,7 +129,7 @@ struct BillingFormView: View {
   @State private var submitFailureMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
-  @State private var organizationsLoaded = false
+  @State private var organizationsLoaded: Bool
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -147,6 +143,7 @@ struct BillingFormView: View {
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
     _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _organizationsLoaded = State(initialValue: billing != nil)
   }
 
   var body: some View {
@@ -163,13 +160,15 @@ struct BillingFormView: View {
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
           .lineLimit(2...4)
-        Picker("Responsável", selection: $ownerID) {
-          ForEach(ownerChoices, id: \.id) { owner in
-            Text(owner.name).tag(owner.id)
+        if billing == nil {
+          Picker("Responsável", selection: $ownerID) {
+            ForEach(ownerChoices, id: \.id) { owner in
+              Text(owner.name).tag(owner.id)
+            }
           }
+          .disabled(!organizationsLoaded)
         }
-        .disabled(!organizationsLoaded)
-        if !organizationsLoaded {
+        if billing == nil && !organizationsLoaded {
           // Salvar is disabled until the organizations arrive, because until then the list of
           // responsáveis is incomplete and the cobrança could be filed under the wrong one. That
           // wait is a second or two of a dead button otherwise, so it says what it is waiting for.
@@ -314,6 +313,7 @@ struct BillingFormView: View {
     }
     .interactiveDismissDisabled(saving)
     .task {
+      guard billing == nil else { return }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -322,7 +322,6 @@ struct BillingFormView: View {
   private var ownerChoices: [BillingOwner] {
     BillingFormOwnerChoices.choices(
       currentUserID: app.currentUser.id,
-      existingOwner: billing?.owner,
       organizations: organizations
     )
   }
@@ -354,7 +353,12 @@ struct BillingFormView: View {
     // Every issue from the previous attempt is re-derived below, so the section never mixes a
     // fresh validation run with a stale server error.
     submitFailureMessage = nil
-    guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
+    let owner: BillingOwner
+    if let billing {
+      owner = billing.owner
+    } else if let selected = ownerChoices.first(where: { $0.id == ownerID }) {
+      owner = selected
+    } else {
       submitFailureMessage = "Não foi possível confirmar o responsável."
       return
     }

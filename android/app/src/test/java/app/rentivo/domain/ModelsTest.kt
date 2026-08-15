@@ -186,4 +186,42 @@ class ModelsTest {
       ).workspaceID,
     )
   }
+
+  @Test
+  fun onlyOrganizationsAllowedByTheApiCanOwnANewBilling() {
+    val allowed = Organization(
+      id = StableID.organizationHorizonte,
+      name = "Horizonte",
+      pix = null,
+      members = emptyList(),
+      requiresMFA = false,
+      currentUserRole = OrganizationRole.VIEWER,
+      capabilities = OrganizationCapabilities(
+        canManage = false,
+        canInvite = false,
+        canCreateBilling = true,
+        canViewBillingStats = false,
+      ),
+    )
+    val denied = Organization(
+      id = OrganizationID("organization-denied"),
+      name = "Sem criação",
+      pix = null,
+      members = emptyList(),
+      requiresMFA = false,
+      currentUserRole = OrganizationRole.ADMIN,
+      capabilities = OrganizationCapabilities(
+        canManage = true,
+        canInvite = true,
+        canCreateBilling = false,
+        canViewBillingStats = true,
+      ),
+    )
+
+    assertEquals(
+      BillingOwner.Organization(id = StableID.organizationHorizonte, name = "Horizonte"),
+      allowed.billingOwnerForCreation,
+    )
+    assertNull(denied.billingOwnerForCreation)
+  }
 }
