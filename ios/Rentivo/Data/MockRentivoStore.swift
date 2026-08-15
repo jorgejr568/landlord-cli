@@ -508,6 +508,12 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     else {
       throw DemoError.operationFailed
     }
+    guard billIndex(billingID: billingID, billID: billID) != nil else {
+      throw DemoError.resourceNotFound
+    }
+    if saveScope == .owner && !billing.capabilities.canEdit {
+      throw DemoError.permissionDenied
+    }
     let byID = Dictionary(uniqueKeysWithValues: billing.recipients.map { ($0.id, $0) })
     let selected = recipientIDs.compactMap { byID[$0] }
     guard selected.count == recipientIDs.count else { throw DemoError.operationFailed }
@@ -526,6 +532,15 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       sentAt: Date()
     )
     snapshot.communications.insert(communication, at: 0)
+    if let saveScope {
+      saveCommunicationTemplate(
+        scope: saveScope,
+        billing: billing,
+        commType: commType,
+        subject: normalizedSubject,
+        body: normalizedMessage
+      )
+    }
     recordActivity(kind: .bill, title: "Comunicação simulada", detail: normalizedSubject)
     return selected.count
   }
@@ -1040,6 +1055,32 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   private func organizationIndex(_ id: OrganizationID) -> Int? {
     snapshot.organizations.firstIndex { $0.id == id }
+  }
+
+  private func saveCommunicationTemplate(
+    scope: CommunicationSaveScope,
+    billing: Billing,
+    commType: CommunicationType,
+    subject: String,
+    body: String
+  ) {
+    let targetIDs: Set<BillingID>
+    switch scope {
+    case .billing:
+      targetIDs = [billing.id]
+    case .owner:
+      targetIDs = Set(snapshot.billings.filter { $0.owner == billing.owner }.map(\.id))
+    }
+    let template = CommunicationTemplate(commType: commType, subject: subject, body: body)
+    for index in snapshot.billings.indices where targetIDs.contains(snapshot.billings[index].id) {
+      if let templateIndex = snapshot.billings[index].communicationTemplates.firstIndex(
+        where: { $0.commType == commType }
+      ) {
+        snapshot.billings[index].communicationTemplates[templateIndex] = template
+      } else {
+        snapshot.billings[index].communicationTemplates.append(template)
+      }
+    }
   }
 
   private func recordActivity(kind: ActivityKind, title: String, detail: String) {

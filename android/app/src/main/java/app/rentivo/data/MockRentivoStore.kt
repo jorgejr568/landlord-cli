@@ -24,6 +24,7 @@ import app.rentivo.domain.CommunicationID
 import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationRecord
 import app.rentivo.domain.CommunicationSaveScope
+import app.rentivo.domain.CommunicationTemplate
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.CreatedAPIKeySecret
 import app.rentivo.domain.DateOnly
@@ -637,6 +638,10 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     val billing = billingsState.firstOrNull { it.id == billingID }
     if (billing == null || recipientIDs.isEmpty()) throw DemoError.operationFailed
+    if (billIndex(billingID = billingID, billID = billID) == null) throw DemoError.resourceNotFound
+    if (saveScope == CommunicationSaveScope.OWNER && !billing.capabilities.canEdit) {
+      throw DemoError.permissionDenied
+    }
     val byID = billing.recipients.associateBy { it.id }
     val selected = recipientIDs.mapNotNull { byID[it] }
     if (selected.size != recipientIDs.size) throw DemoError.operationFailed
@@ -654,6 +659,15 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       sentAt = Instant.now(),
     )
     communicationsState.add(0, communication)
+    if (saveScope != null) {
+      saveCommunicationTemplate(
+        scope = saveScope,
+        billing = billing,
+        commType = commType,
+        subject = normalizedSubject,
+        body = normalizedMessage,
+      )
+    }
     recordActivity(kind = ActivityKind.BILL, title = "Comunicação simulada", detail = normalizedSubject)
     return selected.size
   }
@@ -1210,6 +1224,29 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   private fun organizationIndex(id: OrganizationID): Int? =
     organizationsState.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+
+  private fun saveCommunicationTemplate(
+    scope: CommunicationSaveScope,
+    billing: Billing,
+    commType: CommunicationType,
+    subject: String,
+    body: String,
+  ) {
+    val targetIDs = when (scope) {
+      CommunicationSaveScope.BILLING -> setOf(billing.id)
+      CommunicationSaveScope.OWNER -> billingsState
+        .filter { it.owner == billing.owner }
+        .mapTo(mutableSetOf()) { it.id }
+    }
+    val template = CommunicationTemplate(commType = commType, subject = subject, body = body)
+    billingsState.replaceAll { candidate ->
+      if (candidate.id !in targetIDs) return@replaceAll candidate
+      val templates = candidate.communicationTemplates.toMutableList()
+      val index = templates.indexOfFirst { it.commType == commType }
+      if (index >= 0) templates[index] = template else templates.add(template)
+      candidate.copy(communicationTemplates = templates)
+    }
+  }
 
   private fun recordActivity(kind: ActivityKind, title: String, detail: String) {
     activitiesState.add(

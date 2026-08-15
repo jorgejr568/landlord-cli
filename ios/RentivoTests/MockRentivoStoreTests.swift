@@ -373,6 +373,53 @@ import Testing
   }
 }
 
+@Test @MainActor func sendingCommunicationValidatesTheBillAndPersistsTemplateScope() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipient = try #require(billing.recipients.first)
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: billing.id,
+      billID: StableID.billSent,
+      commType: .billReady,
+      recipientIDs: [recipient.id],
+      subject: "Assunto",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "  Modelo pessoal  ",
+    message: "  Corpo pessoal  ",
+    acknowledgeWarning: false,
+    saveScope: .owner
+  )
+  let sibling = try await store.billing(id: StableID.billingAurora202)
+  #expect(sibling.template(for: .billReady)?.subject == "Modelo pessoal")
+  #expect(sibling.template(for: .billReady)?.body == "Corpo pessoal")
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "Modelo da cobrança",
+    message: "Corpo da cobrança",
+    acknowledgeWarning: false,
+    saveScope: .billing
+  )
+  let updated = try await store.billing(id: billing.id)
+  #expect(updated.template(for: .billReady)?.subject == "Modelo da cobrança")
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == "Modelo pessoal")
+}
+
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {
   // Matches the server contract: `ExpenseCreateRequest.amount` requires
   // `exclusiveMinimum: 0`.

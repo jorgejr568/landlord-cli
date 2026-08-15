@@ -9,6 +9,7 @@ import app.rentivo.domain.BillStatus
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
@@ -401,6 +402,57 @@ class MockRentivoStoreTest {
         saveScope = null,
       )
     }
+  }
+
+  @Test
+  fun sendingCommunicationValidatesTheBillAndPersistsTemplateScope() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val billing = store.billing(id = StableID.billingAurora101)
+    val recipient = billing.recipients.first()
+
+    assertDemoError {
+      store.sendCommunication(
+        billingID = billing.id,
+        billID = StableID.billSent,
+        commType = CommunicationType.BILL_READY,
+        recipientIDs = listOf(recipient.id),
+        subject = "Assunto",
+        message = "Corpo",
+        acknowledgeWarning = false,
+        saveScope = null,
+      )
+    }
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "  Modelo pessoal  ",
+      message = "  Corpo pessoal  ",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.OWNER,
+    )
+    val sibling = store.billing(id = StableID.billingAurora202)
+    assertEquals("Modelo pessoal", sibling.template(CommunicationType.BILL_READY)?.subject)
+    assertEquals("Corpo pessoal", sibling.template(CommunicationType.BILL_READY)?.body)
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "Modelo da cobrança",
+      message = "Corpo da cobrança",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.BILLING,
+    )
+    val updated = store.billing(id = billing.id)
+    assertEquals("Modelo da cobrança", updated.template(CommunicationType.BILL_READY)?.subject)
+    assertEquals(
+      "Modelo pessoal",
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
   }
 
   @Test
