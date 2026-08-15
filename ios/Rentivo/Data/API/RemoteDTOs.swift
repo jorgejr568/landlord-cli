@@ -38,11 +38,14 @@ struct RemoteBillingTransfer: Encodable { let organizationID: String; enum Codin
 struct RemoteInvitation: Decodable { let uuid, invitedEmail, role, status: String; enum CodingKeys: String, CodingKey { case uuid, role, status; case invitedEmail = "invited_email" } }
 struct RemotePendingInvitationList: Decodable { let items: [RemotePendingInvitation] }
 struct RemotePendingInvitation: Decodable {
-  let uuid, organizationUUID, organizationName, role: String
+  let uuid, organizationUUID, organizationName, role, invitedByEmail: String
+  let enforceMFA: Bool
   enum CodingKeys: String, CodingKey {
     case uuid, role
     case organizationUUID = "organization_uuid"
     case organizationName = "organization_name"
+    case invitedByEmail = "invited_by_email"
+    case enforceMFA = "enforce_mfa"
   }
 }
 struct RemoteInvitationAcceptance: Decodable {

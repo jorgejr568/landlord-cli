@@ -65,6 +65,19 @@ import Testing
 }
 
 @MainActor
+@Test func livePendingInvitationsPreserveSenderAndMFAPolicy() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: organizationSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+
+  _ = try #require(try await store.restoreSession())
+  let invitation = try #require(try await store.listPendingInvitations().first)
+
+  #expect(invitation.invitedByEmail == "admin@horizonte.com.br")
+  #expect(invitation.organizationEnforcesMFA)
+}
+
+@MainActor
 @Test func liveInviteMemberFallsBackToThePlaceholderNameWhenTheEnrichmentGetFails() async throws {
   // The name lookup is best effort and overlaps the POST: a caller who may invite but not read the
   // organization still gets the invitation the server created, under the placeholder name.
@@ -232,6 +245,8 @@ private final class OrganizationURLProtocol: URLProtocol, @unchecked Sendable {
       body = #"{"enforce_mfa":true,"mfa_setup_required":true}"#
     case ("POST", "/api/v1/invites/invite-1/accept"):
       body = #"{"status":"accepted","organization_uuid":"organization-1","mfa_setup_required":true}"#
+    case ("GET", "/api/v1/invites"):
+      body = #"{"items":[{"uuid":"invite-1","organization_uuid":"organization-1","organization_name":"Horizonte","role":"manager","enforce_mfa":true,"created_at":"2026-08-15T00:00:00Z","invited_by_email":"admin@horizonte.com.br"}]}"#
     case ("POST", "/api/v1/organizations"):
       body = #"{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,"current_role":"admin","capabilities":{"can_manage":true,"can_invite":true,"can_create_billing":true,"can_view_billing_stats":true},"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"},"members":[{"user_id":7,"email":"ana@rentivo.com.br","role":"admin"}]}"#
     default:

@@ -170,12 +170,14 @@ class APIRentivoStoreOrganizationTest {
   }
 
   @Test
-  fun `pending invitations fill the email from the cached profile and are always pending`() =
+  fun `pending invitations preserve sender and mfa policy and are always pending`() =
     runTest {
       server.routeWithSession {
         jsonResponse(
           """{"items":[{"uuid":"invite-1","organization_uuid":"organization-1",""" +
-            """"organization_name":"Horizonte","role":"manager"}]}"""
+            """"organization_name":"Horizonte","role":"manager","enforce_mfa":true,""" +
+            """"created_at":"2026-08-15T00:00:00Z",""" +
+            """"invited_by_email":"admin@horizonte.com.br"}]}"""
         )
       }
       val store = authenticatedStore()
@@ -186,6 +188,8 @@ class APIRentivoStoreOrganizationTest {
       assertEquals(app.rentivo.domain.InvitationStatus.PENDING, invitation.status)
       assertEquals(OrganizationRole.MANAGER, invitation.role)
       assertEquals(OrganizationID(rawValue = "organization-1"), invitation.organizationID)
+      assertEquals("admin@horizonte.com.br", invitation.invitedByEmail)
+      assertEquals(true, invitation.organizationEnforcesMFA)
     }
 
   @Test

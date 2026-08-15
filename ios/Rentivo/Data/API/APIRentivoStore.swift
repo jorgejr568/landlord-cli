@@ -367,7 +367,9 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       Invitation(
         id: InvitationID(rawValue: $0.uuid), organizationID: OrganizationID(rawValue: $0.organizationUUID),
         organizationName: $0.organizationName, email: user.email,
-        role: OrganizationRole(rawValue: $0.role) ?? .viewer, status: .pending
+        role: OrganizationRole(rawValue: $0.role) ?? .viewer, status: .pending,
+        invitedByEmail: $0.invitedByEmail,
+        organizationEnforcesMFA: $0.enforceMFA
       )
     }
   }

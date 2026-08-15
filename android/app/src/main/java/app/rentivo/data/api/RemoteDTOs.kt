@@ -160,6 +160,8 @@ data class RemotePendingInvitation(
   @SerialName("organization_uuid") val organizationUUID: String,
   @SerialName("organization_name") val organizationName: String,
   val role: String,
+  @SerialName("invited_by_email") val invitedByEmail: String,
+  @SerialName("enforce_mfa") val enforceMFA: Boolean,
 )
 
 @Serializable

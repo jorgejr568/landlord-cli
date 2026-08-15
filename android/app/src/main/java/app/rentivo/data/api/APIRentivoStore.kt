@@ -634,6 +634,8 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         email = user.email,
         role = OrganizationRole.fromWire(it.role) ?: OrganizationRole.VIEWER,
         status = InvitationStatus.PENDING,
+        invitedByEmail = it.invitedByEmail,
+        organizationEnforcesMFA = it.enforceMFA,
       )
     }
   }

@@ -29,6 +29,17 @@ struct InvitationListView: View {
             Text(invitation.organizationName).font(RentivoTypography.cardTitle)
             Label(invitation.role.label, systemImage: "person.badge.shield.checkmark")
               .font(RentivoTypography.caption)
+            if let invitedByEmail = invitation.invitedByEmail {
+              Label("Convidado por \(invitedByEmail)", systemImage: "envelope.fill")
+                .font(RentivoTypography.caption)
+                .foregroundStyle(RentivoColors.secondaryInk)
+            }
+            if invitation.organizationEnforcesMFA {
+              Label("Esta organização exige MFA.", systemImage: "lock.shield.fill")
+                .font(RentivoTypography.metadata)
+                .foregroundStyle(RentivoColors.coral)
+                .accessibilityIdentifier("invitation.mfa.required")
+            }
             if !app.usesLiveAPI && app.demoSettings.viewerMode {
               Label("Ações indisponíveis no modo visualizador.", systemImage: "eye.fill")
                 .font(RentivoTypography.caption)

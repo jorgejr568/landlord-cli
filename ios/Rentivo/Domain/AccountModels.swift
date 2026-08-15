@@ -211,6 +211,8 @@ public struct Invitation: Identifiable, Hashable, Codable, Sendable {
   public var email: String
   public var role: OrganizationRole
   public var status: InvitationStatus
+  public var invitedByEmail: String?
+  public var organizationEnforcesMFA: Bool
 
   public init(
     id: InvitationID,
@@ -218,7 +220,9 @@ public struct Invitation: Identifiable, Hashable, Codable, Sendable {
     organizationName: String,
     email: String,
     role: OrganizationRole,
-    status: InvitationStatus
+    status: InvitationStatus,
+    invitedByEmail: String? = nil,
+    organizationEnforcesMFA: Bool = false
   ) {
     self.id = id
     self.organizationID = organizationID
@@ -226,6 +230,8 @@ public struct Invitation: Identifiable, Hashable, Codable, Sendable {
     self.email = email
     self.role = role
     self.status = status
+    self.invitedByEmail = invitedByEmail
+    self.organizationEnforcesMFA = organizationEnforcesMFA
   }
 }
 

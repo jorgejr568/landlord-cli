@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Drafts
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.Info
@@ -205,6 +207,22 @@ private fun InvitationRow(
         style = RentivoTypography.caption,
         tint = RentivoColors.ink,
       )
+      invitation.invitedByEmail?.let { invitedByEmail ->
+        IconLabel(
+          text = "Convidado por $invitedByEmail",
+          icon = Icons.Filled.Email,
+          style = RentivoTypography.caption,
+        )
+      }
+      if (invitation.organizationEnforcesMFA) {
+        IconLabel(
+          text = "Esta organização exige MFA.",
+          icon = Icons.Filled.Security,
+          style = RentivoTypography.caption,
+          tint = RentivoColors.coral,
+          modifier = Modifier.testTag("invitation.mfa.required"),
+        )
+      }
       if (showsViewerNotice) {
         IconLabel(
           text = "Ações indisponíveis no modo visualizador.",

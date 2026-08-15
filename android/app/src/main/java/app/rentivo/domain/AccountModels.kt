@@ -177,6 +177,8 @@ data class Invitation(
   val email: String,
   val role: OrganizationRole,
   val status: InvitationStatus,
+  val invitedByEmail: String? = null,
+  val organizationEnforcesMFA: Boolean = false,
 )
 
 data class InvitationAcceptance(
