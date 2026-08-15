@@ -6,6 +6,16 @@ import Testing
 @Suite("macOS AppModel demo settings")
 @MainActor
 struct AppModelDemoSettingsTests {
+  @Test("invalidating data bumps the shared revision")
+  func invalidationBumpsRevision() {
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+    let initialRevision = app.dataRevision
+
+    app.invalidateData()
+
+    #expect(app.dataRevision == initialRevision + 1)
+  }
+
   @Test("only the content-shaping toggles bump dataRevision")
   func delayToggleSkipsDataRevisionButEmptyAndViewerToggleBumpIt() {
     let app = AppModel(store: MockRentivoStore(fixtures: .canonical))

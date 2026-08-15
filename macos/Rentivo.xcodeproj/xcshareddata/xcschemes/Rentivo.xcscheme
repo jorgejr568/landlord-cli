@@ -39,6 +39,15 @@
                ReferencedContainer = "container:Rentivo.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference skipped = "NO" parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B20000000000000000000013"
+               BuildableName = "RentivoMacUITests.xctest"
+               BlueprintName = "RentivoMacUITests"
+               ReferencedContainer = "container:Rentivo.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

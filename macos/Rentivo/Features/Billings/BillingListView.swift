@@ -88,7 +88,7 @@ struct BillingListView: View {
       .rentivoSheetFrame()
     }
     .navigationDestination(for: BillingID.self) { id in
-      BillingDetailView(billingID: id) { await load() }
+      BillingDetailView(billingID: id)
     }
     .task(id: app.dataRevision) { await load() }
   }
