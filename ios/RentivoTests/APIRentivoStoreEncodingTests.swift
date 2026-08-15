@@ -31,6 +31,20 @@ import Testing
   ])
 }
 
+@Test func organizationUpdateEncodingClearsPixWithEmptyStrings() throws {
+  let data = try JSONEncoder().encode(
+    RemoteOrganizationUpdate(draft: OrganizationDraft(name: "Nova Org", pix: nil))
+  )
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+  #expect(json == [
+    "name": "Nova Org",
+    "pix_key": "",
+    "pix_merchant_name": "",
+    "pix_merchant_city": "",
+  ])
+}
+
 @MainActor
 @Test func liveCreateBillEncodesVariableAmountsForMatchingULIDsAndOmitsClientMintedIDs() async throws {
   // Regression test: createBill used to send only `extras`, silently dropping user-edited

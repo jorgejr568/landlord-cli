@@ -110,17 +110,17 @@ data class RemoteOrganizationCreate(
 
 @Serializable
 data class RemoteOrganizationUpdate(
-  val name: String?,
-  @SerialName("pix_key") val pixKey: String?,
-  @SerialName("pix_merchant_name") val pixMerchantName: String?,
-  @SerialName("pix_merchant_city") val pixMerchantCity: String?,
+  val name: String,
+  @SerialName("pix_key") val pixKey: String,
+  @SerialName("pix_merchant_name") val pixMerchantName: String,
+  @SerialName("pix_merchant_city") val pixMerchantCity: String,
 ) {
   companion object {
     fun from(draft: OrganizationDraft): RemoteOrganizationUpdate = RemoteOrganizationUpdate(
       name = draft.name,
-      pixKey = draft.pix?.key,
-      pixMerchantName = draft.pix?.merchantName,
-      pixMerchantCity = draft.pix?.merchantCity,
+      pixKey = draft.pix?.key.orEmpty(),
+      pixMerchantName = draft.pix?.merchantName.orEmpty(),
+      pixMerchantCity = draft.pix?.merchantCity.orEmpty(),
     )
   }
 }
