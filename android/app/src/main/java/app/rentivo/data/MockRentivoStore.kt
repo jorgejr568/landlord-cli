@@ -13,6 +13,7 @@ import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.AttachmentUploadRules
 import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillStatus
@@ -355,8 +356,27 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     prepareOperation()
     val index = billIndex(billingID = billingID, billID = id) ?: throw DemoError.resourceNotFound
     advancePendingRender(index = index, billID = id)
-    return restrictIfNeeded(billsState[index])
+    return restrictIfNeeded(withCommunicationHistory(billsState[index]))
   }
+
+  private fun withCommunicationHistory(bill: Bill): Bill = bill.copy(
+    communications = communicationsState
+      .filter { it.billID == bill.id }
+      .flatMap { record ->
+        record.recipients.mapIndexed { index, email ->
+          BillCommunication(
+            id = CommunicationID(rawValue = "${record.id.rawValue}-$index"),
+            commType = null,
+            status = "sent",
+            createdAt = record.sentAt,
+            sentAt = record.sentAt,
+            recipientName = null,
+            recipientEmail = email,
+            subject = record.subject,
+          )
+        }
+      },
+  )
 
   /**
    * Demo mode fakes the background render: each fetch consumes one tick of the countdown started
@@ -1251,6 +1271,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
         canSendInvoice = false,
         canSendRecibo = false,
       ),
+      communications = bill.communications.map {
+        it.copy(recipientName = null, recipientEmail = null, subject = null)
+      },
     )
   } else {
     bill

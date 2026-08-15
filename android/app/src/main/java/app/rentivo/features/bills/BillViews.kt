@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Folder
@@ -114,6 +116,7 @@ import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
@@ -139,6 +142,8 @@ import app.rentivo.domain.ReferenceMonth
 import app.rentivo.domain.ValidationIssue
 import java.io.File
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -150,6 +155,10 @@ import kotlinx.coroutines.launch
 
 /** The years the competência stepper accepts, mirroring the iOS `Stepper(in: 2024...2035)`. */
 private val YEAR_RANGE = 2024..2035
+
+private val BILL_HISTORY_DATE_FORMAT = DateTimeFormatter
+  .ofPattern("dd/MM/yyyy HH:mm")
+  .withZone(ZoneId.systemDefault())
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
@@ -1078,6 +1087,8 @@ private fun BillDetailContent(
       onMutation = onMutation,
     )
 
+    BillCommunicationHistorySection(bill = bill)
+
     if (bill.capabilities.canCompose) {
       RentivoButton(
         onClick = onCompose,
@@ -1178,6 +1189,71 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillTransition) -> U
             style = RentivoTypography.body,
           )
         }
+      }
+    }
+    bill.statusUpdatedAt?.let { updatedAt ->
+      Text(
+        text = "Status atualizado em ${BILL_HISTORY_DATE_FORMAT.format(updatedAt)}.",
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+    }
+  }
+}
+
+@Composable
+private fun BillCommunicationHistorySection(bill: Bill) {
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
+    SectionTitle(title = "Comunicações", icon = Icons.Filled.Email)
+    if (bill.communications.isEmpty()) {
+      Text(
+        text = "Nenhuma comunicação enviada.",
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+    } else {
+      RentivoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
+          bill.communications.forEachIndexed { index, item ->
+            if (index > 0) RentivoListDivider()
+            BillCommunicationHistoryRow(item = item)
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun BillCommunicationHistoryRow(item: BillCommunication) {
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+      Text(
+        text = BILL_HISTORY_DATE_FORMAT.format(item.createdAt),
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+      Spacer(modifier = Modifier.weight(1f))
+      Text(
+        text = item.deliveryLabel,
+        style = RentivoTypography.caption,
+        color = if (item.status == "failed") RentivoColors.coral else RentivoColors.secondaryInk,
+      )
+    }
+    if (item.isRedacted) {
+      Text(text = "Dados do destinatário protegidos", style = RentivoTypography.body)
+    } else {
+      Text(
+        text = listOfNotNull(item.recipientName, item.recipientEmail).joinToString(" · "),
+        style = RentivoTypography.body,
+        color = RentivoColors.ink,
+      )
+      item.subject?.let { subject ->
+        Text(
+          text = subject,
+          style = RentivoTypography.caption,
+          color = RentivoColors.secondaryInk,
+        )
       }
     }
   }

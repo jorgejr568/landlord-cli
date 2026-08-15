@@ -300,6 +300,10 @@ import Testing
   #expect(queued == recipientIDs.count)
   let record = try #require(store.snapshot.communications.first)
   #expect(Set(record.recipients) == Set(billing.recipients.map(\.email)))
+  let history = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPublished
+  ).communications
+  #expect(Set(history.compactMap(\.recipientEmail)) == Set(record.recipients))
   #expect(store.recentActivities.first?.detail == record.subject)
 }
 

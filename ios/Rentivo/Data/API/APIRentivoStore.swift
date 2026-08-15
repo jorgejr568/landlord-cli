@@ -647,6 +647,20 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       }, receipts: (remote.receipts ?? []).map {
         Receipt(id: ReceiptID(rawValue: $0.uuid), name: $0.filename, sortOrder: $0.sortOrder)
       },
+      communications: try (remote.communications ?? []).map { communication in
+        BillCommunication(
+          id: CommunicationID(rawValue: communication.uuid),
+          commType: CommunicationType(rawValue: communication.commType),
+          status: communication.status,
+          createdAt: try WireDate.isoDate(communication.createdAt),
+          sentAt: try communication.sentAt.map(WireDate.isoDate),
+          recipientName: communication.recipientName,
+          recipientEmail: communication.recipientEmail,
+          subject: communication.subject
+        )
+      },
+      statusUpdatedAt: try remote.statusUpdatedAt.map(WireDate.isoDate),
+      createdAt: try remote.createdAt.map(WireDate.isoDate),
       // Server-authoritative transitions/total for this bill (see `Bill.effectiveTransitions` /
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.

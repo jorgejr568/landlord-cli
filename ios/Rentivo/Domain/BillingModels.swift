@@ -664,6 +664,41 @@ public struct BillTransition: Hashable, Codable, Sendable {
   }
 }
 
+public struct BillCommunication: Identifiable, Hashable, Codable, Sendable {
+  public let id: CommunicationID
+  public let commType: CommunicationType?
+  public let status: String
+  public let createdAt: Date
+  public let sentAt: Date?
+  public let recipientName: String?
+  public let recipientEmail: String?
+  public let subject: String?
+
+  public var isRedacted: Bool { recipientEmail == nil }
+  public var deliveryLabel: String {
+    switch status {
+    case "sent": "Enviado"
+    case "failed": "Falhou"
+    default: "Na fila"
+    }
+  }
+
+  public init(
+    id: CommunicationID, commType: CommunicationType?, status: String,
+    createdAt: Date, sentAt: Date?, recipientName: String?, recipientEmail: String?,
+    subject: String?
+  ) {
+    self.id = id
+    self.commType = commType
+    self.status = status
+    self.createdAt = createdAt
+    self.sentAt = sentAt
+    self.recipientName = recipientName
+    self.recipientEmail = recipientEmail
+    self.subject = subject
+  }
+}
+
 public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public let id: BillID
   public let billingID: BillingID
@@ -676,6 +711,9 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
   public var status: BillStatus
   public var lineItems: [BillLineItem]
   public var receipts: [Receipt]
+  public var communications: [BillCommunication]
+  public var statusUpdatedAt: Date?
+  public var createdAt: Date?
   /// Server-authoritative transitions for this specific bill, when the API
   /// supplies them. `nil` means "not provided by this response" — callers
   /// should fall back to `status.allowedTransitions` (see `effectiveTransitions`).
@@ -704,6 +742,9 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     status: BillStatus,
     lineItems: [BillLineItem],
     receipts: [Receipt],
+    communications: [BillCommunication] = [],
+    statusUpdatedAt: Date? = nil,
+    createdAt: Date? = nil,
     availableTransitions: [BillStatus]? = nil,
     availableTransitionActions: [BillTransition]? = nil,
     serverTotal: Money? = nil,
@@ -721,6 +762,9 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     self.status = status
     self.lineItems = lineItems
     self.receipts = receipts
+    self.communications = communications
+    self.statusUpdatedAt = statusUpdatedAt
+    self.createdAt = createdAt
     self.availableTransitions = availableTransitions
     self.availableTransitionActions = availableTransitionActions
     self.serverTotal = serverTotal
@@ -775,6 +819,8 @@ public struct Bill: Identifiable, Hashable, Codable, Sendable {
     merged.hasInvoice = updated.hasInvoice
     merged.hasRecibo = updated.hasRecibo
     merged.status = updated.status
+    merged.statusUpdatedAt = updated.statusUpdatedAt
+    if let createdAt = updated.createdAt { merged.createdAt = createdAt }
     merged.availableTransitions = updated.availableTransitions
     merged.availableTransitionActions = updated.availableTransitionActions
     return merged

@@ -833,14 +833,28 @@ data class RemoteBill(
   val status: String,
   @SerialName("due_date") val dueDate: String? = null,
   @SerialName("status_updated_at") val statusUpdatedAt: String? = null,
+  @SerialName("created_at") val createdAt: String? = null,
   @SerialName("line_items") val lineItems: List<RemoteBillLine>,
   val receipts: List<RemoteReceipt>? = null,
+  val communications: List<RemoteBillCommunication>? = null,
   @SerialName("total_amount") val totalAmount: Long,
   @SerialName("available_transitions") val availableTransitions: List<RemoteAvailableTransition>,
   @SerialName("pdf_render_status") val pdfRenderStatus: String? = null,
   @SerialName("has_invoice") val hasInvoice: Boolean? = null,
   @SerialName("has_recibo") val hasRecibo: Boolean? = null,
   val capabilities: RemoteBillCapabilities? = null,
+)
+
+@Serializable
+data class RemoteBillCommunication(
+  val uuid: String,
+  @SerialName("comm_type") val commType: String,
+  val status: String,
+  @SerialName("created_at") val createdAt: String,
+  @SerialName("sent_at") val sentAt: String? = null,
+  @SerialName("recipient_name") val recipientName: String? = null,
+  @SerialName("recipient_email") val recipientEmail: String? = null,
+  val subject: String? = null,
 )
 
 @Serializable

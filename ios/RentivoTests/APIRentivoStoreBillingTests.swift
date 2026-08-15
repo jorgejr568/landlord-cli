@@ -154,6 +154,11 @@ import Testing
   #expect(bill.effectiveTotal == Money(centavos: 10_000))
   #expect(bill.effectiveTransitions == Set([.paid, .delayedPayment]))
   #expect(bill.effectiveTransitionActions.last?.requiresConfirmation == true)
+  #expect(bill.statusUpdatedAt != nil)
+  #expect(bill.communications.count == 2)
+  #expect(bill.communications.first?.recipientEmail == "morador@example.com")
+  #expect(bill.communications.first?.status == "sent")
+  #expect(bill.communications.last?.isRedacted == true)
 }
 
 @MainActor
@@ -345,7 +350,7 @@ private final class BillDetailURLProtocol: URLProtocol, @unchecked Sendable {
     case "/api/v1/auth/session":
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
     case "/api/v1/billings/billing-1/bills/bill-1":
-      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_open_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":true},"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
+      body = #"{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at":"2026-08-15T12:00:00Z","created_at":"2026-08-01T12:00:00Z","line_items":[{"description":"Aluguel","amount":10000,"item_type":"fixed"}],"receipts":[],"communications":[{"uuid":"comm-1","comm_type":"bill_ready","status":"sent","created_at":"2026-08-15T10:00:00Z","sent_at":"2026-08-15T10:01:00Z","recipient_name":"Morador","recipient_email":"morador@example.com","subject":"Fatura disponível"},{"uuid":"comm-2","comm_type":"bill_ready","status":"queued","created_at":"2026-08-15T11:00:00Z","sent_at":null}],"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,"has_recibo":false,"capabilities":{"can_edit":true,"can_delete":true,"can_transition":true,"can_regenerate":true,"can_upload_receipts":true,"can_delete_receipts":true,"can_reorder_receipts":true,"can_download_invoice":false,"can_download_recibo":false,"can_open_recibo":false,"can_compose":true,"can_send_invoice":false,"can_send_recibo":true},"available_transitions":[{"target":"paid","label":"Marcar como paga","style":"primary","requires_confirmation":false},{"target":"delayed_payment","label":"Marcar como atrasada","style":"secondary","requires_confirmation":true}]}"#
     case "/api/v1/billings/billing-1/bills/bill-legacy":
       // An older payload that predates `pdf_render_status`/`capabilities` on the wire.
       body = #"{"uuid":"bill-legacy","reference_month":"2026-07","notes":"","status":"sent","due_date":"2026-07-10","status_updated_at": null,"line_items":[],"receipts":[],"total_amount":0,"pdf_render_status":null,"available_transitions":[]}"#

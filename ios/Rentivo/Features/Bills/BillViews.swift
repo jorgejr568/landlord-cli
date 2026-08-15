@@ -416,6 +416,8 @@ struct BillDetailView: View {
           capabilities: bill.capabilities
         ) { await refreshAll() }
 
+        communicationHistory(bill)
+
         if bill.capabilities.canCompose {
           Button {
             showingCommunication = true
@@ -516,6 +518,48 @@ struct BillDetailView: View {
           .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
           .disabled(transitioningTo != nil)
           .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
+        }
+      }
+      if let statusUpdatedAt = bill.statusUpdatedAt {
+        Text("Status atualizado em \(statusUpdatedAt.formattedPTBR(time: .shortened)).")
+          .font(.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      }
+    }
+  }
+
+  private func communicationHistory(_ bill: Bill) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+      SectionTitle(title: "Comunicações", symbol: "envelope.badge")
+      if bill.communications.isEmpty {
+        Text("Nenhuma comunicação enviada.")
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      } else {
+        RentivoCard {
+          VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+            ForEach(Array(bill.communications.enumerated()), id: \.element.id) { index, item in
+              if index > 0 { Divider() }
+              VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                HStack {
+                  Text(item.createdAt.formattedPTBR(time: .shortened))
+                    .font(.caption.monospacedDigit())
+                  Spacer()
+                  Text(item.deliveryLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(item.status == "failed" ? RentivoColors.coral : RentivoColors.secondaryInk)
+                }
+                if item.isRedacted {
+                  Text("Dados do destinatário protegidos")
+                    .font(.subheadline.weight(.semibold))
+                } else {
+                  Text([item.recipientName, item.recipientEmail].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline.weight(.semibold))
+                  if let subject = item.subject { Text(subject).font(.footnote) }
+                }
+              }
+            }
+          }
         }
       }
     }

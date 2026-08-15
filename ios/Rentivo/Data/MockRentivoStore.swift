@@ -235,7 +235,28 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       throw DemoError.resourceNotFound
     }
     advancePendingRender(at: index, billID: id)
-    return restrictIfNeeded(snapshot.bills[index])
+    return restrictIfNeeded(withCommunicationHistory(snapshot.bills[index]))
+  }
+
+  private func withCommunicationHistory(_ bill: Bill) -> Bill {
+    var hydrated = bill
+    hydrated.communications = snapshot.communications
+      .filter { $0.billID == bill.id }
+      .flatMap { record in
+        record.recipients.enumerated().map { index, email in
+          BillCommunication(
+            id: CommunicationID(rawValue: "\(record.id.rawValue)-\(index)"),
+            commType: nil,
+            status: "sent",
+            createdAt: record.sentAt,
+            sentAt: record.sentAt,
+            recipientName: nil,
+            recipientEmail: email,
+            subject: record.subject
+          )
+        }
+      }
+    return hydrated
   }
 
   /// Demo mode fakes the background render: each fetch consumes one tick of the countdown started
@@ -1101,6 +1122,13 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     restricted.capabilities.canCompose = false
     restricted.capabilities.canSendInvoice = false
     restricted.capabilities.canSendRecibo = false
+    restricted.communications = restricted.communications.map {
+      BillCommunication(
+        id: $0.id, commType: $0.commType, status: $0.status,
+        createdAt: $0.createdAt, sentAt: $0.sentAt,
+        recipientName: nil, recipientEmail: nil, subject: nil
+      )
+    }
     return restricted
   }
 

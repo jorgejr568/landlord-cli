@@ -452,20 +452,35 @@ struct RemoteOwner: Decodable { let type: String; let uuid, name: String? }
 struct RemoteBillingItem: Decodable { let uuid, description: String; let amount: Int; let itemType: String; enum CodingKeys: String, CodingKey { case uuid, description, amount; case itemType = "item_type" } }
 struct RemoteBillList: Decodable { let items: [RemoteBill] }
 struct RemoteBill: Decodable {
-  let uuid, referenceMonth, notes, status: String; let dueDate: String?; let statusUpdatedAt: String?
+  let uuid, referenceMonth, notes, status: String
+  let dueDate, statusUpdatedAt, createdAt: String?
   let lineItems: [RemoteBillLine]; let receipts: [RemoteReceipt]?
+  let communications: [RemoteBillCommunication]?
   let totalAmount: Int
   let availableTransitions: [RemoteAvailableTransition]
   let pdfRenderStatus: String?
   let hasInvoice, hasRecibo: Bool?
   let capabilities: RemoteBillCapabilities?
   enum CodingKeys: String, CodingKey {
-    case uuid, notes, status, receipts, capabilities
+    case uuid, notes, status, receipts, communications, capabilities
     case referenceMonth = "reference_month"; case dueDate = "due_date"
     case statusUpdatedAt = "status_updated_at"; case lineItems = "line_items"
+    case createdAt = "created_at"
     case totalAmount = "total_amount"; case availableTransitions = "available_transitions"
     case pdfRenderStatus = "pdf_render_status"
     case hasInvoice = "has_invoice"; case hasRecibo = "has_recibo"
+  }
+}
+struct RemoteBillCommunication: Decodable {
+  let uuid, commType, status, createdAt: String
+  let sentAt, recipientName, recipientEmail, subject: String?
+  enum CodingKeys: String, CodingKey {
+    case uuid, status, subject
+    case commType = "comm_type"
+    case createdAt = "created_at"
+    case sentAt = "sent_at"
+    case recipientName = "recipient_name"
+    case recipientEmail = "recipient_email"
   }
 }
 struct RemoteBillCapabilities: Decodable {

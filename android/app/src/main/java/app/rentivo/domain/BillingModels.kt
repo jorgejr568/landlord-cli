@@ -500,6 +500,25 @@ data class BillTransition(
   }
 }
 
+data class BillCommunication(
+  val id: CommunicationID,
+  val commType: CommunicationType?,
+  val status: String,
+  val createdAt: Instant,
+  val sentAt: Instant?,
+  val recipientName: String?,
+  val recipientEmail: String?,
+  val subject: String?,
+) {
+  val isRedacted: Boolean get() = recipientEmail == null
+  val deliveryLabel: String
+    get() = when (status) {
+      "sent" -> "Enviado"
+      "failed" -> "Falhou"
+      else -> "Na fila"
+    }
+}
+
 data class Bill(
   val id: BillID,
   val billingID: BillingID,
@@ -514,6 +533,9 @@ data class Bill(
   val status: BillStatus,
   val lineItems: List<BillLineItem>,
   val receipts: List<Receipt>,
+  val communications: List<BillCommunication> = emptyList(),
+  val statusUpdatedAt: Instant? = null,
+  val createdAt: Instant? = null,
   /**
    * Server-authoritative transitions for this specific bill, when the API supplies them. `null`
    * means "not provided by this response" — callers fall back to [BillStatus.allowedTransitions]
@@ -574,6 +596,8 @@ data class Bill(
     hasInvoice = updated.hasInvoice,
     hasRecibo = updated.hasRecibo,
     status = updated.status,
+    statusUpdatedAt = updated.statusUpdatedAt,
+    createdAt = updated.createdAt ?: createdAt,
     availableTransitions = updated.availableTransitions,
     availableTransitionActions = updated.availableTransitionActions,
   )

@@ -301,9 +301,16 @@ class APIRentivoStoreBillingTest {
     when (call.path) {
       "/api/v1/billings/billing-1/bills/bill-1" -> jsonResponse(
         """{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent",""" +
-          """"due_date":"2026-07-10","status_updated_at":null,"line_items":[""" +
+          """"due_date":"2026-07-10","status_updated_at":"2026-08-15T12:00:00Z",""" +
+          """"created_at":"2026-08-01T12:00:00Z","line_items":[""" +
           """{"description":"Aluguel","amount":10000,"item_type":"fixed"},""" +
           """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[],""" +
+          """"communications":[{"uuid":"comm-1","comm_type":"bill_ready",""" +
+          """"status":"sent","created_at":"2026-08-15T10:00:00Z",""" +
+          """"sent_at":"2026-08-15T10:01:00Z","recipient_name":"Morador",""" +
+          """"recipient_email":"morador@example.com","subject":"Fatura disponível"},""" +
+          """{"uuid":"comm-2","comm_type":"bill_ready","status":"queued",""" +
+          """"created_at":"2026-08-15T11:00:00Z","sent_at":null}],""" +
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,""" +
@@ -363,6 +370,11 @@ class APIRentivoStoreBillingTest {
     assertEquals(Money(centavos = 10_000), bill.serverTotal)
     assertEquals(Money(centavos = 10_000), bill.effectiveTotal)
     assertEquals(setOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.effectiveTransitions)
+    assertNotNull(bill.statusUpdatedAt)
+    assertEquals(2, bill.communications.size)
+    assertEquals("morador@example.com", bill.communications.first().recipientEmail)
+    assertEquals("sent", bill.communications.first().status)
+    assertTrue(bill.communications.last().isRedacted)
   }
 
   @Test

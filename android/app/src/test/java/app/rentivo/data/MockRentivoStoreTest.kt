@@ -336,6 +336,11 @@ class MockRentivoStoreTest {
     assertEquals(recipientIDs.size, queued)
     val record = store.snapshot.communications.first()
     assertEquals(billing.recipients.map { it.email }.toSet(), record.recipients.toSet())
+    val history = store.bill(
+      billingID = StableID.billingAurora101,
+      id = StableID.billPublished,
+    ).communications
+    assertEquals(record.recipients.toSet(), history.mapNotNull { it.recipientEmail }.toSet())
     assertEquals(record.subject, store.recentActivities.first().detail)
   }
 

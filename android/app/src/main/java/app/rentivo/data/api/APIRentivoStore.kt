@@ -32,6 +32,7 @@ import app.rentivo.domain.AttachmentUploadRules
 import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
@@ -48,6 +49,7 @@ import app.rentivo.domain.BillingItemID
 import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.BillingOwner
 import app.rentivo.domain.BillingRecipient
+import app.rentivo.domain.CommunicationID
 import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationTemplate
@@ -893,6 +895,20 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       receipts = (remote.receipts ?: emptyList()).map {
         Receipt(id = ReceiptID(rawValue = it.uuid), name = it.filename, sortOrder = it.sortOrder)
       },
+      communications = (remote.communications ?: emptyList()).map { communication ->
+        BillCommunication(
+          id = CommunicationID(rawValue = communication.uuid),
+          commType = CommunicationType.fromWire(communication.commType),
+          status = communication.status,
+          createdAt = WireDate.isoDate(communication.createdAt),
+          sentAt = communication.sentAt?.let(WireDate::isoDate),
+          recipientName = communication.recipientName,
+          recipientEmail = communication.recipientEmail,
+          subject = communication.subject,
+        )
+      },
+      statusUpdatedAt = remote.statusUpdatedAt?.let(WireDate::isoDate),
+      createdAt = remote.createdAt?.let(WireDate::isoDate),
       // Server-authoritative transitions/total for this bill (see `Bill.effectiveTransitions` /
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing
       // the whole decode, since a missing action button is a much smaller failure than an error.
