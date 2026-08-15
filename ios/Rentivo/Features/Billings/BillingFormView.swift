@@ -62,6 +62,58 @@ private struct EditableRecipient: Identifiable {
   }
 }
 
+enum BillingWizardFocusRules {
+  enum PIXTarget: Equatable {
+    case key
+    case merchantName
+    case merchantCity
+  }
+
+  enum ContactTarget: Equatable {
+    case name
+    case email
+  }
+
+  struct ItemAmount: Equatable {
+    let type: BillingItemType
+    let centavos: Int
+  }
+
+  static func pixTarget(key: String, merchantName: String, merchantCity: String) -> PIXTarget {
+    if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .key }
+
+    let normalizedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedMerchantName.isEmpty || normalizedMerchantName.unicodeScalars.count > 25 {
+      return .merchantName
+    }
+
+    let normalizedMerchantCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedMerchantCity.isEmpty || normalizedMerchantCity.unicodeScalars.count > 15 {
+      return .merchantCity
+    }
+    return .key
+  }
+
+  static func contactTarget(name: String, email: String) -> ContactTarget {
+    let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255 { return .name }
+    return .email
+  }
+
+  static func firstFixedOverflowIndex(in items: [ItemAmount]) -> Int? {
+    var fixedTotal = 0
+    for (index, item) in items.enumerated() where item.type == .fixed {
+      guard item.centavos >= 0 else { continue }
+      if item.centavos > Money.maximumPersistedCentavos
+        || fixedTotal > Money.maximumPersistedCentavos - item.centavos {
+        return index
+      }
+      fixedTotal += item.centavos
+    }
+    return nil
+  }
+}
+
 struct BillingFormView: View {
   private enum Step: CaseIterable {
     case essentials
@@ -499,7 +551,7 @@ struct BillingFormView: View {
         focusedField = .itemAmount(index)
       }
     case .pix:
-      focusedField = .pixKey
+      focusPIXField()
     case .communication:
       if validationIssues.contains(where: { $0.field == .recipient }),
         let index = firstInvalidContactIndex(in: recipients) {
@@ -514,10 +566,18 @@ struct BillingFormView: View {
   }
 
   private func focusPIXRecipientField() {
-    if pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      focusedField = .pixMerchantName
-    } else {
-      focusedField = .pixMerchantCity
+    focusPIXField()
+  }
+
+  private func focusPIXField() {
+    switch BillingWizardFocusRules.pixTarget(
+      key: pixKey,
+      merchantName: pixMerchantName,
+      merchantCity: pixMerchantCity
+    ) {
+    case .key: focusedField = .pixKey
+    case .merchantName: focusedField = .pixMerchantName
+    case .merchantCity: focusedField = .pixMerchantCity
     }
   }
 
@@ -537,9 +597,9 @@ struct BillingFormView: View {
 
   private var firstInvalidItemAmountIndex: Int? {
     if let negativeAmount = items.firstIndex(where: { $0.centavos < 0 }) { return negativeAmount }
-    if !Money.fitsPersistedTotal(items.lazy.filter { $0.type == .fixed }.map(\.centavos)) {
-      return items.indices.last
-    }
+    if let overflow = BillingWizardFocusRules.firstFixedOverflowIndex(
+      in: items.map { .init(type: $0.type, centavos: $0.centavos) }
+    ) { return overflow }
     return items.firstIndex { $0.type == .variable && $0.centavos != 0 }
   }
 
@@ -563,12 +623,11 @@ struct BillingFormView: View {
   }
 
   private func focusContact(_ contact: EditableRecipient, at index: Int, isReplyTo: Bool) {
-    let missingName = contact.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    switch (isReplyTo, missingName) {
-    case (false, true): focusedField = .recipientName(index)
-    case (false, false): focusedField = .recipientEmail(index)
-    case (true, true): focusedField = .replyToName(index)
-    case (true, false): focusedField = .replyToEmail(index)
+    switch (isReplyTo, BillingWizardFocusRules.contactTarget(name: contact.name, email: contact.email)) {
+    case (false, .name): focusedField = .recipientName(index)
+    case (false, .email): focusedField = .recipientEmail(index)
+    case (true, .name): focusedField = .replyToName(index)
+    case (true, .email): focusedField = .replyToEmail(index)
     }
   }
 
