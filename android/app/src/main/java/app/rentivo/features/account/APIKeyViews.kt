@@ -69,19 +69,17 @@ import app.rentivo.designsystem.rentivoSwitchColors
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.APIKeyValidation
 import app.rentivo.domain.CreatedAPIKeySecret
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.LoadState
-import app.rentivo.domain.Organization
 import app.rentivo.domain.WorkspaceID
 import app.rentivo.domain.WorkspaceResourceType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
-
-/** One year in seconds — the default validity a freshly drafted key gets. */
-private const val DEFAULT_VALIDITY_SECONDS = 31_536_000L
 
 /** A `Switch` at iOS `UISwitch` proportions: Material draws its own noticeably larger. */
 private const val SWITCH_SCALE = 0.85f
@@ -150,9 +148,9 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     }
   }
 
-  suspend fun update(key: APIKeyMetadata, draft: APIKeyDraft) {
+  suspend fun update(key: APIKeyMetadata, draft: APIKeyDraft, updateGrants: Boolean) {
     try {
-      app.dependencies.apiKeys.updateAPIKey(key.id, draft)
+      app.dependencies.apiKeys.updateAPIKey(key.id, draft, updateGrants = updateGrants)
       editingKey = null
       load()
       app.showNotice("Metadados da chave atualizados.")
@@ -229,7 +227,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = null,
       onDismiss = { showingCreate = false },
-      onSubmit = { draft -> scope.launch { create(draft) } },
+      onSubmit = { draft, _ -> scope.launch { create(draft) } },
     )
   }
 
@@ -237,7 +235,7 @@ fun APIKeyListScreen(onBack: () -> Unit) {
     APIKeyFormScreen(
       existing = key,
       onDismiss = { editingKey = null },
-      onSubmit = { draft -> scope.launch { update(key, draft) } },
+      onSubmit = { draft, updateGrants -> scope.launch { update(key, draft, updateGrants) } },
     )
   }
 
@@ -391,9 +389,10 @@ private fun DateColumn(title: String, value: Instant, alignment: Alignment.Horiz
 private fun APIKeyFormScreen(
   existing: APIKeyMetadata?,
   onDismiss: () -> Unit,
-  onSubmit: (APIKeyDraft) -> Unit,
+  onSubmit: (APIKeyDraft, Boolean) -> Unit,
 ) {
   val app = LocalAppModel.current
+  val formScope = rememberCoroutineScope()
   val originalGrants = remember(existing) {
     val grants = existing?.grants
       ?: listOf(
@@ -404,6 +403,9 @@ private fun APIKeyFormScreen(
       )
     grants.associateBy { it.resourceID }
   }
+  val originalGrantIDs = remember(existing) {
+    originalGrants.values.filter { it.available }.map { it.resourceID }.toSet()
+  }
   var name by remember(existing) { mutableStateOf(existing?.name ?: "Nova integração") }
   val scopes: SnapshotStateList<APIKeyScope> = remember(existing) {
     mutableStateListOf<APIKeyScope>().apply {
@@ -411,26 +413,36 @@ private fun APIKeyFormScreen(
     }
   }
   val grantIDs: SnapshotStateList<WorkspaceID> = remember(existing) {
-    mutableStateListOf<WorkspaceID>().apply { addAll(originalGrants.keys) }
+    mutableStateListOf<WorkspaceID>().apply { addAll(originalGrantIDs) }
   }
   var expiresAt by remember(existing) {
-    mutableStateOf(
-      existing?.expiresAt ?: Instant.now().plusSeconds(DEFAULT_VALIDITY_SECONDS)
-    )
+    mutableStateOf(existing?.expiresAt ?: Instant.now())
   }
-  var organizations by remember { mutableStateOf<List<Organization>>(emptyList()) }
+  var options by remember { mutableStateOf<APIKeyOptions?>(null) }
+  var optionsError by remember { mutableStateOf<DemoError?>(null) }
   var showingDatePicker by remember { mutableStateOf(false) }
 
   // The sheet installs its own back handler, but this one is registered later and therefore wins;
   // either way back dismisses only the form, never the API-key screen underneath it.
   BackHandler { onDismiss() }
 
-  LaunchedEffect(Unit) {
-    // Mirrors the iOS `try?`: an unreachable organization list degrades to "personal account only"
-    // rather than blocking the form.
-    organizations = runCatching { app.dependencies.organizations.listOrganizations() }
-      .getOrDefault(emptyList())
+  suspend fun loadOptions() {
+    optionsError = null
+    try {
+      val loaded = app.dependencies.apiKeys.apiKeyOptions()
+      options = loaded
+      if (existing == null) {
+        scopes.retainAll(loaded.scopes.toSet())
+        expiresAt = loaded.defaultExpiration()
+      }
+    } catch (cancellation: CancellationException) {
+      throw cancellation
+    } catch (error: Throwable) {
+      optionsError = DemoError.from(error)
+    }
   }
+
+  LaunchedEffect(Unit) { loadOptions() }
 
   fun submit() {
     val grants = grantIDs.sortedBy { it.rawValue }.map { resourceID ->
@@ -444,13 +456,15 @@ private fun APIKeyFormScreen(
           resourceID = resourceID,
         )
     }
+    val loadedOptions = options ?: return
     onSubmit(
       APIKeyDraft(
-        name = name,
+        name = name.trim(),
         scopes = scopes.toSet(),
         grants = grants,
-        expiresAt = expiresAt,
-      )
+        expiresAt = existing?.expiresAt ?: loadedOptions.clampedExpiration(expiresAt),
+      ),
+      grantIDs.toSet() != originalGrantIDs,
     )
   }
 
@@ -468,7 +482,8 @@ private fun APIKeyFormScreen(
         AccountToolbarAction {
           TextButton(
             onClick = { submit() },
-            enabled = name.isNotEmpty() && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
+            enabled = options != null && options?.scopes?.isNotEmpty() == true &&
+              APIKeyValidation.isValidName(name) && scopes.isNotEmpty() && grantIDs.isNotEmpty(),
             modifier = Modifier.testTag("api-key.submit"),
           ) {
             Text(text = if (existing == null) "Criar" else "Salvar")
@@ -498,64 +513,102 @@ private fun APIKeyFormScreen(
 
         AccountSection(
           title = "Escopos seguros",
-          rows = APIKeyScope.integrationCases.map { scope ->
+          rows = options?.scopes?.map { apiKeyScope ->
             {
               ToggleRow(
-                label = scope.label,
-                checked = scopes.contains(scope),
+                label = apiKeyScope.label,
+                checked = scopes.contains(apiKeyScope),
                 onCheckedChange = { enabled ->
                   if (enabled) {
-                    if (!scopes.contains(scope)) scopes.add(scope)
+                    if (!scopes.contains(apiKeyScope)) scopes.add(apiKeyScope)
                   } else {
-                    scopes.remove(scope)
+                    scopes.remove(apiKeyScope)
                   }
                 },
               )
             }
-          },
+          } ?: listOf({
+            OptionsStatusRow(
+              error = optionsError,
+              onRetry = { formScope.launch { loadOptions() } },
+            )
+          }),
         )
 
         AccountSection(
           title = "Acesso",
-          rows = buildList {
-            add({
-              ResourceToggle(
-                label = "Conta pessoal",
-                id = WorkspaceID.personal,
-                grantIDs = grantIDs,
-              )
-            })
-            organizations.forEach { organization ->
+          rows = options?.let { apiKeyOptions ->
+            buildList {
               add({
                 ResourceToggle(
-                  label = organization.name,
-                  id = WorkspaceID(rawValue = organization.id.rawValue),
+                  label = apiKeyOptions.personalWorkspace.name,
+                  id = apiKeyOptions.personalWorkspace.resourceID,
                   grantIDs = grantIDs,
                 )
               })
+              apiKeyOptions.organizations.forEach { workspace ->
+                add({
+                  ResourceToggle(
+                    label = workspace.name,
+                    id = workspace.resourceID,
+                    grantIDs = grantIDs,
+                  )
+                })
+              }
             }
-          },
-        )
-
-        AccountSection(
-          title = "Validade",
-          rows = listOf({
-            ExpiryRow(
-              value = expiresAt,
-              onClick = { showingDatePicker = true },
+          } ?: listOf({
+            OptionsStatusRow(
+              error = optionsError,
+              onRetry = { formScope.launch { loadOptions() } },
             )
           }),
         )
+
+        if (existing == null && options != null) {
+          AccountSection(
+            title = "Validade",
+            rows = listOf({
+              ExpiryRow(
+                value = expiresAt,
+                onClick = { showingDatePicker = true },
+              )
+            }),
+          )
+        }
       }
     }
   }
 
-  if (showingDatePicker) {
+  if (showingDatePicker && options != null) {
     ExpiryDatePicker(
       initial = expiresAt,
+      minimum = Instant.now().plusSeconds(60),
+      maximum = options!!.maximumExpiration(),
       onDismiss = { showingDatePicker = false },
-      onSelect = { expiresAt = it },
+      onSelect = { expiresAt = options!!.clampedExpiration(it) },
     )
+  }
+}
+
+@Composable
+private fun OptionsStatusRow(error: DemoError?, onRetry: () -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = AccountRowMinHeight)
+      .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
+    horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.small),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = error?.message ?: "Carregando opções…",
+      style = RentivoTypography.body,
+      color = if (error == null) RentivoColors.secondaryInk else RentivoColors.destructiveText,
+      modifier = Modifier.weight(1f),
+    )
+    if (error != null) {
+      TextButton(onClick = onRetry) { Text("Tentar novamente") }
+    }
   }
 }
 
@@ -593,10 +646,18 @@ private fun ExpiryRow(value: Instant, onClick: () -> Unit) {
 @Composable
 private fun ExpiryDatePicker(
   initial: Instant,
+  minimum: Instant,
+  maximum: Instant,
   onDismiss: () -> Unit,
   onSelect: (Instant) -> Unit,
 ) {
-  val pickerState = rememberDatePickerState(initialSelectedDateMillis = initial.toEpochMilli())
+  val pickerState = rememberDatePickerState(
+    initialSelectedDateMillis = initial.toEpochMilli(),
+    selectableDates = object : androidx.compose.material3.SelectableDates {
+      override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+        utcTimeMillis >= minimum.toEpochMilli() && utcTimeMillis <= maximum.toEpochMilli()
+    },
+  )
   DatePickerDialog(
     onDismissRequest = onDismiss,
     confirmButton = {

@@ -117,6 +117,33 @@ struct RemoteAttachment: Decodable {
   }
 }
 struct RemoteAPIKeyList: Decodable { let items: [RemoteAPIKey] }
+struct RemoteAPIKeyOptions: Decodable {
+  let scopes: [String]
+  let personalWorkspace: RemoteAPIKeyPersonalWorkspace
+  let organizations: [RemoteAPIKeyOrganizationWorkspace]
+  let defaultExpirationDays, maxExpirationDays: Int
+  enum CodingKeys: String, CodingKey {
+    case scopes, organizations
+    case personalWorkspace = "personal_workspace"
+    case defaultExpirationDays = "default_expiration_days"
+    case maxExpirationDays = "max_expiration_days"
+  }
+}
+struct RemoteAPIKeyPersonalWorkspace: Decodable {
+  let resourceType, resourceID: String
+  enum CodingKeys: String, CodingKey {
+    case resourceType = "resource_type"
+    case resourceID = "resource_id"
+  }
+}
+struct RemoteAPIKeyOrganizationWorkspace: Decodable {
+  let resourceType, resourceID, name: String
+  enum CodingKeys: String, CodingKey {
+    case name
+    case resourceType = "resource_type"
+    case resourceID = "resource_id"
+  }
+}
 struct RemoteAPIKey: Decodable {
   let uuid, name, hint, expiresAt, createdAt: String
   let scopes: [String]
@@ -171,11 +198,11 @@ struct RemoteAPIKeyCreate: Encodable {
 struct RemoteAPIKeyUpdate: Encodable {
   let name: String
   let scopes: [String]
-  let grants: [RemoteAPIKeyGrantInput]
-  init(draft: APIKeyDraft) {
+  let grants: [RemoteAPIKeyGrantInput]?
+  init(draft: APIKeyDraft, updateGrants: Bool) {
     name = draft.name
     scopes = draft.scopes.map(\.rawValue).sorted()
-    grants = draft.grants.map(RemoteAPIKeyGrantInput.init)
+    grants = updateGrants ? draft.grants.map(RemoteAPIKeyGrantInput.init) : nil
   }
 }
 struct RemoteAPIKeyGrantInput: Encodable {

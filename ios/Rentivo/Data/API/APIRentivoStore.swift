@@ -414,6 +414,30 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return response.recoveryCodes
   }
   public func deletePasskey(id: PasskeyID) async throws { try await execute(path: "/api/v1/security/passkeys/\(id.rawValue)", method: "DELETE") }
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    let response: RemoteAPIKeyOptions = try await decode(path: "/api/v1/api-keys/options")
+    let personalType = WorkspaceResourceType(rawValue: response.personalWorkspace.resourceType) ?? .user
+    return APIKeyOptions(
+      scopes: response.scopes.compactMap(APIKeyScope.init(rawValue:)),
+      personalWorkspace: APIKeyWorkspaceOption(
+        resourceType: personalType,
+        resourceID: WorkspaceID(rawValue: response.personalWorkspace.resourceID),
+        name: "Conta pessoal"
+      ),
+      organizations: response.organizations.compactMap { organization in
+        guard let resourceType = WorkspaceResourceType(rawValue: organization.resourceType) else {
+          return nil
+        }
+        return APIKeyWorkspaceOption(
+          resourceType: resourceType,
+          resourceID: WorkspaceID(rawValue: organization.resourceID),
+          name: organization.name
+        )
+      },
+      defaultExpirationDays: response.defaultExpirationDays,
+      maxExpirationDays: response.maxExpirationDays
+    )
+  }
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     let response: RemoteAPIKeyList = try await decode(path: "/api/v1/api-keys")
     // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
@@ -425,9 +449,12 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     )
     return CreatedAPIKeySecret(metadata: try apiKey(from: response.apiKey), secret: response.secret)
   }
-  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+  public func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata {
     let response: RemoteAPIKey = try await decode(
-      path: "/api/v1/api-keys/\(id.rawValue)", method: "PATCH", body: RemoteAPIKeyUpdate(draft: draft)
+      path: "/api/v1/api-keys/\(id.rawValue)", method: "PATCH",
+      body: RemoteAPIKeyUpdate(draft: draft, updateGrants: updateGrants)
     )
     return try apiKey(from: response)
   }

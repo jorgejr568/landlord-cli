@@ -265,6 +265,28 @@ data class RemoteAttachment(
 data class RemoteAPIKeyList(val items: List<RemoteAPIKey>)
 
 @Serializable
+data class RemoteAPIKeyOptions(
+  val scopes: List<String>,
+  @SerialName("personal_workspace") val personalWorkspace: RemoteAPIKeyPersonalWorkspace,
+  val organizations: List<RemoteAPIKeyOrganizationWorkspace>,
+  @SerialName("default_expiration_days") val defaultExpirationDays: Int,
+  @SerialName("max_expiration_days") val maxExpirationDays: Int,
+)
+
+@Serializable
+data class RemoteAPIKeyPersonalWorkspace(
+  @SerialName("resource_type") val resourceType: String,
+  @SerialName("resource_id") val resourceID: String,
+)
+
+@Serializable
+data class RemoteAPIKeyOrganizationWorkspace(
+  @SerialName("resource_type") val resourceType: String,
+  @SerialName("resource_id") val resourceID: String,
+  val name: String,
+)
+
+@Serializable
 data class RemoteAPIKey(
   val uuid: String,
   val name: String,
@@ -332,13 +354,13 @@ data class RemoteAPIKeyCreate(
 data class RemoteAPIKeyUpdate(
   val name: String,
   val scopes: List<String>,
-  val grants: List<RemoteAPIKeyGrantInput>,
+  val grants: List<RemoteAPIKeyGrantInput>? = null,
 ) {
   companion object {
-    fun from(draft: APIKeyDraft): RemoteAPIKeyUpdate = RemoteAPIKeyUpdate(
+    fun from(draft: APIKeyDraft, updateGrants: Boolean): RemoteAPIKeyUpdate = RemoteAPIKeyUpdate(
       name = draft.name,
       scopes = draft.scopes.map { it.wire }.sorted(),
-      grants = draft.grants.map { RemoteAPIKeyGrantInput.from(it) },
+      grants = if (updateGrants) draft.grants.map { RemoteAPIKeyGrantInput.from(it) } else null,
     )
   }
 }

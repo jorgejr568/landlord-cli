@@ -3,6 +3,7 @@ package app.rentivo.data
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.Bill
@@ -273,11 +274,17 @@ interface SecurityRepository {
 }
 
 interface APIKeyRepository {
+  suspend fun apiKeyOptions(): APIKeyOptions
+
   suspend fun listAPIKeys(): List<APIKeyMetadata>
 
   suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret
 
-  suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata
+  suspend fun updateAPIKey(
+    id: APIKeyID,
+    draft: APIKeyDraft,
+    updateGrants: Boolean = true,
+  ): APIKeyMetadata
 
   suspend fun revokeAPIKey(id: APIKeyID)
 }

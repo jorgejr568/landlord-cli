@@ -478,7 +478,23 @@ import Testing
   #expect(updated.name == updatedDraft.name)
   #expect(updated.scopes == updatedDraft.scopes)
   #expect(updated.grants == updatedDraft.grants)
-  #expect(updated.expiresAt == updatedDraft.expiresAt)
+  // PATCH does not accept `expires_at`; metadata edits must preserve the issued expiry.
+  #expect(updated.expiresAt == key.expiresAt)
+}
+
+@Test @MainActor func apiKeyUpdateKeepsGrantsWhenTheFormDidNotChangeAccess() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let key = try #require(try await store.listAPIKeys().first)
+  let draft = APIKeyDraft(
+    name: "Somente nome",
+    scopes: key.scopes,
+    grants: [],
+    expiresAt: key.expiresAt
+  )
+
+  let updated = try await store.updateAPIKey(id: key.id, draft: draft, updateGrants: false)
+
+  #expect(updated.grants == key.grants)
 }
 
 @Test @MainActor func demoSettingsAreAuthoritativeAndResetTogether() async throws {

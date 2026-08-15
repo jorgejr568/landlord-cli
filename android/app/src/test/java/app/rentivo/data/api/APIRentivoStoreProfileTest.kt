@@ -66,6 +66,14 @@ class APIRentivoStoreProfileTest {
           """"revoked_at":"2026-02-01T00:00:00.000000+00:00"}]}"""
       )
 
+      "GET /api/v1/api-keys/options" -> jsonResponse(
+        """{"scopes":["profile:read","unknown:scope","billings:read"],""" +
+          """"personal_workspace":{"resource_type":"user","resource_id":"personal"},""" +
+          """"organizations":[{"resource_type":"organization",""" +
+          """"resource_id":"organization-1","name":"Horizonte"}],""" +
+          """"default_expiration_days":30,"max_expiration_days":180}"""
+      )
+
       else -> unexpected(call)
     }
   }
@@ -219,6 +227,23 @@ class APIRentivoStoreProfileTest {
   }
 
   @Test
+  fun `api key options use server scopes workspaces and expiration limits`() = runTest {
+    profileRoutes()
+    val store = authenticatedStore()
+
+    val options = store.apiKeyOptions()
+
+    assertEquals(listOf(APIKeyScope.PROFILE_READ, APIKeyScope.BILLINGS_READ), options.scopes)
+    assertEquals(WorkspaceID.personal, options.personalWorkspace.resourceID)
+    assertEquals(
+      listOf(WorkspaceID(rawValue = "organization-1")),
+      options.organizations.map { it.resourceID },
+    )
+    assertEquals(30, options.defaultExpirationDays)
+    assertEquals(180, options.maxExpirationDays)
+  }
+
+  @Test
   fun `creating an api key sorts its scopes and decodes the flattened secret`() = runTest {
     val dispatcher = server.routeWithSession {
       jsonResponse(
@@ -252,6 +277,33 @@ class APIRentivoStoreProfileTest {
       "personal",
       body["grants"]!!.jsonArray[0].jsonObject["resource_id"]!!.jsonPrimitive.content,
     )
+  }
+
+  @Test
+  fun `updating an api key omits grants when workspace access was not changed`() = runTest {
+    val dispatcher = server.routeWithSession {
+      jsonResponse(
+        """{"uuid":"key-1","name":"Painel financeiro","hint":"rntv-v1-ab••cd",""" +
+          """"scopes":["billings:read","profile:read"],"grants":[{"resource_type":""" +
+          """"organization","resource_id":null,"available":false}],""" +
+          """"expires_at":"2026-12-31T23:59:59+00:00","last_used_at":null,""" +
+          """"created_at":"2026-01-01T00:00:00+00:00","revoked_at":null}"""
+      )
+    }
+    val store = authenticatedStore()
+
+    store.updateAPIKey(
+      id = app.rentivo.domain.APIKeyID(rawValue = "key-1"),
+      draft = APIKeyDraft.demo,
+      updateGrants = false,
+    )
+
+    val body = apiJson.parseToJsonElement(
+      dispatcher.bodyOf("PATCH /api/v1/api-keys/key-1")
+    ).jsonObject
+    assertEquals("Painel financeiro", body["name"]!!.jsonPrimitive.content)
+    assertNull(body["grants"])
+    assertNull(body["expires_at"])
   }
 
   @Test

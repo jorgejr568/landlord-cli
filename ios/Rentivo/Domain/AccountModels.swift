@@ -223,6 +223,62 @@ public enum WorkspaceResourceType: String, Codable, Sendable {
   case organization
 }
 
+public struct APIKeyWorkspaceOption: Identifiable, Hashable, Codable, Sendable {
+  public var id: WorkspaceID { resourceID }
+  public let resourceType: WorkspaceResourceType
+  public let resourceID: WorkspaceID
+  public let name: String
+
+  public init(resourceType: WorkspaceResourceType, resourceID: WorkspaceID, name: String) {
+    self.resourceType = resourceType
+    self.resourceID = resourceID
+    self.name = name
+  }
+}
+
+public struct APIKeyOptions: Hashable, Codable, Sendable {
+  public let scopes: [APIKeyScope]
+  public let personalWorkspace: APIKeyWorkspaceOption
+  public let organizations: [APIKeyWorkspaceOption]
+  public let defaultExpirationDays: Int
+  public let maxExpirationDays: Int
+
+  public init(
+    scopes: [APIKeyScope],
+    personalWorkspace: APIKeyWorkspaceOption,
+    organizations: [APIKeyWorkspaceOption],
+    defaultExpirationDays: Int,
+    maxExpirationDays: Int
+  ) {
+    self.scopes = scopes
+    self.personalWorkspace = personalWorkspace
+    self.organizations = organizations
+    self.defaultExpirationDays = defaultExpirationDays
+    self.maxExpirationDays = maxExpirationDays
+  }
+
+  public func defaultExpiration(from now: Date = Date()) -> Date {
+    now.addingTimeInterval(TimeInterval(defaultExpirationDays) * 86_400)
+  }
+
+  /// Keep the same one-minute request-latency buffer as the web client so a value selected at the
+  /// upper boundary remains valid when it reaches the server.
+  public func maximumExpiration(from now: Date = Date()) -> Date {
+    now.addingTimeInterval(TimeInterval(maxExpirationDays) * 86_400 - 60)
+  }
+
+  public func clampedExpiration(_ selected: Date, from now: Date = Date()) -> Date {
+    min(max(selected, now.addingTimeInterval(60)), maximumExpiration(from: now))
+  }
+}
+
+public enum APIKeyValidation {
+  public static func isValidName(_ name: String) -> Bool {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !trimmed.isEmpty && trimmed.count <= 255
+  }
+}
+
 public struct APIKeyGrant: Hashable, Codable, Sendable {
   public var resourceType: WorkspaceResourceType
   public var resourceID: WorkspaceID

@@ -820,6 +820,24 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       kind: .security, title: "Chave de acesso removida", detail: snapshot.profile.email)
   }
 
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    try await prepareOperation()
+    return APIKeyOptions(
+      scopes: APIKeyScope.integrationCases,
+      personalWorkspace: APIKeyWorkspaceOption(
+        resourceType: .user, resourceID: .personal, name: "Conta pessoal"),
+      organizations: snapshot.organizations.map { organization in
+        APIKeyWorkspaceOption(
+          resourceType: .organization,
+          resourceID: WorkspaceID(rawValue: organization.id.rawValue),
+          name: organization.name
+        )
+      },
+      defaultExpirationDays: 90,
+      maxExpirationDays: 365
+    )
+  }
+
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     try await prepareOperation()
     guard !emptyMode else { return [] }
@@ -845,12 +863,14 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return CreatedAPIKeySecret(metadata: metadata, secret: "rntv-v1-demo-8K2P-N4M7-X9Q3")
   }
 
-  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+  public func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata {
     try await prepareOperation()
     try requireWriteAccess()
     guard !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       !draft.scopes.isEmpty,
-      !draft.grants.isEmpty
+      (!updateGrants || !draft.grants.isEmpty)
     else {
       throw DemoError.operationFailed
     }
@@ -860,8 +880,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
     snapshot.apiKeys[index].name = draft.name
     snapshot.apiKeys[index].scopes = draft.scopes
-    snapshot.apiKeys[index].grants = draft.grants
-    snapshot.apiKeys[index].expiresAt = draft.expiresAt
+    if updateGrants { snapshot.apiKeys[index].grants = draft.grants }
     recordActivity(
       kind: .apiKey, title: "Chave de API atualizada", detail: snapshot.apiKeys[index].name
     )

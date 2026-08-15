@@ -171,6 +171,36 @@ enum class WorkspaceResourceType(val wire: String) {
   }
 }
 
+data class APIKeyWorkspaceOption(
+  val resourceType: WorkspaceResourceType,
+  val resourceID: WorkspaceID,
+  val name: String,
+) {
+  val id: WorkspaceID get() = resourceID
+}
+
+data class APIKeyOptions(
+  val scopes: List<APIKeyScope>,
+  val personalWorkspace: APIKeyWorkspaceOption,
+  val organizations: List<APIKeyWorkspaceOption>,
+  val defaultExpirationDays: Int,
+  val maxExpirationDays: Int,
+) {
+  fun defaultExpiration(now: Instant = Instant.now()): Instant =
+    now.plusSeconds(defaultExpirationDays * 86_400L)
+
+  /** One-minute request-latency buffer, matching the web client's upper-bound clamp. */
+  fun maximumExpiration(now: Instant = Instant.now()): Instant =
+    now.plusSeconds(maxExpirationDays * 86_400L - 60)
+
+  fun clampedExpiration(selected: Instant, now: Instant = Instant.now()): Instant =
+    maxOf(minOf(selected, maximumExpiration(now)), now.plusSeconds(60))
+}
+
+object APIKeyValidation {
+  fun isValidName(name: String): Boolean = name.trim().let { it.isNotEmpty() && it.length <= 255 }
+}
+
 data class APIKeyGrant(
   val resourceType: WorkspaceResourceType,
   val resourceID: WorkspaceID,

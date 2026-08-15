@@ -73,6 +73,29 @@ import Testing
   #expect(!APIKeyScope.integrationCases.contains(.apiKeysManage))
 }
 
+@Test func apiKeyOptionsApplyServerExpirationLimitsAndValidateNames() {
+  let now = Date(timeIntervalSince1970: 1_700_000_000)
+  let options = APIKeyOptions(
+    scopes: [.profileRead],
+    personalWorkspace: APIKeyWorkspaceOption(
+      resourceType: .user, resourceID: .personal, name: "Conta pessoal"),
+    organizations: [],
+    defaultExpirationDays: 30,
+    maxExpirationDays: 180
+  )
+
+  #expect(options.defaultExpiration(from: now) == now.addingTimeInterval(30 * 86_400))
+  #expect(options.maximumExpiration(from: now) == now.addingTimeInterval(180 * 86_400 - 60))
+  #expect(options.clampedExpiration(now, from: now) == now.addingTimeInterval(60))
+  #expect(
+    options.clampedExpiration(now.addingTimeInterval(365 * 86_400), from: now)
+      == options.maximumExpiration(from: now)
+  )
+  #expect(APIKeyValidation.isValidName(" CRM "))
+  #expect(!APIKeyValidation.isValidName("   "))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "a", count: 256)))
+}
+
 @Test func apiEnumsPreserveRawValues() {
   #expect(ExpenseCategory.maintenance.rawValue == "manutencao")
   #expect(OrganizationRole.viewer.rawValue == "viewer")

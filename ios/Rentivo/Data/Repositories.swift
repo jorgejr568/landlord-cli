@@ -174,10 +174,19 @@ public protocol SecurityRepository: AnyObject {
 
 @MainActor
 public protocol APIKeyRepository: AnyObject {
+  func apiKeyOptions() async throws -> APIKeyOptions
   func listAPIKeys() async throws -> [APIKeyMetadata]
   func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret
-  func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata
+  func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata
   func revokeAPIKey(id: APIKeyID) async throws
+}
+
+extension APIKeyRepository {
+  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+    try await updateAPIKey(id: id, draft: draft, updateGrants: true)
+  }
 }
 
 @MainActor

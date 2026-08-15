@@ -68,6 +68,14 @@ struct APIKeyFormRulesTests {
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [], resourceIDs: [.personal]) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: []) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: [.personal]))
+    #expect(APIKeyFormRules.isSavable(name: "   ", scopes: [.profileRead], resourceIDs: [.personal]) == false)
+    #expect(
+      APIKeyFormRules.isSavable(
+        name: String(repeating: "a", count: 256),
+        scopes: [.profileRead],
+        resourceIDs: [.personal]
+      ) == false
+    )
   }
 
   @Test("existing grants are reused, new ones are typed by resource, and the order is stable")

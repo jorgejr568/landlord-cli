@@ -516,7 +516,28 @@ class MockRentivoStoreTest {
     assertEquals(updatedDraft.name, updated.name)
     assertEquals(updatedDraft.scopes, updated.scopes)
     assertEquals(updatedDraft.grants, updated.grants)
-    assertEquals(updatedDraft.expiresAt, updated.expiresAt)
+    // PATCH does not accept `expires_at`; metadata edits must preserve the issued expiry.
+    assertEquals(key.expiresAt, updated.expiresAt)
+  }
+
+  @Test
+  fun apiKeyUpdateKeepsGrantsWhenTheFormDidNotChangeAccess() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val key = store.listAPIKeys().first()
+    val draft = APIKeyDraft(
+      name = "Somente nome",
+      scopes = key.scopes,
+      grants = emptyList(),
+      expiresAt = key.expiresAt,
+    )
+
+    val updated = store.updateAPIKey(
+      id = key.id,
+      draft = draft,
+      updateGrants = false,
+    )
+
+    assertEquals(key.grants, updated.grants)
   }
 
   @Test

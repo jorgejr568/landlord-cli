@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 private fun makeBill(
   status: BillStatus = BillStatus.DRAFT,
@@ -112,6 +113,33 @@ class BillLifecycleTest {
     assertTrue(APIKeyScope.integrationCases.contains(APIKeyScope.COMMUNICATIONS_SEND))
     assertFalse(APIKeyScope.integrationCases.contains(APIKeyScope.SECURITY_MANAGE))
     assertFalse(APIKeyScope.integrationCases.contains(APIKeyScope.API_KEYS_MANAGE))
+  }
+
+  @Test
+  fun apiKeyOptionsApplyServerExpirationLimitsAndValidateNames() {
+    val now = Instant.ofEpochSecond(1_700_000_000L)
+    val options = APIKeyOptions(
+      scopes = listOf(APIKeyScope.PROFILE_READ),
+      personalWorkspace = APIKeyWorkspaceOption(
+        resourceType = WorkspaceResourceType.USER,
+        resourceID = WorkspaceID.personal,
+        name = "Conta pessoal",
+      ),
+      organizations = emptyList(),
+      defaultExpirationDays = 30,
+      maxExpirationDays = 180,
+    )
+
+    assertEquals(now.plusSeconds(30 * 86_400L), options.defaultExpiration(now))
+    assertEquals(now.plusSeconds(180 * 86_400L - 60), options.maximumExpiration(now))
+    assertEquals(now.plusSeconds(60), options.clampedExpiration(now, now))
+    assertEquals(
+      options.maximumExpiration(now),
+      options.clampedExpiration(now.plusSeconds(365 * 86_400L), now),
+    )
+    assertTrue(APIKeyValidation.isValidName(" CRM "))
+    assertFalse(APIKeyValidation.isValidName("   "))
+    assertFalse(APIKeyValidation.isValidName("a".repeat(256)))
   }
 
   @Test

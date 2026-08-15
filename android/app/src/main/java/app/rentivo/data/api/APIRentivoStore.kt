@@ -23,6 +23,8 @@ import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
+import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.APIKeyScope
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
@@ -716,6 +718,30 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     execute(path = "/api/v1/security/passkeys/${id.rawValue}", method = "DELETE")
   }
 
+  override suspend fun apiKeyOptions(): APIKeyOptions {
+    val response = decode<RemoteAPIKeyOptions>(path = "/api/v1/api-keys/options")
+    return APIKeyOptions(
+      scopes = response.scopes.mapNotNull(APIKeyScope::fromWire),
+      personalWorkspace = APIKeyWorkspaceOption(
+        resourceType = WorkspaceResourceType.fromWire(response.personalWorkspace.resourceType)
+          ?: WorkspaceResourceType.USER,
+        resourceID = WorkspaceID(rawValue = response.personalWorkspace.resourceID),
+        name = "Conta pessoal",
+      ),
+      organizations = response.organizations.mapNotNull { organization ->
+        val resourceType = WorkspaceResourceType.fromWire(organization.resourceType)
+          ?: return@mapNotNull null
+        APIKeyWorkspaceOption(
+          resourceType = resourceType,
+          resourceID = WorkspaceID(rawValue = organization.resourceID),
+          name = organization.name,
+        )
+      },
+      defaultExpirationDays = response.defaultExpirationDays,
+      maxExpirationDays = response.maxExpirationDays,
+    )
+  }
+
   override suspend fun listAPIKeys(): List<APIKeyMetadata> {
     val response = decode<RemoteAPIKeyList>(path = "/api/v1/api-keys")
     // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
@@ -731,11 +757,15 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return CreatedAPIKeySecret(metadata = apiKey(response.apiKey), secret = response.secret)
   }
 
-  override suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata = apiKey(
+  override suspend fun updateAPIKey(
+    id: APIKeyID,
+    draft: APIKeyDraft,
+    updateGrants: Boolean,
+  ): APIKeyMetadata = apiKey(
     decode<RemoteAPIKeyUpdate, RemoteAPIKey>(
       path = "/api/v1/api-keys/${id.rawValue}",
       method = "PATCH",
-      body = RemoteAPIKeyUpdate.from(draft),
+      body = RemoteAPIKeyUpdate.from(draft, updateGrants = updateGrants),
     )
   )
 

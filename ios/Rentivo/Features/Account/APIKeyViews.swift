@@ -182,12 +182,13 @@ private struct APIKeyFormView: View {
   @State private var scopes: Set<APIKeyScope>
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
-  @State private var organizations: [Organization] = []
+  @State private var options: LoadState<APIKeyOptions> = .idle
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
+  private let originalGrantIDs: Set<WorkspaceID>
 
   init(
     key: APIKeyMetadata? = nil,
@@ -197,36 +198,53 @@ private struct APIKeyFormView: View {
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
+    originalGrantIDs = Set(grants.filter(\.available).map(\.resourceID))
     _name = State(initialValue: key?.name ?? "Nova integração")
     _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
-    _grantIDs = State(initialValue: Set(grants.map(\.resourceID)))
-    _expiresAt = State(initialValue: key?.expiresAt ?? Date(timeIntervalSinceNow: 31_536_000))
+    _grantIDs = State(initialValue: originalGrantIDs)
+    _expiresAt = State(initialValue: key?.expiresAt ?? Date())
   }
 
   var body: some View {
     Form {
       Section("Identificação") { TextField("Nome", text: $name) }
       Section("Escopos seguros") {
-        ForEach(APIKeyScope.integrationCases, id: \.self) { scope in
-          Toggle(
-            scope.label,
-            isOn: Binding(
-              get: { scopes.contains(scope) },
-              set: { enabled in
-                if enabled { scopes.insert(scope) } else { scopes.remove(scope) }
-              }
-            )
-          )
+        switch options {
+        case .loaded(let options):
+          ForEach(options.scopes, id: \.self) { scope in scopeToggle(scope) }
+        case .idle, .loading:
+          ProgressView("Carregando opções…")
+        case .empty:
+          Text("Nenhum escopo de integração está disponível.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        case .failed(let error):
+          optionsFailure(error)
         }
       }
       Section("Acesso") {
-        resourceToggle("Conta pessoal", id: .personal)
-        ForEach(organizations) { organization in
-          resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+        switch options {
+        case .loaded(let options):
+          resourceToggle(options.personalWorkspace.name, id: options.personalWorkspace.resourceID)
+          ForEach(options.organizations) { workspace in
+            resourceToggle(workspace.name, id: workspace.resourceID)
+          }
+        case .idle, .loading:
+          ProgressView("Carregando espaços de trabalho…")
+        case .empty:
+          EmptyView()
+        case .failed(let error):
+          optionsFailure(error)
         }
       }
-      Section("Validade") {
-        DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
+      if key == nil, let options = options.value {
+        Section("Validade") {
+          DatePicker(
+            "Expira em",
+            selection: $expiresAt,
+            in: Date().addingTimeInterval(60)...options.maximumExpiration(),
+            displayedComponents: .date
+          )
+        }
       }
       if let submitErrorMessage {
         Section {
@@ -252,13 +270,46 @@ private struct APIKeyFormView: View {
             Text(key == nil ? "Criar" : "Salvar")
           }
         }
-        .disabled(saving || name.isEmpty || scopes.isEmpty || grantIDs.isEmpty)
+        .disabled(
+          saving || options.value == nil || !APIKeyValidation.isValidName(name)
+            || scopes.isEmpty || grantIDs.isEmpty
+        )
       }
     }
     .interactiveDismissDisabled(saving)
-    .task {
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
+    .task { await loadOptions() }
+  }
+
+  private func loadOptions() async {
+    options = .loading
+    do {
+      let loaded = try await app.dependencies.apiKeys.apiKeyOptions()
+      options = loaded.scopes.isEmpty ? .empty : .loaded(loaded)
+      if key == nil {
+        scopes.formIntersection(Set(loaded.scopes))
+        expiresAt = loaded.defaultExpiration()
+      }
+    } catch { options = .failed(DemoError(error)) }
+  }
+
+  private func optionsFailure(_ error: DemoError) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+      Label(error.message, systemImage: "exclamationmark.triangle.fill")
+        .foregroundStyle(RentivoColors.coral)
+      Button("Tentar novamente") { Task { await loadOptions() } }
     }
+  }
+
+  private func scopeToggle(_ scope: APIKeyScope) -> some View {
+    Toggle(
+      scope.label,
+      isOn: Binding(
+        get: { scopes.contains(scope) },
+        set: { enabled in
+          if enabled { scopes.insert(scope) } else { scopes.remove(scope) }
+        }
+      )
+    )
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -274,7 +325,7 @@ private struct APIKeyFormView: View {
   }
 
   private func save() async {
-    guard !saving else { return }
+    guard !saving, let options = options.value else { return }
     submitErrorMessage = nil
     let grants =
       grantIDs
@@ -287,16 +338,20 @@ private struct APIKeyFormView: View {
           )
       }
     let draft = APIKeyDraft(
-      name: name,
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
       grants: grants,
-      expiresAt: expiresAt
+      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt)
     )
     saving = true
     defer { saving = false }
     do {
       if let key {
-        _ = try await app.dependencies.apiKeys.updateAPIKey(id: key.id, draft: draft)
+        _ = try await app.dependencies.apiKeys.updateAPIKey(
+          id: key.id,
+          draft: draft,
+          updateGrants: grantIDs != originalGrantIDs
+        )
         dismiss()
         await onSaved(nil)
         app.showNotice("Metadados da chave atualizados.")
