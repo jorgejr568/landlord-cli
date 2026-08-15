@@ -487,6 +487,7 @@ def test_viewer_has_read_only_capabilities_even_with_every_scope(api: BillsAPI) 
         "can_reorder_receipts": False,
         "can_download_invoice": True,
         "can_download_recibo": False,
+        "can_open_recibo": False,
         "can_compose": False,
         "can_send_invoice": False,
         "can_send_recibo": False,
@@ -518,8 +519,10 @@ def test_communication_capabilities_require_both_scopes_and_ready_artifacts(api:
     assert missing_response.json()["capabilities"]["can_compose"] is True
     assert missing_response.json()["capabilities"]["can_send_invoice"] is True
     assert missing_response.json()["capabilities"]["can_download_recibo"] is False
+    assert missing_response.json()["capabilities"]["can_open_recibo"] is True
     assert missing_response.json()["capabilities"]["can_send_recibo"] is False
     assert ready_response.json()["capabilities"]["can_download_recibo"] is True
+    assert ready_response.json()["capabilities"]["can_open_recibo"] is True
     assert ready_response.json()["capabilities"]["can_send_recibo"] is True
 
 
@@ -545,10 +548,11 @@ def test_document_capabilities_are_disabled_only_while_the_pdf_renders(
     assert capabilities["can_download_invoice"] is available
     assert capabilities["can_send_invoice"] is available
     assert capabilities["can_download_recibo"] is available
+    assert capabilities["can_open_recibo"] is available
     assert capabilities["can_send_recibo"] is available
 
 
-def test_capabilities_still_require_stored_documents_when_no_render_is_pending(api: BillsAPI) -> None:
+def test_stored_downloads_and_sends_stay_disabled_but_on_demand_recibo_is_available(api: BillsAPI) -> None:
     bill = _updated_bill(BILL, status="paid", pdf_path=None, recibo_pdf_path=None, pdf_render_status="succeeded")
     api.services.bill.get_bill_by_uuid.side_effect = lambda uuid: bill if uuid == BILL.uuid else None
 
@@ -557,6 +561,7 @@ def test_capabilities_still_require_stored_documents_when_no_render_is_pending(a
     assert capabilities["can_download_invoice"] is False
     assert capabilities["can_send_invoice"] is False
     assert capabilities["can_download_recibo"] is False
+    assert capabilities["can_open_recibo"] is True
     assert capabilities["can_send_recibo"] is False
 
 
@@ -701,6 +706,7 @@ def test_create_bill_rolls_back_bill_and_receipts_when_render_scheduling_fails(a
         {**_create_payload(), "due_date": "10/08/2026"},
         {**_create_payload(), "extras": [{"description": " ", "amount": 100}]},
         {**_create_payload(), "extras": [{"description": "Taxa", "amount": 0}]},
+        {**_create_payload(), "extras": [{"description": "Taxa", "amount": 2_147_483_648}]},
         {**_create_payload(), "unexpected": True},
     ],
 )
@@ -874,6 +880,16 @@ def test_patch_converts_iso_due_date_for_domain_storage_and_pdf(api: BillsAPI) -
     )
     assert response.status_code == 200
     assert api.services.bill.update_bill.call_args.kwargs["due_date"] == "31/12/2026"
+
+
+def test_patch_maps_a_domain_total_overflow_to_a_field_problem(api: BillsAPI) -> None:
+    api.services.bill.update_bill.side_effect = ValueError("O valor total é muito alto.")
+
+    response = api.client.patch(_detail_url(), json={"notes": "x"}, headers=BEARER_HEADERS)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_total_amount"
+    assert response.json()["fields"] == {"line_items": "O valor total é muito alto."}
 
 
 @pytest.mark.parametrize(

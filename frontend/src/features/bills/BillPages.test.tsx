@@ -18,7 +18,7 @@ type Bill = components["schemas"]["BillDetailResponse"];
 const capabilities: components["schemas"]["BillCapabilitiesResponse"] = {
   can_compose: true,
   can_delete: true, can_delete_receipts: true, can_download_invoice: true,
-  can_download_recibo: true, can_edit: true, can_regenerate: true,
+  can_download_recibo: true, can_open_recibo: true, can_edit: true, can_regenerate: true,
   can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: true,
   can_transition: true, can_upload_receipts: true
 };
@@ -421,6 +421,49 @@ it("sends selected recipients and applies templates without requesting a preview
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
 });
 
+it("validates and normalizes communication content before sending", async () => {
+  let sends = 0;
+  let sendBody: Record<string, unknown> | undefined;
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/communications/send": (init) => {
+      sends += 1;
+      sendBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return jsonResponse({ queued_count: 1 }, 202);
+    }
+  });
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  const subject = await screen.findByLabelText("Assunto");
+  const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  fireEvent.change(subject, { target: { value: "😀".repeat(999) } });
+  expect(subject).toHaveValue("😀".repeat(998));
+  expect(body).toHaveAttribute("maxlength", "4096");
+
+  fireEvent.change(subject, { target: { value: "   " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("Informe o assunto.")).toBeVisible();
+  await waitFor(() => expect(subject).toHaveFocus());
+  expect(sends).toBe(0);
+
+  fireEvent.change(subject, { target: { value: "  Assunto  " } });
+  fireEvent.change(body, { target: { value: "   " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("Informe o corpo da mensagem.")).toBeVisible();
+  await waitFor(() => expect(body).toHaveFocus());
+  expect(sends).toBe(0);
+
+  fireEvent.change(body, { target: { value: "😀".repeat(1_025) } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  expect(await screen.findByText("A mensagem deve ter no máximo 4096 bytes.")).toBeVisible();
+  await waitFor(() => expect(body).toHaveFocus());
+  expect(sends).toBe(0);
+
+  fireEvent.change(body, { target: { value: "  Corpo  " } });
+  fireEvent.submit(document.getElementById("comm-form")!);
+  await waitFor(() => expect(sends).toBe(1));
+  expect(sendBody).toMatchObject({ body: "Corpo", subject: "Assunto" });
+});
+
 it("shows compose empty, severe moderation, load retry, and body field errors", async () => {
   const user = userEvent.setup();
   let billLoads = 0;
@@ -452,7 +495,7 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
     ...bill,
     capabilities: {
       can_compose: false, can_delete: false, can_delete_receipts: false,
-      can_download_invoice: false, can_download_recibo: false, can_edit: false,
+      can_download_invoice: false, can_download_recibo: false, can_open_recibo: false, can_edit: false,
       can_regenerate: false, can_reorder_receipts: false, can_send_invoice: false,
       can_send_recibo: false, can_transition: false, can_upload_receipts: false
     },
@@ -811,15 +854,34 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(screen.getByText("Informe uma data válida.")).toBeVisible();
   expect(screen.getByLabelText("Vencimento")).toHaveFocus();
 
-  await user.type(description, "Aluguel");
+  fireEvent.change(description, { target: { value: "😀".repeat(256) } });
+  expect(description).toHaveValue("😀".repeat(255));
   await user.type(amount, "2.500,00");
   await user.clear(screen.getByLabelText("Vencimento"));
   await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
+  fireEvent.change(screen.getByLabelText("Descrição"), {
+    target: { value: "Aluguel" },
+  });
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Observações")).toHaveFocus());
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   expect(await screen.findByText("Não foi possível atualizar a fatura.")).toBeVisible();
+});
+
+it("rejects an edited bill total beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch(detailHandlers());
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+  await screen.findByRole("heading", { name: "Editar Fatura" });
+  const firstAmount = screen.getAllByLabelText("Valor (R$)")[0];
+  await user.clear(firstAmount);
+  await user.type(firstAmount, "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(firstAmount).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(0);
 });
 
 it("reports edit regeneration and deletion failures", async () => {

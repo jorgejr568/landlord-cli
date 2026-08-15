@@ -3,8 +3,9 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
-import { formatBrl, parseBrl } from "../../lib/format";
+import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
 import type { components } from "../../lib/api/schema";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { RecipientFormset, type ContactValue } from "./RecipientFormset";
 
 type Organization = components["schemas"]["OrganizationResponse"];
@@ -67,6 +68,8 @@ function controlNameFor(field: string): string {
 
 export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode, onSubmit, organizations, saving, values }: BillingFormProps) {
   const [form, setForm] = useState(values);
+  const [localAmountErrors, setLocalAmountErrors] = useState<Record<number, string>>({});
+  const [localItemsError, setLocalItemsError] = useState("");
   const allowedOrganizations = organizations.filter((organization) => organization.capabilities.can_create_billing);
   const fixedSubtotal = useMemo(() => form.items.reduce((sum, item) => {
     if (item.itemType === "variable") return sum;
@@ -89,9 +92,15 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   }, [error]);
 
   const setField = <K extends keyof BillingFormValues>(field: K, value: BillingFormValues[K]) => {
+    if (field === "items") {
+      setLocalAmountErrors({});
+      setLocalItemsError("");
+    }
     setForm((current) => ({ ...current, [field]: value }));
   };
   const updateItem = (index: number, changes: Partial<BillingItemValue>) => {
+    setLocalAmountErrors({});
+    setLocalItemsError("");
     setForm((current) => ({
       ...current,
       items: current.items.map((item, currentIndex) => currentIndex === index ? { ...item, ...changes } : item)
@@ -99,6 +108,23 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const amountErrors: Record<number, string> = {};
+    const fixedAmounts = form.items.map((item, index) => {
+      if (item.itemType === "variable" || !item.amount.trim()) return 0;
+      const amount = parseBrl(item.amount);
+      if (amount === null) amountErrors[index] = "Informe um valor válido.";
+      return amount ?? 0;
+    });
+    const totalError = fixedAmounts.reduce((total, amount) => total + amount, 0) > MAX_PERSISTED_CENTAVOS
+      ? "O valor total deve ser de no máximo R$ 21.474.836,47."
+      : "";
+    if (Object.keys(amountErrors).length > 0 || totalError) {
+      setLocalAmountErrors(amountErrors);
+      setLocalItemsError(totalError);
+      const firstIndex = Number(Object.keys(amountErrors)[0] ?? form.items.findIndex((item) => item.itemType === "fixed"));
+      document.querySelector<HTMLElement>(`[name="items-${firstIndex}-amount"]`)?.focus();
+      return;
+    }
     onSubmit(form);
   };
 
@@ -131,12 +157,12 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <div className="form-grid">
             <div className="field field--full">
               <label className="field__label" htmlFor="name">Nome do imóvel</label>
-              <input aria-describedby={fieldErrors.name ? "name-error" : undefined} autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", event.target.value)} placeholder="Ex.: Apartamento 302 — Ed. Aurora" required type="text" value={form.name} />
+              <input aria-describedby={fieldErrors.name ? "name-error" : undefined} autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Apartamento 302 — Ed. Aurora" required type="text" value={form.name} />
               <FieldError id="name-error" message={fieldErrors.name} />
             </div>
             <div className="field field--full">
               <label className="field__label" htmlFor="description">Descrição</label>
-              <input aria-describedby={fieldErrors.description ? "description-error" : undefined} className="input" id="description" name="description" onChange={(event) => setField("description", event.target.value)} placeholder="Inquilino, endereço ou nota interna" type="text" value={form.description} />
+              <input aria-describedby={fieldErrors.description ? "description-error" : undefined} className="input" id="description" name="description" onChange={(event) => setField("description", limitApiCharacters(event.target.value, 2000))} placeholder="Inquilino, endereço ou nota interna" type="text" value={form.description} />
               <FieldError id="description-error" message={fieldErrors.description} />
             </div>
           </div>
@@ -158,13 +184,13 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <div className="form-grid">
             <div className="field">
               <label className="field__label" htmlFor="pix_merchant_name">Nome do recebedor</label>
-              <input className="input" id="pix_merchant_name" maxLength={25} name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", event.target.value)} placeholder="Até 25 caracteres" type="text" value={form.pixMerchantName} />
+              <input className="input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", limitApiCharacters(event.target.value, 25))} placeholder="Até 25 caracteres" type="text" value={form.pixMerchantName} />
               <span className="field__hint">Até 25 caracteres.</span>
               <FieldError id="pix-name-error" message={fieldErrors.pix_merchant_name} />
             </div>
             <div className="field">
               <label className="field__label" htmlFor="pix_merchant_city">Cidade do recebedor</label>
-              <input className="input mono" id="pix_merchant_city" maxLength={15} name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", event.target.value)} placeholder="SEM ACENTOS" type="text" value={form.pixMerchantCity} />
+              <input className="input mono" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", limitApiCharacters(event.target.value, 15))} placeholder="SEM ACENTOS" type="text" value={form.pixMerchantCity} />
               <span className="field__hint">Até 15 caracteres, sem acentos.</span>
               <FieldError id="pix-city-error" message={fieldErrors.pix_merchant_city} />
             </div>
@@ -181,20 +207,20 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <button aria-label="Adicionar item" className="btn btn--sm btn--primary" name="items-add" onClick={() => setField("items", [...form.items, newItem()])} type="button">+ Adicionar <span className="sr-only">item</span></button>
         </div>
         <div className="panel__body">
-          <FieldError id="items-error" message={fieldErrors.items} />
+          <FieldError id="items-error" message={fieldErrors.items ?? localItemsError} />
           <input id="id_items-TOTAL_FORMS" name="items-TOTAL_FORMS" type="hidden" value={form.items.length} />
           <div id="items-container">
             {form.items.map((item, index) => {
               const descriptionError = fieldErrors[`items.${index}.description`];
               const uuidError = fieldErrors[`items.${index}.uuid`];
               const typeError = fieldErrors[`items.${index}.item_type`];
-              const amountError = fieldErrors[`items.${index}.amount`];
+              const amountError = fieldErrors[`items.${index}.amount`] ?? localAmountErrors[index];
               return (
                 <div className="formset-row" id={`items-row-${index}`} key={item.id}>
                   <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
                     <div className="field mb-0">
                       <label className="field__label" htmlFor={`${item.id}-description`}>Descrição</label>
-                      <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && fieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
+                      <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && fieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: limitApiCharacters(event.target.value, 255) })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
                       <FieldError id={`${item.id}-description-error`} message={descriptionError} />
                       <FieldError id={`${item.id}-uuid-error`} message={uuidError} />
                     </div>
@@ -208,7 +234,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                     {item.itemType === "fixed" ? (
                       <div className="field mb-0">
                         <label className="field__label" htmlFor={`${item.id}-amount`}>Valor (R$)</label>
-                        <input aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
+                        <input aria-describedby={amountError ? `${item.id}-amount-error` : undefined} aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
                         <FieldError id={`${item.id}-amount-error`} message={amountError} />
                       </div>
                     ) : null}

@@ -9,14 +9,17 @@ import app.rentivo.domain.BillStatus
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.FileUpload
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.PixConfiguration
 import app.rentivo.domain.RecipientID
 import app.rentivo.domain.StableID
 import app.rentivo.domain.ThemeSource
@@ -57,6 +60,25 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun exportRequestsMirrorTheBackendFormatsAndBillingLookup() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    store.requestExport(billingID = StableID.billingAurora101, format = "csv")
+    assertEquals(
+      DemoError("Escolha CSV ou XLSX."),
+      assertDemoError {
+        store.requestExport(billingID = StableID.billingAurora101, format = "pdf")
+      },
+    )
+    assertEquals(
+      DemoError.resourceNotFound,
+      assertDemoError {
+        store.requestExport(billingID = app.rentivo.domain.BillingID("missing"), format = "csv")
+      },
+    )
+  }
+
+  @Test
   fun addingExpenseUpdatesDashboardNetIncome() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val before = store.dashboardSummary()
@@ -82,6 +104,7 @@ class MockRentivoStoreTest {
       store.transitionBill(
         billingID = StableID.billingAurora101,
         billID = StableID.billDraft,
+        currentStatus = BillStatus.DRAFT,
         status = BillStatus.DELAYED_PAYMENT,
       )
     }
@@ -98,12 +121,33 @@ class MockRentivoStoreTest {
     store.transitionBill(
       billingID = StableID.billingAurora101,
       billID = StableID.billDraft,
+      currentStatus = BillStatus.DRAFT,
       status = BillStatus.PUBLISHED,
     )
 
     val bill = store.bill(billingID = StableID.billingAurora101, id = StableID.billDraft)
     assertEquals(BillStatus.PUBLISHED, bill.status)
     assertEquals(ActivityKind.BILL, store.recentActivities.first().kind)
+  }
+
+  @Test
+  fun staleTransitionDoesNotMutateBill() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val error = assertDemoError {
+      store.transitionBill(
+        billingID = StableID.billingAurora101,
+        billID = StableID.billDraft,
+        currentStatus = BillStatus.SENT,
+        status = BillStatus.PUBLISHED,
+      )
+    }
+
+    assertEquals(DemoError.staleBillStatus, error)
+    assertEquals(
+      BillStatus.DRAFT,
+      store.bill(billingID = StableID.billingAurora101, id = StableID.billDraft).status,
+    )
   }
 
   @Test
@@ -161,9 +205,11 @@ class MockRentivoStoreTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val invitation = store.listPendingInvitations().first()
 
-    store.acceptInvitation(id = invitation.id)
+    val outcome = store.acceptInvitation(id = invitation.id)
 
     assertTrue(store.listPendingInvitations().isEmpty())
+    assertEquals(invitation.organizationID, outcome.organizationID)
+    assertFalse(outcome.mfaSetupRequired)
     val organization = store.organization(id = invitation.organizationID)
     assertTrue(organization.members.any { it.userID == store.currentUser.id })
   }
@@ -177,6 +223,23 @@ class MockRentivoStoreTest {
     val error = assertDemoError {
       store.setOrganizationMFA(organizationID = invitation.organizationID, required = true)
     }
+    assertEquals(DemoError.permissionDenied, error)
+  }
+
+  @Test
+  fun acceptedManagerCannotInviteOrganizationMembers() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val invitation = store.listPendingInvitations().first()
+    store.acceptInvitation(id = invitation.id)
+
+    val error = assertDemoError {
+      store.inviteMember(
+        organizationID = invitation.organizationID,
+        email = "novo-membro@rentivo.com.br",
+        role = OrganizationRole.VIEWER,
+      )
+    }
+
     assertEquals(DemoError.permissionDenied, error)
   }
 
@@ -229,6 +292,29 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun receiptUploadsRejectFilesTheServerWouldSkip() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val before = store.bill(
+      billingID = StableID.billingAurora101,
+      id = StableID.billPaid,
+    ).receipts
+
+    val error = assertDemoError {
+      store.addReceipt(
+        billingID = StableID.billingAurora101,
+        billID = StableID.billPaid,
+        upload = FileUpload(ByteArray(0), "vazio.pdf", "application/pdf"),
+      )
+    }
+
+    assertEquals("O comprovante selecionado está vazio.", error.message)
+    assertEquals(
+      before,
+      store.bill(billingID = StableID.billingAurora101, id = StableID.billPaid).receipts,
+    )
+  }
+
+  @Test
   fun communicationMutationUsesSharedActivityGraph() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val billing = store.billing(id = StableID.billingAurora101)
@@ -250,6 +336,11 @@ class MockRentivoStoreTest {
     assertEquals(recipientIDs.size, queued)
     val record = store.snapshot.communications.first()
     assertEquals(billing.recipients.map { it.email }.toSet(), record.recipients.toSet())
+    val history = store.bill(
+      billingID = StableID.billingAurora101,
+      id = StableID.billPublished,
+    ).communications
+    assertEquals(record.recipients.toSet(), history.mapNotNull { it.recipientEmail }.toSet())
     assertEquals(record.subject, store.recentActivities.first().detail)
   }
 
@@ -352,6 +443,127 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun sendingCommunicationNormalizesAndValidatesContent() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val billing = store.billing(id = StableID.billingAurora101)
+    val recipient = billing.recipients.first()
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "  Assunto  ",
+      message = "  Corpo  ",
+      acknowledgeWarning = false,
+      saveScope = null,
+    )
+    val record = store.snapshot.communications.first()
+    assertEquals("Assunto", record.subject)
+    assertEquals("Corpo", record.message)
+
+    assertDemoError {
+      store.sendCommunication(
+        billingID = billing.id,
+        billID = StableID.billPublished,
+        commType = CommunicationType.BILL_READY,
+        recipientIDs = listOf(recipient.id),
+        subject = "   ",
+        message = "Corpo",
+        acknowledgeWarning = false,
+        saveScope = null,
+      )
+    }
+  }
+
+  @Test
+  fun sendingCommunicationValidatesTheBillAndPersistsTemplateScope() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val billing = store.billing(id = StableID.billingAurora101)
+    val recipient = billing.recipients.first()
+
+    assertDemoError {
+      store.sendCommunication(
+        billingID = billing.id,
+        billID = StableID.billSent,
+        commType = CommunicationType.BILL_READY,
+        recipientIDs = listOf(recipient.id),
+        subject = "Assunto",
+        message = "Corpo",
+        acknowledgeWarning = false,
+        saveScope = null,
+      )
+    }
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "  Modelo pessoal  ",
+      message = "  Corpo pessoal  ",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.OWNER,
+    )
+    val sibling = store.billing(id = StableID.billingAurora202)
+    assertEquals("Modelo pessoal", sibling.template(CommunicationType.BILL_READY)?.subject)
+    assertEquals("Corpo pessoal", sibling.template(CommunicationType.BILL_READY)?.body)
+
+    store.sendCommunication(
+      billingID = billing.id,
+      billID = StableID.billPublished,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(recipient.id),
+      subject = "Modelo da cobrança",
+      message = "Corpo da cobrança",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.BILLING,
+    )
+    val updated = store.billing(id = billing.id)
+    assertEquals("Modelo da cobrança", updated.template(CommunicationType.BILL_READY)?.subject)
+    assertEquals(
+      "Modelo pessoal",
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
+
+    store.sendCommunication(
+      billingID = StableID.billingAurora202,
+      billID = StableID.billSent,
+      commType = CommunicationType.BILL_READY,
+      recipientIDs = listOf(sibling.recipients.first().id),
+      subject = "Novo modelo pessoal",
+      message = "Novo corpo pessoal",
+      acknowledgeWarning = false,
+      saveScope = CommunicationSaveScope.OWNER,
+    )
+    assertEquals(
+      "Modelo da cobrança",
+      store.billing(id = billing.id).template(CommunicationType.BILL_READY)?.subject,
+    )
+    assertEquals(
+      "Novo modelo pessoal",
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
+
+    val created = store.createBilling(
+      BillingDraft(name = "Nova cobrança", description = "", owner = billing.owner, items = emptyList())
+    )
+    assertEquals("Novo modelo pessoal", created.template(CommunicationType.BILL_READY)?.subject)
+
+    store.transferBilling(
+      billingID = StableID.billingAurora202,
+      toOrganizationID = StableID.organizationHorizonte,
+    )
+    val systemSubject = MockFixtures.defaultCommunicationTemplates
+      .first { it.commType == CommunicationType.BILL_READY }
+      .subject
+    assertEquals(
+      systemSubject,
+      store.billing(id = StableID.billingAurora202).template(CommunicationType.BILL_READY)?.subject,
+    )
+  }
+
+  @Test
   fun creatingExpenseRejectsZeroOrNegativeAmounts() = runTest {
     // Matches the server contract: `ExpenseCreateRequest.amount` requires `exclusiveMinimum: 0`.
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
@@ -377,6 +589,33 @@ class MockRentivoStoreTest {
       )
     }
     assertEquals(DemoError.invalidAmount, negative)
+  }
+
+  @Test
+  fun creatingExpenseNormalizesAndValidatesItsDescription() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val created = store.createExpense(
+      billingID = StableID.billingAurora101,
+      description = "  Pintura  ",
+      category = ExpenseCategory.MAINTENANCE,
+      incurredOn = DateOnly(year = 2026, month = 7, day = 20),
+      amount = Money(centavos = 100),
+    )
+    assertEquals("Pintura", created.description)
+
+    listOf("   ", "d".repeat(2_001)).forEach { invalid ->
+      val failure = assertDemoError {
+        store.createExpense(
+          billingID = StableID.billingAurora101,
+          description = invalid,
+          category = ExpenseCategory.MAINTENANCE,
+          incurredOn = DateOnly(year = 2026, month = 7, day = 20),
+          amount = Money(centavos = 100),
+        )
+      }
+      assertEquals(DemoError.invalidDescription, failure)
+    }
   }
 
   @Test
@@ -431,6 +670,38 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val organization = store.organization(id = StableID.organizationHorizonte)
+    store.setOrganizationMFA(organizationID = organization.id, required = false)
+    store.disableTOTP(password = "senha-valida")
+    store.securitySummary().passkeys.forEach { store.deletePasskey(id = it.id) }
+
+    val policy = store.setOrganizationMFA(
+      organizationID = organization.id,
+      required = true,
+    )
+
+    assertTrue(policy.enforceMFA)
+    assertTrue(policy.mfaSetupRequired)
+    val summary = store.securitySummary()
+    assertTrue(summary.organizationEnforced)
+    assertTrue(summary.setupRequired)
+  }
+
+  @Test
+  fun enforcedOrganizationProtectsTheLastMfaFactor() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    store.disableTOTP(password = "senha-valida")
+    val passkey = store.securitySummary().passkeys.first()
+
+    assertEquals(
+      DemoError.permissionDenied,
+      runCatching { store.deletePasskey(id = passkey.id) }.exceptionOrNull(),
+    )
+  }
+
+  @Test
   fun memberRoleCanBePromotedToAdmin() = runTest {
     // Regression coverage for the role picker bug: promoting a member to admin must be a
     // supported mutation (the API accepts admin/manager/viewer).
@@ -461,6 +732,31 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun clearingProfilePIXRemovesTheConfiguration() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+
+    val profile = store.updatePix(PixConfiguration(key = "", merchantName = "", merchantCity = ""))
+
+    assertNull(profile.pix)
+    assertNull(store.profile().pix)
+  }
+
+  @Test
+  fun revokedAPIKeyRemainsInHistoryAndCannotBeRevokedAgain() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val key = store.listAPIKeys().first()
+
+    store.revokeAPIKey(key.id)
+
+    val revoked = store.listAPIKeys().first { it.id == key.id }
+    assertNotNull(revoked.revokedAt)
+    assertEquals(
+      DemoError.resourceNotFound,
+      runCatching { store.revokeAPIKey(key.id) }.exceptionOrNull(),
+    )
+  }
+
+  @Test
   fun apiKeyMetadataCanBeUpdatedWithoutRotatingSecret() = runTest {
     val store = MockRentivoStore(fixtures = MockFixtures.canonical)
     val key = store.listAPIKeys().first()
@@ -483,7 +779,28 @@ class MockRentivoStoreTest {
     assertEquals(updatedDraft.name, updated.name)
     assertEquals(updatedDraft.scopes, updated.scopes)
     assertEquals(updatedDraft.grants, updated.grants)
-    assertEquals(updatedDraft.expiresAt, updated.expiresAt)
+    // PATCH does not accept `expires_at`; metadata edits must preserve the issued expiry.
+    assertEquals(key.expiresAt, updated.expiresAt)
+  }
+
+  @Test
+  fun apiKeyUpdateKeepsGrantsWhenTheFormDidNotChangeAccess() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    val key = store.listAPIKeys().first()
+    val draft = APIKeyDraft(
+      name = "Somente nome",
+      scopes = key.scopes,
+      grants = emptyList(),
+      expiresAt = key.expiresAt,
+    )
+
+    val updated = store.updateAPIKey(
+      id = key.id,
+      draft = draft,
+      updateGrants = false,
+    )
+
+    assertEquals(key.grants, updated.grants)
   }
 
   @Test
@@ -540,12 +857,14 @@ class MockRentivoStoreTest {
     assertTrue(store.securitySummary().totpEnabled)
 
     store.disableTOTP(password = "senha-de-demonstração")
-    val codes = store.regenerateRecoveryCodes()
 
     val summary = store.securitySummary()
     assertFalse(summary.totpEnabled)
-    assertEquals(8, codes.size)
-    assertEquals(8, summary.recoveryCodeCount)
+    assertEquals(0, summary.recoveryCodeCount)
+    assertEquals(
+      DemoError.operationFailed,
+      runCatching { store.regenerateRecoveryCodes() }.exceptionOrNull(),
+    )
   }
 
   @Test
@@ -623,6 +942,31 @@ class MockRentivoStoreTest {
   }
 
   @Test
+  fun viewerModeReturnsReadOnlyPerBillCapabilities() = runTest {
+    val store = MockRentivoStore(fixtures = MockFixtures.canonical)
+    store.setViewerMode(true)
+
+    val bill = store.bill(billingID = StableID.billingAurora202, id = StableID.billSent)
+
+    assertTrue(bill.capabilities.canDownloadInvoice)
+    assertFalse(bill.capabilities.canEdit)
+    assertFalse(bill.capabilities.canDelete)
+    assertFalse(bill.capabilities.canTransition)
+    assertFalse(bill.capabilities.canRegenerate)
+    assertFalse(bill.capabilities.canUploadReceipts)
+    assertFalse(bill.capabilities.canDeleteReceipts)
+    assertFalse(bill.capabilities.canReorderReceipts)
+    assertFalse(bill.capabilities.canCompose)
+    assertFalse(bill.capabilities.canSendInvoice)
+    assertFalse(bill.capabilities.canSendRecibo)
+
+    assertEquals(
+      DemoError.permissionDenied,
+      assertDemoError { store.regenerateBill(billingID = bill.billingID, billID = bill.id) },
+    )
+  }
+
+  @Test
   fun mockRegenerateQueuesTheRenderAndSettlesAfterTwoFetches() = runTest {
     // Demo mode has to exercise the whole poll cycle: the bill comes back `pending`, stays pending
     // for the first poll tick, and flips to `succeeded` on the second one.
@@ -668,6 +1012,7 @@ class MockRentivoStoreTest {
       store.transitionBill(
         billingID = StableID.billingAurora101,
         billID = StableID.billDraft,
+        currentStatus = BillStatus.DRAFT,
         status = BillStatus.PUBLISHED,
       )
     }

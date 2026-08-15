@@ -1,5 +1,6 @@
 package app.rentivo.features.organizations
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Security
@@ -73,9 +75,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.rentivo.R
 import app.rentivo.app.AppNotice
+import app.rentivo.app.AppTab
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -397,6 +401,7 @@ fun OrganizationFormView(
   var merchantName by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantName ?: "") }
   var city by remember(existing?.id) { mutableStateOf(existing?.pix?.merchantCity ?: "") }
   var pixValidationMessage: String? by remember(existing?.id) { mutableStateOf(null) }
+  val mutationGate = remember(existing?.id) { MutationGate() }
 
   suspend fun save() {
     val trimmedKey = pixKey.trim()
@@ -407,15 +412,11 @@ fun OrganizationFormView(
     // (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city` maxLength 15)
     // so the follow-up PATCH in `createOrganization`/`updateOrganization` can't 422 on data the form
     // already accepted.
-    pixValidationMessage = when {
-      trimmedKey.isEmpty() -> null
-      trimmedMerchantName.isEmpty() || trimmedCity.isEmpty() ->
-        "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-
-      trimmedMerchantName.length > 25 -> "O nome do recebedor deve ter até 25 caracteres."
-      trimmedCity.length > 15 -> "A cidade do recebedor deve ter até 15 caracteres."
-      else -> null
-    }
+    pixValidationMessage = OrganizationDraft.pixValidationMessage(
+      key = trimmedKey,
+      merchantName = trimmedMerchantName,
+      city = trimmedCity,
+    )
     if (pixValidationMessage != null) return
     val pix = if (trimmedKey.isEmpty()) {
       null
@@ -427,6 +428,7 @@ fun OrganizationFormView(
       )
     }
     val draft = OrganizationDraft(name = name, pix = pix)
+    if (!draft.isValid) return
     try {
       if (existing != null) {
         app.dependencies.organizations.updateOrganization(id = existing.id, draft = draft)
@@ -443,6 +445,8 @@ fun OrganizationFormView(
     }
   }
 
+  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
@@ -450,10 +454,11 @@ fun OrganizationFormView(
       SheetTopBar(
         title = if (existing == null) "Nova organização" else "Editar organização",
         confirmTitle = "Salvar",
-        confirmEnabled = name.isNotEmpty(),
+        confirmEnabled = !mutationGate.isRunning && OrganizationDraft(name = name, pix = null).isValid,
         confirmTestTag = "organization.form.save",
+        cancelEnabled = !mutationGate.isRunning,
         onCancel = onDismiss,
-        onConfirm = { scope.launch { save() } },
+        onConfirm = { scope.launch { mutationGate.run { save() } } },
       )
     },
   ) { padding ->
@@ -476,6 +481,15 @@ fun OrganizationFormView(
           )
         }),
       )
+      OrganizationDraft.nameValidationMessage(name)
+        ?.takeIf { name.isNotEmpty() }
+        ?.let { message ->
+          Text(
+            text = message,
+            color = RentivoColors.coral,
+            style = RentivoTypography.metadata,
+          )
+        }
       FormSection(
         title = "PIX",
         rows = listOf(
@@ -541,6 +555,7 @@ fun OrganizationDetailView(
   var showingInvite by remember { mutableStateOf(false) }
   var confirmingMFA by remember { mutableStateOf(false) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  val mutationGate = remember(organizationId) { MutationGate() }
 
   suspend fun load() {
     // Same "don't blank on refresh" rule as the organization list: every member/role/MFA/billing
@@ -605,11 +620,18 @@ fun OrganizationDetailView(
   suspend fun toggleMFA() {
     val organization = state.value ?: return
     try {
-      app.dependencies.organizations.setOrganizationMFA(
+      val policy = app.dependencies.organizations.setOrganizationMFA(
         organizationID = organizationId,
         required = !organization.requiresMFA,
       )
       refreshAll()
+      if (policy.mfaSetupRequired) {
+        app.selectedTab = AppTab.ACCOUNT
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          AppNotice.Kind.INFORMATION,
+        )
+      }
     } catch (cancellation: CancellationException) {
       throw cancellation
     } catch (throwable: Throwable) {
@@ -712,8 +734,10 @@ fun OrganizationDetailView(
         MemberSection(
           organization = organization,
           onInvite = { showingInvite = true },
-          onChangeRole = { member, role -> scope.launch { changeRole(member, role) } },
-          onRemove = { member -> scope.launch { remove(member) } },
+          onChangeRole = { member, role ->
+            scope.launch { mutationGate.run { changeRole(member, role) } }
+          },
+          onRemove = { member -> scope.launch { mutationGate.run { remove(member) } } },
         )
 
         PolicySection(
@@ -724,7 +748,9 @@ fun OrganizationDetailView(
         BillingSection(
           organization = organization,
           billings = billings,
-          onTransfer = { billing -> scope.launch { transfer(billing, organization) } },
+          onTransfer = { billing ->
+            scope.launch { mutationGate.run { transfer(billing, organization) } }
+          },
         )
 
         RentivoButton(
@@ -783,7 +809,7 @@ fun OrganizationDetailView(
         TextButton(
           onClick = {
             confirmingMFA = false
-            scope.launch { toggleMFA() }
+            scope.launch { mutationGate.run { toggleMFA() } }
           },
         ) {
           Text(text = "Confirmar")
@@ -805,7 +831,7 @@ fun OrganizationDetailView(
         TextButton(
           onClick = {
             confirmingDelete = false
-            scope.launch { deleteOrganization() }
+            scope.launch { mutationGate.run { deleteOrganization() } }
           },
         ) {
           Text(text = "Excluir", color = RentivoColors.destructiveText)
@@ -888,29 +914,47 @@ private fun MemberRow(
 
   Row(verticalAlignment = Alignment.CenterVertically) {
     Column(modifier = Modifier.weight(1f)) {
-      Text(
-        text = member.email,
-        style = RentivoTypography.subheadlineEmphasized,
-        color = RentivoColors.ink,
-      )
+      Row(horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
+        Text(
+          text = member.email,
+          style = RentivoTypography.subheadlineEmphasized,
+          color = RentivoColors.ink,
+        )
+        if (member.isCurrentUser) {
+          Text(
+            text = "você",
+            style = RentivoTypography.caption,
+            color = RentivoColors.blue,
+          )
+        }
+      }
       Text(
         text = member.role.label,
         style = RentivoTypography.caption,
         color = RentivoColors.secondaryInk,
       )
     }
-    if (member.role == OrganizationRole.ADMIN || canManage) {
+    if (member.isCurrentUser || member.role == OrganizationRole.ADMIN || canManage) {
       // Both trailing controls are centered in the same square, so a row carrying a crown keeps the
       // exact height and gutter of one carrying an overflow menu.
       Box(modifier = Modifier.size(MemberActionSize), contentAlignment = Alignment.Center) {
-        if (member.role == OrganizationRole.ADMIN) {
-          Icon(
-            painter = painterResource(R.drawable.ic_crown),
-            contentDescription = null,
-            tint = RentivoColors.amber,
-            modifier = Modifier.size(CrownSize),
-          )
-        } else {
+        if (member.isCurrentUser) {
+          if (member.role == OrganizationRole.ADMIN) {
+            Icon(
+              painter = painterResource(R.drawable.ic_crown),
+              contentDescription = "Você",
+              tint = RentivoColors.amber,
+              modifier = Modifier.size(CrownSize),
+            )
+          } else {
+            Icon(
+              imageVector = Icons.Filled.Person,
+              contentDescription = "Você",
+              tint = RentivoColors.blue,
+              modifier = Modifier.size(CrownSize),
+            )
+          }
+        } else if (canManage) {
           IconButton(onClick = { expanded = true }, modifier = Modifier.fillMaxSize()) {
             Box(
               modifier = Modifier
@@ -931,12 +975,8 @@ private fun MemberRow(
             }
           }
           DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            // Admin has no menu at all (see the `member.role == ADMIN` branch above), so offering
-            // "admin" here would promote a member to a role with no way back through the UI. The
-            // member's current role is also excluded: re-selecting it is a no-op that only clutters
-            // the menu.
             OrganizationRole.entries
-              .filter { it != OrganizationRole.ADMIN && it != member.role }
+              .filter { it != member.role }
               .forEach { role ->
                 DropdownMenuItem(
                   text = { Text(text = role.label) },
@@ -955,6 +995,13 @@ private fun MemberRow(
               },
             )
           }
+        } else {
+          Icon(
+            painter = painterResource(R.drawable.ic_crown),
+            contentDescription = null,
+            tint = RentivoColors.amber,
+            modifier = Modifier.size(CrownSize),
+          )
         }
       }
     }
@@ -1007,7 +1054,7 @@ private fun BillingSection(
 ) {
   var expanded by remember { mutableStateOf(false) }
   val owned = billings.filter { it.owner.workspaceID.rawValue == organization.id.rawValue }
-  val personal = billings.filter { !it.owner.isOrganization }
+  val personal = billings.filter { it.canTransferToOrganization }
 
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
     SectionTitle(title = "Cobranças", icon = Icons.Filled.House)
@@ -1073,6 +1120,7 @@ internal fun SheetTopBar(
   confirmTitle: String,
   confirmEnabled: Boolean,
   confirmTestTag: String,
+  cancelEnabled: Boolean = true,
   onCancel: () -> Unit,
   onConfirm: () -> Unit,
   title: String? = null,
@@ -1086,7 +1134,7 @@ internal fun SheetTopBar(
     navigationIcon = {
       Spacer(modifier = Modifier.width(RentivoSpacing.small))
       TopBarChip {
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = onCancel, enabled = cancelEnabled) {
           Text(text = "Cancelar", style = RentivoTypography.body, color = RentivoColors.emerald)
         }
       }

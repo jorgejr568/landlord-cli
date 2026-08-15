@@ -85,6 +85,26 @@ import Testing
   )
 }
 
+@Test func billingRejectsAmountsOrFixedSubtotalsBeyondPersistenceLimit() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: "Aluguel",
+        amount: Money(centavos: Money.maximumPersistedCentavos), type: .fixed, sortOrder: 0
+      ),
+      BillingItem(
+        id: UUID(), description: "Condomínio", amount: Money(centavos: 1),
+        type: .fixed, sortOrder: 1
+      ),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemAmount])
+}
+
 @Test func billingKeepsEveryRecipientItIsGiven() {
   // A billing update replaces the whole recipient set server-side, so a draft carrying
   // several recipients must validate as-is instead of being narrowed to the first one.
@@ -142,6 +162,62 @@ import Testing
   #expect(draft.validate().map(\.field) == [.recipient])
 }
 
+@Test func billingDraftMirrorsEveryServerTextLimit() {
+  let draft = BillingDraft(
+    name: String(repeating: "n", count: 256),
+    description: String(repeating: "d", count: 2_001),
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: String(repeating: "i", count: 256), amount: .zero,
+        type: .fixed, sortOrder: 0
+      )
+    ],
+    pixOverride: PixConfiguration(
+      key: "pix", merchantName: String(repeating: "m", count: 26),
+      merchantCity: String(repeating: "c", count: 16)
+    ),
+    recipients: [
+      BillingRecipient(
+        id: RecipientID(rawValue: "r1"), name: String(repeating: "r", count: 256),
+        email: "ana@example.com"
+      )
+    ],
+    replyTo: [
+      BillingRecipient(
+        id: RecipientID(rawValue: "reply-1"), name: "Resposta", email: "resposta-invalida"
+      )
+    ]
+  )
+
+  #expect(
+    draft.validate().map(\.field)
+      == [.name, .description, .itemDescription, .pix, .recipient, .replyTo]
+  )
+}
+
+@Test func billingDraftRejectsRepeatedReplyToContacts() {
+  let draft = BillingDraft(
+    name: "Apt 101",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [
+      BillingItem(
+        id: UUID(), description: "Aluguel", amount: Money(centavos: 180_000),
+        type: .fixed, sortOrder: 0
+      )
+    ],
+    replyTo: [
+      BillingRecipient(id: RecipientID(rawValue: "a"), name: "Ana", email: "ana@example.com"),
+      BillingRecipient(id: RecipientID(rawValue: "b"), name: "Cópia", email: " ANA@example.com "),
+    ]
+  )
+
+  #expect(draft.validate().filter { $0.field == .replyTo }.map(\.message) == [
+    "Remova os contatos de resposta repetidos."
+  ])
+}
+
 @Test func emailValidationAcceptsAddressesTheServerAccepts() {
   #expect(EmailAddress.isValid("ana@example.com"))
   #expect(EmailAddress.isValid("ana+cobranca@sub.example.com.br"))
@@ -149,6 +225,29 @@ import Testing
   #expect(!EmailAddress.isValid("ana"))
   #expect(!EmailAddress.isValid("ana@example"))
   #expect(!EmailAddress.isValid("ana @example.com"))
+  #expect(!EmailAddress.isValid(".ana@example.com"))
+  #expect(!EmailAddress.isValid("ana.@example.com"))
+  #expect(!EmailAddress.isValid("ana..silva@example.com"))
+  #expect(!EmailAddress.isValid("ana()@example.com"))
+  #expect(!EmailAddress.isValid("ana@example..com"))
+  #expect(!EmailAddress.isValid("ana@-example.com"))
+  #expect(!EmailAddress.isValid("ana@example-.com"))
+  #expect(!EmailAddress.isValid("\(String(repeating: "a", count: 65))@example.com"))
+  #expect(!EmailAddress.isValid("ana@\(String(repeating: "a", count: 64)).com"))
+}
+
+@Test func organizationInviteEmailMirrorsTheServerContract() {
+  #expect(OrganizationInviteEmail.normalized("  ANA@EXAMPLE.COM\n") == "ana@example.com")
+  #expect(OrganizationInviteEmail.isValid("a@b"))
+  #expect(OrganizationInviteEmail.isValid("\(String(repeating: "😀", count: 318))@a"))
+  #expect(!OrganizationInviteEmail.isValid(""))
+  #expect(!OrganizationInviteEmail.isValid("ana"))
+  #expect(!OrganizationInviteEmail.isValid("a@@b"))
+  #expect(!OrganizationInviteEmail.isValid("@example.com"))
+  #expect(!OrganizationInviteEmail.isValid("ana@"))
+  #expect(!OrganizationInviteEmail.isValid("ana @example.com"))
+  #expect(!OrganizationInviteEmail.isValid("\(String(repeating: "😀", count: 319))@a"))
+  #expect(OrganizationInviteEmail.maximumLength == 320)
 }
 
 @Test func invoiceDraftRejectsBlankRowsAndNegativeValues() {
@@ -168,6 +267,23 @@ import Testing
   )
 
   #expect(draft.validate().map(\.field) == [.itemDescription, .itemAmount])
+}
+
+@Test func invoiceDraftRejectsDescriptionsBeyondTheServerLimit() {
+  let draft = BillDraft(
+    billingID: StableID.billingAurora101,
+    referenceMonth: ReferenceMonth(year: 2026, month: 8),
+    dueDate: nil,
+    notes: "",
+    lineItems: [
+      BillLineItem(
+        id: UUID(), description: String(repeating: "i", count: 256), amount: .zero,
+        kind: .fixed
+      )
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemDescription])
 }
 
 @Test func invoiceDraftAllowsZeroAmountForFixedAndVariableLineItems() {
@@ -225,4 +341,86 @@ import Testing
   )
 
   #expect(draft.validate().isEmpty)
+}
+
+@Test func invoiceDraftRejectsAmountsOrTotalsBeyondPersistenceLimit() {
+  let draft = BillDraft(
+    billingID: StableID.billingAurora101,
+    referenceMonth: ReferenceMonth(year: 2026, month: 8),
+    dueDate: nil,
+    notes: "",
+    lineItems: [
+      BillLineItem(
+        id: UUID(), description: "Aluguel",
+        amount: Money(centavos: Money.maximumPersistedCentavos), kind: .fixed
+      ),
+      BillLineItem(
+        id: UUID(), description: "Condomínio", amount: Money(centavos: 1), kind: .fixed
+      ),
+    ]
+  )
+
+  #expect(draft.validate().map(\.field) == [.itemAmount])
+}
+
+@Test func expenseDescriptionsMirrorTheServerContract() {
+  #expect(!ExpenseInput.isValidDescription("   "))
+  #expect(ExpenseInput.isValidDescription(String(repeating: "d", count: 2_000)))
+  #expect(!ExpenseInput.isValidDescription(String(repeating: "d", count: 2_001)))
+  #expect(ExpenseInput.normalizedDescription("  Pintura  ") == "Pintura")
+}
+
+@Test func communicationContentMirrorsTheServerContract() {
+  #expect(CommunicationContent.validationMessage(subject: "   ", message: "Corpo") != nil)
+  #expect(CommunicationContent.validationMessage(subject: "Assunto", message: "   ") != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: String(repeating: "a", count: 998),
+    message: String(repeating: "b", count: 4_096)
+  ) == nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: String(repeating: "a", count: 999), message: "Corpo"
+  ) != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: "Assunto", message: String(repeating: "b", count: 4_097)
+  ) != nil)
+  #expect(CommunicationContent.validationMessage(
+    subject: "Assunto", message: String(repeating: "😀", count: 1_025)
+  ) != nil)
+  #expect(CommunicationContent.normalizedSubject("  Assunto  ") == "Assunto")
+  #expect(CommunicationContent.normalizedMessage("  Corpo  ") == "Corpo")
+}
+
+@Test func organizationNamesMirrorTheServerContract() {
+  #expect(OrganizationDraft(name: "   ", pix: nil).isValid == false)
+  #expect(OrganizationDraft(name: String(repeating: "😀", count: 255), pix: nil).isValid)
+  #expect(OrganizationDraft(name: String(repeating: "😀", count: 256), pix: nil).isValid == false)
+  #expect(OrganizationDraft.nameLimit == 255)
+}
+
+@Test func organizationPIXFieldsMirrorTheServerCharacterLimits() {
+  let combiningCharacter = "e\u{301}"
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: String(repeating: "😀", count: 25), city: String(repeating: "😀", count: 15)
+    ) == nil
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: String(repeating: combiningCharacter, count: 13), city: "RECIFE"
+    ) == "O nome do recebedor deve ter até 25 caracteres."
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "pix", merchantName: "ANA", city: String(repeating: combiningCharacter, count: 8)
+    ) == "A cidade do recebedor deve ter até 15 caracteres."
+  )
+  #expect(
+    OrganizationDraft(
+      name: "Imobiliária",
+      pix: PixConfiguration(
+        key: "pix", merchantName: String(repeating: combiningCharacter, count: 13),
+        merchantCity: "RECIFE"
+      )
+    ).isValid == false
+  )
 }

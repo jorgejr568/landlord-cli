@@ -2,6 +2,8 @@ package app.rentivo.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -102,6 +104,31 @@ class ValidationTest {
   }
 
   @Test
+  fun billingRejectsAmountsOrFixedSubtotalsBeyondPersistenceLimit() {
+    val draft = BillingDraft(
+      name = "Apt 101",
+      description = "",
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "Aluguel",
+          amount = Money(centavos = Money.MAX_PERSISTED_CENTAVOS),
+          type = BillingItemType.FIXED,
+          sortOrder = 0,
+        ),
+        BillingItem.generated(
+          description = "Condomínio",
+          amount = Money(centavos = 1),
+          type = BillingItemType.FIXED,
+          sortOrder = 1,
+        ),
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_AMOUNT), draft.validate().map { it.field })
+  }
+
+  @Test
   fun billingKeepsEveryRecipientItIsGiven() {
     // A billing update replaces the whole recipient set server-side, so a draft carrying several
     // recipients must validate as-is instead of being narrowed to the first one.
@@ -182,6 +209,70 @@ class ValidationTest {
   }
 
   @Test
+  fun billingDraftMirrorsEveryServerTextLimit() {
+    val draft = BillingDraft(
+      name = "n".repeat(256),
+      description = "d".repeat(2_001),
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "i".repeat(256), amount = Money.zero,
+          type = BillingItemType.FIXED, sortOrder = 0,
+        )
+      ),
+      pixOverride = PixConfiguration(
+        key = "pix", merchantName = "m".repeat(26), merchantCity = "c".repeat(16),
+      ),
+      recipients = listOf(
+        BillingRecipient(
+          id = RecipientID("r1"), name = "r".repeat(256), email = "ana@example.com",
+        )
+      ),
+      replyTo = listOf(
+        BillingRecipient(
+          id = RecipientID("reply-1"), name = "Resposta", email = "resposta-invalida",
+        )
+      ),
+    )
+
+    assertEquals(
+      listOf(
+        ValidationField.NAME,
+        ValidationField.DESCRIPTION,
+        ValidationField.ITEM_DESCRIPTION,
+        ValidationField.PIX,
+        ValidationField.RECIPIENT,
+        ValidationField.REPLY_TO,
+      ),
+      draft.validate().map { it.field },
+    )
+  }
+
+  @Test
+  fun billingDraftRejectsRepeatedReplyToContacts() {
+    val draft = BillingDraft(
+      name = "Apt 101",
+      description = "",
+      owner = BillingOwner.User(id = StableID.userAna, name = "Pessoal"),
+      items = listOf(
+        BillingItem.generated(
+          description = "Aluguel", amount = Money(centavos = 180_000),
+          type = BillingItemType.FIXED, sortOrder = 0,
+        )
+      ),
+      replyTo = listOf(
+        BillingRecipient(id = RecipientID("a"), name = "Ana", email = "ana@example.com"),
+        BillingRecipient(id = RecipientID("b"), name = "Cópia", email = " ANA@example.com "),
+      ),
+    )
+
+    assertEquals(
+      listOf("Remova os contatos de resposta repetidos."),
+      draft.validate().filter { it.field == ValidationField.REPLY_TO }.map { it.message },
+    )
+  }
+
+  @Test
   fun emailValidationAcceptsAddressesTheServerAccepts() {
     assertTrue(EmailAddress.isValid("ana@example.com"))
     assertTrue(EmailAddress.isValid("ana+cobranca@sub.example.com.br"))
@@ -189,6 +280,15 @@ class ValidationTest {
     assertFalse(EmailAddress.isValid("ana"))
     assertFalse(EmailAddress.isValid("ana@example"))
     assertFalse(EmailAddress.isValid("ana @example.com"))
+    assertFalse(EmailAddress.isValid(".ana@example.com"))
+    assertFalse(EmailAddress.isValid("ana.@example.com"))
+    assertFalse(EmailAddress.isValid("ana..silva@example.com"))
+    assertFalse(EmailAddress.isValid("ana()@example.com"))
+    assertFalse(EmailAddress.isValid("ana@example..com"))
+    assertFalse(EmailAddress.isValid("ana@-example.com"))
+    assertFalse(EmailAddress.isValid("ana@example-.com"))
+    assertFalse(EmailAddress.isValid("${"a".repeat(65)}@example.com"))
+    assertFalse(EmailAddress.isValid("ana@${"a".repeat(64)}.com"))
   }
 
   @Test
@@ -215,6 +315,23 @@ class ValidationTest {
       listOf("Descreva todos os itens da fatura.", "Os valores não podem ser negativos."),
       draft.validate().map { it.message },
     )
+  }
+
+  @Test
+  fun invoiceDraftRejectsDescriptionsBeyondTheServerLimit() {
+    val draft = BillDraft(
+      billingID = StableID.billingAurora101,
+      referenceMonth = ReferenceMonth(year = 2026, month = 8),
+      dueDate = null,
+      notes = "",
+      lineItems = listOf(
+        BillLineItem.generated(
+          description = "i".repeat(256), amount = Money.zero, kind = BillLineItemKind.FIXED,
+        )
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_DESCRIPTION), draft.validate().map { it.field })
   }
 
   @Test
@@ -305,5 +422,60 @@ class ValidationTest {
     )
 
     assertTrue(draft.validate().isEmpty())
+  }
+
+  @Test
+  fun invoiceDraftRejectsAmountsOrTotalsBeyondPersistenceLimit() {
+    val draft = BillDraft(
+      billingID = StableID.billingAurora101,
+      referenceMonth = ReferenceMonth(year = 2026, month = 8),
+      dueDate = null,
+      notes = "",
+      lineItems = listOf(
+        BillLineItem.generated(
+          description = "Aluguel",
+          amount = Money(centavos = Money.MAX_PERSISTED_CENTAVOS),
+          kind = BillLineItemKind.FIXED,
+        ),
+        BillLineItem.generated(
+          description = "Condomínio",
+          amount = Money(centavos = 1),
+          kind = BillLineItemKind.FIXED,
+        ),
+      ),
+    )
+
+    assertEquals(listOf(ValidationField.ITEM_AMOUNT), draft.validate().map { it.field })
+  }
+
+  @Test
+  fun expenseDescriptionsMirrorTheServerContract() {
+    assertFalse(ExpenseInput.isValidDescription("   "))
+    assertTrue(ExpenseInput.isValidDescription("d".repeat(2_000)))
+    assertFalse(ExpenseInput.isValidDescription("d".repeat(2_001)))
+    assertEquals("Pintura", ExpenseInput.normalizedDescription("  Pintura  "))
+  }
+
+  @Test
+  fun communicationContentMirrorsTheServerContract() {
+    assertNotNull(CommunicationContent.validationMessage(subject = "   ", message = "Corpo"))
+    assertNotNull(CommunicationContent.validationMessage(subject = "Assunto", message = "   "))
+    assertNull(
+      CommunicationContent.validationMessage(
+        subject = "a".repeat(998),
+        message = "b".repeat(4_096),
+      )
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "a".repeat(999), message = "Corpo")
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "Assunto", message = "b".repeat(4_097))
+    )
+    assertNotNull(
+      CommunicationContent.validationMessage(subject = "Assunto", message = "😀".repeat(1_025))
+    )
+    assertEquals("Assunto", CommunicationContent.normalizedSubject("  Assunto  "))
+    assertEquals("Corpo", CommunicationContent.normalizedMessage("  Corpo  "))
   }
 }

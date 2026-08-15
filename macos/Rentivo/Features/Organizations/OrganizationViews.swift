@@ -16,19 +16,9 @@ enum OrganizationFormValidation {
   /// maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
   /// 422 on data the form already accepted. Returns `nil` when the section is valid.
   static func pixMessage(key: String, merchantName: String, city: String) -> String? {
-    if key.isEmpty {
-      return nil
-    }
-    if merchantName.isEmpty || city.isEmpty {
-      return "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-    }
-    if merchantName.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
-    }
-    if city.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
-    }
-    return nil
+    OrganizationDraft.pixValidationMessage(
+      key: key, merchantName: merchantName, city: city
+    )
   }
 }
 
@@ -54,17 +44,14 @@ enum OrganizationBillingIndex {
 
   /// The cobranças that belong to no organization — the transfer menu's candidates.
   static func personal(_ billings: [Billing]) -> [Billing] {
-    billings.filter { !$0.owner.isOrganization }
+    billings.filter(\.canTransferToOrganization)
   }
 }
 
-/// The roles a manager may assign to a member from the member row's menu.
+/// The roles an administrator may assign to another member from the member row's menu.
 enum OrganizationMemberActions {
-  /// Admin has no menu at all (the member list renders a crown instead), so offering "admin"
-  /// here would promote a member to a role with no way back through the UI. The member's
-  /// current role is also excluded: re-selecting it is a no-op that only clutters the menu.
   static func assignableRoles(excluding currentRole: OrganizationRole) -> [OrganizationRole] {
-    OrganizationRole.allCases.filter { $0 != .admin && $0 != currentRole }
+    OrganizationRole.allCases.filter { $0 != currentRole }
   }
 }
 
@@ -277,6 +264,9 @@ struct OrganizationFormView: View {
     Form {
       RentivoSection("Organização") {
         TextField("Nome", text: $name)
+        if !name.isEmpty, let message = OrganizationDraft.nameValidationMessage(name) {
+          Text(message).foregroundStyle(RentivoColors.coral)
+        }
       }
       RentivoSection("PIX") {
         TextField("Chave", text: $pixKey)
@@ -308,7 +298,7 @@ struct OrganizationFormView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
-          .disabled(saving || name.isEmpty)
+          .disabled(saving || !OrganizationDraft(name: name, pix: nil).isValid)
           .accessibilityIdentifier("organization.form.save")
       }
     }
@@ -331,6 +321,10 @@ struct OrganizationFormView: View {
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    guard draft.isValid else {
+      submitFailureMessage = OrganizationDraft.nameValidationMessage(name)
+      return
+    }
     submitFailureMessage = nil
     saving = true
     defer { saving = false }
@@ -664,11 +658,18 @@ struct OrganizationDetailView: View {
     runningAction = .policy
     defer { runningAction = nil }
     do {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      let policy = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
         required: !organization.requiresMFA
       )
       refreshAll()
+      if policy.mfaSetupRequired {
+        app.selectedTab = .account
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          kind: .information
+        )
+      }
     } catch { app.reportFailure(error) }
   }
 
@@ -712,14 +713,23 @@ private struct MemberRow: View {
   var body: some View {
     HStack {
       VStack(alignment: .leading) {
-        Text(member.email).font(RentivoTypography.bodyStrong)
+        HStack(spacing: RentivoSpacing.tiny) {
+          Text(member.email).font(RentivoTypography.bodyStrong)
+          if member.isCurrentUser {
+            Text("você").font(RentivoTypography.captionStrong).foregroundStyle(RentivoColors.blue)
+          }
+        }
         Text(member.role.label)
           .font(RentivoTypography.caption)
           .foregroundStyle(RentivoColors.secondaryInk)
       }
       Spacer()
-      if member.role == .admin {
-        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
+      if member.isCurrentUser {
+        Image(
+          systemName: member.role == .admin
+            ? "crown.fill" : "person.crop.circle.badge.checkmark"
+        )
+        .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.blue)
       } else if canManage {
         if isBusy {
           // The menu is replaced rather than merely dimmed, so the wait reads on the row the
@@ -740,6 +750,8 @@ private struct MemberRow: View {
           .fixedSize()
           .disabled(isLocked)
         }
+      } else if member.role == .admin {
+        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
       }
     }
     .padding(.horizontal, RentivoSpacing.small)

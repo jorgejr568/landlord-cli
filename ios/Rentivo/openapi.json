@@ -400,6 +400,7 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
             "type": "string"
@@ -618,6 +619,10 @@
             "title": "Can Edit",
             "type": "boolean"
           },
+          "can_open_recibo": {
+            "title": "Can Open Recibo",
+            "type": "boolean"
+          },
           "can_regenerate": {
             "title": "Can Regenerate",
             "type": "boolean"
@@ -653,6 +658,7 @@
           "can_reorder_receipts",
           "can_download_invoice",
           "can_download_recibo",
+          "can_open_recibo",
           "can_compose",
           "can_send_invoice",
           "can_send_recibo"
@@ -696,6 +702,7 @@
           "variable_amounts": {
             "patternProperties": {
               "^[0-9A-HJKMNP-TV-Z]{26}$": {
+                "maximum": 2147483647.0,
                 "minimum": 0.0,
                 "type": "integer"
               }
@@ -855,6 +862,7 @@
         "properties": {
           "amount": {
             "exclusiveMinimum": 0.0,
+            "maximum": 2147483647.0,
             "title": "Amount",
             "type": "integer"
           },
@@ -875,6 +883,7 @@
         "additionalProperties": false,
         "properties": {
           "amount": {
+            "maximum": 2147483647.0,
             "minimum": 0.0,
             "title": "Amount",
             "type": "integer"
@@ -1296,6 +1305,7 @@
         "additionalProperties": false,
         "properties": {
           "amount": {
+            "maximum": 2147483647.0,
             "minimum": 0.0,
             "title": "Amount",
             "type": "integer"
@@ -2666,6 +2676,7 @@
         "properties": {
           "amount": {
             "exclusiveMinimum": 0.0,
+            "maximum": 2147483647.0,
             "title": "Amount",
             "type": "integer"
           },
@@ -3131,6 +3142,23 @@
           "name": {
             "maxLength": 255,
             "title": "Name",
+            "type": "string"
+          },
+          "pix_key": {
+            "default": "",
+            "title": "Pix Key",
+            "type": "string"
+          },
+          "pix_merchant_city": {
+            "default": "",
+            "maxLength": 15,
+            "title": "Pix Merchant City",
+            "type": "string"
+          },
+          "pix_merchant_name": {
+            "default": "",
+            "maxLength": 25,
+            "title": "Pix Merchant Name",
             "type": "string"
           }
         },
@@ -3828,16 +3856,19 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
             "type": "string"
           },
           "current_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Current Password",
             "type": "string"
           },
           "new_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "New Password",
             "type": "string"
@@ -3874,11 +3905,13 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
             "type": "string"
           },
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
             "type": "string"
@@ -4069,11 +4102,13 @@
           },
           "pix_merchant_city": {
             "default": "",
+            "maxLength": 15,
             "title": "Pix Merchant City",
             "type": "string"
           },
           "pix_merchant_name": {
             "default": "",
+            "maxLength": 25,
             "title": "Pix Merchant Name",
             "type": "string"
           }
@@ -4443,6 +4478,7 @@
         "additionalProperties": false,
         "properties": {
           "confirm_password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Confirm Password",
             "type": "string"
@@ -4499,6 +4535,7 @@
         "additionalProperties": false,
         "properties": {
           "password": {
+            "maxLength": 72,
             "minLength": 1,
             "title": "Password",
             "type": "string"
@@ -8758,7 +8795,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrganizationResponse"
+                  "$ref": "#/components/schemas/OrganizationLoginDetailResponse"
                 }
               }
             },

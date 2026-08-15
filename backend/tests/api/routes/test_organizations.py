@@ -187,6 +187,7 @@ class FakeOrganizationService:
         self.remove_attempts: list[tuple[int, int, str | None]] = []
         self.remove_result = True
         self.mfa_updates: list[tuple[int, bool]] = []
+        self.create_error: ValueError | None = None
         self.update_error: ValueError | None = None
 
     def list_user_organizations(self, user_id: int) -> list[Organization]:
@@ -208,13 +209,26 @@ class FakeOrganizationService:
     def list_members(self, org_id: int) -> list[OrganizationMember]:
         return [member for (member_org_id, _user_id), member in self.members.items() if member_org_id == org_id]
 
-    def create_organization(self, name: str, created_by: int) -> Organization:
+    def create_organization(
+        self,
+        name: str,
+        created_by: int,
+        *,
+        pix_key: str = "",
+        pix_merchant_name: str = "",
+        pix_merchant_city: str = "",
+    ) -> Organization:
+        if self.create_error is not None:
+            raise self.create_error
         self.created_names.append((name, created_by))
         organization = Organization(
             id=99,
             uuid="01JCREATEDORG0000000000000",
             name=name,
             created_by=created_by,
+            pix_key=pix_key,
+            pix_merchant_name=pix_merchant_name,
+            pix_merchant_city=pix_merchant_city,
             created_at=NOW,
             updated_at=NOW,
         )
@@ -814,6 +828,57 @@ def test_create_organization_normalizes_name_and_audits(organization_harness: Or
     assert organization_harness.organization.created_names == [("Nova Administradora", USER.id)]
     assert organization_harness.audit.calls[-1][0][1] == "organization.create"
     assert organization_harness.job.calls == []
+
+
+def test_create_organization_persists_complete_pix_atomically(organization_harness: OrganizationHarness) -> None:
+    response = organization_harness.client.post(
+        "/api/v1/organizations",
+        json={
+            "name": "Nova Administradora",
+            "pix_key": "  contato@example.com  ",
+            "pix_merchant_name": "  Nova Adm  ",
+            "pix_merchant_city": "  Recife  ",
+        },
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["settings"] == {
+        "pix_key": "contato@example.com",
+        "pix_merchant_name": "Nova Adm",
+        "pix_merchant_city": "Recife",
+    }
+    created = organization_harness.organization.organizations[response.json()["uuid"]]
+    assert created.pix_key == "contato@example.com"
+    assert created.pix_merchant_name == "Nova Adm"
+    assert created.pix_merchant_city == "Recife"
+
+
+def test_create_organization_rejects_partial_pix(organization_harness: OrganizationHarness) -> None:
+    response = organization_harness.client.post(
+        "/api/v1/organizations",
+        json={"name": "Nova Administradora", "pix_key": "contato@example.com"},
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 422
+    assert organization_harness.organization.created_names == []
+
+
+def test_create_organization_maps_atomic_service_validation_errors(
+    organization_harness: OrganizationHarness,
+) -> None:
+    organization_harness.organization.create_error = ValueError("invalid pix")
+
+    response = organization_harness.client.post(
+        "/api/v1/organizations",
+        json={"name": "Nova Administradora"},
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert organization_harness.audit.calls == []
 
 
 def test_patch_organization_replaces_only_supplied_settings_and_audits(

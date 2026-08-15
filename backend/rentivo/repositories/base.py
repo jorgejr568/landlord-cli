@@ -235,6 +235,10 @@ class OrganizationRepository(ABC):
     def create(self, org: Organization) -> Organization: ...
 
     @abstractmethod
+    def create_with_admin(self, org: Organization) -> Organization:
+        """Persist a new organization and its creator membership atomically."""
+
+    @abstractmethod
     def get_by_id(self, org_id: int) -> Organization | None: ...
 
     @abstractmethod

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import type { components } from "../../lib/api/schema";
+import { limitApiCharacters } from "../../lib/textLimits";
 
 type Passkey = components["schemas"]["PasskeyResponse"];
 
@@ -78,7 +79,7 @@ export function PasskeyManager({ onDelete, onRegister, onSessionRevoked, organiz
           </div>
         ) : <p>Nenhuma passkey cadastrada.</p>}
         <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "1rem" }}>
-          <input aria-label="Nome da passkey" className="field-input" onChange={(event) => setName(event.target.value)} placeholder="Nome da passkey" ref={inputRef} style={{ width: "220px" }} value={name} />
+          <input aria-label="Nome da passkey" className="field-input" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} placeholder="Nome da passkey" ref={inputRef} style={{ width: "220px" }} value={name} />
           <button className="btn btn--primary btn--sm" disabled={loading} onClick={() => void register()} type="button"><KeyRound aria-hidden="true" size={15} style={{ marginRight: "0.35rem", verticalAlign: "text-bottom" }} />Adicionar Passkey</button>
         </div>
       </div>

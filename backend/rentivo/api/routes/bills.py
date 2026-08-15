@@ -201,6 +201,7 @@ def _capabilities(access: BillAccess, services: RequestServices) -> BillCapabili
         can_reorder_receipts=can_manage_files,
         can_download_invoice=files_read and invoice_downloadable(bill),
         can_download_recibo=files_read and recibo_downloadable(bill),
+        can_open_recibo=files_read and recibo_released(bill) and not is_rendering(bill),
         can_compose=can_compose,
         can_send_invoice=can_compose and invoice_downloadable(bill),
         can_send_recibo=can_compose and recibo_downloadable(bill),
@@ -608,14 +609,17 @@ async def update_bill(
         due_date = access.bill.due_date or ""
     else:
         due_date = _domain_due_date(payload.due_date)
-    updated = services.bill.update_bill(
-        bill=access.bill,
-        billing=access.billing,
-        line_items=line_items,
-        notes=notes,
-        due_date=due_date,
-        actor=principal.actor,
-    )
+    try:
+        updated = services.bill.update_bill(
+            bill=access.bill,
+            billing=access.billing,
+            line_items=line_items,
+            notes=notes,
+            due_date=due_date,
+            actor=principal.actor,
+        )
+    except ValueError as exc:
+        raise ProblemException.invalid_field("invalid_total_amount", str(exc), "line_items") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILL_UPDATE,

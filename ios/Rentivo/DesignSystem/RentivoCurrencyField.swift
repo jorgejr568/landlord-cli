@@ -28,7 +28,9 @@ struct CurrencyCentavosField: View {
       .accessibilityLabel(label)
       .onChange(of: text) { _, newValue in
         let digits = newValue.filter(\.isNumber)
-        let parsed = Int(digits) ?? 0
+        let parsed = digits.isEmpty
+          ? 0
+          : min(Int(digits) ?? Money.maximumPersistedCentavos, Money.maximumPersistedCentavos)
         if parsed != centavos {
           centavos = parsed
         }

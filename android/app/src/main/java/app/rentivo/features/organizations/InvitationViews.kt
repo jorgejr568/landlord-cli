@@ -1,5 +1,6 @@
 package app.rentivo.features.organizations
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Drafts
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.Info
@@ -46,8 +49,10 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
+import app.rentivo.app.AppTab
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.IconLabel
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoCard
 import app.rentivo.designsystem.RentivoColors
@@ -63,6 +68,7 @@ import app.rentivo.domain.DemoError
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationRole
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
@@ -83,6 +89,7 @@ fun InvitationListView(
   val app = LocalAppModel.current
   val scope = rememberCoroutineScope()
   var state: LoadState<List<Invitation>> by remember { mutableStateOf(LoadState.Idle) }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun load() {
     // Only blank the sheet with a spinner on first load; a `dataRevision` bump while the sheet is
@@ -109,13 +116,24 @@ fun InvitationListView(
 
   suspend fun respond(invitation: Invitation, accept: Boolean) {
     try {
+      var requiresMFASetup = false
       if (accept) {
-        app.dependencies.invitations.acceptInvitation(id = invitation.id)
+        requiresMFASetup = app.dependencies.invitations
+          .acceptInvitation(id = invitation.id).mfaSetupRequired
       } else {
         app.dependencies.invitations.declineInvitation(id = invitation.id)
       }
       load()
       onMutation()
+      if (requiresMFASetup) {
+        onDismiss()
+        app.selectedTab = AppTab.ACCOUNT
+        app.showNotice(
+          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
+          AppNotice.Kind.WARNING,
+        )
+        return
+      }
       app.showNotice(if (accept) "Convite aceito." else "Convite recusado.")
     } catch (cancellation: CancellationException) {
       throw cancellation
@@ -158,7 +176,9 @@ fun InvitationListView(
           InvitationRow(
             invitation = invitation,
             showsViewerNotice = !app.usesLiveAPI && app.demoSettings.viewerMode,
-            onRespond = { accept -> scope.launch { respond(invitation, accept) } },
+            onRespond = { accept ->
+              scope.launch { mutationGate.run { respond(invitation, accept) } }
+            },
           )
         }
       }
@@ -187,6 +207,22 @@ private fun InvitationRow(
         style = RentivoTypography.caption,
         tint = RentivoColors.ink,
       )
+      invitation.invitedByEmail?.let { invitedByEmail ->
+        IconLabel(
+          text = "Convidado por $invitedByEmail",
+          icon = Icons.Filled.Email,
+          style = RentivoTypography.caption,
+        )
+      }
+      if (invitation.organizationEnforcesMFA) {
+        IconLabel(
+          text = "Esta organização exige MFA.",
+          icon = Icons.Filled.Security,
+          style = RentivoTypography.caption,
+          tint = RentivoColors.coral,
+          modifier = Modifier.testTag("invitation.mfa.required"),
+        )
+      }
       if (showsViewerNotice) {
         IconLabel(
           text = "Ações indisponíveis no modo visualizador.",
@@ -229,12 +265,20 @@ fun InviteMemberView(
   var email by remember { mutableStateOf("") }
   var role by remember { mutableStateOf(OrganizationRole.VIEWER) }
   var roleMenuExpanded by remember { mutableStateOf(false) }
+  val mutationGate = remember { MutationGate() }
 
   suspend fun invite() {
+    if (!OrganizationInviteEmail.isValid(email)) {
+      app.showNotice(
+        OrganizationInviteEmail.validationMessage(email) ?: "Informe um e-mail válido.",
+        AppNotice.Kind.WARNING,
+      )
+      return
+    }
     try {
       app.dependencies.organizations.inviteMember(
         organizationID = organization.id,
-        email = email,
+        email = OrganizationInviteEmail.normalized(email),
         role = role,
       )
       onSent()
@@ -247,18 +291,19 @@ fun InviteMemberView(
     }
   }
 
+  BackHandler { if (!mutationGate.isRunning) onDismiss() }
+
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = RentivoColors.paper,
     topBar = {
       SheetTopBar(
         confirmTitle = "Convidar",
-        // Deliberately weaker than `EmailAddress.isValid`: the iOS form gates only on an "@" being
-        // present and lets the server reject anything else, so the ported button matches it exactly.
-        confirmEnabled = email.contains("@"),
+        confirmEnabled = !mutationGate.isRunning && OrganizationInviteEmail.isValid(email),
         confirmTestTag = "invitation.send",
+        cancelEnabled = !mutationGate.isRunning,
         onCancel = onDismiss,
-        onConfirm = { scope.launch { invite() } },
+        onConfirm = { scope.launch { mutationGate.run { invite() } } },
       )
     },
   ) { padding ->

@@ -40,6 +40,9 @@ public struct DemoError: Error, Equatable, LocalizedError, Sendable {
   public static let invalidBillTransition = DemoError(
     message: "Esta mudança de status não é permitida."
   )
+  public static let staleBillStatus = DemoError(
+    message: "O status da fatura foi alterado. Atualize a página e tente novamente."
+  )
   public static let resourceNotFound = DemoError(
     message: "O item solicitado não foi encontrado."
   )
@@ -48,6 +51,9 @@ public struct DemoError: Error, Equatable, LocalizedError, Sendable {
   )
   public static let invalidAmount = DemoError(
     message: "O valor informado deve ser maior que zero."
+  )
+  public static let invalidDescription = DemoError(
+    message: "Informe uma descrição com no máximo 2000 caracteres."
   )
 }
 
@@ -222,6 +228,14 @@ public struct ProfilePIXForm: Equatable, Sendable {
 
   public var configuration: PixConfiguration {
     PixConfiguration(key: key, merchantName: merchantName, merchantCity: merchantCity)
+  }
+
+  public var isSavable: Bool {
+    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (configuration.isEmpty || configuration.isComplete)
+      && normalizedName.unicodeScalars.count <= 25
+      && normalizedCity.unicodeScalars.count <= 15
   }
 }
 

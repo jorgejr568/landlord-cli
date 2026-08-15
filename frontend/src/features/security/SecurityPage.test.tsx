@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -120,6 +120,44 @@ it("updates PIX and changes the password atomically", async () => {
   await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
   expect(await screen.findByText("Senha alterada com sucesso!")).toBeVisible();
   expect(screen.getByLabelText("Senha atual")).toHaveValue("");
+});
+
+it("requires a complete personal PIX configuration and exposes the API limits", async () => {
+  const user = userEvent.setup();
+  let updates = 0;
+  renderPage({
+    "/api/v1/security/pix": () => {
+      updates += 1;
+      return jsonResponse({ profile: summary.profile });
+    }
+  });
+  await screen.findByRole("heading", { name: "Segurança" });
+
+  const key = screen.getByLabelText("Chave PIX");
+  const name = screen.getByLabelText("Nome do recebedor");
+  const city = screen.getByLabelText("Cidade do recebedor");
+  fireEvent.change(name, { target: { value: "😀".repeat(26) } });
+  fireEvent.change(city, { target: { value: "😀".repeat(16) } });
+  expect(name).toHaveValue("😀".repeat(25));
+  expect(city).toHaveValue("😀".repeat(15));
+  await user.clear(key);
+  await user.clear(name);
+  await user.clear(city);
+  await user.type(name, "Pessoa");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(key).toHaveFocus();
+  await user.clear(name);
+  await user.type(key, "person@example.com");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+
+  expect(await screen.findByText("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.")).toBeVisible();
+  expect(updates).toBe(0);
+  expect(name).toHaveFocus();
+
+  await user.type(name, "Pessoa");
+  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  expect(city).toHaveFocus();
+  expect(updates).toBe(0);
 });
 
 it("routes regenerated recovery codes to their one-time screen", async () => {

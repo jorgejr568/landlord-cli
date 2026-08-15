@@ -203,6 +203,9 @@ struct OrganizationFormView: View {
     Form {
       Section("Organização") {
         TextField("Nome", text: $name)
+        if !name.isEmpty, let message = OrganizationDraft.nameValidationMessage(name) {
+          Text(message).foregroundStyle(RentivoColors.coral)
+        }
       }
       Section("PIX") {
         TextField("Chave", text: $pixKey)
@@ -243,7 +246,7 @@ struct OrganizationFormView: View {
             Text("Salvar")
           }
         }
-        .disabled(saving || name.isEmpty)
+        .disabled(saving || !OrganizationDraft(name: name, pix: nil).isValid)
       }
     }
     .interactiveDismissDisabled(saving)
@@ -260,23 +263,19 @@ struct OrganizationFormView: View {
     // limits (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city`
     // maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
     // 422 on data the form already accepted.
-    if trimmedKey.isEmpty {
-      pixValidationMessage = nil
-    } else if trimmedMerchantName.isEmpty || trimmedCity.isEmpty {
-      pixValidationMessage = "Informe o nome e a cidade do recebedor para usar uma chave PIX."
-    } else if trimmedMerchantName.count > 25 {
-      pixValidationMessage = "O nome do recebedor deve ter até 25 caracteres."
-    } else if trimmedCity.count > 15 {
-      pixValidationMessage = "A cidade do recebedor deve ter até 15 caracteres."
-    } else {
-      pixValidationMessage = nil
-    }
+    pixValidationMessage = OrganizationDraft.pixValidationMessage(
+      key: trimmedKey, merchantName: trimmedMerchantName, city: trimmedCity
+    )
     guard pixValidationMessage == nil else { return }
     let pix: PixConfiguration? =
       trimmedKey.isEmpty
       ? nil
       : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
     let draft = OrganizationDraft(name: name, pix: pix)
+    guard draft.isValid else {
+      submitErrorMessage = OrganizationDraft.nameValidationMessage(name)
+      return
+    }
     saving = true
     defer { saving = false }
     do {
@@ -417,22 +416,27 @@ struct OrganizationDetailView: View {
           ForEach(organization.members) { member in
             HStack {
               VStack(alignment: .leading) {
-                Text(member.email).font(.subheadline.weight(.semibold))
+                HStack(spacing: RentivoSpacing.tiny) {
+                  Text(member.email).font(.subheadline.weight(.semibold))
+                  if member.isCurrentUser {
+                    Text("você").font(.caption2.weight(.bold)).foregroundStyle(RentivoColors.blue)
+                  }
+                }
                 Text(member.role.label)
                   .font(.caption)
                   .foregroundStyle(RentivoColors.secondaryInk)
               }
               Spacer()
-              if member.role == .admin {
-                Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
+              if member.isCurrentUser {
+                Image(
+                  systemName: member.role == .admin
+                    ? "crown.fill" : "person.crop.circle.badge.checkmark"
+                )
+                .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.blue)
               } else if organization.capabilities.canManage {
                 Menu {
-                  // Admin has no menu at all (see the `member.role == .admin` branch above), so
-                  // offering "admin" here would promote a member to a role with no way back
-                  // through the UI. The member's current role is also excluded: re-selecting it
-                  // is a no-op that only clutters the menu.
                   ForEach(
-                    OrganizationRole.allCases.filter { $0 != .admin && $0 != member.role },
+                    OrganizationRole.allCases.filter { $0 != member.role },
                     id: \.self
                   ) { role in
                     Button(role.label) { Task { await changeRole(member, to: role) } }
@@ -442,6 +446,8 @@ struct OrganizationDetailView: View {
                 } label: {
                   Image(systemName: "ellipsis.circle")
                 }
+              } else if member.role == .admin {
+                Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
               }
             }
           }
@@ -502,7 +508,7 @@ struct OrganizationDetailView: View {
           }
         }
       }
-      let personal = billings.filter { !$0.owner.isOrganization }
+      let personal = billings.filter(\.canTransferToOrganization)
       if !personal.isEmpty && organization.capabilities.canCreateBilling {
         Menu {
           ForEach(personal) { billing in
@@ -572,11 +578,18 @@ struct OrganizationDetailView: View {
   private func toggleMFA() async {
     guard let organization = state.value else { return }
     do {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      let policy = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
         required: !organization.requiresMFA
       )
       await refreshAll()
+      if policy.mfaSetupRequired {
+        app.selectedTab = .account
+        app.showNotice(
+          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          kind: .information
+        )
+      }
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 

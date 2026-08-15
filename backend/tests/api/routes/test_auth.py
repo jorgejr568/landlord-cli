@@ -1156,6 +1156,26 @@ def test_auth_schema_validation_is_stable(
     assert response.json()["code"] == "validation_error"
 
 
+def test_password_reset_rejects_passwords_over_72_utf8_bytes_before_services(
+    auth_harness: AuthHarness,
+) -> None:
+    oversized = "á" * 37
+
+    response = auth_harness.client.post(
+        "/api/v1/auth/password/reset",
+        json={
+            "token": VALID_RESET_TOKEN,
+            "password": oversized,
+            "confirm_password": oversized,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "Senha muito longa" in str(response.json()["fields"])
+    assert auth_harness.password_reset.consume_calls == []
+
+
 def test_signup_rejects_nonblank_password_mismatch(auth_harness: AuthHarness) -> None:
     response = auth_harness.client.post(
         "/api/v1/auth/signup",

@@ -92,7 +92,7 @@ import kotlinx.coroutines.launch
 private data class EditableBillingItem(
   val id: BillingItemID,
   val description: String = "",
-  val centavos: Int = 0,
+  val centavos: Long = 0L,
   val type: BillingItemType = BillingItemType.FIXED,
 ) {
   fun domain(sortOrder: Int): BillingItem = BillingItem(
@@ -173,29 +173,35 @@ fun BillingFormView(
   val recipients: SnapshotStateList<EditableRecipient> = remember {
     existing?.recipients.orEmpty().map(EditableRecipient::from).toMutableStateList()
   }
-  var replyTo by remember { mutableStateOf(existing?.replyTo.orEmpty()) }
+  val replyTo: SnapshotStateList<EditableRecipient> = remember {
+    existing?.replyTo.orEmpty().map(EditableRecipient::from).toMutableStateList()
+  }
   val validationIssues = remember { mutableStateListOf<ValidationIssue>() }
   var pixRecipientRequiredMessage by remember { mutableStateOf<String?>(null) }
   var saving by remember { mutableStateOf(false) }
   var organizations by remember { mutableStateOf(emptyList<Organization>()) }
-  var organizationsLoaded by remember { mutableStateOf(false) }
+  var organizationsLoaded by remember { mutableStateOf(existing != null) }
 
   val ownerChoices = ownerChoices(
     currentUserID = app.currentUser.id,
-    currentOwner = existing?.owner,
     organizations = organizations,
   )
 
   suspend fun save() {
-    val owner = ownerChoices.firstOrNull { it.workspaceID == ownerID }
-    if (owner == null) {
-      app.showNotice("Não foi possível confirmar o responsável.", AppNotice.Kind.WARNING)
-      return
+    if (saving) return
+    val owner = if (existing != null) {
+      existing.owner
+    } else {
+      ownerChoices.firstOrNull { it.workspaceID == ownerID } ?: run {
+        app.showNotice("Não foi possível confirmar o responsável.", AppNotice.Kind.WARNING)
+        return
+      }
     }
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched, so
     // it is dropped rather than reported as invalid. Partially filled rows still fail validation
     // below, because the update replaces the billing's whole recipient set.
     val draftRecipients = recipients.filterNot { it.isBlank }.map { it.domain() }
+    val draftReplyTo = replyTo.filterNot { it.isBlank }.map { it.domain() }
     val pix = pixKey.trim()
     val merchantName = pixMerchantName.trim()
     val merchantCity = pixMerchantCity.trim()
@@ -217,7 +223,7 @@ fun BillingFormView(
         PixConfiguration(key = pix, merchantName = merchantName, merchantCity = merchantCity)
       },
       recipients = draftRecipients,
-      replyTo = if (replyTo.isEmpty()) null else replyTo,
+      replyTo = draftReplyTo,
     )
     validationIssues.clear()
     validationIssues.addAll(draft.validate())
@@ -243,6 +249,7 @@ fun BillingFormView(
   }
 
   LaunchedEffect(Unit) {
+    if (existing != null) return@LaunchedEffect
     organizations = try {
       app.dependencies.organizations.listOrganizations()
     } catch (cancellation: CancellationException) {
@@ -328,6 +335,7 @@ fun BillingFormView(
           ownerID = ownerID,
           onOwnerIDChange = { ownerID = it },
           ownerChoices = ownerChoices,
+          showsOwnerPicker = existing == null,
         )
       }
       item { ItemsSection(items = items) }
@@ -345,7 +353,6 @@ fun BillingFormView(
         CommunicationSection(
           recipients = recipients,
           replyTo = replyTo,
-          onReplyToChange = { replyTo = it },
         )
       }
       if (validationIssues.isNotEmpty() || pixRecipientRequiredMessage != null) {
@@ -361,24 +368,19 @@ fun BillingFormView(
 }
 
 /**
- * "Pessoal", the billing's current owner when it is something else, and every organization the user
- * belongs to — deduplicated by workspace id, in that order.
+ * "Pessoal" followed by organizations for which the API explicitly grants billing creation.
  */
 private fun ownerChoices(
   currentUserID: Int,
-  currentOwner: BillingOwner?,
   organizations: List<Organization>,
 ): List<BillingOwner> {
   val owners = mutableListOf<BillingOwner>(
     BillingOwner.User(id = currentUserID, name = "Pessoal")
   )
-  if (currentOwner != null && owners.none { it.workspaceID == currentOwner.workspaceID }) {
-    owners.add(currentOwner)
-  }
   val existingIDs = owners.map { it.workspaceID }.toSet()
   owners.addAll(
     organizations
-      .map { BillingOwner.Organization(id = it.id, name = it.name) }
+      .mapNotNull { it.billingOwnerForCreation }
       .filterNot { existingIDs.contains(it.workspaceID) }
   )
   return owners
@@ -393,6 +395,7 @@ private fun IdentificationSection(
   ownerID: WorkspaceID,
   onOwnerIDChange: (WorkspaceID) -> Unit,
   ownerChoices: List<BillingOwner>,
+  showsOwnerPicker: Boolean,
 ) {
   FormSection(title = "Identificação") {
     FormTextField(
@@ -408,12 +411,14 @@ private fun IdentificationSection(
       onValueChange = onDescriptionChange,
       singleLine = false,
     )
-    RentivoListDivider()
-    OwnerPickerRow(
-      ownerID = ownerID,
-      onOwnerIDChange = onOwnerIDChange,
-      ownerChoices = ownerChoices,
-    )
+    if (showsOwnerPicker) {
+      RentivoListDivider()
+      OwnerPickerRow(
+        ownerID = ownerID,
+        onOwnerIDChange = onOwnerIDChange,
+        ownerChoices = ownerChoices,
+      )
+    }
   }
 }
 
@@ -558,8 +563,7 @@ private fun PixSection(
 @Composable
 private fun CommunicationSection(
   recipients: SnapshotStateList<EditableRecipient>,
-  replyTo: String,
-  onReplyToChange: (String) -> Unit,
+  replyTo: SnapshotStateList<EditableRecipient>,
 ) {
   var editing by rememberSaveable { mutableStateOf(false) }
 
@@ -602,13 +606,40 @@ private fun CommunicationSection(
       onClick = { recipients.add(EditableRecipient.blank()) },
       modifier = Modifier.testTag("billing.form.recipients.add"),
     )
-    RentivoListDivider(indent = 0.dp)
-    FormTextField(
-      label = "Responder para",
-      value = replyTo,
-      onValueChange = onReplyToChange,
-      keyboardType = KeyboardType.Email,
-      capitalization = KeyboardCapitalization.None,
+    if (replyTo.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    replyTo.forEachIndexed { index, contact ->
+      if (index > 0) RentivoListDivider(indent = 0.dp)
+      FormTextField(
+        label = "Nome para resposta",
+        value = contact.name,
+        onValueChange = { replyTo[index] = replyTo[index].copy(name = it) },
+      )
+      RentivoListDivider()
+      FormTextField(
+        label = "E-mail para resposta",
+        value = contact.email,
+        onValueChange = { replyTo[index] = replyTo[index].copy(email = it) },
+        keyboardType = KeyboardType.Email,
+        capitalization = KeyboardCapitalization.None,
+      )
+      if (editing) {
+        RentivoListDivider()
+        FormRow {
+          RowActions(
+            canMoveUp = index > 0,
+            canMoveDown = index < replyTo.lastIndex,
+            onMoveUp = { replyTo.add(index - 1, replyTo.removeAt(index)) },
+            onMoveDown = { replyTo.add(index + 1, replyTo.removeAt(index)) },
+            onDelete = { replyTo.removeAt(index) },
+          )
+        }
+      }
+    }
+    if (replyTo.isNotEmpty()) RentivoListDivider(indent = 0.dp)
+    AddRow(
+      text = "Adicionar contato de resposta",
+      onClick = { replyTo.add(EditableRecipient.blank()) },
+      modifier = Modifier.testTag("billing.form.replyTo.add"),
     )
   }
 }
@@ -746,8 +777,8 @@ private fun FormTextField(
 @Composable
 private fun FormCurrencyRow(
   label: String,
-  centavos: Int,
-  onCentavosChange: (Int) -> Unit,
+  centavos: Long,
+  onCentavosChange: (Long) -> Unit,
 ) {
   FormRow {
     Text(text = label, style = RentivoTypography.body, color = RentivoColors.ink)

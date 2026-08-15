@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from rentivo.money import MAX_CENTAVOS, total_centavos
+
 if TYPE_CHECKING:
     from rentivo.services.billing_stats import BillingStats
 
@@ -47,7 +49,7 @@ class BillingOwnerResponse(_StrictModel):
 class BillingItemInput(_StrictModel):
     uuid: BillingItemUUID | None = None
     description: str = Field(min_length=1, max_length=255)
-    amount: int = Field(ge=0)
+    amount: int = Field(ge=0, le=MAX_CENTAVOS)
     item_type: Literal["fixed", "variable"]
 
     @model_validator(mode="after")
@@ -118,6 +120,11 @@ class BillingCreateRequest(_StrictModel):
     recipients: tuple[ContactInput, ...] | None = None
     reply_to: tuple[ContactInput, ...] | None = None
 
+    @model_validator(mode="after")
+    def fixed_subtotal_fits_storage(self) -> Self:
+        total_centavos([item.amount for item in self.items if item.item_type == "fixed"])
+        return self
+
 
 class BillingUpdateRequest(_StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -128,6 +135,12 @@ class BillingUpdateRequest(_StrictModel):
     items: tuple[BillingItemInput, ...] | None = Field(default=None, min_length=1)
     recipients: tuple[ContactInput, ...] | None = None
     reply_to: tuple[ContactInput, ...] | None = None
+
+    @model_validator(mode="after")
+    def fixed_subtotal_fits_storage(self) -> Self:
+        if self.items is not None:
+            total_centavos([item.amount for item in self.items if item.item_type == "fixed"])
+        return self
 
 
 class BillingCapabilitiesResponse(_StrictModel):
@@ -222,7 +235,7 @@ class BillingTransferRequest(_StrictModel):
 
 class ExpenseCreateRequest(_StrictModel):
     description: str = Field(min_length=1, max_length=2000)
-    amount: int = Field(gt=0)
+    amount: int = Field(gt=0, le=MAX_CENTAVOS)
     category: Literal["iptu", "condominio", "manutencao", "seguro", "outros"]
     incurred_on: date
 

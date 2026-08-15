@@ -16,3 +16,21 @@ import Testing
 
   #expect(form.configuration == savedPIX)
 }
+
+@Test func profilePIXFormAllowsClearingOrSavingACompleteConfiguration() {
+  var form = ProfilePIXForm()
+  #expect(form.isSavable)
+
+  form.key = "ana@example.com"
+  #expect(!form.isSavable)
+  form.merchantName = "ANA"
+  #expect(!form.isSavable)
+  form.merchantCity = "RECIFE"
+  #expect(form.isSavable)
+
+  form.merchantName = String(repeating: "N", count: 26)
+  #expect(!form.isSavable)
+  form.merchantName = "ANA"
+  form.merchantCity = String(repeating: "C", count: 16)
+  #expect(!form.isSavable)
+}

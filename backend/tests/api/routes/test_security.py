@@ -845,6 +845,39 @@ def test_pix_update_normalizes_profile_and_writes_redacted_audit_state(
     assert LOGIN_SECRET not in repr(security_harness.audit.calls)
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"pix_key": "person@example.com", "pix_merchant_name": "", "pix_merchant_city": ""},
+        {"pix_key": "person@example.com", "pix_merchant_name": "N" * 26, "pix_merchant_city": "Recife"},
+        {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "C" * 16},
+    ],
+)
+def test_pix_update_rejects_partial_or_oversized_configuration_before_services(
+    security_harness: SecurityHarness,
+    payload: dict[str, str],
+) -> None:
+    response = security_harness.request("POST", "/api/v1/security/pix", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert security_harness.user.pix_calls == []
+    assert security_harness.audit.calls == []
+
+
+def test_pix_update_allows_clearing_every_field(
+    security_harness: SecurityHarness,
+) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/pix",
+        json={"pix_key": " ", "pix_merchant_name": " ", "pix_merchant_city": " "},
+    )
+
+    assert response.status_code == 200
+    assert security_harness.user.pix_calls == [(USER.id, "", "", "")]
+
+
 def test_invalid_pix_returns_stable_pt_br_field_problem_without_audit(
     security_harness: SecurityHarness,
 ) -> None:
@@ -940,6 +973,64 @@ def test_password_change_succeeds_when_notification_dispatch_fails(
     assert security_harness.user.change_calls == [(USER.id, "nova-senha-segura")]
     assert security_harness.api_key.revoke_other_calls == [(USER.id, LOGIN_KEY.uuid)]
     assert _audit_events(security_harness) == [AuditEventType.USER_CHANGE_PASSWORD]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "current_password": "á" * 37,
+            "new_password": "nova-senha-segura",
+            "confirm_password": "nova-senha-segura",
+        },
+        {
+            "current_password": "senha-atual",
+            "new_password": "á" * 37,
+            "confirm_password": "á" * 37,
+        },
+    ],
+)
+def test_password_change_rejects_bcrypt_oversize_before_services(
+    security_harness: SecurityHarness,
+    payload: dict[str, str],
+) -> None:
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/change-password",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "Senha muito longa" in str(response.json()["fields"])
+    assert security_harness.login.change_password_calls == []
+    assert security_harness.user.change_calls == []
+    assert security_harness.api_key.revoke_other_calls == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/security/totp/disable",
+        "/api/v1/security/delete-account",
+    ],
+)
+def test_password_confirmation_rejects_bcrypt_oversize_before_services(
+    security_harness: SecurityHarness,
+    path: str,
+) -> None:
+    response = security_harness.request(
+        "POST",
+        path,
+        json={"password": "á" * 37},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert "Senha muito longa" in str(response.json()["fields"])
+    assert security_harness.mfa.disable_calls == []
+    assert security_harness.account_deletion.deleted == []
+    assert security_harness.audit.calls == []
 
 
 @pytest.mark.parametrize(

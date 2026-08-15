@@ -8,8 +8,9 @@ import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import {
-  formatBrlInput, formatIsoDate, formatMonth, parseBrl, parseDateInput
+  formatBrlInput, formatIsoDate, formatMonth, MAX_PERSISTED_CENTAVOS, parseBrl, parseDateInput
 } from "../../lib/format";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { ReceiptManager } from "./ReceiptManager";
@@ -122,10 +123,17 @@ export function BillEditPage() {
     if (parsedDate === undefined) errors.due_date = "Informe uma data válida.";
     const lineItems = lines.map((line, index) => {
       const amount = parseBrl(line.amount);
-      if (!line.description.trim()) errors[`line_items.${index}.description`] = "Informe a descrição.";
+      const description = line.description.trim();
+      if (!description) errors[`line_items.${index}.description`] = "Informe a descrição.";
+      /* v8 ignore start -- the controlled input truncates API characters before this defense */
+      else if (Array.from(description).length > 255) errors[`line_items.${index}.description`] = "A descrição deve ter no máximo 255 caracteres.";
+      /* v8 ignore stop */
       if (amount === null) errors[`line_items.${index}.amount`] = "Informe um valor válido.";
-      return { amount: amount ?? 0, description: line.description.trim(), item_type: line.itemType };
+      return { amount: amount ?? 0, description, item_type: line.itemType };
     });
+    if (lineItems.reduce((total, item) => total + item.amount, 0) > MAX_PERSISTED_CENTAVOS) {
+      errors["line_items.0.amount"] = "O valor total deve ser de no máximo R$ 21.474.836,47.";
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       focusField(Object.keys(errors)[0]);
@@ -207,7 +215,7 @@ export function BillEditPage() {
 
       {bill.capabilities.can_edit ? <form onSubmit={(event) => void save(event)}>
         <div className="panel"><div className="panel-head panel__head"><h5>Itens</h5></div><div className="panel-body panel__body"><div id="items-container">{lines.map((line, index) => <div className="formset-row" key={line.key}><div className="item-grid">
-          <div className="field mb-0"><label className="field-label" htmlFor={`line-description-${line.key}`}>Descrição</label><input aria-describedby={fieldErrors[`line_items.${index}.description`] ? `line_items.${index}.description-error` : undefined} className="field-input" id={`line-description-${line.key}`} onChange={(event) => setLines((items) => items.map((item) => item.key === line.key ? { ...item, description: event.target.value } : item))} ref={(node) => { fieldRefs.current[`line_items.${index}.description`] = node; }} value={line.description} /><FieldError id={`line_items.${index}.description-error`} message={fieldErrors[`line_items.${index}.description`]} /></div>
+          <div className="field mb-0"><label className="field-label" htmlFor={`line-description-${line.key}`}>Descrição</label><input aria-describedby={fieldErrors[`line_items.${index}.description`] ? `line_items.${index}.description-error` : undefined} className="field-input" id={`line-description-${line.key}`} onChange={(event) => setLines((items) => items.map((item) => item.key === line.key ? { ...item, description: limitApiCharacters(event.target.value, 255) } : item))} ref={(node) => { fieldRefs.current[`line_items.${index}.description`] = node; }} value={line.description} /><FieldError id={`line_items.${index}.description-error`} message={fieldErrors[`line_items.${index}.description`]} /></div>
           <div className="field mb-0"><label className="field-label" htmlFor={`line-type-${line.key}`}>Tipo</label><select className="field-select" disabled id={`line-type-${line.key}`} value={line.itemType}><option value="fixed">Fixo</option><option value="variable">Variavel</option><option value="extra">Extra</option></select></div>
           <div className="field mb-0"><label className="field-label" htmlFor={`line-amount-${line.key}`}>Valor (R$)</label><input aria-describedby={fieldErrors[`line_items.${index}.amount`] ? `line_items.${index}.amount-error` : undefined} className="field-input" id={`line-amount-${line.key}`} inputMode="decimal" onChange={(event) => setLines((items) => items.map((item) => item.key === line.key ? { ...item, amount: event.target.value } : item))} ref={(node) => { fieldRefs.current[`line_items.${index}.amount`] = node; }} value={line.amount} /><FieldError id={`line_items.${index}.amount-error`} message={fieldErrors[`line_items.${index}.amount`]} /></div>
           <div>{line.itemType === "extra" && <button aria-label={`Remover ${line.description}`} className="btn btn--sm btn--danger" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))} type="button"><X aria-hidden="true" size={14} /></button>}</div>

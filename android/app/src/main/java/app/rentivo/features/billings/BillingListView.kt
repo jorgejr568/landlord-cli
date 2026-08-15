@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -407,8 +408,16 @@ private fun BillingPortfolioCard(
             style = RentivoTypography.metadata,
           )
           IconLabel(
-            text = if (ownsPix) "PIX próprio" else "PIX herdado",
-            icon = if (ownsPix) Icons.Filled.QrCode2 else Icons.AutoMirrored.Filled.CallSplit,
+            text = when {
+              item.billing.pixNeedsSetup -> "PIX pendente"
+              ownsPix -> "PIX próprio"
+              else -> "PIX herdado"
+            },
+            icon = when {
+              item.billing.pixNeedsSetup -> Icons.Filled.Warning
+              ownsPix -> Icons.Filled.QrCode2
+              else -> Icons.AutoMirrored.Filled.CallSplit
+            },
             style = RentivoTypography.metadata,
           )
         }

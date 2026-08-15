@@ -415,8 +415,10 @@ describe("AuthProvider", () => {
     await screen.findByText("authenticated");
     await user.click(screen.getByRole("button", { name: "sair" }));
 
-    await waitFor(() => expect(screen.getByText("anonymous")).toBeVisible());
-    expect(screen.getByTestId("path")).toHaveTextContent("/login");
+    await waitFor(() => {
+      expect(screen.getByText("anonymous")).toBeVisible();
+      expect(screen.getByTestId("path")).toHaveTextContent("/login");
+    });
   });
 
   it("sends CSRF on logout, clears state, navigates, and pushes the event", async () => {
@@ -432,8 +434,10 @@ describe("AuthProvider", () => {
     await screen.findByText("authenticated");
     await user.click(screen.getByRole("button", { name: "sair" }));
 
-    await waitFor(() => expect(screen.getByText("anonymous")).toBeVisible());
-    expect(screen.getByTestId("path")).toHaveTextContent("/login");
+    await waitFor(() => {
+      expect(screen.getByText("anonymous")).toBeVisible();
+      expect(screen.getByTestId("path")).toHaveTextContent("/login");
+    });
     const logoutCall = fetchMock.mock.calls.find(([url]) => url === "/api/v1/auth/logout");
     expect(new Headers(logoutCall?.[1]?.headers).get("X-CSRF-Token")).toBe("csrf-token");
     expect(window.dataLayer?.at(-1)).toEqual({ event: "rentivo_logout" });

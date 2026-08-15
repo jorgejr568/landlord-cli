@@ -140,10 +140,16 @@ it("retries loading, normalizes edit errors, focuses controls and handles offlin
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "abc");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
+  expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
+  expect(patches).toBe(0);
+  await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.500,00");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Chave PIX inválida.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Cobrança recusada.")).toBeVisible();
+  await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a cobrança.")).toBeVisible();
   expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();

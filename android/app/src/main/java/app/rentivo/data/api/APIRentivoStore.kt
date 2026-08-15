@@ -23,17 +23,23 @@ import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyGrant
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
+import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.APIKeyScope
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
+import app.rentivo.domain.AttachmentUploadRules
+import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
 import app.rentivo.domain.BillCapabilities
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
 import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
@@ -43,6 +49,7 @@ import app.rentivo.domain.BillingItemID
 import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.BillingOwner
 import app.rentivo.domain.BillingRecipient
+import app.rentivo.domain.CommunicationID
 import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationSaveScope
 import app.rentivo.domain.CommunicationTemplate
@@ -55,15 +62,18 @@ import app.rentivo.domain.ExpenseCategory
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
 import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationMember
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
@@ -282,11 +292,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     )
   }
 
-  override suspend fun transitionBill(billingID: BillingID, billID: BillID, status: BillStatus) {
+  override suspend fun transitionBill(
+    billingID: BillingID,
+    billID: BillID,
+    currentStatus: BillStatus,
+    status: BillStatus,
+  ) {
     execute(
       path = "/api/v1/billings/${billingID.rawValue}/bills/${billID.rawValue}/transitions",
       method = "POST",
-      body = RemoteBillTransition(target = status.wire),
+      body = RemoteBillTransition(target = status.wire, currentStatus = currentStatus.wire),
     )
   }
 
@@ -303,15 +318,19 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     billID: BillID,
     upload: FileUpload,
   ): Receipt {
+    val validatedUpload = ReceiptUploadRules.validated(upload)
     val response = decodeMultipart<RemoteReceiptUpload>(
       path = "/api/v1/billings/${billingID.rawValue}/bills/${billID.rawValue}/receipts",
-      files = listOf(MultipartFile(field = "receipt_files", upload = upload)),
+      files = listOf(MultipartFile(field = "receipt_files", upload = validatedUpload)),
     )
     val receipt = response.items.firstOrNull() ?: throw LiveAPIError.InvalidResponse
     return Receipt(
       id = ReceiptID(rawValue = receipt.uuid),
       name = receipt.filename,
       sortOrder = receipt.sortOrder,
+      mediaType = receipt.contentType,
+      byteCount = receipt.fileSize,
+      createdAt = receipt.createdAt?.let(WireDate::isoDate),
     )
   }
 
@@ -378,14 +397,16 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return response.items.map(::attachment)
   }
 
-  override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment =
-    attachment(
+  override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment {
+    val validatedUpload = AttachmentUploadRules.validated(upload)
+    return attachment(
       decodeMultipart<RemoteAttachment>(
         path = "/api/v1/billings/${billingID.rawValue}/attachments",
-        name = upload.filename,
-        files = listOf(MultipartFile(field = "file", upload = upload)),
+        name = validatedUpload.filename,
+        files = listOf(MultipartFile(field = "file", upload = validatedUpload)),
       )
     )
+  }
 
   override suspend fun deleteAttachment(billingID: BillingID, attachmentID: AttachmentID) {
     execute(
@@ -509,31 +530,12 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     organization(decode<RemoteOrganization>(path = "/api/v1/organizations/${id.rawValue}"))
 
   override suspend fun createOrganization(draft: OrganizationDraft): Organization {
-    // OrganizationCreateRequest only accepts `name`; PIX has no create-time slot, so when the
-    // draft carries PIX data we follow up with the PATCH that does accept pix fields.
     val response = decode<RemoteOrganizationCreate, RemoteOrganization>(
       path = "/api/v1/organizations",
       method = "POST",
-      body = RemoteOrganizationCreate(name = draft.name),
+      body = RemoteOrganizationCreate.from(draft),
     )
-    if (draft.pix == null) return organization(response)
-    return try {
-      organization(
-        decode<RemoteOrganizationUpdate, RemoteOrganization>(
-          path = "/api/v1/organizations/${response.uuid}",
-          method = "PATCH",
-          body = RemoteOrganizationUpdate.from(draft),
-        )
-      )
-    } catch (error: CancellationException) {
-      throw error
-    } catch (error: Exception) {
-      // The organization already exists on the server from the POST above, so throwing here would
-      // surface as a failure to the caller, who would retry and create a duplicate organization.
-      // Return the created organization (without PIX) instead; the form-side validation makes this
-      // follow-up PATCH fail rarely, and the user can still edit the organization afterward.
-      organization(response)
-    }
+    return organization(response)
   }
 
   override suspend fun updateOrganization(
@@ -578,7 +580,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     val response = decode<RemoteInviteCreate, RemoteInvitation>(
       path = "/api/v1/organizations/${organizationID.rawValue}/invites",
       method = "POST",
-      body = RemoteInviteCreate(email = email, role = role.wire),
+      body = RemoteInviteCreate(email = OrganizationInviteEmail.normalized(email), role = role.wire),
     )
     // Best-effort enrichment: the invite already succeeded, so a failure here shouldn't fail the
     // whole call.
@@ -599,11 +601,18 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     )
   }
 
-  override suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean) {
-    execute(
+  override suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy {
+    val response = decode<RemoteMFAPolicy, RemoteMFAPolicyResponse>(
       path = "/api/v1/organizations/${organizationID.rawValue}/mfa-policy",
       method = "PUT",
       body = RemoteMFAPolicy(enforceMFA = required),
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA = response.enforceMFA,
+      mfaSetupRequired = response.mfaSetupRequired,
     )
   }
 
@@ -631,12 +640,21 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         email = user.email,
         role = OrganizationRole.fromWire(it.role) ?: OrganizationRole.VIEWER,
         status = InvitationStatus.PENDING,
+        invitedByEmail = it.invitedByEmail,
+        organizationEnforcesMFA = it.enforceMFA,
       )
     }
   }
 
-  override suspend fun acceptInvitation(id: InvitationID) {
-    execute(path = "/api/v1/invites/${id.rawValue}/accept", method = "POST")
+  override suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance {
+    val response = decode<RemoteInvitationAcceptance>(
+      path = "/api/v1/invites/${id.rawValue}/accept",
+      method = "POST",
+    )
+    return InvitationAcceptance(
+      organizationID = OrganizationID(rawValue = response.organizationUUID),
+      mfaSetupRequired = response.mfaSetupRequired,
+    )
   }
 
   override suspend fun declineInvitation(id: InvitationID) {
@@ -672,6 +690,8 @@ class APIRentivoStore(private val client: LiveAPIClient) :
           lastUsedAt = it.lastUsedAt?.let(WireDate::isoDate),
         )
       },
+      setupRequired = response.mfa.setupRequired,
+      organizationEnforced = response.mfa.organizationEnforced,
     )
   }
 
@@ -708,10 +728,34 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     execute(path = "/api/v1/security/passkeys/${id.rawValue}", method = "DELETE")
   }
 
+  override suspend fun apiKeyOptions(): APIKeyOptions {
+    val response = decode<RemoteAPIKeyOptions>(path = "/api/v1/api-keys/options")
+    return APIKeyOptions(
+      scopes = response.scopes.mapNotNull(APIKeyScope::fromWire),
+      personalWorkspace = APIKeyWorkspaceOption(
+        resourceType = WorkspaceResourceType.fromWire(response.personalWorkspace.resourceType)
+          ?: WorkspaceResourceType.USER,
+        resourceID = WorkspaceID(rawValue = response.personalWorkspace.resourceID),
+        name = "Conta pessoal",
+      ),
+      organizations = response.organizations.mapNotNull { organization ->
+        val resourceType = WorkspaceResourceType.fromWire(organization.resourceType)
+          ?: return@mapNotNull null
+        APIKeyWorkspaceOption(
+          resourceType = resourceType,
+          resourceID = WorkspaceID(rawValue = organization.resourceID),
+          name = organization.name,
+        )
+      },
+      defaultExpirationDays = response.defaultExpirationDays,
+      maxExpirationDays = response.maxExpirationDays,
+    )
+  }
+
   override suspend fun listAPIKeys(): List<APIKeyMetadata> {
     val response = decode<RemoteAPIKeyList>(path = "/api/v1/api-keys")
-    // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
-    return response.items.filter { it.revokedAt == null }.map(::apiKey)
+    // Revoked integrations remain visible as immutable history, matching the web client.
+    return response.items.map(::apiKey)
   }
 
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {
@@ -723,11 +767,15 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return CreatedAPIKeySecret(metadata = apiKey(response.apiKey), secret = response.secret)
   }
 
-  override suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata = apiKey(
+  override suspend fun updateAPIKey(
+    id: APIKeyID,
+    draft: APIKeyDraft,
+    updateGrants: Boolean,
+  ): APIKeyMetadata = apiKey(
     decode<RemoteAPIKeyUpdate, RemoteAPIKey>(
       path = "/api/v1/api-keys/${id.rawValue}",
       method = "PATCH",
-      body = RemoteAPIKeyUpdate.from(draft),
+      body = RemoteAPIKeyUpdate.from(draft, updateGrants = updateGrants),
     )
   )
 
@@ -848,13 +896,40 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         )
       },
       receipts = (remote.receipts ?: emptyList()).map {
-        Receipt(id = ReceiptID(rawValue = it.uuid), name = it.filename, sortOrder = it.sortOrder)
+        Receipt(
+          id = ReceiptID(rawValue = it.uuid), name = it.filename, sortOrder = it.sortOrder,
+          mediaType = it.contentType, byteCount = it.fileSize,
+          createdAt = it.createdAt?.let(WireDate::isoDate),
+        )
       },
+      communications = (remote.communications ?: emptyList()).map { communication ->
+        BillCommunication(
+          id = CommunicationID(rawValue = communication.uuid),
+          commType = CommunicationType.fromWire(communication.commType),
+          status = communication.status,
+          createdAt = communication.createdAt?.let(WireDate::isoDate),
+          sentAt = communication.sentAt?.let(WireDate::isoDate),
+          recipientName = communication.recipientName,
+          recipientEmail = communication.recipientEmail,
+          subject = communication.subject,
+        )
+      },
+      statusUpdatedAt = remote.statusUpdatedAt?.let(WireDate::isoDate),
+      createdAt = remote.createdAt?.let(WireDate::isoDate),
       // Server-authoritative transitions/total for this bill (see `Bill.effectiveTransitions` /
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing
       // the whole decode, since a missing action button is a much smaller failure than an error.
       availableTransitions = remote.availableTransitions.mapNotNull {
         BillStatus.fromWire(it.target)
+      },
+      availableTransitionActions = remote.availableTransitions.mapNotNull { transition ->
+        val target = BillStatus.fromWire(transition.target) ?: return@mapNotNull null
+        BillTransition(
+          target = target,
+          label = transition.label,
+          style = transition.style,
+          requiresConfirmation = transition.requiresConfirmation,
+        )
       },
       serverTotal = Money(centavos = remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,
@@ -874,6 +949,14 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       canSendInvoice = remote.canSendInvoice,
       canSendRecibo = remote.canSendRecibo,
       canRegenerate = remote.canRegenerate,
+      canEdit = remote.canEdit,
+      canDelete = remote.canDelete,
+      canTransition = remote.canTransition,
+      canUploadReceipts = remote.canUploadReceipts,
+      canDeleteReceipts = remote.canDeleteReceipts,
+      canReorderReceipts = remote.canReorderReceipts,
+      canCompose = remote.canCompose,
+      canOpenRecibo = remote.canOpenRecibo ?: false,
     )
   }
 
@@ -893,12 +976,17 @@ class APIRentivoStore(private val client: LiveAPIClient) :
       )
     },
     pixOverride = pix(remote.pixKey, remote.pixMerchantName, remote.pixMerchantCity),
+    pixNeedsSetup = remote.pixNeedsSetup ?: false,
     recipients = remote.recipients.mapNotNull { contact ->
       val name = contact.name ?: return@mapNotNull null
       val email = contact.email ?: return@mapNotNull null
       BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
     },
-    replyTo = remote.replyTo.firstOrNull()?.email,
+    replyTo = remote.replyTo.mapNotNull { contact ->
+      val name = contact.name ?: return@mapNotNull null
+      val email = contact.email ?: return@mapNotNull null
+      BillingRecipient(id = RecipientID(rawValue = contact.uuid), name = name, email = email)
+    },
     // Templates for communication types this app doesn't model are dropped rather than failing the
     // whole billing decode, the same tolerance applied to bill transitions above.
     communicationTemplates = (remote.communicationTemplates ?: emptyList()).mapNotNull { template ->
@@ -936,6 +1024,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
         userID = it.userID,
         email = it.email,
         role = OrganizationRole.fromWire(it.role) ?: OrganizationRole.VIEWER,
+        isCurrentUser = it.isCurrentUser ?: false,
       )
     },
     requiresMFA = remote.enforceMFA,

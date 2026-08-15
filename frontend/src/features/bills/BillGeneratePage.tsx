@@ -7,11 +7,13 @@ import { EmptyState, LoadError, LoadingState } from "../../components/PageState"
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { paths } from "../../lib/api/schema";
-import { formatBrl, formatBrlInput, parseBrl, parseDateInput } from "../../lib/format";
+import { formatBrl, formatBrlInput, MAX_PERSISTED_CENTAVOS, parseBrl, parseDateInput } from "../../lib/format";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Billing } from "./billSupport";
 import { multipartBodySerializer } from "./billSupport";
+import { receiptFileError } from "./receiptFiles";
 
 interface ExtraRow {
   amount: string;
@@ -48,6 +50,7 @@ export function BillGeneratePage() {
   const [files, setFiles] = useState<File[]>([]);
   const nextExtraKey = useRef(0);
   const referenceRef = useRef<HTMLInputElement>(null);
+  const receiptRef = useRef<HTMLInputElement>(null);
   const variableRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const loadController = useRef<AbortController | null>(null);
@@ -133,6 +136,9 @@ export function BillGeneratePage() {
     const localErrors: Record<string, string> = {};
     parsedExtras.forEach((extra, index) => {
       if (!extra.description) localErrors[`extras.${index}.description`] = "Informe a descrição.";
+      /* v8 ignore start -- the controlled input truncates API characters before this defense */
+      else if (Array.from(extra.description).length > 255) localErrors[`extras.${index}.description`] = "A descrição deve ter no máximo 255 caracteres.";
+      /* v8 ignore stop */
       if (extra.amount === null || extra.amount <= 0) localErrors[`extras.${index}.amount`] = "Informe um valor maior que zero.";
     });
     if (Object.keys(localErrors).length > 0) {
@@ -152,6 +158,28 @@ export function BillGeneratePage() {
       setFieldErrors(localErrors);
       focusError(Object.keys(localErrors)[0]);
       return;
+    }
+    const fixedSubtotal = billing.items.reduce(
+      (total, item) => total + (item.item_type === "fixed" ? item.amount : 0), 0
+    );
+    const billTotal = fixedSubtotal
+      + Object.values(variableValues).reduce((total, amount) => total + amount, 0)
+      + parsedExtras.reduce((total, extra) => total + extra.amount!, 0);
+    if (billTotal > MAX_PERSISTED_CENTAVOS) {
+      const firstVariable = billing.items.find((item) => item.item_type === "variable");
+      const field = firstVariable ? `variable_amounts.${firstVariable.uuid}` : "extras.0.amount";
+      localErrors[field] = "O valor total deve ser de no máximo R$ 21.474.836,47.";
+      setFieldErrors(localErrors);
+      focusError(field);
+      return;
+    }
+    if (billing.capabilities.can_upload_bill_receipts) {
+      const validationError = receiptFileError(files);
+      if (validationError) {
+        setActionError(validationError);
+        receiptRef.current?.focus();
+        return;
+      }
     }
     const payload: BillCreatePayload = {
       due_date: parsedDate,
@@ -257,7 +285,7 @@ export function BillGeneratePage() {
               {extras.length === 0 && <p className="text-muted">Nenhuma despesa extra.</p>}
               {extras.map((extra, index) => (
                 <div className="extras-grid" key={extra.key}>
-                  <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: event.target.value } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
+                  <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
                   <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} className="field-input" inputMode="decimal" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row))} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
                   <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => setExtras((rows) => rows.filter((row) => row.key !== extra.key))} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
                 </div>
@@ -266,7 +294,7 @@ export function BillGeneratePage() {
           </div>
 
           <div className="panel"><div className="panel-body panel__body"><div className="field mb-0"><label className="field-label field__label" htmlFor="notes">Observações</label><textarea className="field-textarea input" id="notes" onChange={(event) => setNotes(event.target.value)} rows={3} value={notes} /><FieldError id="notes-error" message={fieldErrors.notes} /></div></div></div>
-          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" className="field-input input" id="generate_receipt_files" multiple onChange={(event) => setFiles(Array.from(event.currentTarget.files!))} type="file" /><small className="text-muted">PDF, JPG ou PNG. Maximo 10 MB cada. Voce pode selecionar varios arquivos.</small></div></div></div> : null}
+          {billing.capabilities.can_upload_bill_receipts ? <div className="panel"><div className="panel-head panel__head"><h5>Comprovantes</h5></div><div className="panel-body panel__body"><div className="field"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" className="field-input input" id="generate_receipt_files" multiple onChange={(event) => setFiles(Array.from(event.currentTarget.files!))} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small></div></div></div> : null}
           {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}
           <div className="btn-group"><button className="btn btn--primary" disabled={submitting} type="submit">{submitting ? "Gerando..." : "Gerar Fatura"}</button><Link className="btn btn--ghost" to={`/billings/${billingUuid}`}>Cancelar</Link></div>
         </form>

@@ -66,7 +66,9 @@ public protocol BillRepository: AnyObject {
   func createBill(_ draft: BillDraft) async throws -> Bill
   func updateBill(billingID: BillingID, billID: BillID, draft: BillDraft) async throws -> Bill
   func deleteBill(billingID: BillingID, billID: BillID) async throws
-  func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws
+  func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws
   func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill
   func addReceipt(billingID: BillingID, billID: BillID, upload: FileUpload) async throws -> Receipt
   func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws
@@ -150,13 +152,15 @@ public protocol OrganizationRepository: AnyObject {
   func inviteMember(organizationID: OrganizationID, email: String, role: OrganizationRole) async throws
     -> Invitation
   func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws
+    -> OrganizationMFAPolicy
   func transferBilling(billingID: BillingID, toOrganizationID: OrganizationID) async throws
 }
 
 @MainActor
 public protocol InvitationRepository: AnyObject {
   func listPendingInvitations() async throws -> [Invitation]
-  func acceptInvitation(id: InvitationID) async throws
+  @discardableResult
+  func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance
   func declineInvitation(id: InvitationID) async throws
 }
 
@@ -173,10 +177,19 @@ public protocol SecurityRepository: AnyObject {
 
 @MainActor
 public protocol APIKeyRepository: AnyObject {
+  func apiKeyOptions() async throws -> APIKeyOptions
   func listAPIKeys() async throws -> [APIKeyMetadata]
   func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret
-  func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata
+  func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata
   func revokeAPIKey(id: APIKeyID) async throws
+}
+
+extension APIKeyRepository {
+  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+    try await updateAPIKey(id: id, draft: draft, updateGrants: true)
+  }
 }
 
 @MainActor

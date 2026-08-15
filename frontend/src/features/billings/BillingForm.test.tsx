@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -49,15 +49,27 @@ it("preserves the create form structure and filters owners by capability instead
   const values = emptyBillingValues();
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={organizations} saving={false} values={values} />);
 
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  const billingName = screen.getByLabelText("Nome do imóvel");
+  const billingDescription = screen.getByRole("textbox", { name: /^Descrição$/ });
+  const itemDescription = screen.getByLabelText("Descrição do item 1");
+  expect(billingName).toHaveFocus();
+  fireEvent.change(billingName, { target: { value: "😀".repeat(256) } });
+  fireEvent.change(billingDescription, { target: { value: "😀".repeat(2001) } });
+  fireEvent.change(itemDescription, { target: { value: "😀".repeat(256) } });
+  expect(billingName).toHaveValue("😀".repeat(255));
+  expect(billingDescription).toHaveValue("😀".repeat(2000));
+  expect(itemDescription).toHaveValue("😀".repeat(255));
+  await user.clear(billingName);
+  await user.clear(billingDescription);
+  await user.clear(itemDescription);
   expect(screen.getByRole("heading", { name: "Detalhes" }).closest(".panel")).not.toBeNull();
   expect(screen.getByRole("option", { name: "Minha conta" })).toBeVisible();
   expect(screen.getByRole("option", { name: "Permitida por capability" })).toBeVisible();
   expect(screen.queryByRole("option", { name: "Negada por capability" })).not.toBeInTheDocument();
   expect(screen.getByText("R$ 0,00")).toHaveAttribute("id", "fixed-subtotal");
 
-  await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento 302");
-  await user.type(screen.getByRole("textbox", { name: /^Descrição$/ }), "Inquilino atual");
+  await user.type(billingName, "Apartamento 302");
+  await user.type(billingDescription, "Inquilino atual");
   await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
   await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
   await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
@@ -129,6 +141,29 @@ it("keeps invalid currency visible and prevents removing the final item row", as
   expect(screen.getByRole("button", { name: "Remover item 1" })).toBeEnabled();
   await user.click(screen.getByRole("button", { name: "Remover item 2" }));
   expect(screen.getByRole("button", { name: "Remover item 1" })).toBeDisabled();
+});
+
+it("rejects invalid amounts and fixed subtotals beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  const values = emptyBillingValues();
+  values.items[0] = { ...values.items[0], amount: "21.474.836,47", description: "Aluguel" };
+  renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
+
+  await user.click(screen.getByRole("button", { name: "Adicionar item" }));
+  await user.type(screen.getByLabelText("Descrição do item 2"), "Condomínio");
+  await user.type(screen.getByLabelText("Valor do item 2 (R$)"), "0,01");
+  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+
+  expect(screen.getByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus();
+  expect(onSubmit).not.toHaveBeenCalled();
+
+  await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "valor inválido");
+  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+  expect(screen.getByText("Informe um valor válido.")).toBeVisible();
+  expect(onSubmit).not.toHaveBeenCalled();
 });
 
 it("renders an aggregate items error and focuses the first item description", () => {

@@ -60,6 +60,32 @@ it("uploads a real File through typed multipart, forwards analytics and refreshe
   expect(onError).not.toHaveBeenCalled();
 });
 
+it("rejects attachment types and sizes the API cannot store before sending", async () => {
+  const user = userEvent.setup({ applyAccept: false });
+  const fetchMock = installFetch(() => jsonResponse(attachment, 201));
+  render(<MemoryRouter><AttachmentManager attachments={[]} billingUuid="billing-public" canEdit mode="edit" onChanged={vi.fn()} onError={vi.fn()} /></MemoryRouter>);
+
+  const input = screen.getByLabelText("Arquivo");
+  await user.upload(input, new File(["texto"], "notas.txt", { type: "text/plain" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(screen.getByText("Envie um arquivo PDF, JPEG ou PNG.")).toBeVisible();
+  expect(input).toHaveFocus();
+
+  await user.upload(input, new File([], "vazio.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(screen.getByText("O arquivo selecionado está vazio.")).toBeVisible();
+
+  const oversized = new File(
+    [new Uint8Array(10 * 1024 * 1024 + 1)],
+    "contrato.pdf",
+    { type: "application/pdf" }
+  );
+  await user.upload(input, oversized);
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(screen.getByText("O arquivo excede o limite de 10 MB.")).toBeVisible();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it("keeps successful upload status when refreshing the attachment list fails", async () => {
   const user = userEvent.setup();
   const onChanged = vi.fn().mockRejectedValue(new Error("refresh offline"));

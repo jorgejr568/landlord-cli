@@ -19,6 +19,18 @@ import Testing
   #expect(Set(bills.map(\.status)) == Set(BillStatus.allCases))
 }
 
+@Test @MainActor func exportRequestsMirrorTheBackendFormatsAndBillingLookup() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  try await store.requestExport(billingID: StableID.billingAurora101, format: "csv")
+  await #expect(throws: DemoError(message: "Escolha CSV ou XLSX.")) {
+    try await store.requestExport(billingID: StableID.billingAurora101, format: "pdf")
+  }
+  await #expect(throws: DemoError.resourceNotFound) {
+    try await store.requestExport(billingID: BillingID(rawValue: "missing"), format: "csv")
+  }
+}
+
 @Test @MainActor func addingExpenseUpdatesDashboardNetIncome() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let before = try await store.dashboardSummary()
@@ -43,6 +55,7 @@ import Testing
     try await store.transitionBill(
       billingID: StableID.billingAurora101,
       billID: StableID.billDraft,
+      from: .draft,
       to: .delayedPayment
     )
     Issue.record("Expected invalid transition to throw")
@@ -63,6 +76,7 @@ import Testing
   try await store.transitionBill(
     billingID: StableID.billingAurora101,
     billID: StableID.billDraft,
+    from: .draft,
     to: .published
   )
 
@@ -72,6 +86,25 @@ import Testing
   )
   #expect(bill.status == .published)
   #expect(store.recentActivities.first?.kind == .bill)
+}
+
+@Test @MainActor func staleTransitionDoesNotMutateBill() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  await #expect(throws: DemoError.staleBillStatus) {
+    try await store.transitionBill(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billDraft,
+      from: .sent,
+      to: .published
+    )
+  }
+
+  let bill = try await store.bill(
+    billingID: StableID.billingAurora101,
+    id: StableID.billDraft
+  )
+  #expect(bill.status == .draft)
 }
 
 @Test @MainActor func injectedFailureIsConsumedByOneOperation() async throws {
@@ -128,9 +161,11 @@ import Testing
   let store = MockRentivoStore(fixtures: .canonical)
   let invitation = try #require(try await store.listPendingInvitations().first)
 
-  try await store.acceptInvitation(id: invitation.id)
+  let outcome = try await store.acceptInvitation(id: invitation.id)
 
   #expect(try await store.listPendingInvitations().isEmpty)
+  #expect(outcome.organizationID == invitation.organizationID)
+  #expect(!outcome.mfaSetupRequired)
   let organization = try await store.organization(id: invitation.organizationID)
   #expect(organization.members.contains { $0.userID == store.currentUser.id })
 }
@@ -141,11 +176,28 @@ import Testing
   try await store.acceptInvitation(id: invitation.id)
 
   do {
-    try await store.setOrganizationMFA(
+    _ = try await store.setOrganizationMFA(
       organizationID: invitation.organizationID,
       required: true
     )
     Issue.record("Expected manager policy mutation to be denied")
+  } catch let error as DemoError {
+    #expect(error == .permissionDenied)
+  }
+}
+
+@Test @MainActor func acceptedManagerCannotInviteOrganizationMembers() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let invitation = try #require(try await store.listPendingInvitations().first)
+  try await store.acceptInvitation(id: invitation.id)
+
+  do {
+    _ = try await store.inviteMember(
+      organizationID: invitation.organizationID,
+      email: "novo-membro@rentivo.com.br",
+      role: .viewer
+    )
+    Issue.record("Expected manager invitation to be denied")
   } catch let error as DemoError {
     #expect(error == .permissionDenied)
   }
@@ -208,6 +260,26 @@ import Testing
   #expect(updated.receipts.map(\.id) == reversed)
 }
 
+@Test @MainActor func receiptUploadsRejectFilesTheServerWouldSkip() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let before = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPaid
+  ).receipts
+
+  await #expect(throws: DemoError(message: "O comprovante selecionado está vazio.")) {
+    try await store.addReceipt(
+      billingID: StableID.billingAurora101,
+      billID: StableID.billPaid,
+      upload: FileUpload(data: Data(), filename: "vazio.pdf", mediaType: "application/pdf")
+    )
+  }
+
+  let after = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPaid
+  ).receipts
+  #expect(after == before)
+}
+
 @Test @MainActor func communicationMutationUsesSharedActivityGraph() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let billing = try await store.billing(id: StableID.billingAurora101)
@@ -228,6 +300,10 @@ import Testing
   #expect(queued == recipientIDs.count)
   let record = try #require(store.snapshot.communications.first)
   #expect(Set(record.recipients) == Set(billing.recipients.map(\.email)))
+  let history = try await store.bill(
+    billingID: StableID.billingAurora101, id: StableID.billPublished
+  ).communications
+  #expect(Set(history.compactMap(\.recipientEmail)) == Set(record.recipients))
   #expect(store.recentActivities.first?.detail == record.subject)
 }
 
@@ -323,6 +399,113 @@ import Testing
   }
 }
 
+@Test @MainActor func sendingCommunicationNormalizesAndValidatesContent() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipient = try #require(billing.recipients.first)
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "  Assunto  ",
+    message: "  Corpo  ",
+    acknowledgeWarning: false,
+    saveScope: nil
+  )
+  let record = try #require(store.snapshot.communications.first)
+  #expect(record.subject == "Assunto")
+  #expect(record.message == "Corpo")
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: billing.id,
+      billID: StableID.billPublished,
+      commType: .billReady,
+      recipientIDs: [recipient.id],
+      subject: "   ",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
+}
+
+@Test @MainActor func sendingCommunicationValidatesTheBillAndPersistsTemplateScope() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let billing = try await store.billing(id: StableID.billingAurora101)
+  let recipient = try #require(billing.recipients.first)
+
+  await #expect(throws: DemoError.self) {
+    try await store.sendCommunication(
+      billingID: billing.id,
+      billID: StableID.billSent,
+      commType: .billReady,
+      recipientIDs: [recipient.id],
+      subject: "Assunto",
+      message: "Corpo",
+      acknowledgeWarning: false,
+      saveScope: nil
+    )
+  }
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "  Modelo pessoal  ",
+    message: "  Corpo pessoal  ",
+    acknowledgeWarning: false,
+    saveScope: .owner
+  )
+  let sibling = try await store.billing(id: StableID.billingAurora202)
+  #expect(sibling.template(for: .billReady)?.subject == "Modelo pessoal")
+  #expect(sibling.template(for: .billReady)?.body == "Corpo pessoal")
+
+  _ = try await store.sendCommunication(
+    billingID: billing.id,
+    billID: StableID.billPublished,
+    commType: .billReady,
+    recipientIDs: [recipient.id],
+    subject: "Modelo da cobrança",
+    message: "Corpo da cobrança",
+    acknowledgeWarning: false,
+    saveScope: .billing
+  )
+  let updated = try await store.billing(id: billing.id)
+  #expect(updated.template(for: .billReady)?.subject == "Modelo da cobrança")
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == "Modelo pessoal")
+
+  _ = try await store.sendCommunication(
+    billingID: StableID.billingAurora202,
+    billID: StableID.billSent,
+    commType: .billReady,
+    recipientIDs: [try #require(sibling.recipients.first).id],
+    subject: "Novo modelo pessoal",
+    message: "Novo corpo pessoal",
+    acknowledgeWarning: false,
+    saveScope: .owner
+  )
+  #expect(try await store.billing(id: billing.id).template(for: .billReady)?.subject == "Modelo da cobrança")
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == "Novo modelo pessoal")
+
+  let created = try await store.createBilling(
+    BillingDraft(name: "Nova cobrança", description: "", owner: billing.owner, items: [])
+  )
+  #expect(created.template(for: .billReady)?.subject == "Novo modelo pessoal")
+
+  try await store.transferBilling(
+    billingID: StableID.billingAurora202,
+    toOrganizationID: StableID.organizationHorizonte
+  )
+  let systemSubject = try #require(
+    MockFixtures.defaultCommunicationTemplates.first { $0.commType == .billReady }
+  ).subject
+  #expect(try await store.billing(id: StableID.billingAurora202).template(for: .billReady)?.subject == systemSubject)
+}
+
 @Test @MainActor func creatingExpenseRejectsZeroOrNegativeAmounts() async throws {
   // Matches the server contract: `ExpenseCreateRequest.amount` requires
   // `exclusiveMinimum: 0`.
@@ -352,6 +535,34 @@ import Testing
     Issue.record("Expected negative-amount expense to be rejected")
   } catch let error as DemoError {
     #expect(error == .invalidAmount)
+  }
+}
+
+@Test @MainActor func creatingExpenseNormalizesAndValidatesItsDescription() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let created = try await store.createExpense(
+    billingID: StableID.billingAurora101,
+    description: "  Pintura  ",
+    category: .maintenance,
+    incurredOn: DateOnly(year: 2026, month: 7, day: 20),
+    amount: Money(centavos: 100)
+  )
+  #expect(created.description == "Pintura")
+
+  for invalid in ["   ", String(repeating: "d", count: 2_001)] {
+    do {
+      _ = try await store.createExpense(
+        billingID: StableID.billingAurora101,
+        description: invalid,
+        category: .maintenance,
+        incurredOn: DateOnly(year: 2026, month: 7, day: 20),
+        amount: Money(centavos: 100)
+      )
+      Issue.record("Expected the invalid expense description to be rejected")
+    } catch let error as DemoError {
+      #expect(error == .invalidDescription)
+    }
   }
 }
 
@@ -392,11 +603,42 @@ import Testing
     userID: member.userID,
     role: .manager
   )
-  try await store.setOrganizationMFA(organizationID: organization.id, required: false)
+  _ = try await store.setOrganizationMFA(organizationID: organization.id, required: false)
 
   let updated = try await store.organization(id: organization.id)
   #expect(updated.members.first { $0.userID == member.userID }?.role == .manager)
   #expect(!updated.requiresMFA)
+}
+
+@Test @MainActor func mfaPolicyReportsWhenTheCurrentUserNeedsEnrollment() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let organization = try await store.organization(id: StableID.organizationHorizonte)
+  _ = try await store.setOrganizationMFA(organizationID: organization.id, required: false)
+  try await store.disableTOTP(password: "senha-valida")
+  for passkey in try await store.securitySummary().passkeys {
+    try await store.deletePasskey(id: passkey.id)
+  }
+
+  let policy = try await store.setOrganizationMFA(
+    organizationID: organization.id,
+    required: true
+  )
+
+  #expect(policy.enforceMFA)
+  #expect(policy.mfaSetupRequired)
+  let summary = try await store.securitySummary()
+  #expect(summary.organizationEnforced)
+  #expect(summary.setupRequired)
+}
+
+@Test @MainActor func enforcedOrganizationProtectsTheLastMFAFactor() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  try await store.disableTOTP(password: "senha-valida")
+  let passkey = try #require(try await store.securitySummary().passkeys.first)
+
+  await #expect(throws: DemoError.permissionDenied) {
+    try await store.deletePasskey(id: passkey.id)
+  }
 }
 
 @Test @MainActor func memberRoleCanBePromotedToAdmin() async throws {
@@ -427,6 +669,30 @@ import Testing
   #expect(!String(describing: metadata).contains(created.secret))
 }
 
+@Test @MainActor func clearingProfilePIXRemovesTheConfiguration() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+
+  let profile = try await store.updatePix(
+    PixConfiguration(key: "", merchantName: "", merchantCity: "")
+  )
+
+  #expect(profile.pix == nil)
+  #expect(try await store.profile().pix == nil)
+}
+
+@Test @MainActor func revokedAPIKeyRemainsInHistoryAndCannotBeRevokedAgain() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let key = try #require(try await store.listAPIKeys().first)
+
+  try await store.revokeAPIKey(id: key.id)
+
+  let revoked = try #require(try await store.listAPIKeys().first { $0.id == key.id })
+  #expect(revoked.revokedAt != nil)
+  await #expect(throws: DemoError.resourceNotFound) {
+    try await store.revokeAPIKey(id: key.id)
+  }
+}
+
 @Test @MainActor func apiKeyMetadataCanBeUpdatedWithoutRotatingSecret() async throws {
   let store = MockRentivoStore(fixtures: .canonical)
   let key = try #require(try await store.listAPIKeys().first)
@@ -444,7 +710,23 @@ import Testing
   #expect(updated.name == updatedDraft.name)
   #expect(updated.scopes == updatedDraft.scopes)
   #expect(updated.grants == updatedDraft.grants)
-  #expect(updated.expiresAt == updatedDraft.expiresAt)
+  // PATCH does not accept `expires_at`; metadata edits must preserve the issued expiry.
+  #expect(updated.expiresAt == key.expiresAt)
+}
+
+@Test @MainActor func apiKeyUpdateKeepsGrantsWhenTheFormDidNotChangeAccess() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  let key = try #require(try await store.listAPIKeys().first)
+  let draft = APIKeyDraft(
+    name: "Somente nome",
+    scopes: key.scopes,
+    grants: [],
+    expiresAt: key.expiresAt
+  )
+
+  let updated = try await store.updateAPIKey(id: key.id, draft: draft, updateGrants: false)
+
+  #expect(updated.grants == key.grants)
 }
 
 @Test @MainActor func demoSettingsAreAuthoritativeAndResetTogether() async throws {
@@ -497,12 +779,13 @@ import Testing
   #expect(try await store.securitySummary().totpEnabled)
 
   try await store.disableTOTP(password: "senha-de-demonstração")
-  let codes = try await store.regenerateRecoveryCodes()
 
   let summary = try await store.securitySummary()
   #expect(!summary.totpEnabled)
-  #expect(codes.count == 8)
-  #expect(summary.recoveryCodeCount == 8)
+  #expect(summary.recoveryCodeCount == 0)
+  await #expect(throws: DemoError.self) {
+    _ = try await store.regenerateRecoveryCodes()
+  }
 }
 
 @Test @MainActor func demoStoreReportsNoLiveSessionToRestoreRevokeOrDelete() async throws {
@@ -566,6 +849,33 @@ import Testing
   #expect(!sent.hasRecibo)
   #expect(sent.capabilities == .permissive)
   #expect(paid.hasRecibo)
+}
+
+@Test @MainActor func viewerModeReturnsReadOnlyPerBillCapabilities() async throws {
+  let store = MockRentivoStore(fixtures: .canonical)
+  store.setViewerMode(true)
+
+  let bill = try await store.bill(
+    billingID: StableID.billingAurora202, id: StableID.billSent)
+
+  #expect(bill.capabilities.canDownloadInvoice)
+  #expect(!bill.capabilities.canEdit)
+  #expect(!bill.capabilities.canDelete)
+  #expect(!bill.capabilities.canTransition)
+  #expect(!bill.capabilities.canRegenerate)
+  #expect(!bill.capabilities.canUploadReceipts)
+  #expect(!bill.capabilities.canDeleteReceipts)
+  #expect(!bill.capabilities.canReorderReceipts)
+  #expect(!bill.capabilities.canCompose)
+  #expect(!bill.capabilities.canSendInvoice)
+  #expect(!bill.capabilities.canSendRecibo)
+
+  do {
+    _ = try await store.regenerateBill(billingID: bill.billingID, billID: bill.id)
+    Issue.record("Expected viewer mode to reject PDF regeneration")
+  } catch let error as DemoError {
+    #expect(error == .permissionDenied)
+  }
 }
 
 @Test @MainActor func mockRegenerateQueuesTheRenderAndSettlesAfterTwoFetches() async throws {

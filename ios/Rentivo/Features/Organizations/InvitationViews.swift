@@ -2,6 +2,7 @@ import SwiftUI
 
 struct InvitationListView: View {
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   let onMutation: () async -> Void
   @State private var state: LoadState<[Invitation]> = .idle
   /// What the last refresh or accept/decline has to say, shown above the list: the global notice
@@ -78,6 +79,17 @@ struct InvitationListView: View {
             Text(invitation.organizationName).font(.headline)
             Label(invitation.role.label, systemImage: "person.badge.shield.checkmark")
               .font(.caption)
+            if let invitedByEmail = invitation.invitedByEmail {
+              Label("Convidado por \(invitedByEmail)", systemImage: "envelope.fill")
+                .font(.caption)
+                .foregroundStyle(RentivoColors.secondaryInk)
+            }
+            if invitation.organizationEnforcesMFA {
+              Label("Esta organização exige MFA.", systemImage: "lock.shield.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(RentivoColors.coral)
+                .accessibilityIdentifier("invitation.mfa.required")
+            }
             if !app.usesLiveAPI && app.demoSettings.viewerMode {
               Label("Ações indisponíveis no modo visualizador.", systemImage: "eye.fill")
                 .font(.caption)
@@ -136,13 +148,23 @@ struct InvitationListView: View {
     respondingID = invitation.id
     defer { respondingID = nil }
     do {
+      var acceptance: InvitationAcceptance?
       if accept {
-        try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
+        acceptance = try await app.dependencies.invitations.acceptInvitation(id: invitation.id)
       } else {
         try await app.dependencies.invitations.declineInvitation(id: invitation.id)
       }
       await load()
       await onMutation()
+      if acceptance?.mfaSetupRequired == true {
+        dismiss()
+        app.selectedTab = .account
+        app.showNotice(
+          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
+          kind: .warning
+        )
+        return
+      }
       // The confirmation goes in the same slot as a failure rather than through `app.showNotice`:
       // the global banner would render behind this sheet and the user would never see it.
       notice = .confirmation(accept ? "Convite aceito." : "Convite recusado.")
@@ -201,7 +223,7 @@ struct InviteMemberView: View {
             Text("Convidar")
           }
         }
-        .disabled(saving || !email.contains("@"))
+        .disabled(saving || !OrganizationInviteEmail.isValid(email))
       }
     }
     .interactiveDismissDisabled(saving)
@@ -209,13 +231,17 @@ struct InviteMemberView: View {
 
   private func invite() async {
     guard !saving else { return }
+    if let message = OrganizationInviteEmail.validationMessage(email) {
+      submitErrorMessage = message
+      return
+    }
     submitErrorMessage = nil
     saving = true
     defer { saving = false }
     do {
       _ = try await app.dependencies.organizations.inviteMember(
         organizationID: organization.id,
-        email: email,
+        email: OrganizationInviteEmail.normalized(email),
         role: role
       )
       await onSaved()

@@ -3,22 +3,32 @@ package app.rentivo.data
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
+import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.APIKeyValidation
+import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.ActivityKind
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
+import app.rentivo.domain.AttachmentUploadRules
+import app.rentivo.domain.ReceiptUploadRules
 import app.rentivo.domain.Bill
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillStatus
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingCapabilities
 import app.rentivo.domain.BillingDraft
+import app.rentivo.domain.BillingExportContract
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.CommunicationContent
 import app.rentivo.domain.CommunicationID
 import app.rentivo.domain.CommunicationPreview
 import app.rentivo.domain.CommunicationRecord
 import app.rentivo.domain.CommunicationSaveScope
+import app.rentivo.domain.CommunicationTemplate
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.CreatedAPIKeySecret
 import app.rentivo.domain.DateOnly
@@ -26,9 +36,11 @@ import app.rentivo.domain.DemoError
 import app.rentivo.domain.DownloadedFile
 import app.rentivo.domain.Expense
 import app.rentivo.domain.ExpenseCategory
+import app.rentivo.domain.ExpenseInput
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.InvitationStatus
 import app.rentivo.domain.MFAChallenge
@@ -38,7 +50,9 @@ import app.rentivo.domain.Organization
 import app.rentivo.domain.OrganizationCapabilities
 import app.rentivo.domain.OrganizationDraft
 import app.rentivo.domain.OrganizationID
+import app.rentivo.domain.OrganizationInviteEmail
 import app.rentivo.domain.OrganizationMember
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.OrganizationRole
 import app.rentivo.domain.PDFRenderStatus
 import app.rentivo.domain.PasskeyAssertionPayload
@@ -56,6 +70,8 @@ import app.rentivo.domain.ThemeSource
 import app.rentivo.domain.ThemeTarget
 import app.rentivo.domain.ThemeValues
 import app.rentivo.domain.UserProfile
+import app.rentivo.domain.WorkspaceID
+import app.rentivo.domain.WorkspaceResourceType
 import java.text.Normalizer
 import java.time.Instant
 import java.util.Locale
@@ -104,6 +120,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   private val apiKeysState: MutableList<APIKeyMetadata> = baseline.apiKeys.toMutableList()
   private val themesState: MutableMap<ThemeTarget, ThemeValues> = baseline.themes.toMutableMap()
   private val activitiesState: MutableList<RecentActivity> = baseline.activities.toMutableList()
+  private val ownerCommunicationTemplates:
+    MutableMap<CommunicationOwnerKey, MutableMap<CommunicationType, CommunicationTemplate>> = mutableMapOf()
+  private val billingTemplateOverrides: MutableMap<BillingID, MutableSet<CommunicationType>> = mutableMapOf()
 
   private var emptyModeEnabled = false
   private var viewerModeEnabled = false
@@ -220,6 +239,8 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     operationDelayEnabled = false
     shouldFailNextOperation = false
     pendingRenderTicks.clear()
+    ownerCommunicationTemplates.clear()
+    billingTemplateOverrides.clear()
   }
 
   override suspend fun profile(): UserProfile {
@@ -241,7 +262,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun updatePix(pix: PixConfiguration): UserProfile {
     prepareOperation()
     if (viewerModeEnabled) throw DemoError.permissionDenied
-    profileState = profileState.copy(pix = pix)
+    profileState = profileState.copy(pix = pix.takeUnless { it.isEmpty })
     recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = pix.key)
     return profileState
   }
@@ -261,7 +282,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun createBilling(draft: BillingDraft): Billing {
     prepareOperation()
     requireWriteAccess()
-    val billing = Billing(
+    var billing = Billing(
       id = BillingID(rawValue = UUID.randomUUID().toString()),
       name = draft.name,
       description = draft.description,
@@ -274,6 +295,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       // then system default), so a fresh billing is never template-less in production.
       communicationTemplates = MockFixtures.defaultCommunicationTemplates,
     )
+    ownerCommunicationTemplates[CommunicationOwnerKey(draft.owner)]?.values?.forEach { template ->
+      billing = billing.withCommunicationTemplate(template)
+    }
     billingsState.add(0, billing)
     recordActivity(kind = ActivityKind.BILLING, title = "Cobrança criada", detail = billing.name)
     return billing
@@ -310,6 +334,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     if (index < 0) throw DemoError.resourceNotFound
     val name = billingsState[index].name
     billingsState.removeAt(index)
+    billingTemplateOverrides.remove(id)
     billsState.removeAll { it.billingID == id }
     expensesState.removeAll { it.billingID == id }
     attachmentsState.remove(id)
@@ -324,14 +349,34 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return billsState
       .filter { it.billingID == billingID }
       .sortedByDescending { it.referenceMonth }
+      .map(::restrictIfNeeded)
   }
 
   override suspend fun bill(billingID: BillingID, id: BillID): Bill {
     prepareOperation()
     val index = billIndex(billingID = billingID, billID = id) ?: throw DemoError.resourceNotFound
     advancePendingRender(index = index, billID = id)
-    return billsState[index]
+    return restrictIfNeeded(withCommunicationHistory(billsState[index]))
   }
+
+  private fun withCommunicationHistory(bill: Bill): Bill = bill.copy(
+    communications = communicationsState
+      .filter { it.billID == bill.id }
+      .flatMap { record ->
+        record.recipients.mapIndexed { index, email ->
+          BillCommunication(
+            id = CommunicationID(rawValue = "${record.id.rawValue}-$index"),
+            commType = null,
+            status = "sent",
+            createdAt = record.sentAt,
+            sentAt = record.sentAt,
+            recipientName = null,
+            recipientEmail = email,
+            subject = record.subject,
+          )
+        }
+      },
+  )
 
   /**
    * Demo mode fakes the background render: each fetch consumes one tick of the countdown started
@@ -412,12 +457,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun transitionBill(
     billingID: BillingID,
     billID: BillID,
+    currentStatus: BillStatus,
     status: BillStatus,
   ) {
     prepareOperation()
     requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
+    if (billsState[index].status != currentStatus) throw DemoError.staleBillStatus
     if (!billsState[index].status.canTransition(status)) throw DemoError.invalidBillTransition
     billsState[index] = billsState[index].copy(
       status = status,
@@ -437,6 +484,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun regenerateBill(billingID: BillingID, billID: BillID): Bill {
     prepareOperation()
+    requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
     billsState[index] = billsState[index].copy(pdfRenderStatus = PDFRenderStatus.PENDING)
@@ -453,10 +501,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     val index = billIndex(billingID = billingID, billID = billID)
       ?: throw DemoError.resourceNotFound
+    val validatedUpload = ReceiptUploadRules.validated(upload)
     val receipt = Receipt(
       id = ReceiptID(rawValue = UUID.randomUUID().toString()),
-      name = upload.filename,
+      name = validatedUpload.filename,
       sortOrder = billsState[index].receipts.size,
+      mediaType = validatedUpload.mediaType,
+      byteCount = validatedUpload.byteCount,
+      createdAt = Instant.now(),
     )
     billsState[index] = billsState[index].copy(
       receipts = billsState[index].receipts + receipt,
@@ -464,7 +516,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     recordActivity(
       kind = ActivityKind.BILL,
       title = "Comprovante adicionado",
-      detail = upload.filename,
+      detail = validatedUpload.filename,
     )
     return receipt
   }
@@ -529,16 +581,22 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     // Matches the server contract: `ExpenseCreateRequest.amount` requires
     // `exclusiveMinimum: 0`, so a zero or negative expense always 422s.
     if (amount.centavos <= 0) throw DemoError.invalidAmount
+    if (!ExpenseInput.isValidDescription(description)) throw DemoError.invalidDescription
+    val normalizedDescription = ExpenseInput.normalizedDescription(description)
     val expense = Expense(
       id = ExpenseID(rawValue = UUID.randomUUID().toString()),
       billingID = billingID,
-      description = description,
+      description = normalizedDescription,
       amount = amount,
       category = category,
       incurredOn = incurredOn,
     )
     expensesState.add(0, expense)
-    recordActivity(kind = ActivityKind.EXPENSE, title = "Despesa adicionada", detail = description)
+    recordActivity(
+      kind = ActivityKind.EXPENSE,
+      title = "Despesa adicionada",
+      detail = normalizedDescription,
+    )
     return expense
   }
 
@@ -562,6 +620,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun addAttachment(billingID: BillingID, upload: FileUpload): Attachment {
     prepareOperation()
     requireWriteAccess()
+    val upload = AttachmentUploadRules.validated(upload)
     if (billingsState.none { it.id == billingID }) throw DemoError.resourceNotFound
     val attachment = Attachment(
       id = AttachmentID(rawValue = UUID.randomUUID().toString()),
@@ -620,20 +679,37 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     val billing = billingsState.firstOrNull { it.id == billingID }
     if (billing == null || recipientIDs.isEmpty()) throw DemoError.operationFailed
+    if (billIndex(billingID = billingID, billID = billID) == null) throw DemoError.resourceNotFound
+    if (saveScope == CommunicationSaveScope.OWNER && !billing.capabilities.canEdit) {
+      throw DemoError.permissionDenied
+    }
     val byID = billing.recipients.associateBy { it.id }
     val selected = recipientIDs.mapNotNull { byID[it] }
     if (selected.size != recipientIDs.size) throw DemoError.operationFailed
+    val validationMessage = CommunicationContent.validationMessage(subject = subject, message = message)
+    if (validationMessage != null) throw DemoError(message = validationMessage)
+    val normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    val normalizedMessage = CommunicationContent.normalizedMessage(message)
     val communication = CommunicationRecord(
       id = CommunicationID(rawValue = UUID.randomUUID().toString()),
       billingID = billingID,
       billID = billID,
       recipients = selected.map { it.email },
-      subject = subject,
-      message = message,
+      subject = normalizedSubject,
+      message = normalizedMessage,
       sentAt = Instant.now(),
     )
     communicationsState.add(0, communication)
-    recordActivity(kind = ActivityKind.BILL, title = "Comunicação simulada", detail = subject)
+    if (saveScope != null) {
+      saveCommunicationTemplate(
+        scope = saveScope,
+        billing = billing,
+        commType = commType,
+        subject = normalizedSubject,
+        body = normalizedMessage,
+      )
+    }
+    recordActivity(kind = ActivityKind.BILL, title = "Comunicação simulada", detail = normalizedSubject)
     return selected.size
   }
 
@@ -656,6 +732,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun requestExport(billingID: BillingID, format: String) {
     prepareOperation()
+    requireWriteAccess()
+    if (billingsState.none { it.id == billingID }) throw DemoError.resourceNotFound
+    if (format !in BillingExportContract.formats) throw DemoError("Escolha CSV ou XLSX.")
+    recordActivity(
+      kind = ActivityKind.BILLING,
+      title = "Exportação solicitada",
+      detail = format.uppercase(),
+    )
   }
 
   override suspend fun dashboardSummary(): DashboardSummary {
@@ -821,30 +905,45 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     requireWriteAccess()
     requireOrganizationCapability(organizationID) { it.canInvite }
     val index = organizationIndex(organizationID)
-    if (index == null || !email.contains("@")) throw DemoError.operationFailed
+    if (index == null || !OrganizationInviteEmail.isValid(email)) throw DemoError.operationFailed
+    val normalizedEmail = OrganizationInviteEmail.normalized(email)
     val invitation = Invitation(
       id = InvitationID(rawValue = UUID.randomUUID().toString()),
       organizationID = organizationID,
       organizationName = organizationsState[index].name,
-      email = email,
+      email = normalizedEmail,
       role = role,
       status = InvitationStatus.PENDING,
     )
     invitationsState.add(0, invitation)
-    recordActivity(kind = ActivityKind.INVITATION, title = "Convite criado", detail = email)
+    recordActivity(kind = ActivityKind.INVITATION, title = "Convite criado", detail = normalizedEmail)
     return invitation
   }
 
-  override suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean) {
+  override suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy {
     prepareOperation()
     requireWriteAccess()
     requireOrganizationCapability(organizationID) { it.canManage }
     val index = organizationIndex(organizationID) ?: throw DemoError.resourceNotFound
     organizationsState[index] = organizationsState[index].copy(requiresMFA = required)
+    val organizationEnforced = organizationsState.any { it.requiresMFA }
+    securityState = securityState.copy(
+      organizationEnforced = organizationEnforced,
+      setupRequired = organizationEnforced &&
+        !securityState.totpEnabled &&
+        securityState.passkeys.isEmpty(),
+    )
     recordActivity(
       kind = ActivityKind.SECURITY,
       title = if (required) "MFA obrigatório" else "MFA opcional",
       detail = organizationsState[index].name,
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA = required,
+      mfaSetupRequired = securityState.setupRequired,
     )
   }
 
@@ -865,6 +964,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     billingsState[billingIndex] = billingsState[billingIndex].copy(
       owner = BillingOwner.Organization(id = organization.id, name = organization.name),
     )
+    for (commType in CommunicationType.entries) {
+      if (billingTemplateOverrides[billingID]?.contains(commType) == true) continue
+      val template = ownerCommunicationTemplates[CommunicationOwnerKey(billingsState[billingIndex].owner)]?.get(commType)
+        ?: MockFixtures.defaultCommunicationTemplates.firstOrNull { it.commType == commType }
+      if (template != null) {
+        billingsState[billingIndex] = billingsState[billingIndex].withCommunicationTemplate(template)
+      }
+    }
     recordActivity(
       kind = ActivityKind.BILLING,
       title = "Cobrança transferida",
@@ -878,8 +985,14 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return invitationsState.filter { it.status == InvitationStatus.PENDING }
   }
 
-  override suspend fun acceptInvitation(id: InvitationID) {
+  override suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance {
     respondToInvitation(id = id, status = InvitationStatus.ACCEPTED)
+    val invitation = invitationsState.firstOrNull { it.id == id }
+      ?: throw DemoError.resourceNotFound
+    return InvitationAcceptance(
+      organizationID = invitation.organizationID,
+      mfaSetupRequired = securityState.setupRequired,
+    )
   }
 
   override suspend fun declineInvitation(id: InvitationID) {
@@ -894,7 +1007,16 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   private suspend fun setTOTPEnabled(enabled: Boolean) {
     prepareOperation()
     requireWriteAccess()
-    securityState = securityState.copy(totpEnabled = enabled)
+    if (!enabled && securityState.organizationEnforced && securityState.passkeys.isEmpty()) {
+      throw DemoError.permissionDenied
+    }
+    securityState = securityState.copy(
+      totpEnabled = enabled,
+      recoveryCodeCount = if (enabled) securityState.recoveryCodeCount else 0,
+      setupRequired = securityState.organizationEnforced &&
+        !enabled &&
+        securityState.passkeys.isEmpty(),
+    )
     recordActivity(
       kind = ActivityKind.SECURITY,
       title = if (enabled) "TOTP ativado" else "TOTP desativado",
@@ -926,6 +1048,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun regenerateRecoveryCodes(): List<String> {
     prepareOperation()
     requireWriteAccess()
+    if (!securityState.totpEnabled) throw DemoError.operationFailed
     val codes = listOf(
       "RNTV-7K2P", "RNTV-4M9Q", "RNTV-8X3L", "RNTV-2N6C",
       "RNTV-5B1W", "RNTV-9J4R", "RNTV-3F8T", "RNTV-6D2H",
@@ -943,8 +1066,18 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     prepareOperation()
     requireWriteAccess()
     if (securityState.passkeys.none { it.id == id }) throw DemoError.resourceNotFound
+    if (
+      securityState.organizationEnforced &&
+      !securityState.totpEnabled &&
+      securityState.passkeys.size == 1
+    ) {
+      throw DemoError.permissionDenied
+    }
     securityState = securityState.copy(
       passkeys = securityState.passkeys.filterNot { it.id == id },
+      setupRequired = securityState.organizationEnforced &&
+        !securityState.totpEnabled &&
+        securityState.passkeys.size == 1,
     )
     recordActivity(
       kind = ActivityKind.SECURITY,
@@ -953,10 +1086,31 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     )
   }
 
+  override suspend fun apiKeyOptions(): APIKeyOptions {
+    prepareOperation()
+    return APIKeyOptions(
+      scopes = APIKeyScope.integrationCases,
+      personalWorkspace = APIKeyWorkspaceOption(
+        resourceType = WorkspaceResourceType.USER,
+        resourceID = WorkspaceID.personal,
+        name = "Conta pessoal",
+      ),
+      organizations = organizationsState.map { organization ->
+        APIKeyWorkspaceOption(
+          resourceType = WorkspaceResourceType.ORGANIZATION,
+          resourceID = WorkspaceID(rawValue = organization.id.rawValue),
+          name = organization.name,
+        )
+      },
+      defaultExpirationDays = 90,
+      maxExpirationDays = 365,
+    )
+  }
+
   override suspend fun listAPIKeys(): List<APIKeyMetadata> {
     prepareOperation()
     if (emptyModeEnabled) return emptyList()
-    return apiKeysState.filter { it.revokedAt == null }
+    return apiKeysState.toList()
   }
 
   override suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret {
@@ -982,10 +1136,18 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     return CreatedAPIKeySecret(metadata = metadata, secret = "rntv-v1-demo-8K2P-N4M7-X9Q3")
   }
 
-  override suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata {
+  override suspend fun updateAPIKey(
+    id: APIKeyID,
+    draft: APIKeyDraft,
+    updateGrants: Boolean,
+  ): APIKeyMetadata {
     prepareOperation()
     requireWriteAccess()
-    if (draft.name.trim().isEmpty() || draft.scopes.isEmpty() || draft.grants.isEmpty()) {
+    if (
+      !APIKeyValidation.isValidName(draft.name) ||
+      draft.scopes.isEmpty() ||
+      (updateGrants && draft.grants.isEmpty())
+    ) {
       throw DemoError.operationFailed
     }
     val index = apiKeysState.indexOfFirst { it.id == id && it.revokedAt == null }
@@ -993,8 +1155,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     apiKeysState[index] = apiKeysState[index].copy(
       name = draft.name,
       scopes = draft.scopes,
-      grants = draft.grants,
-      expiresAt = draft.expiresAt,
+      grants = if (updateGrants) draft.grants else apiKeysState[index].grants,
     )
     recordActivity(
       kind = ActivityKind.API_KEY,
@@ -1007,7 +1168,7 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
   override suspend fun revokeAPIKey(id: APIKeyID) {
     prepareOperation()
     requireWriteAccess()
-    val index = apiKeysState.indexOfFirst { it.id == id }
+    val index = apiKeysState.indexOfFirst { it.id == id && it.revokedAt == null }
     if (index < 0) throw DemoError.resourceNotFound
     apiKeysState[index] = apiKeysState[index].copy(revokedAt = Instant.now())
     recordActivity(
@@ -1099,6 +1260,28 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
       )
     }
 
+  private fun restrictIfNeeded(bill: Bill): Bill = if (viewerModeEnabled) {
+    bill.copy(
+      capabilities = bill.capabilities.copy(
+        canEdit = false,
+        canDelete = false,
+        canTransition = false,
+        canRegenerate = false,
+        canUploadReceipts = false,
+        canDeleteReceipts = false,
+        canReorderReceipts = false,
+        canCompose = false,
+        canSendInvoice = false,
+        canSendRecibo = false,
+      ),
+      communications = bill.communications.map {
+        it.copy(recipientName = null, recipientEmail = null, subject = null)
+      },
+    )
+  } else {
+    bill
+  }
+
   private fun total(bills: List<Bill>): Money =
     bills.fold(Money.zero) { running, bill -> running + bill.total }
 
@@ -1108,6 +1291,51 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   private fun organizationIndex(id: OrganizationID): Int? =
     organizationsState.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+
+  private fun saveCommunicationTemplate(
+    scope: CommunicationSaveScope,
+    billing: Billing,
+    commType: CommunicationType,
+    subject: String,
+    body: String,
+  ) {
+    val template = CommunicationTemplate(commType = commType, subject = subject, body = body)
+    when (scope) {
+      CommunicationSaveScope.BILLING -> {
+        billingTemplateOverrides.getOrPut(billing.id, ::mutableSetOf).add(commType)
+        billingsState.replaceAll { candidate ->
+          if (candidate.id == billing.id) candidate.withCommunicationTemplate(template) else candidate
+        }
+      }
+      CommunicationSaveScope.OWNER -> {
+        val ownerKey = CommunicationOwnerKey(billing.owner)
+        ownerCommunicationTemplates.getOrPut(ownerKey, ::mutableMapOf)[commType] = template
+        billingsState.replaceAll { candidate ->
+          if (
+            CommunicationOwnerKey(candidate.owner) == ownerKey &&
+            billingTemplateOverrides[candidate.id]?.contains(commType) != true
+          ) candidate.withCommunicationTemplate(template) else candidate
+        }
+      }
+    }
+  }
+
+  private data class CommunicationOwnerKey(val type: String, val id: String) {
+    constructor(owner: BillingOwner) : this(
+      type = if (owner is BillingOwner.User) "user" else "organization",
+      id = when (owner) {
+        is BillingOwner.User -> owner.id.toString()
+        is BillingOwner.Organization -> owner.id.rawValue
+      },
+    )
+  }
+
+  private fun Billing.withCommunicationTemplate(template: CommunicationTemplate): Billing {
+    val templates = communicationTemplates.toMutableList()
+    val index = templates.indexOfFirst { it.commType == template.commType }
+    if (index >= 0) templates[index] = template else templates.add(template)
+    return copy(communicationTemplates = templates)
+  }
 
   private fun recordActivity(kind: ActivityKind, title: String, detail: String) {
     activitiesState.add(
@@ -1137,11 +1365,20 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
         userID = profileState.id,
         email = profileState.email,
         role = invitation.role,
+        isCurrentUser = true,
       )
       organizationsState[organizationIndex] = organizationsState[organizationIndex].copy(
         members = organizationsState[organizationIndex].members + membership,
         currentUserRole = invitation.role,
         capabilities = OrganizationCapabilities.forRole(invitation.role),
+      )
+      val organizationEnforced = organizationsState.any { organization ->
+        organization.requiresMFA && organization.members.any { it.userID == profileState.id }
+      }
+      securityState = securityState.copy(
+        organizationEnforced = organizationEnforced,
+        setupRequired = organizationEnforced &&
+          !securityState.totpEnabled && securityState.passkeys.isEmpty(),
       )
     }
     recordActivity(

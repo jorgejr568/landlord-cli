@@ -40,7 +40,12 @@ export function OrganizationCreatePage() {
     setFieldErrors({});
     try {
       const { data, response } = await apiRequest(apiClient.POST("/api/v1/organizations", {
-        body: { name: values.name.trim() },
+        body: {
+          name: values.name.trim(),
+          pix_key: "",
+          pix_merchant_city: "",
+          pix_merchant_name: ""
+        },
         signal: controller.signal
       }));
       whileCurrent(() => {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 
@@ -36,6 +36,18 @@ it("registers a named passkey and uses the legacy default for a blank name", asy
   await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
   expect(onRegister).toHaveBeenLastCalledWith("Celular");
   expect(screen.getByLabelText("Nome da passkey")).toHaveValue("");
+});
+
+it("limits passkey names to 255 API characters without splitting emoji", async () => {
+  const user = userEvent.setup();
+  const onRegister = vi.fn().mockResolvedValue(undefined);
+  render(<PasskeyManager onDelete={vi.fn()} onRegister={onRegister} onSessionRevoked={vi.fn()} organizationEnforced={false} passkeys={[]} />);
+
+  const input = screen.getByLabelText("Nome da passkey");
+  fireEvent.change(input, { target: { value: "😀".repeat(256) } });
+  expect(input).toHaveValue("😀".repeat(255));
+  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  expect(onRegister).toHaveBeenCalledWith("😀".repeat(255));
 });
 
 it("silently handles a canceled passkey prompt and focuses other failures", async () => {

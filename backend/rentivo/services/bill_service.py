@@ -14,6 +14,7 @@ from rentivo.context import Actor
 from rentivo.models.bill import Bill, BillLineItem, BillStatus, InvalidStatusTransition, is_transition_allowed
 from rentivo.models.billing import Billing, BillingItem, ItemType
 from rentivo.models.receipt import ALLOWED_RECEIPT_TYPES, MAX_RECEIPT_SIZE, Receipt
+from rentivo.money import total_centavos
 from rentivo.observability import traced
 from rentivo.pdf.invoice import InvoicePDF
 from rentivo.pdf.merger import merge_receipts
@@ -430,7 +431,7 @@ class BillService:
             )
             sort += 1
 
-        total = sum(li.amount for li in line_items)
+        total = total_centavos([line_item.amount for line_item in line_items])
 
         if billing.id is None:
             raise ValueError("Cannot generate bill for billing without an id")
@@ -470,7 +471,7 @@ class BillService:
         previous = bill.model_copy(deep=True)
         candidate = bill.model_copy(deep=True)
         candidate.line_items = line_items
-        candidate.total_amount = sum(li.amount for li in line_items)
+        candidate.total_amount = total_centavos([line_item.amount for line_item in line_items])
         candidate.notes = notes
         candidate.due_date = due_date or None
 

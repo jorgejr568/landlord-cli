@@ -10,10 +10,12 @@ import app.rentivo.domain.BillingItem
 import app.rentivo.domain.BillingItemID
 import app.rentivo.domain.BillingItemType
 import app.rentivo.domain.BillingOwner
+import app.rentivo.domain.BillingRecipient
 import app.rentivo.domain.CommunicationType
 import app.rentivo.domain.DateOnly
 import app.rentivo.domain.Money
 import app.rentivo.domain.PDFRenderStatus
+import app.rentivo.domain.RecipientID
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
@@ -62,16 +64,17 @@ class APIRentivoStoreBillingTest {
       "/api/v1/billings" -> jsonResponse(
         """{"items":[{"uuid":"billing-1","name":"Apartamento","description":"Aluguel",""" +
           """"owner":{"type":"user","name":"Ana"},"capabilities":$FULL_BILLING_CAPABILITIES}],""" +
-          """"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":50000,""" +
+          """"user_pix_incomplete":false,"stats":{"year":2026,"expected":75000,"received":3000000000,""" +
           """"pending":20000,"overdue":5000,"paid_count":3,"pending_count":1,"overdue_count":1,""" +
-          """"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":42000}}"""
+          """"active_count":2,"billed_count":5,"total_expenses":8000,"net_income":2999992000}}"""
       )
 
       "/api/v1/billings/billing-1" -> jsonResponse(
         """{"uuid":"billing-1","name":"Apartamento","description":"Aluguel",""" +
           """"owner":{"type":"user","name":"Ana"},"items":[{"uuid":"item-1",""" +
           """"description":"Aluguel","amount":12500,"item_type":"fixed"}],"pix_key":"",""" +
-          """"pix_merchant_name":"","pix_merchant_city":"","recipients":[],"reply_to":[],""" +
+          """"pix_merchant_name":"","pix_merchant_city":"","pix_needs_setup":true,""" +
+          """"recipients":[],"reply_to":[],""" +
           """"communication_templates":[{"comm_type":"bill_ready",""" +
           """"subject":"Cobrança {{unidade}} — {{mes}}","body":"Prezado {{nome_inquilino}}"},""" +
           """{"comm_type":"payment_receipt","subject":"Recibo {{unidade}}",""" +
@@ -86,7 +89,8 @@ class APIRentivoStoreBillingTest {
           """"items":[],"pix_key":"chave","pix_merchant_name":"","pix_merchant_city":"",""" +
           """"recipients":[{"uuid":"contact-1","name":"Bruno","email":"bruno@rentivo.com.br"},""" +
           """{"uuid":"contact-2","name":null,"email":null}],""" +
-          """"reply_to":[{"uuid":"contact-9","name":"Resposta","email":"ana@rentivo.com.br"}],""" +
+          """"reply_to":[{"uuid":"contact-9","name":"Ana","email":"ana@rentivo.com.br"},""" +
+          """{"uuid":"contact-10","name":"Bruno","email":"bruno@rentivo.com.br"}],""" +
           """"capabilities":$FULL_BILLING_CAPABILITIES}"""
       )
 
@@ -114,9 +118,9 @@ class APIRentivoStoreBillingTest {
 
     val summary = store.dashboardSummary()
 
-    assertEquals(Money(centavos = 50_000), summary.received)
+    assertEquals(Money(centavos = 3_000_000_000L), summary.received)
     assertEquals(Money(centavos = 8_000), summary.expenses)
-    assertEquals(Money(centavos = 42_000), summary.netIncome)
+    assertEquals(Money(centavos = 2_999_992_000L), summary.netIncome)
     assertEquals(Money(centavos = 5_000), summary.overdue)
     assertEquals(Money(centavos = 20_000), summary.upcoming)
     // paid_count / billed_count * 100, matching the mock's integer-math formula.
@@ -172,7 +176,11 @@ class APIRentivoStoreBillingTest {
     )
     // A contact missing a name or an e-mail is dropped rather than failing the decode.
     assertEquals(listOf("Bruno"), billing.recipients.map { it.name })
-    assertEquals("ana@rentivo.com.br", billing.replyTo)
+    assertEquals(listOf("Ana", "Bruno"), billing.replyTo.map { it.name })
+    assertEquals(
+      listOf("ana@rentivo.com.br", "bruno@rentivo.com.br"),
+      billing.replyTo.map { it.email },
+    )
     // One non-empty field is enough for the override to exist.
     assertEquals("chave", billing.pixOverride?.key)
     assertEquals(BillingCapabilities.full, billing.capabilities)
@@ -186,6 +194,8 @@ class APIRentivoStoreBillingTest {
     val billing = store.billing(BillingID(rawValue = "billing-1"))
 
     assertNull(billing.pixOverride)
+    assertTrue(billing.pixNeedsSetup)
+    assertFalse(billing.canGenerateBills)
     assertEquals(BillingOwner.User(id = 7, name = "Ana"), billing.owner)
   }
 
@@ -239,7 +249,7 @@ class APIRentivoStoreBillingTest {
     }
 
   @Test
-  fun `a billing draft flattens pix and encodes reply-to as a single named contact`() = runTest {
+  fun `a billing draft flattens pix and preserves every named reply-to contact`() = runTest {
     val dispatcher = server.routeWithSession { call ->
       if (call.route == "POST /api/v1/billings") {
         jsonResponse(
@@ -262,7 +272,16 @@ class APIRentivoStoreBillingTest {
           name = "Horizonte",
         ),
         items = emptyList(),
-        replyTo = "ana@rentivo.com.br",
+        replyTo = listOf(
+          BillingRecipient(
+            id = RecipientID(rawValue = "reply-1"), name = "Ana",
+            email = "ana@rentivo.com.br",
+          ),
+          BillingRecipient(
+            id = RecipientID(rawValue = "reply-2"), name = "Bruno",
+            email = "bruno@rentivo.com.br",
+          ),
+        ),
       )
     )
 
@@ -271,25 +290,39 @@ class APIRentivoStoreBillingTest {
     assertEquals("organization-1", body["owner"]!!.jsonObject["uuid"]!!.jsonPrimitive.content)
     assertEquals("", body["pix_key"]!!.jsonPrimitive.content)
     val replyTo = body["reply_to"]!!.jsonArray
-    assertEquals(1, replyTo.size)
-    assertEquals("Resposta", replyTo[0].jsonObject["name"]!!.jsonPrimitive.content)
+    assertEquals(2, replyTo.size)
+    assertEquals("Ana", replyTo[0].jsonObject["name"]!!.jsonPrimitive.content)
     assertEquals("ana@rentivo.com.br", replyTo[0].jsonObject["email"]!!.jsonPrimitive.content)
+    assertEquals("Bruno", replyTo[1].jsonObject["name"]!!.jsonPrimitive.content)
+    assertEquals("bruno@rentivo.com.br", replyTo[1].jsonObject["email"]!!.jsonPrimitive.content)
   }
 
   private fun billDetailRoutes(): RouteDispatcher = server.routeWithSession { call ->
     when (call.path) {
       "/api/v1/billings/billing-1/bills/bill-1" -> jsonResponse(
         """{"uuid":"bill-1","reference_month":"2026-07","notes":"","status":"sent",""" +
-          """"due_date":"2026-07-10","status_updated_at":null,"line_items":[""" +
+          """"due_date":"2026-07-10","status_updated_at":"2026-08-15T12:00:00Z",""" +
+          """"created_at":"2026-08-01T12:00:00Z","line_items":[""" +
           """{"description":"Aluguel","amount":10000,"item_type":"fixed"},""" +
-          """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[],""" +
+          """{"description":"Água","amount":0,"item_type":"variable"}],"receipts":[""" +
+          """{"uuid":"receipt-1","filename":"comprovante.pdf","content_type":"application/pdf",""" +
+          """"file_size":1536,"sort_order":0,"created_at":"2026-08-14T09:00:00Z"}],""" +
+          """"communications":[{"uuid":"comm-1","comm_type":"bill_ready",""" +
+          """"status":"sent","created_at":"2026-08-15T10:00:00Z",""" +
+          """"sent_at":"2026-08-15T10:01:00Z","recipient_name":"Morador",""" +
+          """"recipient_email":"morador@example.com","subject":"Fatura disponível"},""" +
+          """{"uuid":"comm-2","comm_type":"bill_ready","status":"queued",""" +
+          """"created_at":null,"sent_at":null}],""" +
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_compose":true,"can_send_invoice":false,""" +
-          """"can_send_recibo":true,"can_regenerate":true},"available_transitions":[""" +
+          """"can_send_recibo":true,"can_regenerate":true,"can_edit":true,""" +
+          """"can_delete":true,"can_transition":true,"can_upload_receipts":true,""" +
+          """"can_delete_receipts":true,"can_reorder_receipts":true},"available_transitions":[""" +
           """{"target":"paid","label":"Marcar como paga","style":"primary",""" +
           """"requires_confirmation":false},{"target":"delayed_payment","label":"Atrasada",""" +
-          """"style":"secondary","requires_confirmation":true},{"target":"teleported"}]}"""
+          """"style":"secondary","requires_confirmation":true},{"target":"teleported",""" +
+          """"label":"Teletransportar","style":"primary","requires_confirmation":true}]}"""
       )
 
       // An older payload that predates `pdf_render_status`/`capabilities` on the wire.
@@ -313,7 +346,9 @@ class APIRentivoStoreBillingTest {
           """"total_amount":10000,"pdf_render_status":"pending","has_invoice":true,""" +
           """"has_recibo":false,"capabilities":{"can_download_invoice":false,""" +
           """"can_download_recibo":false,"can_send_invoice":false,"can_send_recibo":false,""" +
-          """"can_regenerate":true},"available_transitions":[]}""",
+          """"can_regenerate":true,"can_edit":true,"can_delete":true,"can_transition":true,""" +
+          """"can_upload_receipts":true,"can_delete_receipts":true,""" +
+          """"can_reorder_receipts":true,"can_compose":true},"available_transitions":[]}""",
         code = 202,
       )
 
@@ -330,9 +365,22 @@ class APIRentivoStoreBillingTest {
 
     // An unrecognized transition target is dropped, not fatal.
     assertEquals(listOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.availableTransitions)
+    assertEquals("Marcar como paga", bill.availableTransitionActions?.first()?.label)
+    assertEquals("primary", bill.availableTransitionActions?.first()?.style)
+    assertFalse(bill.availableTransitionActions?.first()?.requiresConfirmation ?: true)
+    assertTrue(bill.availableTransitionActions?.last()?.requiresConfirmation == true)
     assertEquals(Money(centavos = 10_000), bill.serverTotal)
     assertEquals(Money(centavos = 10_000), bill.effectiveTotal)
     assertEquals(setOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT), bill.effectiveTransitions)
+    assertNotNull(bill.statusUpdatedAt)
+    assertEquals(2, bill.communications.size)
+    assertEquals("morador@example.com", bill.communications.first().recipientEmail)
+    assertEquals("sent", bill.communications.first().status)
+    assertTrue(bill.communications.last().isRedacted)
+    assertNull(bill.communications.last().createdAt)
+    assertEquals("application/pdf", bill.receipts.first().mediaType)
+    assertEquals(1_536, bill.receipts.first().byteCount)
+    assertNotNull(bill.receipts.first().createdAt)
   }
 
   @Test
@@ -346,8 +394,16 @@ class APIRentivoStoreBillingTest {
     assertTrue(bill.isRenderingPDF)
     assertTrue(bill.hasInvoice)
     assertFalse(bill.hasRecibo)
+    assertTrue(bill.capabilities.canEdit)
+    assertTrue(bill.capabilities.canDelete)
+    assertTrue(bill.capabilities.canTransition)
+    assertTrue(bill.capabilities.canUploadReceipts)
+    assertTrue(bill.capabilities.canDeleteReceipts)
+    assertTrue(bill.capabilities.canReorderReceipts)
     assertFalse(bill.capabilities.canDownloadInvoice)
     assertFalse(bill.capabilities.canDownloadRecibo)
+    assertFalse(bill.capabilities.canOpenRecibo)
+    assertTrue(bill.capabilities.canCompose)
     assertFalse(bill.capabilities.canSendInvoice)
     assertTrue(bill.capabilities.canSendRecibo)
     assertTrue(bill.capabilities.canRegenerate)

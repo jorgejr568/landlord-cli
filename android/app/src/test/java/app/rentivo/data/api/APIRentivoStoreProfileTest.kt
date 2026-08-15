@@ -47,7 +47,8 @@ class APIRentivoStoreProfileTest {
       "GET /api/v1/security" -> jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"chave-abc",""" +
           """"pix_merchant_name":"Ana","pix_merchant_city":"Sao Paulo"},""" +
-          """"totp":{"enabled":true,"recovery_codes_remaining":5},"mfa":{},"passkeys":[""" +
+          """"totp":{"enabled":true,"recovery_codes_remaining":5},""" +
+          """"mfa":{"setup_required":false,"organization_enforced":true},"passkeys":[""" +
           """{"uuid":"passkey-1","name":"iPhone de Ana",""" +
           """"created_at":"2026-07-20T10:15:30.123456+00:00","last_used_at":null}]}"""
       )
@@ -64,6 +65,14 @@ class APIRentivoStoreProfileTest {
           """"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at":null,""" +
           """"created_at":"2026-01-01T00:00:00.000000+00:00",""" +
           """"revoked_at":"2026-02-01T00:00:00.000000+00:00"}]}"""
+      )
+
+      "GET /api/v1/api-keys/options" -> jsonResponse(
+        """{"scopes":["profile:read","unknown:scope","billings:read"],""" +
+          """"personal_workspace":{"resource_type":"user","resource_id":"personal"},""" +
+          """"organizations":[{"resource_type":"organization",""" +
+          """"resource_id":"organization-1","name":"Horizonte"}],""" +
+          """"default_expiration_days":30,"max_expiration_days":180}"""
       )
 
       else -> unexpected(call)
@@ -117,7 +126,7 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"passkeys":[]}"""
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[]}"""
       )
     }
     val store = authenticatedStore()
@@ -134,6 +143,8 @@ class APIRentivoStoreProfileTest {
 
     val summary = store.securitySummary()
 
+    assertEquals(false, summary.setupRequired)
+    assertEquals(true, summary.organizationEnforced)
     val passkey = summary.passkeys.first()
     assertEquals(2026, passkey.createdAt.atZone(saoPaulo).year)
     assertEquals(true, summary.totpEnabled)
@@ -150,7 +161,7 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"mfa":{},"passkeys":[{"uuid":"passkey-1","name":"iPhone de Ana",""" +
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[{"uuid":"passkey-1","name":"iPhone de Ana",""" +
           """"created_at":"2026-07-20T10:15:30",""" +
           """"last_used_at":"2026-07-20T18:42:11.063639"}]}"""
       )
@@ -187,7 +198,8 @@ class APIRentivoStoreProfileTest {
       jsonResponse(
         """{"profile":{"email":"a@b.c","pix_key":"","pix_merchant_name":"",""" +
           """"pix_merchant_city":""},"totp":{"enabled":false,"recovery_codes_remaining":0},""" +
-          """"passkeys":[{"uuid":"passkey-1","name":"iPhone","created_at":"ontem",""" +
+          """"mfa":{"setup_required":false,"organization_enforced":false},"passkeys":[""" +
+          """{"uuid":"passkey-1","name":"iPhone","created_at":"ontem",""" +
           """"last_used_at":null}]}"""
       )
     }
@@ -200,15 +212,13 @@ class APIRentivoStoreProfileTest {
   }
 
   @Test
-  fun `listing api keys hides revoked keys like the mock`() = runTest {
-    // Regression test: the server returns revoked integration keys too; the mock filters them out
-    // and the live store must match.
+  fun `listing api keys preserves revoked key history`() = runTest {
     profileRoutes()
     val store = authenticatedStore()
 
     val keys = store.listAPIKeys()
 
-    assertEquals(listOf("Ativa"), keys.map { it.name })
+    assertEquals(listOf("Ativa", "Revogada"), keys.map { it.name })
     // Unknown scopes and grants with no resource id are dropped rather than failing the decode.
     assertEquals(setOf(APIKeyScope.PROFILE_READ), keys.first().scopes)
     assertEquals(
@@ -216,6 +226,24 @@ class APIRentivoStoreProfileTest {
       keys.first().grants,
     )
     assertNull(keys.first().revokedAt)
+    assertNotNull(keys.last().revokedAt)
+  }
+
+  @Test
+  fun `api key options use server scopes workspaces and expiration limits`() = runTest {
+    profileRoutes()
+    val store = authenticatedStore()
+
+    val options = store.apiKeyOptions()
+
+    assertEquals(listOf(APIKeyScope.PROFILE_READ, APIKeyScope.BILLINGS_READ), options.scopes)
+    assertEquals(WorkspaceID.personal, options.personalWorkspace.resourceID)
+    assertEquals(
+      listOf(WorkspaceID(rawValue = "organization-1")),
+      options.organizations.map { it.resourceID },
+    )
+    assertEquals(30, options.defaultExpirationDays)
+    assertEquals(180, options.maxExpirationDays)
   }
 
   @Test
@@ -252,6 +280,33 @@ class APIRentivoStoreProfileTest {
       "personal",
       body["grants"]!!.jsonArray[0].jsonObject["resource_id"]!!.jsonPrimitive.content,
     )
+  }
+
+  @Test
+  fun `updating an api key omits grants when workspace access was not changed`() = runTest {
+    val dispatcher = server.routeWithSession {
+      jsonResponse(
+        """{"uuid":"key-1","name":"Painel financeiro","hint":"rntv-v1-ab••cd",""" +
+          """"scopes":["billings:read","profile:read"],"grants":[{"resource_type":""" +
+          """"organization","resource_id":null,"available":false}],""" +
+          """"expires_at":"2026-12-31T23:59:59+00:00","last_used_at":null,""" +
+          """"created_at":"2026-01-01T00:00:00+00:00","revoked_at":null}"""
+      )
+    }
+    val store = authenticatedStore()
+
+    store.updateAPIKey(
+      id = app.rentivo.domain.APIKeyID(rawValue = "key-1"),
+      draft = APIKeyDraft.demo,
+      updateGrants = false,
+    )
+
+    val body = apiJson.parseToJsonElement(
+      dispatcher.bodyOf("PATCH /api/v1/api-keys/key-1")
+    ).jsonObject
+    assertEquals("Painel financeiro", body["name"]!!.jsonPrimitive.content)
+    assertNull(body["grants"])
+    assertNull(body["expires_at"])
   }
 
   @Test

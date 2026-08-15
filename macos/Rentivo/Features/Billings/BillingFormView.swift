@@ -63,22 +63,18 @@ struct EditableRecipient: Identifiable {
   }
 }
 
-/// Who a cobrança can be filed under: the signed-in user, the owner it already has (which may be
-/// an organization the user can no longer list), and every other organization they belong to.
+/// Who a new cobrança can be filed under. The capability returned by the server is authoritative;
+/// membership and role labels alone do not grant creation.
 enum BillingFormOwnerChoices {
   static func choices(
     currentUserID: Int,
-    existingOwner: BillingOwner?,
     organizations: [Organization]
   ) -> [BillingOwner] {
     var owners: [BillingOwner] = [.user(id: currentUserID, name: "Pessoal")]
-    if let existingOwner, !owners.contains(where: { $0.id == existingOwner.id }) {
-      owners.append(existingOwner)
-    }
     let existingIDs = Set(owners.map(\.id))
     owners.append(
       contentsOf: organizations
-        .map { BillingOwner.organization(id: $0.id, name: $0.name) }
+        .compactMap(\.billingOwnerForCreation)
         .filter { !existingIDs.contains($0.id) }
     )
     return owners
@@ -127,13 +123,13 @@ struct BillingFormView: View {
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   @State private var submitFailureMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
-  @State private var organizationsLoaded = false
+  @State private var organizationsLoaded: Bool
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -146,7 +142,8 @@ struct BillingFormView: View {
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
+    _organizationsLoaded = State(initialValue: billing != nil)
   }
 
   var body: some View {
@@ -157,19 +154,22 @@ struct BillingFormView: View {
     // ones the user is looking at.
     let itemPositions = positions(in: items)
     let recipientPositions = positions(in: recipients)
+    let replyToPositions = positions(in: replyTo)
     Form {
       RentivoSection("Identificação") {
         TextField("Nome", text: $name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
           .lineLimit(2...4)
-        Picker("Responsável", selection: $ownerID) {
-          ForEach(ownerChoices, id: \.id) { owner in
-            Text(owner.name).tag(owner.id)
+        if billing == nil {
+          Picker("Responsável", selection: $ownerID) {
+            ForEach(ownerChoices, id: \.id) { owner in
+              Text(owner.name).tag(owner.id)
+            }
           }
+          .disabled(!organizationsLoaded)
         }
-        .disabled(!organizationsLoaded)
-        if !organizationsLoaded {
+        if billing == nil && !organizationsLoaded {
           // Salvar is disabled until the organizations arrive, because until then the list of
           // responsáveis is incomplete and the cobrança could be filed under the wrong one. That
           // wait is a second or two of a dead button otherwise, so it says what it is waiting for.
@@ -264,8 +264,29 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .autocorrectionDisabled()
+        ForEach($replyTo) { $contact in
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            HStack(spacing: RentivoSpacing.small) {
+              TextField("Nome para resposta", text: $contact.name)
+              RowOrderControls(
+                index: replyToPositions[contact.id] ?? 0,
+                count: replyTo.count,
+                moveUp: { move(&replyTo, from: replyToPositions[contact.id] ?? 0, by: -1) },
+                moveDown: { move(&replyTo, from: replyToPositions[contact.id] ?? 0, by: 1) },
+                remove: { replyTo.removeAll { $0.id == contact.id } },
+                removeLabel: "Remover contato de resposta"
+              )
+            }
+            TextField("E-mail para resposta", text: $contact.email)
+              .autocorrectionDisabled()
+          }
+          .padding(.vertical, RentivoSpacing.tiny)
+        }
+        Button {
+          replyTo.append(EditableRecipient())
+        } label: {
+          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+        }
       } header: {
         Text("Comunicação")
       } footer: {
@@ -314,6 +335,7 @@ struct BillingFormView: View {
     }
     .interactiveDismissDisabled(saving)
     .task {
+      guard billing == nil else { return }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -322,7 +344,6 @@ struct BillingFormView: View {
   private var ownerChoices: [BillingOwner] {
     BillingFormOwnerChoices.choices(
       currentUserID: app.currentUser.id,
-      existingOwner: billing?.owner,
       organizations: organizations
     )
   }
@@ -354,7 +375,12 @@ struct BillingFormView: View {
     // Every issue from the previous attempt is re-derived below, so the section never mixes a
     // fresh validation run with a stale server error.
     submitFailureMessage = nil
-    guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
+    let owner: BillingOwner
+    if let billing {
+      owner = billing.owner
+    } else if let selected = ownerChoices.first(where: { $0.id == ownerID }) {
+      owner = selected
+    } else {
       submitFailureMessage = "Não foi possível confirmar o responsável."
       return
     }
@@ -362,6 +388,7 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
     let pix = BillingPixOverride.resolve(
       key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity
     )
@@ -373,7 +400,7 @@ struct BillingFormView: View {
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
       pixOverride: pix.configuration,
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }

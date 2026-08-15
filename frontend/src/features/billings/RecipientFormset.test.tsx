@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -18,9 +18,13 @@ it("adds, edits and removes recipients with the legacy row classes", async () =>
   const view = render(<Harness kind="recipients" />);
 
   expect(screen.getByRole("heading", { name: "Destinatários" })).toBeVisible();
-  expect(screen.getByLabelText("Nome do destinatário 1").closest(".item-grid")).not.toBeNull();
-  await user.clear(screen.getByLabelText("Nome do destinatário 1"));
-  await user.type(screen.getByLabelText("Nome do destinatário 1"), "José");
+  const recipientName = screen.getByLabelText("Nome do destinatário 1");
+  expect(recipientName.closest(".item-grid")).not.toBeNull();
+  fireEvent.change(recipientName, { target: { value: "😀".repeat(256) } });
+  expect(recipientName).toHaveValue("😀".repeat(255));
+  expect(screen.getByLabelText("E-mail do destinatário 1")).toHaveAttribute("maxLength", "320");
+  await user.clear(recipientName);
+  await user.type(recipientName, "José");
   expect(onChange).toHaveBeenLastCalledWith([{ ...values[0], name: "José" }]);
 
   await user.click(screen.getByRole("button", { name: "Adicionar destinatário" }));

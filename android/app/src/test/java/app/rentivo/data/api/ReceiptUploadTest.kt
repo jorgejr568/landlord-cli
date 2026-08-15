@@ -2,6 +2,7 @@ package app.rentivo.data.api
 
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.FileUpload
+import app.rentivo.domain.ReceiptUploadRules
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,6 +39,35 @@ class ReceiptUploadTest {
   fun `the client contract mirrors what the API stores`() {
     assertEquals(setOf("application/pdf", "image/jpeg", "image/png"), ACCEPTED_RECEIPT_MEDIA_TYPES)
     assertEquals(10 * 1024 * 1024, MAX_RECEIPT_UPLOAD_BYTES)
+  }
+
+  @Test
+  fun `receipt rules reject files the server would silently skip`() {
+    val normalized = ReceiptUploadRules.validated(
+      FileUpload("pdf".toByteArray(), "recibo.pdf", " Application/PDF; charset=binary ")
+    )
+    assertEquals("application/pdf", normalized.mediaType)
+
+    assertEquals(
+      "Envie um comprovante em PDF, JPEG ou PNG.",
+      runCatching {
+        ReceiptUploadRules.validated(FileUpload("text".toByteArray(), "notes.txt", "text/plain"))
+      }.exceptionOrNull()?.message,
+    )
+    assertEquals(
+      "O comprovante selecionado está vazio.",
+      runCatching {
+        ReceiptUploadRules.validated(FileUpload(ByteArray(0), "vazio.pdf", "application/pdf"))
+      }.exceptionOrNull()?.message,
+    )
+    assertEquals(
+      RECEIPT_TOO_LARGE_MESSAGE,
+      runCatching {
+        ReceiptUploadRules.validated(
+          FileUpload(ByteArray(MAX_RECEIPT_UPLOAD_BYTES + 1), "grande.png", "image/png")
+        )
+      }.exceptionOrNull()?.message,
+    )
   }
 
   @Test

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -89,7 +89,7 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
         available_transitions: [], capabilities: {
           can_compose: true,
           can_delete: true, can_delete_receipts: true, can_download_invoice: true,
-          can_download_recibo: false, can_edit: true, can_regenerate: true,
+          can_download_recibo: false, can_open_recibo: false, can_edit: true, can_regenerate: true,
           can_reorder_receipts: true, can_send_invoice: true, can_send_recibo: false,
           can_transition: true, can_upload_receipts: true
         }, communications: [], created_at: "2026-07-18T10:00:00Z", due_date: "2026-08-10",
@@ -208,6 +208,25 @@ it("keeps bill generation available but omits receipt files without files:write"
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-without-receipt"));
 });
 
+it("rejects invalid receipt files before generating a bill", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.type(screen.getByLabelText("Água"), "10,00");
+  const input = screen.getByLabelText("Anexar comprovantes");
+  fireEvent.change(input, { target: { files: [new File(["text"], "notes.txt", { type: "text/plain" })] } });
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
+  expect(input).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+});
+
 it("validates dates and extras locally, removes rows, and focuses nested API errors", async () => {
   const user = userEvent.setup();
   let attempts = 0;
@@ -236,9 +255,16 @@ it("validates dates and extras locally, removes rows, and focuses nested API err
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor maior que zero.")).toBeVisible();
-  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveFocus();
+  const extraDescription = screen.getByLabelText("Descrição da despesa extra 1");
+  expect(extraDescription).toHaveFocus();
+
+  fireEvent.change(extraDescription, { target: { value: "😀".repeat(256) } });
+  expect(extraDescription).toHaveValue("😀".repeat(255));
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
 
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.clear(screen.getByLabelText("Descrição da despesa extra 1"));
+  await user.clear(screen.getByLabelText("Valor da despesa extra 1"));
   await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Seguro");
   await user.type(screen.getByLabelText("Valor da despesa extra 1"), "10,00");
   await user.type(screen.getByLabelText("Descrição da despesa extra 2"), "Limpeza");
@@ -292,6 +318,43 @@ it("rejects an unparsable variable amount and tolerates an unknown backend UUID 
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   await waitFor(() => expect(attempts).toBe(2));
   expect(payload).toEqual(expect.objectContaining({ variable_amounts: { [VARIABLE_ITEM_UUID]: 1000 } }));
+});
+
+it("rejects a generated bill total beyond the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.type(screen.getByLabelText("Água"), "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Água")).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+});
+
+it("focuses the first extra when an extras-only total exceeds the persistence limit", async () => {
+  const user = userEvent.setup();
+  const fetchMock = installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse({
+      ...billing,
+      items: [{ amount: 250000, description: "Aluguel", item_type: "fixed", uuid: FIXED_ITEM_UUID }]
+    })
+  });
+  renderPage();
+  await screen.findByRole("heading", { name: "Gerar Fatura" });
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Reforma");
+  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "21.474.836,47");
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+
+  expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
+  expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveFocus();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
 });
 
 it.each(["resolve", "reject"] as const)("resets every resource when a stale generation mutation %s after the billing route changes", async (outcome) => {

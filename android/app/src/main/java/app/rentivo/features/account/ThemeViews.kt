@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.rentivo.app.LocalAppModel
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.RentivoColors
 import app.rentivo.designsystem.RentivoListField
 import app.rentivo.designsystem.RentivoSpacing
@@ -80,6 +81,7 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
   var values by remember { mutableStateOf(ThemeValues.rentivo) }
   var loadedValues by remember { mutableStateOf<ThemeValues?>(null) }
   var error by remember { mutableStateOf<DemoError?>(null) }
+  val mutationGate = remember { MutationGate() }
 
   // True once the user has changed a field since the last successful load/save. Guards against
   // `dataRevision` reloads (triggered by unrelated bumps) silently overwriting in-progress,
@@ -137,7 +139,8 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
       if (record?.canEdit == true) {
         AccountToolbarAction {
           TextButton(
-            onClick = { scope.launch { save() } },
+            onClick = { scope.launch { mutationGate.run { save() } } },
+            enabled = !mutationGate.isRunning,
             modifier = Modifier.testTag("theme.save"),
           ) {
             Text(text = "Salvar", color = RentivoColors.emerald)
@@ -269,7 +272,7 @@ fun ThemeEditorScreen(target: ThemeTarget, onBack: () -> Unit) {
               title = "Restaurar herança",
               destructive = true,
               modifier = Modifier.testTag("theme.reset"),
-              onClick = { scope.launch { reset() } },
+              onClick = { scope.launch { mutationGate.run { reset() } } },
             )
           }),
         )

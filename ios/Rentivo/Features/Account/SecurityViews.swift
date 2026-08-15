@@ -20,6 +20,16 @@ struct SecurityView: View {
   var body: some View {
     PageStateView(state: state) { summary in
       List {
+        if summary.setupRequired {
+          Section {
+            Label(
+              "Sua organização exige autenticação multifator. Configure o aplicativo autenticador ou uma chave de acesso para continuar.",
+              systemImage: "exclamationmark.shield.fill"
+            )
+            .foregroundStyle(RentivoColors.coral)
+            .accessibilityIdentifier("security.mfa.required")
+          }
+        }
         Section("Senha") {
           NavigationLink {
             ChangePasswordView()
@@ -32,11 +42,11 @@ struct SecurityView: View {
           if !isDemoViewerLocked {
             if summary.totpEnabled {
               Button("Desativar", role: .destructive) { showingDisableTOTP = true }
+              Button("Gerar novos códigos de recuperação") {
+                Task { await regenerateCodes() }
+              }
             } else {
               Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
-            }
-            Button("Gerar novos códigos de recuperação") {
-              Task { await regenerateCodes() }
             }
           }
           LabeledContent("Códigos disponíveis", value: "\(summary.recoveryCodeCount)")
@@ -64,6 +74,11 @@ struct SecurityView: View {
           Text("Para registrar uma nova chave de acesso, entre pelo navegador do Rentivo. Ela ficará disponível automaticamente neste aplicativo.")
             .font(.footnote)
             .foregroundStyle(RentivoColors.secondaryInk)
+          if summary.organizationEnforced {
+            Text("Sua organização exige que ao menos um fator de autenticação permaneça ativo.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
       }
       .scrollContentBackground(.hidden)

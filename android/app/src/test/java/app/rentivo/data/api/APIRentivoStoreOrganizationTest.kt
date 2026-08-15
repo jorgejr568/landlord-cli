@@ -49,8 +49,8 @@ class APIRentivoStoreOrganizationTest {
         """{"uuid":"organization-1","name":"Horizonte","enforce_mfa":false,""" +
           """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES,""" +
           """"settings":null,"members":[{"user_id":7,"email":"ana@rentivo.com.br",""" +
-          """"role":"admin"},{"user_id":11,"email":"bruno@rentivo.com.br",""" +
-          """"role":"teleporter"}]}"""
+          """"role":"admin","is_current_user":true},{"user_id":11,""" +
+          """"email":"bruno@rentivo.com.br","role":"teleporter","is_current_user":false}]}"""
       )
 
       "POST /api/v1/organizations/organization-1/invites" -> jsonResponse(
@@ -59,11 +59,6 @@ class APIRentivoStoreOrganizationTest {
       )
 
       "POST /api/v1/organizations" -> jsonResponse(
-        """{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,""" +
-          """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES}"""
-      )
-
-      "PATCH /api/v1/organizations/organization-2" -> jsonResponse(
         """{"uuid":"organization-2","name":"Nova Org","enforce_mfa":false,""" +
           """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES,""" +
           """"settings":{"pix_key":"chave-pix","pix_merchant_name":"Nova Org",""" +
@@ -83,6 +78,7 @@ class APIRentivoStoreOrganizationTest {
     val organization = store.listOrganizations().first()
 
     assertEquals(listOf(7, 11), organization.members.map { it.userID })
+    assertEquals(listOf(true, false), organization.members.map { it.isCurrentUser })
     // An unknown role falls back to the least privileged one rather than failing the decode.
     assertEquals(OrganizationRole.VIEWER, organization.members[1].role)
     assertEquals(OrganizationRole.ADMIN, organization.currentUserRole)
@@ -130,9 +126,7 @@ class APIRentivoStoreOrganizationTest {
   }
 
   @Test
-  fun `creating an organization follows up with a patch when the draft includes pix`() = runTest {
-    // Regression test: OrganizationCreateRequest only accepts `name`, so PIX collected on the
-    // creation form used to be silently dropped.
+  fun `creating an organization sends pix atomically in the create request`() = runTest {
     val dispatcher = organizationRoutes()
     val store = authenticatedStore()
 
@@ -152,11 +146,14 @@ class APIRentivoStoreOrganizationTest {
       PixConfiguration(key = "chave-pix", merchantName = "Nova Org", merchantCity = "Sao Paulo"),
       organization.pix,
     )
-    assertEquals("""{"name":"Nova Org"}""", dispatcher.bodyOf("POST /api/v1/organizations"))
+    assertEquals(
+      """{"name":"Nova Org","pix_key":"chave-pix","pix_merchant_name":"Nova Org","pix_merchant_city":"Sao Paulo"}""",
+      dispatcher.bodyOf("POST /api/v1/organizations"),
+    )
   }
 
   @Test
-  fun `creating an organization without pix skips the follow-up patch entirely`() = runTest {
+  fun `creating an organization without pix sends empty settings in one request`() = runTest {
     val dispatcher = organizationRoutes()
     val store = authenticatedStore()
 
@@ -166,50 +163,21 @@ class APIRentivoStoreOrganizationTest {
       listOf("GET /api/v1/auth/session", "POST /api/v1/organizations"),
       dispatcher.routes,
     )
-  }
-
-  @Test
-  fun `a failing pix patch still returns the organization that was created`() = runTest {
-    // Regression test: the org already exists on the server once the POST succeeds, so a failing
-    // follow-up PATCH must not throw — throwing used to surface as a failure to the caller, who
-    // would retry `createOrganization` and create a duplicate organization.
-    server.routeWithSession { call ->
-      when (call.route) {
-        "POST /api/v1/organizations" -> jsonResponse(
-          """{"uuid":"organization-3","name":"Nova Org","enforce_mfa":false,""" +
-            """"current_role":"admin","capabilities":$FULL_ORGANIZATION_CAPABILITIES}"""
-        )
-
-        else -> jsonResponse(
-          """{"detail":"Falha ao salvar as configurações de PIX."}""",
-          code = 500,
-        )
-      }
-    }
-    val store = authenticatedStore()
-
-    val organization = store.createOrganization(
-      OrganizationDraft(
-        name = "Nova Org",
-        pix = PixConfiguration(
-          key = "chave-pix",
-          merchantName = "Nova Org",
-          merchantCity = "Sao Paulo",
-        ),
-      )
+    assertEquals(
+      """{"name":"Nova Org","pix_key":"","pix_merchant_name":"","pix_merchant_city":""}""",
+      dispatcher.bodyOf("POST /api/v1/organizations"),
     )
-
-    assertEquals(OrganizationID(rawValue = "organization-3"), organization.id)
-    assertNull(organization.pix)
   }
 
   @Test
-  fun `pending invitations fill the email from the cached profile and are always pending`() =
+  fun `pending invitations preserve sender and mfa policy and are always pending`() =
     runTest {
       server.routeWithSession {
         jsonResponse(
           """{"items":[{"uuid":"invite-1","organization_uuid":"organization-1",""" +
-            """"organization_name":"Horizonte","role":"manager"}]}"""
+            """"organization_name":"Horizonte","role":"manager","enforce_mfa":true,""" +
+            """"created_at":"2026-08-15T00:00:00Z",""" +
+            """"invited_by_email":"admin@horizonte.com.br"}]}"""
         )
       }
       val store = authenticatedStore()
@@ -220,19 +188,28 @@ class APIRentivoStoreOrganizationTest {
       assertEquals(app.rentivo.domain.InvitationStatus.PENDING, invitation.status)
       assertEquals(OrganizationRole.MANAGER, invitation.role)
       assertEquals(OrganizationID(rawValue = "organization-1"), invitation.organizationID)
+      assertEquals("admin@horizonte.com.br", invitation.invitedByEmail)
+      assertEquals(true, invitation.organizationEnforcesMFA)
     }
 
   @Test
-  fun `the mfa policy is written with the contract field name`() = runTest {
-    val dispatcher = server.routeWithSession { MockResponse().setResponseCode(204) }
+  fun `the mfa policy request maps whether the current user still needs setup`() = runTest {
+    val dispatcher = server.routeWithSession {
+      jsonResponse("""{"enforce_mfa":true,"mfa_setup_required":true}""")
+    }
     val store = authenticatedStore()
 
-    store.setOrganizationMFA(OrganizationID(rawValue = "organization-1"), required = true)
+    val policy = store.setOrganizationMFA(
+      OrganizationID(rawValue = "organization-1"),
+      required = true,
+    )
 
     assertEquals(
       """{"enforce_mfa":true}""",
       dispatcher.bodyOf("PUT /api/v1/organizations/organization-1/mfa-policy"),
     )
+    assertEquals(true, policy.enforceMFA)
+    assertEquals(true, policy.mfaSetupRequired)
   }
 
   @Test

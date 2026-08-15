@@ -1,6 +1,7 @@
 package app.rentivo.features.bills
 
 import android.content.pm.PackageManager
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Folder
@@ -94,6 +97,7 @@ import app.rentivo.data.api.prepareReceiptUpload
 import app.rentivo.designsystem.FullScreenSheet
 import app.rentivo.designsystem.IconLabel
 import app.rentivo.designsystem.MoneyText
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoCard
@@ -112,6 +116,8 @@ import app.rentivo.designsystem.TopBarChip
 import app.rentivo.designsystem.capitalizedPTBR
 import app.rentivo.designsystem.ptBRCount
 import app.rentivo.domain.Bill
+import app.rentivo.domain.BillCapabilities
+import app.rentivo.domain.BillCommunication
 import app.rentivo.domain.BillDraft
 import app.rentivo.domain.BillID
 import app.rentivo.domain.BillLineItem
@@ -119,6 +125,7 @@ import app.rentivo.domain.BillLineItemID
 import app.rentivo.domain.BillLineItemKind
 import app.rentivo.domain.BillPDFPolling
 import app.rentivo.domain.BillStatus
+import app.rentivo.domain.BillTransition
 import app.rentivo.domain.Billing
 import app.rentivo.domain.BillingID
 import app.rentivo.domain.BillingItem
@@ -136,6 +143,8 @@ import app.rentivo.domain.ReferenceMonth
 import app.rentivo.domain.ValidationIssue
 import java.io.File
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -148,13 +157,17 @@ import kotlinx.coroutines.launch
 /** The years the competência stepper accepts, mirroring the iOS `Stepper(in: 2024...2035)`. */
 private val YEAR_RANGE = 2024..2035
 
+private val BILL_HISTORY_DATE_FORMAT = DateTimeFormatter
+  .ofPattern("dd/MM/yyyy HH:mm")
+  .withZone(ZoneId.systemDefault())
+
 private const val MILLIS_PER_DAY = 86_400_000L
 
 /** A single editable row of the bill form, before it becomes a [BillLineItem]. */
 private data class EditableBillLine(
   val id: BillLineItemID,
   val description: String,
-  val centavos: Int,
+  val centavos: Long,
   val kind: BillLineItemKind,
 ) {
   val domain: BillLineItem
@@ -176,7 +189,7 @@ private data class EditableBillLine(
     fun new(kind: BillLineItemKind): EditableBillLine = EditableBillLine(
       id = BillLineItemID(rawValue = UUID.randomUUID().toString()),
       description = "",
-      centavos = 0,
+      centavos = 0L,
       kind = kind,
     )
 
@@ -285,6 +298,7 @@ fun BillFormSheet(
   }
 
   suspend fun save() {
+    if (saving) return
     val draft = BillDraft(
       billingID = billing.id,
       referenceMonth = ReferenceMonth(year = year, month = month),
@@ -580,7 +594,7 @@ private val LineDeleteGlyphSize = 20.dp
 private fun BillLineRow(
   line: EditableBillLine,
   onDescriptionChange: (String) -> Unit,
-  onCentavosChange: (Int) -> Unit,
+  onCentavosChange: (Long) -> Unit,
   onDelete: (() -> Unit)?,
 ) {
   Column(
@@ -744,6 +758,8 @@ fun BillDetailScreen(
   var showingCommunication by remember { mutableStateOf(false) }
   var downloadedFile by remember { mutableStateOf<DownloadedFile?>(null) }
   var confirmingDelete by remember { mutableStateOf(false) }
+  var pendingTransition by remember { mutableStateOf<BillTransition?>(null) }
+  val mutationGate = remember { MutationGate() }
   /**
    * Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when the
    * bill was already `pending`.
@@ -787,11 +803,12 @@ fun BillDetailScreen(
     onMutation()
   }
 
-  suspend fun transition(status: BillStatus) {
+  suspend fun transition(currentStatus: BillStatus, status: BillStatus) {
     try {
       app.dependencies.bills.transitionBill(
         billingID = billing.id,
         billID = billId,
+        currentStatus = currentStatus,
         status = status,
       )
       refreshAll()
@@ -876,7 +893,7 @@ fun BillDetailScreen(
         title = "Fatura",
         onBack = onBack,
         actions = {
-          if (loaded?.status == BillStatus.DRAFT && currentBilling.capabilities.canManageBills) {
+          if (loaded?.status == BillStatus.DRAFT && loaded.capabilities.canEdit) {
             TopBarChip {
               TextButton(
                 onClick = { showingEdit = true },
@@ -899,10 +916,16 @@ fun BillDetailScreen(
         billing = currentBilling,
         bill = bill,
         modifier = Modifier.padding(padding),
-        onTransition = { status -> scope.launch { transition(status) } },
+        onTransition = { action ->
+          if (action.requiresConfirmation) {
+            pendingTransition = action
+          } else {
+            scope.launch { mutationGate.run { transition(bill.status, action.target) } }
+          }
+        },
         onOpenInvoice = { scope.launch { downloadInvoice() } },
         onOpenRecibo = { scope.launch { downloadRecibo() } },
-        onRegenerate = { scope.launch { regenerate(bill) } },
+        onRegenerate = { scope.launch { mutationGate.run { regenerate(bill) } } },
         onCompose = { showingCommunication = true },
         onDelete = { confirmingDelete = true },
         onMutation = { refreshAll() },
@@ -939,7 +962,7 @@ fun BillDetailScreen(
         TextButton(
           onClick = {
             confirmingDelete = false
-            scope.launch { deleteBill() }
+            scope.launch { mutationGate.run { deleteBill() } }
           },
         ) {
           Text(text = "Excluir fatura", color = RentivoColors.coral)
@@ -951,6 +974,32 @@ fun BillDetailScreen(
       containerColor = RentivoColors.surface,
     )
   }
+
+  pendingTransition?.let { action ->
+    AlertDialog(
+      onDismissRequest = { pendingTransition = null },
+      title = { Text(text = action.label) },
+      text = { Text(text = "Confirme a alteração de status desta fatura.") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            pendingTransition = null
+            val currentStatus = state.value?.status ?: return@TextButton
+            scope.launch { mutationGate.run { transition(currentStatus, action.target) } }
+          },
+        ) {
+          Text(
+            text = action.label,
+            color = if (action.style == "danger") RentivoColors.coral else RentivoColors.emerald,
+          )
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { pendingTransition = null }) { Text(text = "Cancelar") }
+      },
+      containerColor = RentivoColors.surface,
+    )
+  }
 }
 
 @Composable
@@ -958,7 +1007,7 @@ private fun BillDetailContent(
   billing: Billing,
   bill: Bill,
   modifier: Modifier = Modifier,
-  onTransition: (BillStatus) -> Unit,
+  onTransition: (BillTransition) -> Unit,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1015,7 +1064,7 @@ private fun BillDetailContent(
 
     BillLineItemsSection(bill = bill)
 
-    if (billing.capabilities.canManageBills) {
+    if (bill.capabilities.canTransition) {
       BillLifecycleSection(bill = bill, onTransition = onTransition)
     } else {
       IconLabel(
@@ -1027,7 +1076,6 @@ private fun BillDetailContent(
 
     BillDocumentSection(
       bill = bill,
-      canManageBills = billing.capabilities.canManageBills,
       onOpenInvoice = onOpenInvoice,
       onOpenRecibo = onOpenRecibo,
       onRegenerate = onRegenerate,
@@ -1036,14 +1084,16 @@ private fun BillDetailContent(
     ReceiptManagerSection(
       billingID = billing.id,
       bill = bill,
-      canWrite = billing.capabilities.canUploadBillReceipts,
+      capabilities = bill.capabilities,
       onMutation = onMutation,
     )
 
-    if (billing.capabilities.canManageBills) {
+    BillCommunicationHistorySection(bill = bill)
+
+    if (bill.capabilities.canCompose) {
       RentivoButton(
         onClick = onCompose,
-        enabled = !bill.isRenderingPDF,
+        enabled = bill.capabilities.canSendInvoice || bill.capabilities.canSendRecibo,
         modifier = Modifier.testTag("bill.communicate"),
       ) {
         Icon(
@@ -1058,6 +1108,9 @@ private fun BillDetailContent(
           modifier = Modifier.padding(start = RentivoSpacing.small),
         )
       }
+    }
+
+    if (bill.capabilities.canDelete) {
       // Tinted, not destructive-red: iOS renders this as a plain `.bordered` button, and the
       // confirmation dialog behind it is what carries the destructive weight.
       RentivoTonalButton(
@@ -1110,33 +1163,98 @@ private fun BillLineItemsSection(bill: Bill) {
 }
 
 @Composable
-private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit) {
+private fun BillLifecycleSection(bill: Bill, onTransition: (BillTransition) -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
     SectionTitle(title = "Ciclo da fatura", icon = Icons.Filled.Autorenew)
     // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
     // over the local `BillStatus` state machine, when the API supplies them.
-    if (bill.effectiveTransitions.isEmpty()) {
+    if (bill.effectiveTransitionActions.isEmpty()) {
       IconLabel(
         text = "Esta fatura está em um estado final.",
         icon = Icons.Filled.CheckCircle,
         style = RentivoTypography.body,
       )
     } else {
-      bill.effectiveTransitions.sortedBy { it.wire }.forEach { status ->
+      bill.effectiveTransitionActions.forEach { action ->
         // `.borderedProminent`, not the brutalist plate: the lifecycle actions are a stack of
         // equally weighted system buttons, and outlining each one turned the section into a wall.
         RentivoProminentButton(
-          onClick = { onTransition(status) },
+          onClick = { onTransition(action) },
           modifier = Modifier
             .fillMaxWidth()
-            .testTag("bill.transition.${status.wire}"),
+            .testTag("bill.transition.${action.target.wire}"),
         ) {
-          Icon(imageVector = status.icon, contentDescription = null)
+          Icon(imageVector = action.target.icon, contentDescription = null)
           Text(
-            text = "Marcar como ${status.label.lowercase()}",
+            text = action.label,
             style = RentivoTypography.body,
           )
         }
+      }
+    }
+    bill.statusUpdatedAt?.let { updatedAt ->
+      Text(
+        text = "Status atualizado em ${BILL_HISTORY_DATE_FORMAT.format(updatedAt)}.",
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+    }
+  }
+}
+
+@Composable
+private fun BillCommunicationHistorySection(bill: Bill) {
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
+    SectionTitle(title = "Comunicações", icon = Icons.Filled.Email)
+    if (bill.communications.isEmpty()) {
+      Text(
+        text = "Nenhuma comunicação enviada.",
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+    } else {
+      RentivoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
+          bill.communications.forEachIndexed { index, item ->
+            if (index > 0) RentivoListDivider()
+            BillCommunicationHistoryRow(item = item)
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun BillCommunicationHistoryRow(item: BillCommunication) {
+  Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny)) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+      Text(
+        text = item.createdAt?.let(BILL_HISTORY_DATE_FORMAT::format) ?: "Data indisponível",
+        style = RentivoTypography.caption,
+        color = RentivoColors.secondaryInk,
+      )
+      Spacer(modifier = Modifier.weight(1f))
+      Text(
+        text = item.deliveryLabel,
+        style = RentivoTypography.caption,
+        color = if (item.status == "failed") RentivoColors.coral else RentivoColors.secondaryInk,
+      )
+    }
+    if (item.isRedacted) {
+      Text(text = "Dados do destinatário protegidos", style = RentivoTypography.body)
+    } else {
+      Text(
+        text = listOfNotNull(item.recipientName, item.recipientEmail).joinToString(" · "),
+        style = RentivoTypography.body,
+        color = RentivoColors.ink,
+      )
+      item.subject?.let { subject ->
+        Text(
+          text = subject,
+          style = RentivoTypography.caption,
+          color = RentivoColors.secondaryInk,
+        )
       }
     }
   }
@@ -1145,7 +1263,6 @@ private fun BillLifecycleSection(bill: Bill, onTransition: (BillStatus) -> Unit)
 @Composable
 private fun BillDocumentSection(
   bill: Bill,
-  canManageBills: Boolean,
   onOpenInvoice: () -> Unit,
   onOpenRecibo: () -> Unit,
   onRegenerate: () -> Unit,
@@ -1203,15 +1320,12 @@ private fun BillDocumentSection(
       RentivoTonalButton(
         text = "Regenerar documento",
         onClick = onRegenerate,
-        enabled = canManageBills,
+        enabled = bill.capabilities.canRegenerate,
         modifier = Modifier
           .weight(1f)
           .testTag("bill.pdf.regenerate"),
       )
-      if (bill.status == BillStatus.PAID) {
-        // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
-        // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
-        // would disable a button the endpoint would have served.
+      if (bill.capabilities.canOpenRecibo) {
         RentivoTonalButton(
           text = "Abrir recibo",
           onClick = onOpenRecibo,
@@ -1239,7 +1353,7 @@ private fun BillDocumentSection(
 private fun ReceiptManagerSection(
   billingID: BillingID,
   bill: Bill,
-  canWrite: Boolean,
+  capabilities: BillCapabilities,
   onMutation: suspend () -> Unit,
 ) {
   val app = LocalAppModel.current
@@ -1250,6 +1364,7 @@ private fun ReceiptManagerSection(
   var pendingDeletion by remember { mutableStateOf<Receipt?>(null) }
   var openMenuFor by remember { mutableStateOf<ReceiptID?>(null) }
   var sourceMenuOpen by remember { mutableStateOf(false) }
+  val mutationGate = remember(bill.id) { MutationGate() }
   val captures = remember(context) {
     ReceiptCaptureStore(File(context.cacheDir, ReceiptCaptureStore.DIRECTORY_NAME))
   }
@@ -1362,12 +1477,23 @@ private fun ReceiptManagerSection(
         Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
           bill.receipts.forEach { receipt ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-              IconLabel(
-                text = receipt.name,
-                icon = Icons.AutoMirrored.Filled.InsertDriveFile,
-                style = RentivoTypography.subheadline,
+              Column(
                 modifier = Modifier.weight(1f),
-              )
+                verticalArrangement = Arrangement.spacedBy(RentivoSpacing.tiny),
+              ) {
+                IconLabel(
+                  text = receipt.name,
+                  icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                  style = RentivoTypography.subheadline,
+                )
+                if (receipt.byteCount > 0) {
+                  Text(
+                    text = Formatter.formatShortFileSize(context, receipt.byteCount.toLong()),
+                    style = RentivoTypography.caption,
+                    color = RentivoColors.secondaryInk,
+                  )
+                }
+              }
               Box {
                 IconButton(onClick = { openMenuFor = receipt.id }) {
                   Icon(
@@ -1399,7 +1525,7 @@ private fun ReceiptManagerSection(
                       }
                     },
                   )
-                  if (canWrite) {
+                  if (capabilities.canDeleteReceipts) {
                     DropdownMenuItem(
                       text = { Text(text = "Excluir", color = RentivoColors.coral) },
                       onClick = {
@@ -1415,32 +1541,35 @@ private fun ReceiptManagerSection(
           // Drag-to-reorder would need these rows hosted in a reorderable list, but this section
           // renders inside a `RentivoCard` on a scrolling column. Kept as an explicit action
           // instead of restructuring the whole detail screen's layout.
-          if (bill.receipts.size > 1 && canWrite) {
+          if (bill.receipts.size > 1 && capabilities.canReorderReceipts) {
             RentivoTonalButton(
               text = "Inverter ordem",
               onClick = {
                 scope.launch {
-                  try {
-                    app.dependencies.bills.reorderReceipts(
-                      billingID = billingID,
-                      billID = bill.id,
-                      receiptIDs = bill.receipts.map { it.id }.reversed(),
-                    )
-                    onMutation()
-                  } catch (cancellation: CancellationException) {
-                    throw cancellation
-                  } catch (throwable: Throwable) {
-                    report(throwable)
+                  mutationGate.run {
+                    try {
+                      app.dependencies.bills.reorderReceipts(
+                        billingID = billingID,
+                        billID = bill.id,
+                        receiptIDs = bill.receipts.map { it.id }.reversed(),
+                      )
+                      onMutation()
+                    } catch (cancellation: CancellationException) {
+                      throw cancellation
+                    } catch (throwable: Throwable) {
+                      report(throwable)
+                    }
                   }
                 }
               },
+              enabled = !mutationGate.isRunning,
               modifier = Modifier.testTag("bill.receipts.reverse"),
             )
           }
         }
       }
     }
-    if (canWrite) {
+    if (capabilities.canUploadReceipts) {
       // The three sources hang off the button that opens them, like the per-receipt menu above:
       // tapping outside or pressing back dismisses without choosing one.
       Box {
@@ -1506,17 +1635,19 @@ private fun ReceiptManagerSection(
           onClick = {
             pendingDeletion = null
             scope.launch {
-              try {
-                app.dependencies.bills.deleteReceipt(
-                  billingID = billingID,
-                  billID = bill.id,
-                  receiptID = receipt.id,
-                )
-                onMutation()
-              } catch (cancellation: CancellationException) {
-                throw cancellation
-              } catch (throwable: Throwable) {
-                report(throwable)
+              mutationGate.run {
+                try {
+                  app.dependencies.bills.deleteReceipt(
+                    billingID = billingID,
+                    billID = bill.id,
+                    receiptID = receipt.id,
+                  )
+                  onMutation()
+                } catch (cancellation: CancellationException) {
+                  throw cancellation
+                } catch (throwable: Throwable) {
+                  report(throwable)
+                }
               }
             }
           },

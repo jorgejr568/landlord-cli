@@ -24,7 +24,7 @@ enum APIKeyFormRules {
   /// A key needs a name, at least one scope, and at least one resource to act on; anything less
   /// is a key that either can't be identified later or can't do anything.
   static func isSavable(name: String, scopes: Set<APIKeyScope>, resourceIDs: Set<WorkspaceID>) -> Bool {
-    !name.isEmpty && !scopes.isEmpty && !resourceIDs.isEmpty
+    APIKeyValidation.isValidName(name) && !scopes.isEmpty && !resourceIDs.isEmpty
   }
 }
 
@@ -59,7 +59,7 @@ struct APIKeyListView: View {
           ForEach(keys) { key in
             APIKeyCard(
               key: key,
-              showsActions: !isDemoViewerLocked,
+              showsActions: !isDemoViewerLocked && key.revokedAt == nil,
               onEdit: { editingKey = key },
               onRevoke: { keyPendingRevoke = key }
             )
@@ -157,10 +157,18 @@ private struct APIKeyCard: View {
     RentivoCard {
       VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
         VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-          Text(key.name)
-            .font(RentivoTypography.cardTitle)
-            .foregroundStyle(RentivoColors.ink)
-            .multilineTextAlignment(.leading)
+          HStack(alignment: .firstTextBaseline, spacing: RentivoSpacing.small) {
+            Text(key.name)
+              .font(RentivoTypography.cardTitle)
+              .foregroundStyle(RentivoColors.ink)
+              .multilineTextAlignment(.leading)
+            if key.revokedAt != nil {
+              Text("Revogada")
+                .font(RentivoTypography.caption.weight(.semibold))
+                .foregroundStyle(RentivoColors.coral)
+                .accessibilityIdentifier("api-key.revoked")
+            }
+          }
           Label(key.hint, systemImage: "key.fill")
             .font(RentivoTypography.monoSmall)
             .foregroundStyle(RentivoColors.secondaryInk)
@@ -222,13 +230,13 @@ private struct APIKeyFormView: View {
   @State private var scopes: Set<APIKeyScope>
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
-  /// The organizations the key can be granted access to. Modelled as a load state rather than a
-  /// silent `try?`: until it settles the "Acesso" section can't offer the organization toggles,
-  /// and saving early would persist a key missing every grant the user was never shown.
-  @State private var resources: LoadState<[Organization]> = .idle
+  /// Server-authored scopes, workspaces and expiration bounds. Saving stays blocked until these
+  /// load, because falling back to a partial local list could drop a grant the user was never shown.
+  @State private var options: LoadState<APIKeyOptions> = .idle
   @State private var saving = false
   @State private var submitFailureMessage: String?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
+  private let originalGrantIDs: Set<WorkspaceID>
 
   init(
     key: APIKeyMetadata? = nil,
@@ -238,56 +246,58 @@ private struct APIKeyFormView: View {
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
+    originalGrantIDs = Set(grants.filter(\.available).map(\.resourceID))
     _name = State(initialValue: key?.name ?? "Nova integração")
     _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
-    _grantIDs = State(initialValue: Set(grants.map(\.resourceID)))
-    _expiresAt = State(initialValue: key?.expiresAt ?? Date(timeIntervalSinceNow: 31_536_000))
+    _grantIDs = State(initialValue: originalGrantIDs)
+    _expiresAt = State(initialValue: key?.expiresAt ?? Date())
   }
 
   var body: some View {
     Form {
       RentivoSection("Identificação") { TextField("Nome", text: $name) }
       RentivoSection("Escopos seguros") {
-        ForEach(APIKeyScope.integrationCases, id: \.self) { scope in
-          Toggle(
-            scope.label,
-            isOn: Binding(
-              get: { scopes.contains(scope) },
-              set: { enabled in
-                if enabled { scopes.insert(scope) } else { scopes.remove(scope) }
-              }
-            )
-          )
+        switch options {
+        case .loaded(let options):
+          ForEach(options.scopes, id: \.self) { scope in scopeToggle(scope) }
+        case .idle, .loading:
+          ProgressView("Carregando opções…").controlSize(.small)
+        case .empty:
+          Text("Nenhum escopo de integração está disponível.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        case .failed(let error):
+          optionsFailure(error)
         }
       }
       RentivoSection("Acesso") {
-        resourceToggle("Conta pessoal", id: .personal)
-        switch resources {
+        switch options {
         case .idle, .loading:
           HStack(spacing: RentivoSpacing.small) {
             ProgressView().controlSize(.small)
-            Text("Carregando organizações…")
+            Text("Carregando espaços de trabalho…")
               .foregroundStyle(RentivoColors.secondaryInk)
           }
-        case .loaded(let organizations):
-          ForEach(organizations) { organization in
-            resourceToggle(organization.name, id: WorkspaceID(rawValue: organization.id.rawValue))
+        case .loaded(let options):
+          resourceToggle(options.personalWorkspace.name, id: options.personalWorkspace.resourceID)
+          ForEach(options.organizations) { workspace in
+            resourceToggle(workspace.name, id: workspace.resourceID)
           }
         case .empty:
-          // `loadResources()` never settles on `.empty`: an account that belongs to no
-          // organization still has the personal toggle above, so there is no empty state to draw.
           EmptyView()
         case .failed(let error):
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            Label(error.message, systemImage: "exclamationmark.triangle.fill")
-              .foregroundStyle(RentivoColors.coral)
-            Button("Tentar novamente") { Task { await loadResources() } }
-          }
+          optionsFailure(error)
           .accessibilityIdentifier("api-key.form.resources.error")
         }
       }
-      RentivoSection("Validade") {
-        DatePicker("Expira em", selection: $expiresAt, displayedComponents: .date)
+      if key == nil, let options = options.value {
+        RentivoSection("Validade") {
+          DatePicker(
+            "Expira em",
+            selection: $expiresAt,
+            in: Date().addingTimeInterval(60)...options.maximumExpiration(),
+            displayedComponents: .date
+          )
+        }
       }
 
       if let submitFailureMessage {
@@ -307,25 +317,49 @@ private struct APIKeyFormView: View {
       ToolbarItem(placement: .confirmationAction) {
         Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
           .disabled(
-            saving || resources.value == nil
+            saving || options.value == nil
               || !APIKeyFormRules.isSavable(name: name, scopes: scopes, resourceIDs: grantIDs)
           )
       }
     }
     .interactiveDismissDisabled(saving)
-    .task { await loadResources() }
+    .task { await loadOptions() }
   }
 
-  private func loadResources() async {
-    resources.prepareForRefresh()
+  private func loadOptions() async {
+    options.prepareForRefresh()
     do {
-      // Always `.loaded`, never `.empty` — see the "Acesso" section.
-      resources = .loaded(try await app.dependencies.organizations.listOrganizations())
+      let loaded = try await app.dependencies.apiKeys.apiKeyOptions()
+      options = loaded.scopes.isEmpty ? .empty : .loaded(loaded)
+      if key == nil {
+        scopes.formIntersection(Set(loaded.scopes))
+        expiresAt = loaded.defaultExpiration()
+      }
     } catch {
       // Failing into the section rather than through `settleFailure`: this form is a sheet, and
       // the global banner renders behind it.
-      resources = .failed(DemoError(error))
+      options = .failed(DemoError(error))
     }
+  }
+
+  private func optionsFailure(_ error: DemoError) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+      Label(error.message, systemImage: "exclamationmark.triangle.fill")
+        .foregroundStyle(RentivoColors.coral)
+      Button("Tentar novamente") { Task { await loadOptions() } }
+    }
+  }
+
+  private func scopeToggle(_ scope: APIKeyScope) -> some View {
+    Toggle(
+      scope.label,
+      isOn: Binding(
+        get: { scopes.contains(scope) },
+        set: { enabled in
+          if enabled { scopes.insert(scope) } else { scopes.remove(scope) }
+        }
+      )
+    )
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -344,18 +378,23 @@ private struct APIKeyFormView: View {
     // Without this the sheet stays interactive across the round trip and a double-click mints two
     // keys — each with its own secret, only one of which is ever shown.
     guard !saving else { return }
+    guard let options = options.value else { return }
     let draft = APIKeyDraft(
-      name: name,
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
       grants: APIKeyFormRules.grants(for: grantIDs, original: originalGrants),
-      expiresAt: expiresAt
+      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt)
     )
     submitFailureMessage = nil
     saving = true
     defer { saving = false }
     do {
       if let key {
-        _ = try await app.dependencies.apiKeys.updateAPIKey(id: key.id, draft: draft)
+        _ = try await app.dependencies.apiKeys.updateAPIKey(
+          id: key.id,
+          draft: draft,
+          updateGrants: grantIDs != originalGrantIDs
+        )
         dismiss()
         app.showNotice("Metadados da chave atualizados.")
         await onSaved(nil)

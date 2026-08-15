@@ -71,6 +71,32 @@ import UniformTypeIdentifiers
   #expect(ReceiptUploadLimit.exceedsLimit(byteCount: ReceiptUploadLimit.maxByteCount + 1))
 }
 
+@Test func receiptUploadRulesRejectFilesTheServerWouldSilentlySkip() throws {
+  let normalized = try ReceiptUploadRules.validated(
+    FileUpload(data: Data("pdf".utf8), filename: "recibo.pdf", mediaType: " Application/PDF; charset=binary ")
+  )
+  #expect(normalized.mediaType == "application/pdf")
+
+  #expect(throws: DemoError(message: "Envie um comprovante em PDF, JPEG ou PNG.")) {
+    try ReceiptUploadRules.validated(
+      FileUpload(data: Data("texto".utf8), filename: "notas.txt", mediaType: "text/plain")
+    )
+  }
+  #expect(throws: DemoError(message: "O comprovante selecionado está vazio.")) {
+    try ReceiptUploadRules.validated(
+      FileUpload(data: Data(), filename: "vazio.pdf", mediaType: "application/pdf")
+    )
+  }
+  #expect(throws: DemoError(message: "O comprovante excede o limite de 10 MB.")) {
+    try ReceiptUploadRules.validated(
+      FileUpload(
+        data: Data(repeating: 0, count: ReceiptUploadLimit.maxByteCount + 1),
+        filename: "grande.png", mediaType: "image/png"
+      )
+    )
+  }
+}
+
 // MARK: - `ReceiptFilename.captured(at:filenameExtension:timeZone:)`
 
 @Test func capturedReceiptFilenameStampsTheCaptureInstant() {

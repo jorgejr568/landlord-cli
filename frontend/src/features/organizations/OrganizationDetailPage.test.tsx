@@ -304,6 +304,12 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   }));
   renderPage();
   await screen.findByText("Acme Imóveis");
+  const inviteEmail = screen.getByLabelText("E-mail");
+  fireEvent.change(inviteEmail, { target: { value: `${"😀".repeat(318)}@a` } });
+  expect(inviteEmail).toHaveValue(`${"😀".repeat(318)}@a`);
+  fireEvent.change(inviteEmail, { target: { value: "😀".repeat(321) } });
+  expect(inviteEmail).toHaveValue("😀".repeat(320));
+  fireEvent.change(inviteEmail, { target: { value: "" } });
 
   await user.selectOptions(screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "viewer");
   expect(await screen.findByText("Papel atualizado com sucesso!")).toBeVisible();
@@ -315,7 +321,7 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   await waitFor(() => expect(screen.queryByText("viewer@example.com")).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole("button", { name: "Remover manager@example.com" })).toHaveFocus());
 
-  await user.type(screen.getByLabelText("E-mail"), "NEW@EXAMPLE.COM");
+  await user.type(inviteEmail, "NEW@EXAMPLE.COM");
   await user.selectOptions(screen.getByLabelText("Papel do convite"), "manager");
   await user.click(screen.getByRole("button", { name: "Enviar convite" }));
   expect(await screen.findByText("Convite enviado com sucesso!")).toBeVisible();

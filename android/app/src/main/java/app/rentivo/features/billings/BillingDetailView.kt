@@ -346,7 +346,11 @@ private fun BillingHeaderCard(billing: Billing) {
       )
       Row(verticalAlignment = Alignment.CenterVertically) {
         IconLabel(
-          text = if (billing.pixOverride?.isComplete == true) "PIX próprio" else "PIX herdado",
+          text = when {
+            billing.pixNeedsSetup -> "PIX pendente"
+            billing.pixOverride?.isComplete == true -> "PIX próprio"
+            else -> "PIX herdado"
+          },
           icon = Icons.Filled.QrCode2,
           style = RentivoTypography.metadata,
           modifier = Modifier.weight(1f),
@@ -405,11 +409,23 @@ private fun BillsSection(
         modifier = Modifier.weight(1f),
       )
       if (data.billing.capabilities.canCreateBills) {
-        IconButton(onClick = onCreateBill, modifier = Modifier.testTag("bill.create")) {
+        IconButton(
+          onClick = onCreateBill,
+          enabled = data.billing.canGenerateBills,
+          modifier = Modifier.testTag("bill.create"),
+        ) {
           Icon(
             imageVector = Icons.Filled.AddCircle,
-            contentDescription = "Gerar fatura",
-            tint = RentivoColors.emerald,
+            contentDescription = if (data.billing.canGenerateBills) {
+              "Gerar fatura"
+            } else {
+              "Configure os dados do PIX antes de gerar uma fatura"
+            },
+            tint = if (data.billing.canGenerateBills) {
+              RentivoColors.emerald
+            } else {
+              RentivoColors.secondaryInk
+            },
             modifier = Modifier.size(20.dp),
           )
         }
@@ -517,10 +533,10 @@ private fun RecipientsSection(billing: Billing) {
             color = RentivoColors.secondaryInk,
           )
         }
-        billing.replyTo?.let { replyTo ->
+        billing.replyTo.forEach { contact ->
           RentivoListDivider(indent = 0.dp)
           IconLabel(
-            text = "Respostas para $replyTo",
+            text = "Respostas para ${contact.name} <${contact.email}>",
             icon = Icons.AutoMirrored.Filled.Reply,
             style = RentivoTypography.caption,
           )

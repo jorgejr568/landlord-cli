@@ -76,7 +76,7 @@ struct BillingFormView: View {
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var recipients: [EditableRecipient]
-  @State private var replyTo: String
+  @State private var replyTo: [EditableRecipient]
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
@@ -85,7 +85,7 @@ struct BillingFormView: View {
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var organizations: [Organization] = []
-  @State private var organizationsLoaded = false
+  @State private var organizationsLoaded: Bool
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -98,7 +98,8 @@ struct BillingFormView: View {
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
-    _replyTo = State(initialValue: billing?.replyTo ?? "")
+    _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
+    _organizationsLoaded = State(initialValue: billing != nil)
   }
 
   var body: some View {
@@ -108,9 +109,11 @@ struct BillingFormView: View {
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
           .lineLimit(2...4)
-        Picker("Responsável", selection: $ownerID) {
-          ForEach(ownerChoices, id: \.id) { owner in
-            Text(owner.name).tag(owner.id)
+        if billing == nil {
+          Picker("Responsável", selection: $ownerID) {
+            ForEach(ownerChoices, id: \.id) { owner in
+              Text(owner.name).tag(owner.id)
+            }
           }
         }
       }
@@ -184,10 +187,23 @@ struct BillingFormView: View {
           Label("Adicionar destinatário", systemImage: "plus.circle.fill")
         }
         .accessibilityIdentifier("billing.form.recipients.add")
-        TextField("Responder para", text: $replyTo)
-          .keyboardType(.emailAddress)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
+        ForEach($replyTo) { $contact in
+          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            TextField("Nome para resposta", text: $contact.name)
+            TextField("E-mail para resposta", text: $contact.email)
+              .keyboardType(.emailAddress)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+          }
+          .padding(.vertical, RentivoSpacing.tiny)
+        }
+        .onDelete { replyTo.remove(atOffsets: $0) }
+        .onMove { replyTo.move(fromOffsets: $0, toOffset: $1) }
+        Button {
+          replyTo.append(EditableRecipient())
+        } label: {
+          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+        }
       } header: {
         HStack {
           Text("Comunicação")
@@ -234,6 +250,7 @@ struct BillingFormView: View {
     }
     .interactiveDismissDisabled(saving)
     .task {
+      guard billing == nil else { return }
       organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
       organizationsLoaded = true
     }
@@ -243,15 +260,9 @@ struct BillingFormView: View {
     var owners: [BillingOwner] = [
       .user(id: app.currentUser.id, name: "Pessoal")
     ]
-    if let currentOwner = billing?.owner,
-      !owners.contains(where: { $0.id == currentOwner.id })
-    {
-      owners.append(currentOwner)
-    }
     let existingIDs = Set(owners.map(\.id))
-    let organizationOwners =
-      organizations
-      .map { BillingOwner.organization(id: $0.id, name: $0.name) }
+    let organizationOwners = organizations
+      .compactMap(\.billingOwnerForCreation)
       .filter { !existingIDs.contains($0.id) }
     owners.append(contentsOf: organizationOwners)
     return owners
@@ -259,7 +270,12 @@ struct BillingFormView: View {
 
   private func save() async {
     submitErrorMessage = nil
-    guard let owner = ownerChoices.first(where: { $0.id == ownerID }) else {
+    let owner: BillingOwner
+    if let billing {
+      owner = billing.owner
+    } else if let selected = ownerChoices.first(where: { $0.id == ownerID }) {
+      owner = selected
+    } else {
       submitErrorMessage = "Não foi possível confirmar o responsável."
       return
     }
@@ -267,6 +283,7 @@ struct BillingFormView: View {
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
+    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
     let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -287,7 +304,7 @@ struct BillingFormView: View {
         ? nil
         : PixConfiguration(key: pix, merchantName: merchantName, merchantCity: merchantCity),
       recipients: draftRecipients,
-      replyTo: replyTo.isEmpty ? nil : replyTo
+      replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }

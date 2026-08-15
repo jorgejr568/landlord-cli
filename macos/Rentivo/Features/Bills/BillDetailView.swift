@@ -13,6 +13,7 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
+  @State private var pendingTransition: BillTransition?
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
   @State private var pollGeneration = 0
@@ -39,7 +40,7 @@ struct BillDetailView: View {
     .navigationTitle("Fatura")
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        if state.value?.status == .draft && billing?.capabilities.canManageBills == true {
+        if state.value?.status == .draft && state.value?.capabilities.canEdit == true {
           Button("Editar") { showingEdit = true }
         }
       }
@@ -67,6 +68,20 @@ struct BillDetailView: View {
       Button("Excluir fatura", role: .destructive) { Task { await deleteBill() } }
       Button("Cancelar", role: .cancel) {}
     }
+    .confirmationDialog(
+      pendingTransition?.label ?? "Alterar status da fatura?",
+      isPresented: Binding(presence: $pendingTransition),
+      presenting: pendingTransition
+    ) { action in
+      Button(action.label, role: action.style == "danger" ? .destructive : nil) {
+        pendingTransition = nil
+        guard let currentStatus = state.value?.status else { return }
+        Task { await transition(from: currentStatus, to: action.target) }
+      }
+      Button("Cancelar", role: .cancel) {}
+    } message: { _ in
+      Text("Confirme a alteração de status desta fatura.")
+    }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
   }
@@ -81,18 +96,21 @@ struct BillDetailView: View {
         ReceiptManagerView(
           billingID: billingID,
           bill: bill,
-          canWrite: billing?.capabilities.canUploadBillReceipts == true
+          capabilities: bill.capabilities
         ) { refreshAll() }
+        communicationHistory(bill)
 
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canCompose {
           Button {
             showingCommunication = true
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(bill.isRenderingPDF)
+          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
+        }
 
+        if bill.capabilities.canDelete {
           Button(role: .destructive) {
             confirmingDelete = true
           } label: {
@@ -157,11 +175,8 @@ struct BillDetailView: View {
         // Regenerating stays available while a render is pending: a re-trigger supersedes the
         // in-flight render server-side.
         Button("Regenerar documento") { Task { await regenerate(bill) } }
-          .disabled(billing?.capabilities.canManageBills != true)
-        if bill.status == .paid {
-          // Gated on the pending render alone: the app opens `GET .../recibo`, which renders the
-          // recibo inline when no file is stored yet, so `canDownloadRecibo` (a stored-file gate)
-          // would disable a button the endpoint would have served.
+          .disabled(!bill.capabilities.canRegenerate)
+        if bill.capabilities.canOpenRecibo {
           Button {
             Task { await downloadRecibo() }
           } label: {
@@ -187,7 +202,7 @@ struct BillDetailView: View {
 
   @ViewBuilder
   private func lifecycleSection(_ bill: Bill) -> some View {
-    if billing?.capabilities.canManageBills == true {
+    if bill.capabilities.canTransition {
       lifecycle(bill)
     } else {
       Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
@@ -251,30 +266,74 @@ struct BillDetailView: View {
       SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
       // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
       // over the local `BillStatus` state machine, when the API supplies them.
-      if bill.effectiveTransitions.isEmpty {
+      if bill.effectiveTransitionActions.isEmpty {
         Label("Esta fatura está em um estado final.", systemImage: "checkmark.circle")
           .foregroundStyle(RentivoColors.secondaryInk)
       } else {
-        ForEach(
-          bill.effectiveTransitions.sorted { $0.rawValue < $1.rawValue },
-          id: \.self
-        ) { status in
+        ForEach(bill.effectiveTransitionActions, id: \.target) { action in
           Button {
-            Task { await transition(to: status) }
+            if action.requiresConfirmation {
+              pendingTransition = action
+            } else {
+              Task { await transition(from: bill.status, to: action.target) }
+            }
           } label: {
             HStack(spacing: RentivoSpacing.small) {
-              if transitioningTo == status {
+              if transitioningTo == action.target {
                 ProgressView()
                   .controlSize(.small)
                   .tint(.white)
               }
-              Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
+              Label(action.label, systemImage: action.target.symbol)
             }
             .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
           .disabled(transitioningTo != nil)
-          .accessibilityIdentifier("bill.transition.\(status.rawValue)")
+          .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
+        }
+      }
+      if let statusUpdatedAt = bill.statusUpdatedAt {
+        Text("Status atualizado em \(statusUpdatedAt.formattedPTBR(time: .shortened)).")
+          .font(RentivoTypography.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      }
+    }
+  }
+
+  private func communicationHistory(_ bill: Bill) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+      SectionTitle(title: "Comunicações", symbol: "envelope.badge")
+      if bill.communications.isEmpty {
+        Text("Nenhuma comunicação enviada.")
+          .font(RentivoTypography.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      } else {
+        RentivoCard {
+          VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+            ForEach(Array(bill.communications.enumerated()), id: \.element.id) { index, item in
+              if index > 0 { Divider() }
+              VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                HStack {
+                  Text(item.createdAt?.formattedPTBR(time: .shortened) ?? "Data indisponível")
+                    .font(RentivoTypography.metadata.monospacedDigit())
+                  Spacer()
+                  Text(item.deliveryLabel)
+                    .font(RentivoTypography.metadata)
+                    .foregroundStyle(item.status == "failed" ? RentivoColors.coral : RentivoColors.secondaryInk)
+                }
+                if item.isRedacted {
+                  Text("Dados do destinatário protegidos")
+                    .font(RentivoTypography.bodyStrong)
+                } else {
+                  Text([item.recipientName, item.recipientEmail].compactMap { $0 }.joined(separator: " · "))
+                    .font(RentivoTypography.bodyStrong)
+                  if let subject = item.subject { Text(subject).font(RentivoTypography.caption) }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -329,13 +388,13 @@ struct BillDetailView: View {
     app.invalidateData()
   }
 
-  private func transition(to status: BillStatus) async {
+  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
     guard transitioningTo == nil else { return }
     transitioningTo = status
     defer { transitioningTo = nil }
     do {
       try await app.dependencies.bills.transitionBill(
-        billingID: billingID, billID: billID, to: status)
+        billingID: billingID, billID: billID, from: currentStatus, to: status)
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
       refreshAll()
     } catch {

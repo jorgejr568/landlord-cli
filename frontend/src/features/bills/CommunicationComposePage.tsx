@@ -8,11 +8,35 @@ import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatMonth } from "../../lib/format";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
 
 type CommType = components["schemas"]["CommunicationSendRequest"]["comm_type"];
+const MAX_COMMUNICATION_SUBJECT_LENGTH = 998;
+const MAX_COMMUNICATION_BODY_BYTES = 4_096;
+
+function normalizeCommunicationContent(subject: string, body: string) {
+  return { subject: subject.trim(), body: body.trim() };
+}
+
+function communicationContentErrors(subject: string, body: string): Record<string, string> {
+  const normalized = normalizeCommunicationContent(subject, body);
+  const errors: Record<string, string> = {};
+  if (!normalized.subject) errors.subject = "Informe o assunto.";
+  /* v8 ignore start -- the controlled input truncates API characters before this defense */
+  else if (Array.from(normalized.subject).length > MAX_COMMUNICATION_SUBJECT_LENGTH) {
+    errors.subject = "O assunto deve ter no máximo 998 caracteres.";
+  }
+  /* v8 ignore stop */
+  if (!normalized.body) errors.body = "Informe o corpo da mensagem.";
+  else if (new TextEncoder().encode(normalized.body).byteLength > MAX_COMMUNICATION_BODY_BYTES) {
+    errors.body = "A mensagem deve ter no máximo 4096 bytes.";
+  }
+  return errors;
+}
+
 function isFullContact(contact: Billing["recipients"][number]): contact is Extract<Billing["recipients"][number], { email: string }> {
   return "email" in contact;
 }
@@ -112,6 +136,13 @@ export function CommunicationComposePage() {
       recipientRef.current?.focus();
       return;
     }
+    const localErrors = communicationContentErrors(subject, body);
+    if (Object.keys(localErrors).length) {
+      setFieldErrors(localErrors);
+      requestAnimationFrame(() => focusError(firstFieldError(localErrors, ["subject", "body"])));
+      return;
+    }
+    const normalized = normalizeCommunicationContent(subject, body);
     sendController.current?.abort();
     const controller = new AbortController();
     sendController.current = controller;
@@ -120,11 +151,11 @@ export function CommunicationComposePage() {
       const requestBody: components["schemas"]["CommunicationSendRequest"] = {
         acknowledge_warning: false,
         bill_uuid: billUuid,
-        body,
+        body: normalized.body,
         comm_type: commType,
         recipient_uuids: selectedRecipients,
         save_scope: saveScope || null,
-        subject
+        subject: normalized.subject
       };
       const { response } = await apiRequest(apiClient.POST(
         "/api/v1/billings/{billing_uuid}/communications/send",
@@ -172,8 +203,8 @@ export function CommunicationComposePage() {
           })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div></div>
 
           <div className="panel"><div className="panel__head"><h3>Mensagem</h3><span className="panel__title-eyebrow">Markdown</span></div><div className="panel__body">
-            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(event.target.value)} ref={subjectRef} value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
-            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
+            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
+            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" maxLength={MAX_COMMUNICATION_BODY_BYTES} onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
           </div></div>
 
           <div className="panel"><div className="panel__head"><h3>Salvar modelo (opcional)</h3></div><div className="panel__body"><div className="field"><label className="sr-only" htmlFor="save_scope">Salvar modelo</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div></div></div>

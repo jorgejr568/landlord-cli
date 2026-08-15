@@ -1684,6 +1684,8 @@ export interface components {
             can_download_recibo: boolean;
             /** Can Edit */
             can_edit: boolean;
+            /** Can Open Recibo */
+            can_open_recibo: boolean;
             /** Can Regenerate */
             can_regenerate: boolean;
             /** Can Reorder Receipts */
@@ -2582,6 +2584,21 @@ export interface components {
         OrganizationCreateRequest: {
             /** Name */
             name: string;
+            /**
+             * Pix Key
+             * @default
+             */
+            pix_key: string;
+            /**
+             * Pix Merchant City
+             * @default
+             */
+            pix_merchant_city: string;
+            /**
+             * Pix Merchant Name
+             * @default
+             */
+            pix_merchant_name: string;
         };
         /** OrganizationIntegrationDetailResponse */
         OrganizationIntegrationDetailResponse: {
@@ -5932,7 +5949,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrganizationResponse"];
+                    "application/json": components["schemas"]["OrganizationLoginDetailResponse"];
                 };
             };
             /** @description Request validation problem */

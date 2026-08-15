@@ -106,3 +106,45 @@ private struct SamplePlainError: Error {}
       owner: .user(id: StableID.userAna, name: "Pessoal"), items: []
     ).template(for: .billReady) == nil)
 }
+
+@Test func onlyOrganizationsAllowedByTheAPICanOwnANewBilling() {
+  let allowed = Organization(
+    id: StableID.organizationHorizonte,
+    name: "Horizonte",
+    pix: nil,
+    members: [],
+    requiresMFA: false,
+    currentUserRole: .viewer,
+    capabilities: OrganizationCapabilities(
+      canManage: false,
+      canInvite: false,
+      canCreateBilling: true,
+      canViewBillingStats: false
+    )
+  )
+  let denied = Organization(
+    id: OrganizationID(rawValue: "organization-denied"),
+    name: "Sem criação",
+    pix: nil,
+    members: [],
+    requiresMFA: false,
+    currentUserRole: .admin,
+    capabilities: OrganizationCapabilities(
+      canManage: true,
+      canInvite: true,
+      canCreateBilling: false,
+      canViewBillingStats: true
+    )
+  )
+
+  #expect(
+    allowed.billingOwnerForCreation
+      == .organization(id: StableID.organizationHorizonte, name: "Horizonte")
+  )
+  #expect(denied.billingOwnerForCreation == nil)
+}
+
+@Test func billingExportContractMatchesTheBackendJobPayload() {
+  #expect(BillingExportContract.formats == ["csv", "xlsx"])
+  #expect(BillingExportContract.includedSections == ["Faturas"])
+}

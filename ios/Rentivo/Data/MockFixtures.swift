@@ -108,12 +108,16 @@ public struct MockFixtures: Sendable {
     let paidReceipt = Receipt(
       id: stableID(2_001),
       name: "comprovante-pix-junho.pdf",
-      sortOrder: 0
+      sortOrder: 0,
+      mediaType: "application/pdf",
+      byteCount: 184_320
     )
     let paidReceiptImage = Receipt(
       id: stableID(2_002),
       name: "confirmacao-bancaria.jpg",
-      sortOrder: 1
+      sortOrder: 1,
+      mediaType: "image/jpeg",
+      byteCount: 92_160
     )
     let bills = [
       bill(
@@ -258,7 +262,9 @@ public struct MockFixtures: Sendable {
             createdAt: Date(timeIntervalSince1970: 1_736_640_000),
             lastUsedAt: now
           )
-        ]
+        ],
+        setupRequired: false,
+        organizationEnforced: true
       ),
       apiKeys: [integrationKey],
       themes: [
@@ -341,7 +347,11 @@ public struct MockFixtures: Sendable {
           email: "fiadora@example.com"
         ),
       ],
-      replyTo: "ana@example.com",
+      replyTo: [
+        BillingRecipient(
+          id: RecipientID(rawValue: "reply-aurora"), name: "Ana", email: "ana@example.com"
+        )
+      ],
       communicationTemplates: defaultCommunicationTemplates
     )
   }

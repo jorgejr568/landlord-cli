@@ -252,11 +252,23 @@ class APIRentivoStoreEndpointTest {
 
   @Test
   fun `accepting and declining an invitation hit their own endpoints`() = runTest {
-    val dispatcher = server.routeWithSession { MockResponse().setResponseCode(204) }
+    val dispatcher = server.routeWithSession { call ->
+      if (call.route == "POST /api/v1/invites/invite-1/accept") {
+        jsonResponse(
+          """{"status":"accepted","organization_uuid":"organization-1",""" +
+            """"mfa_setup_required":true}"""
+        )
+      } else {
+        MockResponse().setResponseCode(204)
+      }
+    }
     val store = authenticatedStore()
 
-    store.acceptInvitation(InvitationID(rawValue = "invite-1"))
+    val outcome = store.acceptInvitation(InvitationID(rawValue = "invite-1"))
     store.declineInvitation(InvitationID(rawValue = "invite-2"))
+
+    assertEquals(OrganizationID(rawValue = "organization-1"), outcome.organizationID)
+    assertTrue(outcome.mfaSetupRequired)
 
     assertEquals(
       listOf(

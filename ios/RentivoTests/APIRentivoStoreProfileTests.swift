@@ -34,6 +34,8 @@ import Testing
   _ = try #require(try await store.restoreSession())
   let summary = try await store.securitySummary()
 
+  #expect(!summary.setupRequired)
+  #expect(summary.organizationEnforced)
   let passkey = try #require(summary.passkeys.first)
   let year = Calendar(identifier: .gregorian).component(.year, from: passkey.createdAt)
   #expect(year == 2026)
@@ -87,9 +89,7 @@ import Testing
 }
 
 @MainActor
-@Test func liveListAPIKeysHidesRevokedKeysLikeTheMock() async throws {
-  // Regression test: the server returns revoked integration keys too; the mock filters them out
-  // and the live store must match.
+@Test func liveListAPIKeysPreservesRevokedKeyHistory() async throws {
   let credentials = MemoryCredentialStore(token: "stored-token")
   let client = LiveAPIClient(session: profileSession(), credentials: credentials)
   let store = APIRentivoStore(client: client)
@@ -97,7 +97,25 @@ import Testing
   _ = try #require(try await store.restoreSession())
   let keys = try await store.listAPIKeys()
 
-  #expect(keys.map(\.name) == ["Ativa"])
+  #expect(keys.map(\.name) == ["Ativa", "Revogada"])
+  #expect(keys[0].revokedAt == nil)
+  #expect(keys[1].revokedAt != nil)
+}
+
+@MainActor
+@Test func liveAPIKeyOptionsUseServerScopesWorkspacesAndExpirationLimits() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: profileSession(), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+
+  _ = try #require(try await store.restoreSession())
+  let options = try await store.apiKeyOptions()
+
+  #expect(options.scopes == [.profileRead, .billingsRead])
+  #expect(options.personalWorkspace.resourceID == .personal)
+  #expect(options.organizations.map(\.resourceID) == [WorkspaceID(rawValue: "organization-1")])
+  #expect(options.defaultExpirationDays == 30)
+  #expect(options.maxExpirationDays == 180)
 }
 
 private func profileSession() -> URLSession {
@@ -129,7 +147,7 @@ private final class NaiveTimestampURLProtocol: URLProtocol, @unchecked Sendable 
       {
         "profile": {"email":"ana@rentivo.com.br","pix_key":"","pix_merchant_name":"","pix_merchant_city":""},
         "totp": {"enabled": false, "recovery_codes_remaining": 0},
-        "mfa": {},
+        "mfa": {"setup_required": false, "organization_enforced": false},
         "passkeys": [
           {"uuid":"passkey-1","name":"iPhone de Ana","created_at":"2026-07-20T10:15:30","last_used_at":"2026-07-20T18:42:11.063639"}
         ]
@@ -165,7 +183,7 @@ private final class ProfileURLProtocol: URLProtocol, @unchecked Sendable {
       {
         "profile": {"email":"ana@rentivo.com.br","pix_key":"chave-abc","pix_merchant_name":"Ana","pix_merchant_city":"Sao Paulo"},
         "totp": {"enabled": true, "recovery_codes_remaining": 5},
-        "mfa": {},
+        "mfa": {"setup_required": false, "organization_enforced": true},
         "passkeys": [
           {"uuid":"passkey-1","name":"iPhone de Ana","created_at":"2026-07-20T10:15:30.123456+00:00","last_used_at": null}
         ]
@@ -178,6 +196,8 @@ private final class ProfileURLProtocol: URLProtocol, @unchecked Sendable {
         {"uuid":"key-2","name":"Revogada","hint":"rntv-v1-ef••gh","scopes":["profile:read"],"grants":[{"resource_type":"user","resource_id":"personal","available":true}],"expires_at":"2026-12-31T23:59:59.000000+00:00","last_used_at": null,"created_at":"2026-01-01T00:00:00.000000+00:00","revoked_at":"2026-02-01T00:00:00.000000+00:00"}
       ]}
       """#
+    case "/api/v1/api-keys/options":
+      body = #"{"scopes":["profile:read","unknown:scope","billings:read"],"personal_workspace":{"resource_type":"user","resource_id":"personal"},"organizations":[{"resource_type":"organization","resource_id":"organization-1","name":"Horizonte"}],"default_expiration_days":30,"max_expiration_days":180}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }

@@ -1,5 +1,17 @@
 import Foundation
 
+private enum CommunicationOwnerKey: Hashable {
+  case user(Int)
+  case organization(OrganizationID)
+
+  init(_ owner: BillingOwner) {
+    switch owner {
+    case .user(let id, _): self = .user(id)
+    case .organization(let id, _): self = .organization(id)
+    }
+  }
+}
+
 @MainActor
 public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingRepository,
   BillRepository, ExpenseRepository, AttachmentRepository, CommunicationRepository, FileDownloadRepository, ExportRepository,
@@ -63,6 +75,8 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   private var viewerMode = false
   private var delayEnabled = false
   private var shouldFailNextOperation = false
+  private var ownerCommunicationTemplates: [CommunicationOwnerKey: [CommunicationType: CommunicationTemplate]] = [:]
+  private var billingTemplateOverrides: [BillingID: Set<CommunicationType>] = [:]
   /// Remaining `bill(billingID:id:)` fetches before a regenerated bill settles back to
   /// `.succeeded`, keyed by bill.
   private var pendingRenderTicks: [BillID: Int] = [:]
@@ -96,6 +110,8 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     delayEnabled = false
     shouldFailNextOperation = false
     pendingRenderTicks = [:]
+    ownerCommunicationTemplates = [:]
+    billingTemplateOverrides = [:]
   }
 
   public func profile() async throws -> UserProfile {
@@ -115,7 +131,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
     try await prepareOperation()
     guard !viewerMode else { throw DemoError.permissionDenied }
-    snapshot.profile.pix = pix
+    snapshot.profile.pix = pix.isEmpty ? nil : pix
     recordActivity(kind: .billing, title: "PIX atualizado", detail: pix.key)
     return snapshot.profile
   }
@@ -137,7 +153,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func createBilling(_ draft: BillingDraft) async throws -> Billing {
     try await prepareOperation()
     try requireWriteAccess()
-    let billing = Billing(
+    var billing = Billing(
       id: BillingID(rawValue: UUID().uuidString),
       name: draft.name,
       description: draft.description,
@@ -150,6 +166,11 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       // then system default), so a fresh billing is never template-less in production.
       communicationTemplates: MockFixtures.defaultCommunicationTemplates
     )
+    if let templates = ownerCommunicationTemplates[CommunicationOwnerKey(draft.owner)] {
+      for template in templates.values {
+        billing.replaceCommunicationTemplate(template)
+      }
+    }
     snapshot.billings.insert(billing, at: 0)
     recordActivity(kind: .billing, title: "Cobrança criada", detail: billing.name)
     return billing
@@ -188,6 +209,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
     let name = snapshot.billings[index].name
     snapshot.billings.remove(at: index)
+    billingTemplateOverrides[id] = nil
     snapshot.bills.removeAll { $0.billingID == id }
     snapshot.expenses.removeAll { $0.billingID == id }
     snapshot.attachments[id] = nil
@@ -204,6 +226,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return snapshot.bills
       .filter { $0.billingID == billingID }
       .sorted { $0.referenceMonth > $1.referenceMonth }
+      .map(restrictIfNeeded)
   }
 
   public func bill(billingID: BillingID, id: BillID) async throws -> Bill {
@@ -212,7 +235,28 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       throw DemoError.resourceNotFound
     }
     advancePendingRender(at: index, billID: id)
-    return snapshot.bills[index]
+    return restrictIfNeeded(withCommunicationHistory(snapshot.bills[index]))
+  }
+
+  private func withCommunicationHistory(_ bill: Bill) -> Bill {
+    var hydrated = bill
+    hydrated.communications = snapshot.communications
+      .filter { $0.billID == bill.id }
+      .flatMap { record in
+        record.recipients.enumerated().map { index, email in
+          BillCommunication(
+            id: CommunicationID(rawValue: "\(record.id.rawValue)-\(index)"),
+            commType: nil,
+            status: "sent",
+            createdAt: record.sentAt,
+            sentAt: record.sentAt,
+            recipientName: nil,
+            recipientEmail: email,
+            subject: record.subject
+          )
+        }
+      }
+    return hydrated
   }
 
   /// Demo mode fakes the background render: each fetch consumes one tick of the countdown started
@@ -287,7 +331,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     recordActivity(kind: .bill, title: "Fatura excluída", detail: reference)
   }
 
-  public func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+  public func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws {
     try await prepareOperation()
     try requireWriteAccess()
     guard
@@ -296,6 +342,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       })
     else {
       throw DemoError.resourceNotFound
+    }
+    guard snapshot.bills[index].status == currentStatus else {
+      throw DemoError.staleBillStatus
     }
     guard snapshot.bills[index].status.canTransition(to: status) else {
       throw DemoError.invalidBillTransition
@@ -314,6 +363,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   public func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill {
     try await prepareOperation()
+    try requireWriteAccess()
     guard let index = billIndex(billingID: billingID, billID: billID) else { throw DemoError.resourceNotFound }
     snapshot.bills[index].pdfRenderStatus = .pending
     pendingRenderTicks[billID] = Self.pendingRenderTickCount
@@ -326,10 +376,14 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard let index = billIndex(billingID: billingID, billID: billID) else {
       throw DemoError.resourceNotFound
     }
+    let upload = try ReceiptUploadRules.validated(upload)
     let receipt = Receipt(
       id: ReceiptID(rawValue: UUID().uuidString),
       name: upload.filename,
-      sortOrder: snapshot.bills[index].receipts.count
+      sortOrder: snapshot.bills[index].receipts.count,
+      mediaType: upload.mediaType,
+      byteCount: upload.byteCount,
+      createdAt: Date()
     )
     snapshot.bills[index].receipts.append(receipt)
     recordActivity(kind: .bill, title: "Comprovante adicionado", detail: upload.filename)
@@ -399,16 +453,20 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     // Matches the server contract: `ExpenseCreateRequest.amount` requires
     // `exclusiveMinimum: 0`, so a zero or negative expense always 422s.
     guard amount.centavos > 0 else { throw DemoError.invalidAmount }
+    guard ExpenseInput.isValidDescription(description) else {
+      throw DemoError.invalidDescription
+    }
+    let normalizedDescription = ExpenseInput.normalizedDescription(description)
     let expense = Expense(
       id: ExpenseID(rawValue: UUID().uuidString),
       billingID: billingID,
-      description: description,
+      description: normalizedDescription,
       amount: amount,
       category: category,
       incurredOn: incurredOn
     )
     snapshot.expenses.insert(expense, at: 0)
-    recordActivity(kind: .expense, title: "Despesa adicionada", detail: description)
+    recordActivity(kind: .expense, title: "Despesa adicionada", detail: normalizedDescription)
     return expense
   }
 
@@ -439,6 +497,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func addAttachment(billingID: BillingID, upload: FileUpload) async throws -> Attachment {
     try await prepareOperation()
     try requireWriteAccess()
+    let upload = try AttachmentUploadRules.validated(upload)
     guard snapshot.billings.contains(where: { $0.id == billingID }) else {
       throw DemoError.resourceNotFound
     }
@@ -502,20 +561,40 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     else {
       throw DemoError.operationFailed
     }
+    guard billIndex(billingID: billingID, billID: billID) != nil else {
+      throw DemoError.resourceNotFound
+    }
+    if saveScope == .owner && !billing.capabilities.canEdit {
+      throw DemoError.permissionDenied
+    }
     let byID = Dictionary(uniqueKeysWithValues: billing.recipients.map { ($0.id, $0) })
     let selected = recipientIDs.compactMap { byID[$0] }
     guard selected.count == recipientIDs.count else { throw DemoError.operationFailed }
+    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
+      throw DemoError(message: message)
+    }
+    let normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    let normalizedMessage = CommunicationContent.normalizedMessage(message)
     let communication = CommunicationRecord(
       id: CommunicationID(rawValue: UUID().uuidString),
       billingID: billingID,
       billID: billID,
       recipients: selected.map(\.email),
-      subject: subject,
-      message: message,
+      subject: normalizedSubject,
+      message: normalizedMessage,
       sentAt: Date()
     )
     snapshot.communications.insert(communication, at: 0)
-    recordActivity(kind: .bill, title: "Comunicação simulada", detail: subject)
+    if let saveScope {
+      saveCommunicationTemplate(
+        scope: saveScope,
+        billing: billing,
+        commType: commType,
+        subject: normalizedSubject,
+        body: normalizedMessage
+      )
+    }
+    recordActivity(kind: .bill, title: "Comunicação simulada", detail: normalizedSubject)
     return selected.count
   }
 
@@ -523,7 +602,21 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func downloadRecibo(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }
   public func downloadReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws -> DownloadedFile { throw DemoError.operationFailed }
   public func downloadAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws -> DownloadedFile { throw DemoError.operationFailed }
-  public func requestExport(billingID: BillingID, format: String) async throws { try await prepareOperation() }
+  public func requestExport(billingID: BillingID, format: String) async throws {
+    try await prepareOperation()
+    try requireWriteAccess()
+    guard snapshot.billings.contains(where: { $0.id == billingID }) else {
+      throw DemoError.resourceNotFound
+    }
+    guard BillingExportContract.formats.contains(format) else {
+      throw DemoError(message: "Escolha CSV ou XLSX.")
+    }
+    recordActivity(
+      kind: .billing,
+      title: "Exportação solicitada",
+      detail: format.uppercased()
+    )
+  }
 
   public func dashboardSummary() async throws -> DashboardSummary {
     try await prepareOperation()
@@ -678,23 +771,27 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     try await prepareOperation()
     try requireWriteAccess()
     try requireOrganizationCapability(id: organizationID, \.canInvite)
-    guard let index = organizationIndex(organizationID), email.contains("@") else {
+    guard let index = organizationIndex(organizationID), OrganizationInviteEmail.isValid(email)
+    else {
       throw DemoError.operationFailed
     }
+    let normalizedEmail = OrganizationInviteEmail.normalized(email)
     let invitation = Invitation(
       id: InvitationID(rawValue: UUID().uuidString),
       organizationID: organizationID,
       organizationName: snapshot.organizations[index].name,
-      email: email,
+      email: normalizedEmail,
       role: role,
       status: .pending
     )
     snapshot.invitations.insert(invitation, at: 0)
-    recordActivity(kind: .invitation, title: "Convite criado", detail: email)
+    recordActivity(kind: .invitation, title: "Convite criado", detail: normalizedEmail)
     return invitation
   }
 
-  public func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws {
+  public func setOrganizationMFA(
+    organizationID: OrganizationID, required: Bool
+  ) async throws -> OrganizationMFAPolicy {
     try await prepareOperation()
     try requireWriteAccess()
     try requireOrganizationCapability(id: organizationID, \.canManage)
@@ -702,10 +799,18 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       throw DemoError.resourceNotFound
     }
     snapshot.organizations[index].requiresMFA = required
+    snapshot.security.organizationEnforced = snapshot.organizations.contains { $0.requiresMFA }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security,
       title: required ? "MFA obrigatório" : "MFA opcional",
       detail: snapshot.organizations[index].name
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA: required,
+      mfaSetupRequired: snapshot.security.setupRequired
     )
   }
 
@@ -726,6 +831,12 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       id: organization.id,
       name: organization.name
     )
+    for commType in CommunicationType.allCases
+    where billingTemplateOverrides[billingID]?.contains(commType) != true {
+      let template = ownerCommunicationTemplates[CommunicationOwnerKey(snapshot.billings[billingIndex].owner)]?[commType]
+        ?? MockFixtures.defaultCommunicationTemplates.first { $0.commType == commType }
+      if let template { snapshot.billings[billingIndex].replaceCommunicationTemplate(template) }
+    }
     recordActivity(
       kind: .billing,
       title: "Cobrança transferida",
@@ -739,8 +850,16 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return snapshot.invitations.filter { $0.status == .pending }
   }
 
-  public func acceptInvitation(id: InvitationID) async throws {
+  @discardableResult
+  public func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance {
     try await respondToInvitation(id: id, status: .accepted)
+    guard let invitation = snapshot.invitations.first(where: { $0.id == id }) else {
+      throw DemoError.resourceNotFound
+    }
+    return InvitationAcceptance(
+      organizationID: invitation.organizationID,
+      mfaSetupRequired: snapshot.security.setupRequired
+    )
   }
 
   public func declineInvitation(id: InvitationID) async throws {
@@ -755,7 +874,16 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   private func setTOTPEnabled(_ enabled: Bool) async throws {
     try await prepareOperation()
     try requireWriteAccess()
+    if !enabled && snapshot.security.organizationEnforced
+      && snapshot.security.passkeys.isEmpty
+    {
+      throw DemoError.permissionDenied
+    }
     snapshot.security.totpEnabled = enabled
+    if !enabled { snapshot.security.recoveryCodeCount = 0 }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !enabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security,
       title: enabled ? "TOTP ativado" : "TOTP desativado",
@@ -790,6 +918,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func regenerateRecoveryCodes() async throws -> [String] {
     try await prepareOperation()
     try requireWriteAccess()
+    guard snapshot.security.totpEnabled else { throw DemoError.operationFailed }
     let codes = [
       "RNTV-7K2P", "RNTV-4M9Q", "RNTV-8X3L", "RNTV-2N6C",
       "RNTV-5B1W", "RNTV-9J4R", "RNTV-3F8T", "RNTV-6D2H",
@@ -805,15 +934,41 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     guard snapshot.security.passkeys.contains(where: { $0.id == id }) else {
       throw DemoError.resourceNotFound
     }
+    if snapshot.security.organizationEnforced && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.count == 1
+    {
+      throw DemoError.permissionDenied
+    }
     snapshot.security.passkeys.removeAll { $0.id == id }
+    snapshot.security.setupRequired = snapshot.security.organizationEnforced
+      && !snapshot.security.totpEnabled
+      && snapshot.security.passkeys.isEmpty
     recordActivity(
       kind: .security, title: "Chave de acesso removida", detail: snapshot.profile.email)
+  }
+
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    try await prepareOperation()
+    return APIKeyOptions(
+      scopes: APIKeyScope.integrationCases,
+      personalWorkspace: APIKeyWorkspaceOption(
+        resourceType: .user, resourceID: .personal, name: "Conta pessoal"),
+      organizations: snapshot.organizations.map { organization in
+        APIKeyWorkspaceOption(
+          resourceType: .organization,
+          resourceID: WorkspaceID(rawValue: organization.id.rawValue),
+          name: organization.name
+        )
+      },
+      defaultExpirationDays: 90,
+      maxExpirationDays: 365
+    )
   }
 
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     try await prepareOperation()
     guard !emptyMode else { return [] }
-    return snapshot.apiKeys.filter { $0.revokedAt == nil }
+    return snapshot.apiKeys
   }
 
   public func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret {
@@ -835,12 +990,14 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return CreatedAPIKeySecret(metadata: metadata, secret: "rntv-v1-demo-8K2P-N4M7-X9Q3")
   }
 
-  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+  public func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata {
     try await prepareOperation()
     try requireWriteAccess()
     guard !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       !draft.scopes.isEmpty,
-      !draft.grants.isEmpty
+      (!updateGrants || !draft.grants.isEmpty)
     else {
       throw DemoError.operationFailed
     }
@@ -850,8 +1007,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
     snapshot.apiKeys[index].name = draft.name
     snapshot.apiKeys[index].scopes = draft.scopes
-    snapshot.apiKeys[index].grants = draft.grants
-    snapshot.apiKeys[index].expiresAt = draft.expiresAt
+    if updateGrants { snapshot.apiKeys[index].grants = draft.grants }
     recordActivity(
       kind: .apiKey, title: "Chave de API atualizada", detail: snapshot.apiKeys[index].name
     )
@@ -861,7 +1017,7 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
   public func revokeAPIKey(id: APIKeyID) async throws {
     try await prepareOperation()
     try requireWriteAccess()
-    guard let index = snapshot.apiKeys.firstIndex(where: { $0.id == id }) else {
+    guard let index = snapshot.apiKeys.firstIndex(where: { $0.id == id && $0.revokedAt == nil }) else {
       throw DemoError.resourceNotFound
     }
     snapshot.apiKeys[index].revokedAt = Date()
@@ -956,6 +1112,29 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return restricted
   }
 
+  private func restrictIfNeeded(_ bill: Bill) -> Bill {
+    guard viewerMode else { return bill }
+    var restricted = bill
+    restricted.capabilities.canEdit = false
+    restricted.capabilities.canDelete = false
+    restricted.capabilities.canTransition = false
+    restricted.capabilities.canRegenerate = false
+    restricted.capabilities.canUploadReceipts = false
+    restricted.capabilities.canDeleteReceipts = false
+    restricted.capabilities.canReorderReceipts = false
+    restricted.capabilities.canCompose = false
+    restricted.capabilities.canSendInvoice = false
+    restricted.capabilities.canSendRecibo = false
+    restricted.communications = restricted.communications.map {
+      BillCommunication(
+        id: $0.id, commType: $0.commType, status: $0.status,
+        createdAt: $0.createdAt, sentAt: $0.sentAt,
+        recipientName: nil, recipientEmail: nil, subject: nil
+      )
+    }
+    return restricted
+  }
+
   private func total(for bills: [Bill]) -> Money {
     bills.map(\.total).reduce(.zero, +)
   }
@@ -966,6 +1145,32 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
 
   private func organizationIndex(_ id: OrganizationID) -> Int? {
     snapshot.organizations.firstIndex { $0.id == id }
+  }
+
+  private func saveCommunicationTemplate(
+    scope: CommunicationSaveScope,
+    billing: Billing,
+    commType: CommunicationType,
+    subject: String,
+    body: String
+  ) {
+    let template = CommunicationTemplate(commType: commType, subject: subject, body: body)
+    switch scope {
+    case .billing:
+      billingTemplateOverrides[billing.id, default: []].insert(commType)
+      if let index = snapshot.billings.firstIndex(where: { $0.id == billing.id }) {
+        snapshot.billings[index].replaceCommunicationTemplate(template)
+      }
+    case .owner:
+      let ownerKey = CommunicationOwnerKey(billing.owner)
+      ownerCommunicationTemplates[ownerKey, default: [:]][commType] = template
+      for index in snapshot.billings.indices
+      where CommunicationOwnerKey(snapshot.billings[index].owner) == ownerKey
+        && billingTemplateOverrides[snapshot.billings[index].id]?.contains(commType) != true
+      {
+        snapshot.billings[index].replaceCommunicationTemplate(template)
+      }
+    }
   }
 
   private func recordActivity(kind: ActivityKind, title: String, detail: String) {
@@ -995,11 +1200,17 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
       let membership = OrganizationMember(
         userID: snapshot.profile.id,
         email: snapshot.profile.email,
-        role: invitation.role
+        role: invitation.role,
+        isCurrentUser: true
       )
       snapshot.organizations[organizationIndex].members.append(membership)
       snapshot.organizations[organizationIndex].currentUserRole = invitation.role
       snapshot.organizations[organizationIndex].capabilities = .forRole(invitation.role)
+      snapshot.security.organizationEnforced = snapshot.organizations.contains {
+        $0.requiresMFA && $0.members.contains(where: { $0.userID == snapshot.profile.id })
+      }
+      snapshot.security.setupRequired = snapshot.security.organizationEnforced
+        && !snapshot.security.totpEnabled && snapshot.security.passkeys.isEmpty
     }
     recordActivity(
       kind: .invitation,

@@ -10,7 +10,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
@@ -73,14 +72,15 @@ class RemoteRequestEncodingTest {
   }
 
   @Test
-  fun `an organization update without pix omits the pix fields rather than nulling them`() {
-    // Omitting means "leave unchanged"; writing explicit nulls would clear the stored PIX.
+  fun `an organization update without pix clears all three flattened fields`() {
     val encoded = apiJson.encodeToString(
       RemoteOrganizationUpdate.from(OrganizationDraft(name = "Horizonte", pix = null))
     )
 
-    assertEquals("""{"name":"Horizonte"}""", encoded)
-    assertFalse(encoded.contains("pix_key"))
+    assertEquals(
+      """{"name":"Horizonte","pix_key":"","pix_merchant_name":"","pix_merchant_city":""}""",
+      encoded,
+    )
   }
 
   @Test

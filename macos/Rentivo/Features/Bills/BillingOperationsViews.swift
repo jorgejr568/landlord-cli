@@ -215,7 +215,7 @@ private struct ExpenseFormView: View {
       }
       ToolbarItem(placement: .confirmationAction) {
         Button("Salvar") { Task { await save() } }
-          .disabled(saving || description.isEmpty || centavos <= 0)
+          .disabled(saving || !ExpenseInput.isValidDescription(description) || centavos <= 0)
       }
     }
     .interactiveDismissDisabled(saving)
@@ -229,7 +229,7 @@ private struct ExpenseFormView: View {
     do {
       _ = try await app.dependencies.expenses.createExpense(
         billingID: billingID,
-        description: description,
+        description: ExpenseInput.normalizedDescription(description),
         category: category,
         incurredOn: selectedDate,
         amount: Money(centavos: centavos)
@@ -410,9 +410,8 @@ struct AttachmentListView: View {
     isUploading = true
     defer { isUploading = false }
     do {
-      // Unlike a receipt, an attachment is stored as uploaded — no format clamping and no size
-      // rule of its own — so this only needs the security-scoped read the sandbox requires for a
-      // chosen or dropped file, which `rawUpload` performs off the main actor.
+      // Unlike a receipt, an attachment is stored as uploaded rather than re-encoded. The shared
+      // repository preflight still enforces the API's PDF/JPEG/PNG and 10 MB contract.
       let upload = try await ReceiptIntake.rawUpload(from: fileURL)
       _ = try await app.dependencies.attachments.addAttachment(
         billingID: billingID,
@@ -446,7 +445,7 @@ struct AttachmentListView: View {
 struct ExportSimulationView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
-  @State private var format = "CSV"
+  @State private var format = BillingExportContract.formats[0]
   /// An export is a queued server job with no visible result on this screen, so without this the
   /// only feedback for a slow request is the absence of one — and an impatient second click
   /// enqueues a second export.
@@ -455,14 +454,15 @@ struct ExportSimulationView: View {
   var body: some View {
     Form {
       Picker("Formato", selection: $format) {
-        Text("CSV").tag("CSV")
-        Text("XLSX").tag("XLSX")
+        ForEach(BillingExportContract.formats, id: \.self) { format in
+          Text(format.uppercased()).tag(format)
+        }
       }
       .pickerStyle(.segmented)
       RentivoSection("Conteúdo") {
-        Label("Faturas", systemImage: "doc.text")
-        Label("Despesas", systemImage: "wrench.and.screwdriver")
-        Label("Resumo financeiro", systemImage: "chart.bar")
+        ForEach(BillingExportContract.includedSections, id: \.self) { section in
+          Label(section, systemImage: "doc.text")
+        }
       }
       Button {
         Task { await requestExport() }
@@ -488,8 +488,8 @@ struct ExportSimulationView: View {
     isRequesting = true
     defer { isRequesting = false }
     do {
-      try await app.dependencies.exports.requestExport(billingID: billingID, format: format.lowercased())
-      app.showNotice("Exportação \(format) enfileirada.")
+      try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
+      app.showNotice("Exportação \(format.uppercased()) enfileirada.")
     } catch { app.reportFailure(error) }
   }
 }

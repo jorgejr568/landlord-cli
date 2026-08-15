@@ -7,6 +7,44 @@ import Testing
   @testable import Rentivo
 #endif
 
+@Test func billTransitionEncodingCarriesTheOptimisticConcurrencyGuard() throws {
+  let data = try JSONEncoder().encode(
+    RemoteBillTransition(currentStatus: BillStatus.sent.rawValue, target: BillStatus.paid.rawValue)
+  )
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+  #expect(json == ["current_status": "sent", "target": "paid"])
+}
+
+@Test func organizationCreateEncodingCarriesPixInTheAtomicRequest() throws {
+  let draft = OrganizationDraft(
+    name: "Nova Org",
+    pix: PixConfiguration(key: "chave-pix", merchantName: "Nova Org", merchantCity: "Sao Paulo")
+  )
+  let data = try JSONEncoder().encode(RemoteOrganizationCreate(draft: draft))
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+  #expect(json == [
+    "name": "Nova Org",
+    "pix_key": "chave-pix",
+    "pix_merchant_name": "Nova Org",
+    "pix_merchant_city": "Sao Paulo",
+  ])
+}
+
+@Test func organizationUpdateEncodingClearsPixWithEmptyStrings() throws {
+  let data = try JSONEncoder().encode(
+    RemoteOrganizationUpdate(draft: OrganizationDraft(name: "Nova Org", pix: nil))
+  )
+  let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+  #expect(json == [
+    "name": "Nova Org",
+    "pix_key": "",
+    "pix_merchant_name": "",
+    "pix_merchant_city": "",
+  ])
+}
+
 @MainActor
 @Test func liveCreateBillEncodesVariableAmountsForMatchingULIDsAndOmitsClientMintedIDs() async throws {
   // Regression test: createBill used to send only `extras`, silently dropping user-edited
@@ -83,6 +121,29 @@ import Testing
   #expect(json["save_scope"] as? String == "billing")
 }
 
+@MainActor
+@Test func liveAPIKeyUpdateOmitsUnchangedGrants() async throws {
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [CapturingAPIKeyUpdateURLProtocol.self]
+  CapturingAPIKeyUpdateURLProtocol.capturedBody = nil
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  let store = APIRentivoStore(client: client)
+  _ = try #require(try await store.restoreSession())
+
+  _ = try await store.updateAPIKey(
+    id: APIKeyID(rawValue: "key-1"),
+    draft: .demo,
+    updateGrants: false
+  )
+
+  let body = try #require(CapturingAPIKeyUpdateURLProtocol.capturedBody)
+  let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+  #expect(json["name"] as? String == "Painel financeiro")
+  #expect(json["grants"] == nil)
+  #expect(json["expires_at"] == nil)
+}
+
 // Dedicated to the createBill encoding test only, so its mutable capture state can't race with
 // other tests.
 private final class CapturingBillCreateURLProtocol: URLProtocol, @unchecked Sendable {
@@ -129,6 +190,35 @@ private final class CapturingBillCreateURLProtocol: URLProtocol, @unchecked Send
     }
     return data
   }
+}
+
+private final class CapturingAPIKeyUpdateURLProtocol: URLProtocol, @unchecked Sendable {
+  nonisolated(unsafe) static var capturedBody: Data?
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let body: String
+    switch (request.httpMethod, request.url?.path) {
+    case ("GET", "/api/v1/auth/session"):
+      body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+    case ("PATCH", "/api/v1/api-keys/key-1"):
+      Self.capturedBody = CapturingBillCreateURLProtocol.requestBody(from: request)
+      body = #"{"uuid":"key-1","name":"Painel financeiro","hint":"rntv-v1-ab••cd","scopes":["billings:read","profile:read"],"grants":[{"resource_type":"organization","resource_id":null,"available":false}],"expires_at":"2026-12-31T23:59:59+00:00","last_used_at":null,"created_at":"2026-01-01T00:00:00+00:00","revoked_at":null}"#
+    default:
+      body = #"{"detail":"Endpoint inesperado"}"#
+    }
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
 }
 
 // Dedicated to the sendCommunication encoding test only, so its mutable capture state can't race

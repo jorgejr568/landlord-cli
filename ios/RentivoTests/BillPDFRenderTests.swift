@@ -83,6 +83,7 @@ private func renderBill(
 
   #expect(capabilities.canDownloadInvoice)
   #expect(capabilities.canDownloadRecibo)
+  #expect(capabilities.canOpenRecibo)
   #expect(capabilities.canSendInvoice)
   #expect(capabilities.canSendRecibo)
   #expect(capabilities.canRegenerate)

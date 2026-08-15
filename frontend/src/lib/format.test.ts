@@ -31,7 +31,7 @@ describe("BRL formatting", () => {
     expect(parseBrl(value)).toBe(expected);
   });
 
-  it.each(["", "   ", "abc", "-2850,00", "1,2,3", "90071992547410.00"])("rejects invalid value %j", (value) => {
+  it.each(["", "   ", "abc", "-2850,00", "1,2,3", "21.474.836,48", "90071992547410.00"])("rejects invalid value %j", (value) => {
     expect(parseBrl(value)).toBeNull();
   });
 });

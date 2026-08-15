@@ -88,24 +88,39 @@ data class RemoteOrganizationMember(
   @SerialName("user_id") val userID: Int,
   val email: String,
   val role: String,
+  @SerialName("is_current_user") val isCurrentUser: Boolean? = null,
 )
 
 @Serializable
-data class RemoteOrganizationCreate(val name: String)
+data class RemoteOrganizationCreate(
+  val name: String,
+  @SerialName("pix_key") val pixKey: String,
+  @SerialName("pix_merchant_name") val pixMerchantName: String,
+  @SerialName("pix_merchant_city") val pixMerchantCity: String,
+) {
+  companion object {
+    fun from(draft: OrganizationDraft): RemoteOrganizationCreate = RemoteOrganizationCreate(
+      name = draft.name,
+      pixKey = draft.pix?.key.orEmpty(),
+      pixMerchantName = draft.pix?.merchantName.orEmpty(),
+      pixMerchantCity = draft.pix?.merchantCity.orEmpty(),
+    )
+  }
+}
 
 @Serializable
 data class RemoteOrganizationUpdate(
-  val name: String?,
-  @SerialName("pix_key") val pixKey: String?,
-  @SerialName("pix_merchant_name") val pixMerchantName: String?,
-  @SerialName("pix_merchant_city") val pixMerchantCity: String?,
+  val name: String,
+  @SerialName("pix_key") val pixKey: String,
+  @SerialName("pix_merchant_name") val pixMerchantName: String,
+  @SerialName("pix_merchant_city") val pixMerchantCity: String,
 ) {
   companion object {
     fun from(draft: OrganizationDraft): RemoteOrganizationUpdate = RemoteOrganizationUpdate(
       name = draft.name,
-      pixKey = draft.pix?.key,
-      pixMerchantName = draft.pix?.merchantName,
-      pixMerchantCity = draft.pix?.merchantCity,
+      pixKey = draft.pix?.key.orEmpty(),
+      pixMerchantName = draft.pix?.merchantName.orEmpty(),
+      pixMerchantCity = draft.pix?.merchantCity.orEmpty(),
     )
   }
 }
@@ -118,6 +133,12 @@ data class RemoteInviteCreate(val email: String, val role: String)
 
 @Serializable
 data class RemoteMFAPolicy(@SerialName("enforce_mfa") val enforceMFA: Boolean)
+
+@Serializable
+data class RemoteMFAPolicyResponse(
+  @SerialName("enforce_mfa") val enforceMFA: Boolean,
+  @SerialName("mfa_setup_required") val mfaSetupRequired: Boolean,
+)
 
 @Serializable
 data class RemoteBillingTransfer(@SerialName("organization_uuid") val organizationID: String)
@@ -139,13 +160,28 @@ data class RemotePendingInvitation(
   @SerialName("organization_uuid") val organizationUUID: String,
   @SerialName("organization_name") val organizationName: String,
   val role: String,
+  @SerialName("invited_by_email") val invitedByEmail: String,
+  @SerialName("enforce_mfa") val enforceMFA: Boolean,
+)
+
+@Serializable
+data class RemoteInvitationAcceptance(
+  @SerialName("organization_uuid") val organizationUUID: String,
+  @SerialName("mfa_setup_required") val mfaSetupRequired: Boolean,
 )
 
 @Serializable
 data class RemoteSecuritySummary(
   val profile: RemoteProfile,
   val totp: RemoteTOTPStatus,
+  val mfa: RemoteMFAStatus,
   val passkeys: List<RemotePasskey>,
+)
+
+@Serializable
+data class RemoteMFAStatus(
+  @SerialName("setup_required") val setupRequired: Boolean,
+  @SerialName("organization_enforced") val organizationEnforced: Boolean,
 )
 
 @Serializable
@@ -242,6 +278,7 @@ data class RemoteReceipt(
   @SerialName("content_type") val contentType: String,
   @SerialName("file_size") val fileSize: Int,
   @SerialName("sort_order") val sortOrder: Int,
+  @SerialName("created_at") val createdAt: String? = null,
 )
 
 @Serializable
@@ -257,6 +294,28 @@ data class RemoteAttachment(
 
 @Serializable
 data class RemoteAPIKeyList(val items: List<RemoteAPIKey>)
+
+@Serializable
+data class RemoteAPIKeyOptions(
+  val scopes: List<String>,
+  @SerialName("personal_workspace") val personalWorkspace: RemoteAPIKeyPersonalWorkspace,
+  val organizations: List<RemoteAPIKeyOrganizationWorkspace>,
+  @SerialName("default_expiration_days") val defaultExpirationDays: Int,
+  @SerialName("max_expiration_days") val maxExpirationDays: Int,
+)
+
+@Serializable
+data class RemoteAPIKeyPersonalWorkspace(
+  @SerialName("resource_type") val resourceType: String,
+  @SerialName("resource_id") val resourceID: String,
+)
+
+@Serializable
+data class RemoteAPIKeyOrganizationWorkspace(
+  @SerialName("resource_type") val resourceType: String,
+  @SerialName("resource_id") val resourceID: String,
+  val name: String,
+)
 
 @Serializable
 data class RemoteAPIKey(
@@ -326,13 +385,13 @@ data class RemoteAPIKeyCreate(
 data class RemoteAPIKeyUpdate(
   val name: String,
   val scopes: List<String>,
-  val grants: List<RemoteAPIKeyGrantInput>,
+  val grants: List<RemoteAPIKeyGrantInput>? = null,
 ) {
   companion object {
-    fun from(draft: APIKeyDraft): RemoteAPIKeyUpdate = RemoteAPIKeyUpdate(
+    fun from(draft: APIKeyDraft, updateGrants: Boolean): RemoteAPIKeyUpdate = RemoteAPIKeyUpdate(
       name = draft.name,
       scopes = draft.scopes.map { it.wire }.sorted(),
-      grants = draft.grants.map { RemoteAPIKeyGrantInput.from(it) },
+      grants = if (updateGrants) draft.grants.map { RemoteAPIKeyGrantInput.from(it) } else null,
     )
   }
 }
@@ -436,7 +495,7 @@ data class RemoteBillingDraft(
       pixMerchantName = draft.pixOverride?.merchantName.orEmpty(),
       pixMerchantCity = draft.pixOverride?.merchantCity.orEmpty(),
       recipients = draft.recipients.map { RemoteContactInput.from(it) },
-      replyTo = replyToContacts(draft.replyTo),
+      replyTo = draft.replyTo.map { RemoteContactInput.from(it) },
     )
   }
 }
@@ -461,15 +520,10 @@ data class RemoteBillingUpdate(
       pixMerchantCity = draft.pixOverride?.merchantCity.orEmpty(),
       items = draft.items.map { RemoteBillingItemInput.from(it) },
       recipients = draft.recipients.map { RemoteContactInput.from(it) },
-      replyTo = replyToContacts(draft.replyTo),
+      replyTo = draft.replyTo.map { RemoteContactInput.from(it) },
     )
   }
 }
-
-// The contract has no scalar reply-to field: the single address travels as a one-element contact
-// list whose name the server displays, so it is fixed to the PT-BR label the web app uses.
-private fun replyToContacts(replyTo: String?): List<RemoteContactInput> =
-  replyTo?.let { listOf(RemoteContactInput(name = "Resposta", email = it)) } ?: emptyList()
 
 @Serializable
 data class RemoteOwnerInput(val type: String, val uuid: String?)
@@ -487,7 +541,7 @@ internal fun isULID(value: String): Boolean =
 data class RemoteBillingItemInput(
   val uuid: String?,
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 ) {
   companion object {
@@ -506,7 +560,7 @@ data class RemoteBillCreateDraft(
   val dueDate: String?,
   val notes: String,
   val extras: List<RemoteBillExtra>,
-  val variableAmounts: Map<String, Int>,
+  val variableAmounts: Map<String, Long>,
 ) {
   companion object {
     fun from(draft: BillDraft): RemoteBillCreateDraft = RemoteBillCreateDraft(
@@ -565,7 +619,7 @@ internal object RemoteBillCreateDraftSerializer : KSerializer<RemoteBillCreateDr
 }
 
 @Serializable
-data class RemoteBillExtra(val description: String, val amount: Int) {
+data class RemoteBillExtra(val description: String, val amount: Long) {
   companion object {
     fun from(item: BillLineItem): RemoteBillExtra =
       RemoteBillExtra(description = item.description, amount = item.amount.centavos)
@@ -624,7 +678,7 @@ internal object RemoteBillUpdateDraftSerializer : KSerializer<RemoteBillUpdateDr
 @Serializable
 data class RemoteBillLineItemInput(
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 ) {
   companion object {
@@ -637,14 +691,17 @@ data class RemoteBillLineItemInput(
 }
 
 @Serializable
-data class RemoteBillTransition(val target: String)
+data class RemoteBillTransition(
+  val target: String,
+  @SerialName("current_status") val currentStatus: String,
+)
 
 @Serializable
 data class RemoteExpenseCreate(
   val description: String,
   val category: String,
   @SerialName("incurred_on") val incurredOn: String,
-  val amount: Int,
+  val amount: Long,
 )
 
 @Serializable
@@ -655,11 +712,11 @@ data class RemoteBillingList(
 
 @Serializable
 data class RemoteBillingStats(
-  val received: Int,
-  val pending: Int,
-  val overdue: Int,
-  @SerialName("total_expenses") val totalExpenses: Int,
-  @SerialName("net_income") val netIncome: Int,
+  val received: Long,
+  val pending: Long,
+  val overdue: Long,
+  @SerialName("total_expenses") val totalExpenses: Long,
+  @SerialName("net_income") val netIncome: Long,
   @SerialName("paid_count") val paidCount: Int,
   @SerialName("billed_count") val billedCount: Int,
 )
@@ -709,6 +766,7 @@ data class RemoteBilling(
   @SerialName("pix_key") val pixKey: String,
   @SerialName("pix_merchant_name") val pixMerchantName: String,
   @SerialName("pix_merchant_city") val pixMerchantCity: String,
+  @SerialName("pix_needs_setup") val pixNeedsSetup: Boolean? = null,
   val recipients: List<RemoteBillingContact>,
   @SerialName("reply_to") val replyTo: List<RemoteBillingContact>,
   // Optional so a payload without the field keeps decoding; the live billing detail contract
@@ -761,7 +819,7 @@ data class RemoteOwner(
 data class RemoteBillingItem(
   val uuid: String,
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 )
 
@@ -776,9 +834,11 @@ data class RemoteBill(
   val status: String,
   @SerialName("due_date") val dueDate: String? = null,
   @SerialName("status_updated_at") val statusUpdatedAt: String? = null,
+  @SerialName("created_at") val createdAt: String? = null,
   @SerialName("line_items") val lineItems: List<RemoteBillLine>,
   val receipts: List<RemoteReceipt>? = null,
-  @SerialName("total_amount") val totalAmount: Int,
+  val communications: List<RemoteBillCommunication>? = null,
+  @SerialName("total_amount") val totalAmount: Long,
   @SerialName("available_transitions") val availableTransitions: List<RemoteAvailableTransition>,
   @SerialName("pdf_render_status") val pdfRenderStatus: String? = null,
   @SerialName("has_invoice") val hasInvoice: Boolean? = null,
@@ -786,8 +846,18 @@ data class RemoteBill(
   val capabilities: RemoteBillCapabilities? = null,
 )
 
-// `BillCapabilitiesResponse` carries the full per-bill permission set, but only the flags that gate
-// a button in the app are decoded; the rest follow the billing-level capabilities today.
+@Serializable
+data class RemoteBillCommunication(
+  val uuid: String,
+  @SerialName("comm_type") val commType: String,
+  val status: String,
+  @SerialName("created_at") val createdAt: String? = null,
+  @SerialName("sent_at") val sentAt: String? = null,
+  @SerialName("recipient_name") val recipientName: String? = null,
+  @SerialName("recipient_email") val recipientEmail: String? = null,
+  val subject: String? = null,
+)
+
 @Serializable
 data class RemoteBillCapabilities(
   @SerialName("can_download_invoice") val canDownloadInvoice: Boolean,
@@ -795,17 +865,28 @@ data class RemoteBillCapabilities(
   @SerialName("can_send_invoice") val canSendInvoice: Boolean,
   @SerialName("can_send_recibo") val canSendRecibo: Boolean,
   @SerialName("can_regenerate") val canRegenerate: Boolean,
+  @SerialName("can_edit") val canEdit: Boolean,
+  @SerialName("can_delete") val canDelete: Boolean,
+  @SerialName("can_transition") val canTransition: Boolean,
+  @SerialName("can_upload_receipts") val canUploadReceipts: Boolean,
+  @SerialName("can_delete_receipts") val canDeleteReceipts: Boolean,
+  @SerialName("can_reorder_receipts") val canReorderReceipts: Boolean,
+  @SerialName("can_compose") val canCompose: Boolean,
+  @SerialName("can_open_recibo") val canOpenRecibo: Boolean? = null,
 )
 
-// `AvailableTransitionResponse` on the server also carries `label`/`style`/`requires_confirmation`,
-// but the domain only models the allowed target statuses today, so only `target` is decoded.
 @Serializable
-data class RemoteAvailableTransition(val target: String)
+data class RemoteAvailableTransition(
+  val target: String,
+  val label: String,
+  val style: String,
+  @SerialName("requires_confirmation") val requiresConfirmation: Boolean,
+)
 
 @Serializable
 data class RemoteBillLine(
   val description: String,
-  val amount: Int,
+  val amount: Long,
   @SerialName("item_type") val itemType: String,
 )
 
@@ -818,7 +899,7 @@ data class RemoteExpense(
   val description: String,
   val category: String,
   @SerialName("incurred_on") val incurredOn: String,
-  val amount: Int,
+  val amount: Long,
 )
 
 @Serializable

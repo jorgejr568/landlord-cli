@@ -41,6 +41,19 @@ struct OrganizationFormValidationTests {
         key: "chave", merchantName: "ANA", city: String(repeating: "B", count: 16)
       ) == "A cidade do recebedor deve ter até 15 caracteres."
     )
+    let combiningCharacter = "e\u{301}"
+    #expect(
+      OrganizationFormValidation.pixMessage(
+        key: "chave", merchantName: String(repeating: "😀", count: 25),
+        city: String(repeating: "😀", count: 15)
+      ) == nil
+    )
+    #expect(
+      OrganizationFormValidation.pixMessage(
+        key: "chave", merchantName: String(repeating: combiningCharacter, count: 13),
+        city: "SALVADOR"
+      ) == "O nome do recebedor deve ter até 25 caracteres."
+    )
   }
 }
 
@@ -78,14 +91,16 @@ struct OrganizationBillingIndexTests {
     #expect((index[empty] ?? []).count == 0)
   }
 
-  @Test("only cobranças outside every organization are offered for transfer")
-  func personalBillingsExcludeOrganizationOwned() {
+  @Test("only capability-authorized personal cobranças are offered for transfer")
+  func personalBillingsRequireTransferCapability() {
     let owned = billing(
       "b1", owner: .organization(id: OrganizationID(rawValue: "org-horizonte"), name: "Horizonte")
     )
     let personal = billing("b2", owner: .user(id: 7, name: "Pessoal"))
+    var denied = billing("b3", owner: .user(id: 7, name: "Pessoal"))
+    denied.capabilities = .viewer
 
-    #expect(OrganizationBillingIndex.personal([owned, personal]) == [personal])
+    #expect(OrganizationBillingIndex.personal([owned, denied, personal]) == [personal])
   }
 
   @Test("grouping agrees with the per-organization filter it replaced")
@@ -112,12 +127,10 @@ struct OrganizationBillingIndexTests {
 
 @Suite("macOS organization member actions")
 struct OrganizationMemberActionsTests {
-  @Test("the role menu never offers admin, and never re-offers the member's current role")
-  func assignableRolesExcludeAdminAndTheCurrentRole() {
-    // Admin is excluded because an admin member renders a crown instead of a menu: promoting
-    // someone to admin would strip the only UI path back out of that role.
-    #expect(OrganizationMemberActions.assignableRoles(excluding: .viewer) == [.manager])
-    #expect(OrganizationMemberActions.assignableRoles(excluding: .manager) == [.viewer])
+  @Test("the role menu offers every backend role except the member's current role")
+  func assignableRolesExcludeOnlyTheCurrentRole() {
+    #expect(OrganizationMemberActions.assignableRoles(excluding: .viewer) == [.admin, .manager])
+    #expect(OrganizationMemberActions.assignableRoles(excluding: .manager) == [.admin, .viewer])
     #expect(OrganizationMemberActions.assignableRoles(excluding: .admin) == [.manager, .viewer])
   }
 }
@@ -166,7 +179,7 @@ struct OrganizationCapabilityGatingTests {
       )
     }
     await #expect(throws: DemoError.permissionDenied) {
-      try await app.dependencies.organizations.setOrganizationMFA(
+      _ = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID, required: false
       )
     }
@@ -212,7 +225,7 @@ struct OrganizationCapabilityGatingTests {
     )
     #expect(organization.requiresMFA)
 
-    try await app.dependencies.organizations.setOrganizationMFA(
+    _ = try await app.dependencies.organizations.setOrganizationMFA(
       organizationID: organization.id, required: false
     )
 

@@ -64,6 +64,9 @@ class DemoError(override val message: String) : Exception(message), LocalizedErr
     val invalidBillTransition = DemoError(
       message = "Esta mudança de status não é permitida."
     )
+    val staleBillStatus = DemoError(
+      message = "O status da fatura foi alterado. Atualize a página e tente novamente."
+    )
     val resourceNotFound = DemoError(
       message = "O item solicitado não foi encontrado."
     )
@@ -72,6 +75,9 @@ class DemoError(override val message: String) : Exception(message), LocalizedErr
     )
     val invalidAmount = DemoError(
       message = "O valor informado deve ser maior que zero."
+    )
+    val invalidDescription = DemoError(
+      message = "Informe uma descrição com no máximo 2000 caracteres."
     )
   }
 }
@@ -214,6 +220,15 @@ data class ProfilePIXForm(
 ) {
   val configuration: PixConfiguration
     get() = PixConfiguration(key = key, merchantName = merchantName, merchantCity = merchantCity)
+
+  val isSavable: Boolean
+    get() {
+      val normalizedName = merchantName.trim()
+      val normalizedCity = merchantCity.trim()
+      return (configuration.isEmpty || configuration.isComplete) &&
+        normalizedName.codePointCount(0, normalizedName.length) <= 25 &&
+        normalizedCity.codePointCount(0, normalizedCity.length) <= 15
+    }
 
   companion object {
     fun from(profile: UserProfile? = null): ProfilePIXForm = ProfilePIXForm(

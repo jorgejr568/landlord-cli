@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private class SampleLocalizedError(
@@ -172,6 +173,59 @@ class ModelsTest {
   }
 
   @Test
+  fun profilePixFormAllowsClearingOrSavingACompleteConfiguration() {
+    val form = ProfilePIXForm.from()
+    assertTrue(form.isSavable)
+
+    form.key = "ana@example.com"
+    assertFalse(form.isSavable)
+    form.merchantName = "ANA"
+    assertFalse(form.isSavable)
+    form.merchantCity = "RECIFE"
+    assertTrue(form.isSavable)
+
+    form.merchantName = "N".repeat(26)
+    assertFalse(form.isSavable)
+    form.merchantName = "ANA"
+    form.merchantCity = "C".repeat(16)
+    assertFalse(form.isSavable)
+  }
+
+  @Test
+  fun attachmentUploadRulesMirrorTheServerTypeAndSizeContract() {
+    val valid = FileUpload(
+      data = "pdf".toByteArray(),
+      filename = "contrato.pdf",
+      mediaType = "application/pdf",
+    )
+    assertEquals(valid, AttachmentUploadRules.validated(valid))
+    assertEquals(10 * 1024 * 1024, AttachmentUploadRules.maximumByteCount)
+
+    val unsupported = runCatching {
+      AttachmentUploadRules.validated(
+        FileUpload("texto".toByteArray(), "notas.txt", "text/plain")
+      )
+    }.exceptionOrNull()
+    assertEquals(DemoError("Envie um arquivo PDF, JPEG ou PNG."), unsupported)
+
+    val oversized = runCatching {
+      AttachmentUploadRules.validated(
+        FileUpload(
+          ByteArray(AttachmentUploadRules.maximumByteCount + 1),
+          "contrato.pdf",
+          "application/pdf",
+        )
+      )
+    }.exceptionOrNull()
+    assertEquals(DemoError("O arquivo excede o limite de 10 MB."), oversized)
+
+    val empty = runCatching {
+      AttachmentUploadRules.validated(FileUpload(ByteArray(0), "contrato.pdf", "application/pdf"))
+    }.exceptionOrNull()
+    assertEquals(DemoError("O arquivo selecionado está vazio."), empty)
+  }
+
+  @Test
   fun workspaceIdentifierForPersonalOwnershipIsTheLiteralPersonal() {
     assertEquals("personal", WorkspaceID.personal.rawValue)
     assertEquals(
@@ -185,5 +239,110 @@ class ModelsTest {
         name = "Horizonte",
       ).workspaceID,
     )
+  }
+
+  @Test
+  fun onlyOrganizationsAllowedByTheApiCanOwnANewBilling() {
+    val allowed = Organization(
+      id = StableID.organizationHorizonte,
+      name = "Horizonte",
+      pix = null,
+      members = emptyList(),
+      requiresMFA = false,
+      currentUserRole = OrganizationRole.VIEWER,
+      capabilities = OrganizationCapabilities(
+        canManage = false,
+        canInvite = false,
+        canCreateBilling = true,
+        canViewBillingStats = false,
+      ),
+    )
+    val denied = Organization(
+      id = OrganizationID("organization-denied"),
+      name = "Sem criação",
+      pix = null,
+      members = emptyList(),
+      requiresMFA = false,
+      currentUserRole = OrganizationRole.ADMIN,
+      capabilities = OrganizationCapabilities(
+        canManage = true,
+        canInvite = true,
+        canCreateBilling = false,
+        canViewBillingStats = true,
+      ),
+    )
+
+    assertEquals(
+      BillingOwner.Organization(id = StableID.organizationHorizonte, name = "Horizonte"),
+      allowed.billingOwnerForCreation,
+    )
+    assertNull(denied.billingOwnerForCreation)
+  }
+
+  @Test
+  fun billingExportContractMatchesTheBackendJobPayload() {
+    assertEquals(listOf("csv", "xlsx"), BillingExportContract.formats)
+    assertEquals(listOf("Faturas"), BillingExportContract.includedSections)
+  }
+
+  @Test
+  fun organizationNamesMirrorTheServerContract() {
+    assertFalse(OrganizationDraft(name = "   ", pix = null).isValid)
+    assertTrue(OrganizationDraft(name = "😀".repeat(255), pix = null).isValid)
+    assertFalse(OrganizationDraft(name = "😀".repeat(256), pix = null).isValid)
+    assertEquals(255, OrganizationDraft.nameLimit)
+  }
+
+  @Test
+  fun organizationPIXFieldsMirrorTheServerCharacterLimits() {
+    val combiningCharacter = "e\u0301"
+    assertNull(
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = "😀".repeat(25),
+        city = "😀".repeat(15),
+      ),
+    )
+    assertEquals(
+      "O nome do recebedor deve ter até 25 caracteres.",
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = combiningCharacter.repeat(13),
+        city = "RECIFE",
+      ),
+    )
+    assertEquals(
+      "A cidade do recebedor deve ter até 15 caracteres.",
+      OrganizationDraft.pixValidationMessage(
+        key = "pix",
+        merchantName = "ANA",
+        city = combiningCharacter.repeat(8),
+      ),
+    )
+    assertFalse(
+      OrganizationDraft(
+        name = "Imobiliária",
+        pix = PixConfiguration(
+          key = "pix",
+          merchantName = combiningCharacter.repeat(13),
+          merchantCity = "RECIFE",
+        ),
+      ).isValid,
+    )
+  }
+
+  @Test
+  fun organizationInviteEmailsMirrorTheServerContract() {
+    assertEquals("ana@example.com", OrganizationInviteEmail.normalized("  ANA@EXAMPLE.COM\n"))
+    assertTrue(OrganizationInviteEmail.isValid("a@b"))
+    assertTrue(OrganizationInviteEmail.isValid("😀".repeat(318) + "@a"))
+    assertFalse(OrganizationInviteEmail.isValid(""))
+    assertFalse(OrganizationInviteEmail.isValid("ana"))
+    assertFalse(OrganizationInviteEmail.isValid("a@@b"))
+    assertFalse(OrganizationInviteEmail.isValid("@example.com"))
+    assertFalse(OrganizationInviteEmail.isValid("ana@"))
+    assertFalse(OrganizationInviteEmail.isValid("ana @example.com"))
+    assertFalse(OrganizationInviteEmail.isValid("😀".repeat(319) + "@a"))
+    assertEquals(320, OrganizationInviteEmail.maximumLength)
   }
 }

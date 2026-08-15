@@ -12,7 +12,7 @@ enum class BillingItemType(val wire: String) {
 
   val showsTemplateAmount: Boolean get() = this == FIXED
 
-  fun normalizedTemplateAmount(centavos: Int): Int = if (this == VARIABLE) 0 else centavos
+  fun normalizedTemplateAmount(centavos: Long): Long = if (this == VARIABLE) 0L else centavos
 
   companion object {
     fun fromWire(wire: String?): BillingItemType? = entries.firstOrNull { it.wire == wire }
@@ -69,6 +69,11 @@ data class PixConfiguration(
     get() = key.trim().isNotEmpty() &&
       merchantName.trim().isNotEmpty() &&
       merchantCity.trim().isNotEmpty()
+
+  val isEmpty: Boolean
+    get() = key.trim().isEmpty() &&
+      merchantName.trim().isEmpty() &&
+      merchantCity.trim().isEmpty()
 }
 
 data class BillingRecipient(
@@ -78,12 +83,28 @@ data class BillingRecipient(
 )
 
 object EmailAddress {
-  // A pragmatic wire-boundary check (not full RFC 5322 validation): rejects obviously malformed
-  // addresses (missing "@", missing domain dot, embedded whitespace) before they ever reach the
-  // API, without blocking legitimate addresses on edge-case grammar the server itself accepts.
-  private val PATTERN = Regex("""^[^\s@]+@[^\s@]+\.[^\s@]+$""")
+  private val LOCAL_PATTERN = Regex("""[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+""")
+  private val DOMAIN_LABEL_PATTERN = Regex("""[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?""")
 
-  fun isValid(email: String): Boolean = PATTERN.matches(email)
+  /**
+   * Mirrors `ContactInput` at the API boundary so a billing draft accepted here is accepted by
+   * the backend as well. Authentication addresses intentionally use a different server contract.
+   */
+  fun isValid(email: String): Boolean {
+    val value = email.trim()
+    if (value.length !in 3..320 || value.count { it == '@' } != 1 || value.any { it.isWhitespace() }) {
+      return false
+    }
+    val (local, domain) = value.split('@', limit = 2)
+    if (
+      local.isEmpty() || local.length > 64 || local.startsWith('.') || local.endsWith('.') ||
+      ".." in local || !LOCAL_PATTERN.matches(local) || domain.length > 253
+    ) {
+      return false
+    }
+    val labels = domain.split('.')
+    return labels.size >= 2 && labels.all(DOMAIN_LABEL_PATTERN::matches)
+  }
 }
 
 data class BillingCapabilities(
@@ -134,14 +155,23 @@ data class Billing(
   val owner: BillingOwner,
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
+  val pixNeedsSetup: Boolean = false,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  val replyTo: List<BillingRecipient> = emptyList(),
   val communicationTemplates: List<CommunicationTemplate> = emptyList(),
   val capabilities: BillingCapabilities = BillingCapabilities.full,
 ) {
   val fixedSubtotal: Money
     get() = items.filter { it.type == BillingItemType.FIXED }
       .fold(Money.zero) { total, item -> total + item.amount }
+
+  /** The backend rejects bill creation until the effective PIX configuration is complete. */
+  val canGenerateBills: Boolean
+    get() = capabilities.canCreateBills && !pixNeedsSetup
+
+  /** Transfer candidates must be user-owned and authorized by the backend capability. */
+  val canTransferToOrganization: Boolean
+    get() = !owner.isOrganization && capabilities.canTransfer
 
   fun template(type: CommunicationType): CommunicationTemplate? =
     communicationTemplates.firstOrNull { it.commType == type }
@@ -154,25 +184,56 @@ data class BillingDraft(
   val items: List<BillingItem>,
   val pixOverride: PixConfiguration? = null,
   val recipients: List<BillingRecipient> = emptyList(),
-  val replyTo: String? = null,
+  val replyTo: List<BillingRecipient> = emptyList(),
 ) {
   fun validate(): List<ValidationIssue> {
     val issues = mutableListOf<ValidationIssue>()
-    if (name.trim().isEmpty()) {
+    val normalizedName = name.trim()
+    if (normalizedName.isEmpty()) {
       issues.add(ValidationIssue(ValidationField.NAME, "Informe o nome da cobrança."))
+    } else if (normalizedName.apiCharacterCount() > 255) {
+      issues.add(
+        ValidationIssue(ValidationField.NAME, "O nome deve ter no máximo 255 caracteres.")
+      )
+    }
+    if (description.trim().apiCharacterCount() > 2_000) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.DESCRIPTION,
+          "A descrição deve ter no máximo 2000 caracteres.",
+        )
+      )
     }
     if (items.isEmpty()) {
       issues.add(ValidationIssue(ValidationField.ITEMS, "Adicione ao menos um item recorrente."))
     }
     if (items.any { it.description.trim().isEmpty() }) {
       issues.add(ValidationIssue(ValidationField.ITEM_DESCRIPTION, "Descreva todos os itens."))
+    } else if (items.any { it.description.trim().apiCharacterCount() > 255 }) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_DESCRIPTION,
+          "Descreva todos os itens em até 255 caracteres.",
+        )
+      )
     }
     if (items.any { it.amount.centavos < 0 }) {
       issues.add(
         ValidationIssue(ValidationField.ITEM_AMOUNT, "Os valores não podem ser negativos.")
       )
     }
-    if (items.any { it.type == BillingItemType.VARIABLE && it.amount.centavos != 0 }) {
+    if (!Money.fitsPersistedTotal(
+        items.filter { it.type == BillingItemType.FIXED }.map { it.amount.centavos }
+      )
+    ) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "O valor total deve ser de no máximo R$ 21.474.836,47.",
+        )
+      )
+    }
+    if (items.any { it.type == BillingItemType.VARIABLE && it.amount.centavos != 0L }) {
       issues.add(
         ValidationIssue(
           ValidationField.ITEM_AMOUNT,
@@ -181,7 +242,25 @@ data class BillingDraft(
       )
     }
     if (
-      recipients.any { it.name.trim().isEmpty() || !EmailAddress.isValid(it.email.trim()) }
+      pixOverride != null &&
+      (
+        pixOverride.merchantName.trim().apiCharacterCount() > 25 ||
+          pixOverride.merchantCity.trim().apiCharacterCount() > 15
+        )
+    ) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.PIX,
+          "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade.",
+        )
+      )
+    }
+    if (
+      recipients.any {
+        val recipientName = it.name.trim()
+        recipientName.isEmpty() || recipientName.apiCharacterCount() > 255 ||
+          !EmailAddress.isValid(it.email.trim())
+      }
     ) {
       issues.add(
         ValidationIssue(
@@ -196,6 +275,30 @@ data class BillingDraft(
       if (emails.toSet().size != emails.size) {
         issues.add(
           ValidationIssue(ValidationField.RECIPIENT, "Remova os destinatários repetidos.")
+        )
+      }
+    }
+    if (
+      replyTo.any {
+        val contactName = it.name.trim()
+        contactName.isEmpty() || contactName.apiCharacterCount() > 255 ||
+          !EmailAddress.isValid(it.email.trim())
+      }
+    ) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.REPLY_TO,
+          "Informe nome e e-mail válidos para todos os contatos de resposta.",
+        )
+      )
+    } else {
+      val emails = replyTo.map { it.email.trim().lowercase() }
+      if (emails.toSet().size != emails.size) {
+        issues.add(
+          ValidationIssue(
+            ValidationField.REPLY_TO,
+            "Remova os contatos de resposta repetidos.",
+          )
         )
       }
     }
@@ -214,11 +317,16 @@ data class BillingDraft(
 
 enum class ValidationField {
   NAME,
+  DESCRIPTION,
   ITEMS,
   ITEM_DESCRIPTION,
   ITEM_AMOUNT,
+  PIX,
   RECIPIENT,
+  REPLY_TO,
 }
+
+private fun String.apiCharacterCount(): Int = codePointCount(0, length)
 
 data class ValidationIssue(
   val field: ValidationField,
@@ -297,6 +405,9 @@ data class Receipt(
   val id: ReceiptID,
   val name: String,
   val sortOrder: Int,
+  val mediaType: String = "application/octet-stream",
+  val byteCount: Int = 0,
+  val createdAt: Instant? = null,
 )
 
 data class Attachment(
@@ -305,6 +416,12 @@ data class Attachment(
   val mediaType: String,
   val byteCount: Int,
 )
+
+/** Mirrors the backend `ExportCreateRequest` and its bills-only `ExportService` rows. */
+object BillingExportContract {
+  val formats: List<String> = listOf("csv", "xlsx")
+  val includedSections: List<String> = listOf("Faturas")
+}
 
 /**
  * The server's asynchronous PDF render state for a bill. The wire literals are exactly
@@ -331,6 +448,14 @@ data class BillCapabilities(
   val canSendInvoice: Boolean,
   val canSendRecibo: Boolean,
   val canRegenerate: Boolean,
+  val canEdit: Boolean = true,
+  val canDelete: Boolean = true,
+  val canTransition: Boolean = true,
+  val canUploadReceipts: Boolean = true,
+  val canDeleteReceipts: Boolean = true,
+  val canReorderReceipts: Boolean = true,
+  val canCompose: Boolean = true,
+  val canOpenRecibo: Boolean = false,
 ) {
   companion object {
     /**
@@ -339,7 +464,7 @@ data class BillCapabilities(
      */
     val permissive = BillCapabilities(
       canDownloadInvoice = true, canDownloadRecibo = true, canSendInvoice = true,
-      canSendRecibo = true, canRegenerate = true,
+      canSendRecibo = true, canRegenerate = true, canOpenRecibo = true,
     )
   }
 }
@@ -353,6 +478,52 @@ object BillPDFPolling {
    * unknown status, or no bill at all.
    */
   fun shouldPoll(bill: Bill?): Boolean = bill?.isRenderingPDF == true
+}
+
+data class BillTransition(
+  val target: BillStatus,
+  val label: String,
+  val style: String,
+  val requiresConfirmation: Boolean,
+) {
+  companion object {
+    fun fallback(target: BillStatus, current: BillStatus): BillTransition {
+      val consequential = target == BillStatus.PAID || target == BillStatus.CANCELLED ||
+        (current == BillStatus.PUBLISHED && target == BillStatus.DRAFT) ||
+        (current == BillStatus.SENT && target == BillStatus.PUBLISHED) ||
+        (current == BillStatus.PAID && target == BillStatus.SENT) ||
+        (current == BillStatus.CANCELLED && target == BillStatus.DRAFT)
+      val destructive = target == BillStatus.CANCELLED ||
+        (current == BillStatus.PUBLISHED && target == BillStatus.DRAFT) ||
+        (current == BillStatus.SENT && target == BillStatus.PUBLISHED) ||
+        (current == BillStatus.PAID && target == BillStatus.SENT)
+      return BillTransition(
+        target = target,
+        label = "Marcar como ${target.label.lowercase()}",
+        style = if (destructive) "danger" else "primary",
+        requiresConfirmation = consequential,
+      )
+    }
+  }
+}
+
+data class BillCommunication(
+  val id: CommunicationID,
+  val commType: CommunicationType?,
+  val status: String,
+  val createdAt: Instant?,
+  val sentAt: Instant?,
+  val recipientName: String?,
+  val recipientEmail: String?,
+  val subject: String?,
+) {
+  val isRedacted: Boolean get() = recipientEmail == null
+  val deliveryLabel: String
+    get() = when (status) {
+      "sent" -> "Enviado"
+      "failed" -> "Falhou"
+      else -> "Na fila"
+    }
 }
 
 data class Bill(
@@ -369,12 +540,17 @@ data class Bill(
   val status: BillStatus,
   val lineItems: List<BillLineItem>,
   val receipts: List<Receipt>,
+  val communications: List<BillCommunication> = emptyList(),
+  val statusUpdatedAt: Instant? = null,
+  val createdAt: Instant? = null,
   /**
    * Server-authoritative transitions for this specific bill, when the API supplies them. `null`
    * means "not provided by this response" — callers fall back to [BillStatus.allowedTransitions]
    * (see [effectiveTransitions]).
    */
   val availableTransitions: List<BillStatus>? = null,
+  /** Labels, visual style, and confirmation policy supplied with the transition targets. */
+  val availableTransitionActions: List<BillTransition>? = null,
   /**
    * Server-authoritative total for this bill, when the API supplies it. `null` means "not
    * provided by this response" — callers fall back to the computed [total] (see [effectiveTotal]).
@@ -410,6 +586,11 @@ data class Bill(
 
   fun canTransition(target: BillStatus): Boolean = effectiveTransitions.contains(target)
 
+  val effectiveTransitionActions: List<BillTransition>
+    get() = availableTransitionActions ?: effectiveTransitions.sortedBy { it.wire }.map {
+      BillTransition.fallback(target = it, current = status)
+    }
+
   /**
    * Folds a freshly returned *bill summary* into this loaded bill: render state, action gates and
    * status come from [updated], while detail-only data (receipts, line items) stays as loaded.
@@ -422,7 +603,10 @@ data class Bill(
     hasInvoice = updated.hasInvoice,
     hasRecibo = updated.hasRecibo,
     status = updated.status,
+    statusUpdatedAt = updated.statusUpdatedAt,
+    createdAt = updated.createdAt ?: createdAt,
     availableTransitions = updated.availableTransitions,
+    availableTransitionActions = updated.availableTransitionActions,
   )
 }
 
@@ -445,6 +629,13 @@ data class BillDraft(
       issues.add(
         ValidationIssue(ValidationField.ITEM_DESCRIPTION, "Descreva todos os itens da fatura.")
       )
+    } else if (lineItems.any { it.description.apiCharacterCount() > 255 }) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_DESCRIPTION,
+          "Descreva todos os itens da fatura em até 255 caracteres.",
+        )
+      )
     }
     if (lineItems.any { it.kind != BillLineItemKind.EXTRA && it.amount.centavos < 0 }) {
       issues.add(
@@ -458,6 +649,14 @@ data class BillDraft(
         ValidationIssue(
           ValidationField.ITEM_AMOUNT,
           "Os itens extras devem ter valor maior que zero.",
+        )
+      )
+    }
+    if (!Money.fitsPersistedTotal(lineItems.map { it.amount.centavos })) {
+      issues.add(
+        ValidationIssue(
+          ValidationField.ITEM_AMOUNT,
+          "O valor total deve ser de no máximo R$ 21.474.836,47.",
         )
       )
     }
@@ -484,6 +683,40 @@ enum class ExpenseCategory(val wire: String) {
 
   companion object {
     fun fromWire(wire: String?): ExpenseCategory? = entries.firstOrNull { it.wire == wire }
+  }
+}
+
+object ExpenseInput {
+  const val maximumDescriptionLength: Int = 2_000
+
+  fun normalizedDescription(description: String): String = description.trim()
+
+  fun isValidDescription(description: String): Boolean {
+    val normalized = normalizedDescription(description)
+    return normalized.isNotEmpty() && normalized.apiCharacterCount() <= maximumDescriptionLength
+  }
+}
+
+object CommunicationContent {
+  const val maximumSubjectLength: Int = 998
+  const val maximumMessageByteCount: Int = 4_096
+
+  fun normalizedSubject(subject: String): String = subject.trim()
+
+  fun normalizedMessage(message: String): String = message.trim()
+
+  fun validationMessage(subject: String, message: String): String? {
+    val normalizedSubject = normalizedSubject(subject)
+    val normalizedMessage = normalizedMessage(message)
+    return when {
+      normalizedSubject.isEmpty() -> "Informe o assunto."
+      normalizedSubject.apiCharacterCount() > maximumSubjectLength ->
+        "O assunto deve ter no máximo 998 caracteres."
+      normalizedMessage.isEmpty() -> "Informe o corpo da mensagem."
+      normalizedMessage.toByteArray(Charsets.UTF_8).size > maximumMessageByteCount ->
+        "A mensagem deve ter no máximo 4096 bytes."
+      else -> null
+    }
   }
 }
 

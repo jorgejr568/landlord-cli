@@ -82,7 +82,9 @@ struct BillingDetailView: View {
               .font(.subheadline.weight(.semibold))
             HStack {
               Label(
-                data.billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado",
+                data.billing.pixNeedsSetup
+                  ? "PIX pendente"
+                  : (data.billing.pixOverride?.isComplete == true ? "PIX próprio" : "PIX herdado"),
                 systemImage: "qrcode"
               )
               Spacer()
@@ -172,6 +174,11 @@ struct BillingDetailView: View {
           }
           .accessibilityLabel("Gerar fatura")
           .accessibilityIdentifier("bill.create")
+          .disabled(!data.billing.canGenerateBills)
+          .help(
+            data.billing.canGenerateBills
+              ? "Gerar fatura" : "Configure a chave PIX, o nome e a cidade do recebedor primeiro."
+          )
         }
       }
       if data.bills.isEmpty {
@@ -247,9 +254,12 @@ struct BillingDetailView: View {
               .font(.caption)
               .foregroundStyle(RentivoColors.secondaryInk)
           }
-          if let replyTo = billing.replyTo {
+          ForEach(billing.replyTo) { contact in
             Divider()
-            Label("Respostas para \(replyTo)", systemImage: "arrowshape.turn.up.left")
+            Label(
+              "Respostas para \(contact.name) <\(contact.email)>",
+              systemImage: "arrowshape.turn.up.left"
+            )
               .font(.caption)
           }
         }

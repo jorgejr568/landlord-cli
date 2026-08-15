@@ -278,6 +278,8 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
+  @State private var pendingTransition: BillTransition?
+  @State private var transitioningTo: BillStatus?
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
   @State private var pollGeneration = 0
@@ -296,7 +298,7 @@ struct BillDetailView: View {
     .navigationTitle("Fatura")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      if state.value?.status == .draft && billing?.capabilities.canManageBills == true {
+      if state.value?.status == .draft && state.value?.capabilities.canEdit == true {
         Button("Editar") { showingEdit = true }
       }
     }
@@ -320,6 +322,23 @@ struct BillDetailView: View {
     .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
       Button("Excluir fatura", role: .destructive) { Task { await deleteBill() } }
       Button("Cancelar", role: .cancel) {}
+    }
+    .confirmationDialog(
+      pendingTransition?.label ?? "Alterar status da fatura?",
+      isPresented: Binding(
+        get: { pendingTransition != nil },
+        set: { if !$0 { pendingTransition = nil } }
+      ),
+      presenting: pendingTransition
+    ) { action in
+      Button(action.label, role: action.style == "danger" ? .destructive : nil) {
+        pendingTransition = nil
+        guard let currentStatus = state.value?.status else { return }
+        Task { await transition(from: currentStatus, to: action.target) }
+      }
+      Button("Cancelar", role: .cancel) {}
+    } message: { _ in
+      Text("Confirme a alteração de status desta fatura.")
     }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
@@ -355,7 +374,7 @@ struct BillDetailView: View {
         }
 
         lineItems(bill)
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canTransition {
           lifecycle(bill)
         } else {
           Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
@@ -377,11 +396,8 @@ struct BillDetailView: View {
             // Regenerating stays available while a render is pending: a re-trigger supersedes the
             // in-flight render server-side.
             Button("Regenerar documento") { Task { await regenerate(bill) } }
-              .disabled(billing?.capabilities.canManageBills != true)
-            if bill.status == .paid {
-              // Gated on the pending render alone: iOS opens `GET .../recibo`, which renders the
-              // recibo inline when no file is stored yet, so `canDownloadRecibo` (a
-              // stored-file gate) would disable a button the endpoint would have served.
+              .disabled(!bill.capabilities.canRegenerate)
+            if bill.capabilities.canOpenRecibo {
               Button("Abrir recibo") { Task { await downloadRecibo() } }
                 .disabled(bill.isRenderingPDF)
             }
@@ -397,20 +413,22 @@ struct BillDetailView: View {
         ReceiptManagerView(
           billingID: billingID,
           bill: bill,
-          canWrite: billing?.capabilities.canUploadBillReceipts == true
+          capabilities: bill.capabilities
         ) { await refreshAll() }
 
-        if billing?.capabilities.canManageBills == true {
+        communicationHistory(bill)
+
+        if bill.capabilities.canCompose {
           Button {
             showingCommunication = true
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(bill.isRenderingPDF)
+          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
         }
 
-        if billing?.capabilities.canManageBills == true {
+        if bill.capabilities.canDelete {
           Button(role: .destructive) {
             confirmingDelete = true
           } label: {
@@ -478,22 +496,70 @@ struct BillDetailView: View {
       SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
       // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
       // over the local `BillStatus` state machine, when the API supplies them.
-      if bill.effectiveTransitions.isEmpty {
+      if bill.effectiveTransitionActions.isEmpty {
         Label("Esta fatura está em um estado final.", systemImage: "checkmark.circle")
           .foregroundStyle(RentivoColors.secondaryInk)
       } else {
-        ForEach(
-          bill.effectiveTransitions.sorted { $0.rawValue < $1.rawValue },
-          id: \.self
-        ) { status in
+        ForEach(bill.effectiveTransitionActions, id: \.target) { action in
           Button {
-            Task { await transition(to: status) }
+            if action.requiresConfirmation {
+              pendingTransition = action
+            } else {
+              Task { await transition(from: bill.status, to: action.target) }
+            }
           } label: {
-            Label("Marcar como \(status.label.lowercased())", systemImage: status.symbol)
+            HStack(spacing: RentivoSpacing.small) {
+              if transitioningTo == action.target { ProgressView().controlSize(.small) }
+              Label(action.label, systemImage: action.target.symbol)
+            }
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier("bill.transition.\(status.rawValue)")
+          .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
+          .disabled(transitioningTo != nil)
+          .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
+        }
+      }
+      if let statusUpdatedAt = bill.statusUpdatedAt {
+        Text("Status atualizado em \(statusUpdatedAt.formattedPTBR(time: .shortened)).")
+          .font(.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      }
+    }
+  }
+
+  private func communicationHistory(_ bill: Bill) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+      SectionTitle(title: "Comunicações", symbol: "envelope.badge")
+      if bill.communications.isEmpty {
+        Text("Nenhuma comunicação enviada.")
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      } else {
+        RentivoCard {
+          VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+            ForEach(Array(bill.communications.enumerated()), id: \.element.id) { index, item in
+              if index > 0 { Divider() }
+              VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                HStack {
+                  Text(item.createdAt?.formattedPTBR(time: .shortened) ?? "Data indisponível")
+                    .font(.caption.monospacedDigit())
+                  Spacer()
+                  Text(item.deliveryLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(item.status == "failed" ? RentivoColors.coral : RentivoColors.secondaryInk)
+                }
+                if item.isRedacted {
+                  Text("Dados do destinatário protegidos")
+                    .font(.subheadline.weight(.semibold))
+                } else {
+                  Text([item.recipientName, item.recipientEmail].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline.weight(.semibold))
+                  if let subject = item.subject { Text(subject).font(.footnote) }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -540,10 +606,13 @@ struct BillDetailView: View {
     await onMutation()
   }
 
-  private func transition(to status: BillStatus) async {
+  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
+    guard transitioningTo == nil else { return }
+    transitioningTo = status
+    defer { transitioningTo = nil }
     do {
       try await app.dependencies.bills.transitionBill(
-        billingID: billingID, billID: billID, to: status)
+        billingID: billingID, billID: billID, from: currentStatus, to: status)
       await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
     } catch {
@@ -590,7 +659,7 @@ private struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   let bill: Bill
-  let canWrite: Bool
+  let capabilities: BillCapabilities
   let onMutation: () async -> Void
   @State private var downloadedFile: DownloadedFile?
   @State private var showingSourceChooser = false
@@ -619,12 +688,19 @@ private struct ReceiptManagerView: View {
           VStack(spacing: RentivoSpacing.medium) {
             ForEach(bill.receipts) { receipt in
               HStack {
-                Label(receipt.name, systemImage: "doc.fill")
-                  .font(.subheadline)
+                VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                  Label(receipt.name, systemImage: "doc.fill")
+                    .font(.subheadline)
+                  if receipt.byteCount > 0 {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(receipt.byteCount), countStyle: .file))
+                      .font(.caption)
+                      .foregroundStyle(RentivoColors.secondaryInk)
+                  }
+                }
                 Spacer()
                 Menu {
                   Button("Abrir") { Task { await download(receipt) } }
-                  if canWrite {
+                  if capabilities.canDeleteReceipts {
                     Button("Excluir", role: .destructive) { pendingDeletion = receipt }
                   }
                 } label: {
@@ -637,14 +713,14 @@ private struct ReceiptManagerView: View {
             // section renders inside a `RentivoCard`/`VStack` (the surrounding screen is a
             // `ScrollView`, not a `List`), so `.onMove` has no effect here. Kept as an explicit
             // action instead of restructuring the whole detail screen's layout around a `List`.
-            if bill.receipts.count > 1 && canWrite {
+            if bill.receipts.count > 1 && capabilities.canReorderReceipts {
               Button("Inverter ordem") { Task { await reverse() } }
                 .buttonStyle(.bordered)
             }
           }
         }
       }
-      if canWrite {
+      if capabilities.canUploadReceipts {
         Button {
           showingSourceChooser = true
         } label: {

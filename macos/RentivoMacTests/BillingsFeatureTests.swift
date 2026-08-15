@@ -78,55 +78,34 @@ struct BillingPortfolioFilteringTests {
 
 @Suite("Cobrança form owner choices")
 struct BillingFormOwnerChoicesTests {
-  @Test("a new cobrança offers the personal workspace first, then every organization")
-  func newBillingListsPersonalThenOrganizations() {
+  @Test("a new cobrança offers only workspaces where creation is allowed")
+  func newBillingFiltersOrganizationsByCapability() {
+    let denied = Organization(
+      id: OrganizationID(rawValue: "organization-denied"),
+      name: "Sem criação",
+      pix: nil,
+      members: [],
+      requiresMFA: false,
+      currentUserRole: .admin,
+      capabilities: OrganizationCapabilities(
+        canManage: true,
+        canInvite: true,
+        canCreateBilling: false,
+        canViewBillingStats: true
+      )
+    )
     let choices = BillingFormOwnerChoices.choices(
       currentUserID: StableID.userAna,
-      existingOwner: nil,
-      organizations: [makeOrganization(id: StableID.organizationHorizonte, name: "Horizonte")]
+      organizations: [
+        denied,
+        makeOrganization(id: StableID.organizationHorizonte, name: "Horizonte"),
+      ]
     )
 
     #expect(choices.map(\.name) == ["Pessoal", "Horizonte"])
     #expect(choices.first?.id == .personal)
   }
 
-  @Test("the owner a cobrança already has stays selectable even when it is not listed")
-  func existingOwnerSurvivesAnEmptyOrganizationList() {
-    let existing = BillingOwner.organization(id: StableID.organizationHorizonte, name: "Horizonte")
-
-    let choices = BillingFormOwnerChoices.choices(
-      currentUserID: StableID.userAna,
-      existingOwner: existing,
-      organizations: []
-    )
-
-    #expect(choices.map(\.name) == ["Pessoal", "Horizonte"])
-  }
-
-  @Test("an organization that is also the current owner is listed once")
-  func currentOwnerIsNotDuplicatedByTheOrganizationList() {
-    let existing = BillingOwner.organization(id: StableID.organizationHorizonte, name: "Horizonte")
-
-    let choices = BillingFormOwnerChoices.choices(
-      currentUserID: StableID.userAna,
-      existingOwner: existing,
-      organizations: [makeOrganization(id: StableID.organizationHorizonte, name: "Horizonte")]
-    )
-
-    #expect(choices.count == 2)
-    #expect(choices.filter { $0.id == existing.id }.count == 1)
-  }
-
-  @Test("a personal cobrança does not duplicate the personal workspace")
-  func personalOwnerIsNotDuplicated() {
-    let choices = BillingFormOwnerChoices.choices(
-      currentUserID: StableID.userAna,
-      existingOwner: .user(id: StableID.userAna, name: "Pessoal"),
-      organizations: []
-    )
-
-    #expect(choices.count == 1)
-  }
 }
 
 @Suite("Cobrança PIX override validation")

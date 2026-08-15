@@ -8,13 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 from rentivo.api.schemas.billings import BillingItemUUID
 from rentivo.models.bill import BillStatus
 from rentivo.models.billing import ItemType
+from rentivo.money import MAX_CENTAVOS
 
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-Centavos = Annotated[int, Field(strict=True, ge=0)]
+Centavos = Annotated[int, Field(strict=True, ge=0, le=MAX_CENTAVOS)]
 PublicIdentifier = Annotated[str, Field(pattern=r"^[0-9A-HJKMNP-TV-Z]{26}$")]
 
 
@@ -27,7 +28,7 @@ def _normalized_description(value: str) -> str:
 
 class BillExtraRequest(_StrictModel):
     description: str = Field(max_length=255)
-    amount: Annotated[int, Field(strict=True, gt=0)]
+    amount: Annotated[int, Field(strict=True, gt=0, le=MAX_CENTAVOS)]
 
     _normalize_description = field_validator("description")(_normalized_description)
 
@@ -100,6 +101,7 @@ class BillCapabilitiesResponse(_StrictModel):
     can_reorder_receipts: bool
     can_download_invoice: bool
     can_download_recibo: bool
+    can_open_recibo: bool
     can_compose: bool
     can_send_invoice: bool
     can_send_recibo: bool

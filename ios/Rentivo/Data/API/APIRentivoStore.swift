@@ -155,10 +155,13 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   public func deleteBill(billingID: BillingID, billID: BillID) async throws {
     try await execute(path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)", method: "DELETE")
   }
-  public func transitionBill(billingID: BillingID, billID: BillID, to status: BillStatus) async throws {
+  public func transitionBill(
+    billingID: BillingID, billID: BillID, from currentStatus: BillStatus, to status: BillStatus
+  ) async throws {
     try await execute(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/transitions",
-      method: "POST", body: RemoteBillTransition(target: status.rawValue)
+      method: "POST",
+      body: RemoteBillTransition(currentStatus: currentStatus.rawValue, target: status.rawValue)
     )
   }
   public func regenerateBill(billingID: BillingID, billID: BillID) async throws -> Bill {
@@ -168,12 +171,17 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return try bill(from: remote, billingID: billingID)
   }
   public func addReceipt(billingID: BillingID, billID: BillID, upload: FileUpload) async throws -> Receipt {
+    let upload = try ReceiptUploadRules.validated(upload)
     let response: RemoteReceiptUpload = try await decodeMultipart(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/receipts",
       files: [(field: "receipt_files", upload: upload)]
     )
     guard let receipt = response.items.first else { throw LiveAPIError.invalidResponse }
-    return Receipt(id: ReceiptID(rawValue: receipt.uuid), name: receipt.filename, sortOrder: receipt.sortOrder)
+    return Receipt(
+      id: ReceiptID(rawValue: receipt.uuid), name: receipt.filename, sortOrder: receipt.sortOrder,
+      mediaType: receipt.contentType, byteCount: receipt.fileSize,
+      createdAt: try receipt.createdAt.map(WireDate.isoDate)
+    )
   }
   public func reorderReceipts(billingID: BillingID, billID: BillID, receiptIDs: [ReceiptID]) async throws {
     let _: RemoteReceiptList = try await decode(
@@ -214,6 +222,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return response.items.map(attachment(from:))
   }
   public func addAttachment(billingID: BillingID, upload: FileUpload) async throws -> Attachment {
+    let upload = try AttachmentUploadRules.validated(upload)
     let response: RemoteAttachment = try await decodeMultipart(
       path: "/api/v1/billings/\(billingID.rawValue)/attachments",
       name: upload.filename, files: [(field: "file", upload: upload)]
@@ -318,23 +327,10 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return organization(from: response)
   }
   public func createOrganization(_ draft: OrganizationDraft) async throws -> Organization {
-    // OrganizationCreateRequest only accepts `name`; PIX has no create-time slot, so when the
-    // draft carries PIX data we follow up with the PATCH that does accept pix fields.
-    let response: RemoteOrganization = try await decode(path: "/api/v1/organizations", method: "POST", body: RemoteOrganizationCreate(name: draft.name))
-    guard draft.pix != nil else { return organization(from: response) }
-    do {
-      let updated: RemoteOrganization = try await decode(
-        path: "/api/v1/organizations/\(response.uuid)", method: "PATCH", body: RemoteOrganizationUpdate(draft: draft)
-      )
-      return organization(from: updated)
-    } catch {
-      // The organization already exists on the server from the POST above, so throwing here
-      // would surface as a failure to the caller, who would retry and create a duplicate
-      // organization. Return the created organization (without PIX) instead; the form-side
-      // validation makes this follow-up PATCH fail rarely, and the user can still edit the
-      // organization afterward to add PIX.
-      return organization(from: response)
-    }
+    let response: RemoteOrganization = try await decode(
+      path: "/api/v1/organizations", method: "POST", body: RemoteOrganizationCreate(draft: draft)
+    )
+    return organization(from: response)
   }
   public func updateOrganization(id: OrganizationID, draft: OrganizationDraft) async throws -> Organization {
     let response: RemoteOrganization = try await decode(path: "/api/v1/organizations/\(id.rawValue)", method: "PATCH", body: RemoteOrganizationUpdate(draft: draft))
@@ -351,11 +347,23 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     // exactly as when this ran sequentially — the invite itself already succeeded.
     async let remoteOrganization: RemoteOrganization? = try? self.decode(
       path: "/api/v1/organizations/\(organizationID.rawValue)")
-    let response: RemoteInvitation = try await decode(path: "/api/v1/organizations/\(organizationID.rawValue)/invites", method: "POST", body: RemoteInviteCreate(email: email, role: role.rawValue))
+    let response: RemoteInvitation = try await decode(path: "/api/v1/organizations/\(organizationID.rawValue)/invites", method: "POST", body: RemoteInviteCreate(email: OrganizationInviteEmail.normalized(email), role: role.rawValue))
     let organizationName = await remoteOrganization.map(organization(from:))?.name ?? "Organização"
     return Invitation(id: InvitationID(rawValue: response.uuid), organizationID: organizationID, organizationName: organizationName, email: response.invitedEmail, role: OrganizationRole(rawValue: response.role) ?? .viewer, status: InvitationStatus(rawValue: response.status) ?? .pending)
   }
-  public func setOrganizationMFA(organizationID: OrganizationID, required: Bool) async throws { try await execute(path: "/api/v1/organizations/\(organizationID.rawValue)/mfa-policy", method: "PUT", body: RemoteMFAPolicy(enforceMFA: required)) }
+  public func setOrganizationMFA(
+    organizationID: OrganizationID, required: Bool
+  ) async throws -> OrganizationMFAPolicy {
+    let response: RemoteMFAPolicyResponse = try await decode(
+      path: "/api/v1/organizations/\(organizationID.rawValue)/mfa-policy",
+      method: "PUT",
+      body: RemoteMFAPolicy(enforceMFA: required)
+    )
+    return OrganizationMFAPolicy(
+      enforceMFA: response.enforceMFA,
+      mfaSetupRequired: response.mfaSetupRequired
+    )
+  }
   public func transferBilling(billingID: BillingID, toOrganizationID: OrganizationID) async throws { try await execute(path: "/api/v1/billings/\(billingID.rawValue)/transfer", method: "POST", body: RemoteBillingTransfer(organizationID: toOrganizationID.rawValue)) }
   public func listPendingInvitations() async throws -> [Invitation] {
     let response: RemotePendingInvitationList = try await decode(path: "/api/v1/invites")
@@ -363,11 +371,22 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       Invitation(
         id: InvitationID(rawValue: $0.uuid), organizationID: OrganizationID(rawValue: $0.organizationUUID),
         organizationName: $0.organizationName, email: user.email,
-        role: OrganizationRole(rawValue: $0.role) ?? .viewer, status: .pending
+        role: OrganizationRole(rawValue: $0.role) ?? .viewer, status: .pending,
+        invitedByEmail: $0.invitedByEmail,
+        organizationEnforcesMFA: $0.enforceMFA
       )
     }
   }
-  public func acceptInvitation(id: InvitationID) async throws { try await execute(path: "/api/v1/invites/\(id.rawValue)/accept", method: "POST") }
+  @discardableResult
+  public func acceptInvitation(id: InvitationID) async throws -> InvitationAcceptance {
+    let response: RemoteInvitationAcceptance = try await decode(
+      path: "/api/v1/invites/\(id.rawValue)/accept", method: "POST"
+    )
+    return InvitationAcceptance(
+      organizationID: OrganizationID(rawValue: response.organizationUUID),
+      mfaSetupRequired: response.mfaSetupRequired
+    )
+  }
   public func declineInvitation(id: InvitationID) async throws { try await execute(path: "/api/v1/invites/\(id.rawValue)/decline", method: "POST") }
   public func changePassword(
     currentPassword: String, newPassword: String, confirmPassword: String
@@ -381,8 +400,19 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func securitySummary() async throws -> SecuritySummary {
     let response: RemoteSecuritySummary = try await decode(path: "/api/v1/security")
-    return SecuritySummary(totpEnabled: response.totp.enabled, recoveryCodeCount: response.totp.recoveryCodesRemaining,
-      passkeys: try response.passkeys.map { Passkey(id: PasskeyID(rawValue: $0.uuid), name: $0.name, createdAt: try WireDate.isoDate($0.createdAt), lastUsedAt: try $0.lastUsedAt.map(WireDate.isoDate)) })
+    return SecuritySummary(
+      totpEnabled: response.totp.enabled,
+      recoveryCodeCount: response.totp.recoveryCodesRemaining,
+      passkeys: try response.passkeys.map {
+        Passkey(
+          id: PasskeyID(rawValue: $0.uuid), name: $0.name,
+          createdAt: try WireDate.isoDate($0.createdAt),
+          lastUsedAt: try $0.lastUsedAt.map(WireDate.isoDate)
+        )
+      },
+      setupRequired: response.mfa.setupRequired,
+      organizationEnforced: response.mfa.organizationEnforced
+    )
   }
   public func beginTOTPEnrollment() async throws -> TOTPEnrollment {
     let response: RemoteTOTPSetup = try await decode(path: "/api/v1/security/totp/setup", method: "POST")
@@ -402,10 +432,34 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return response.recoveryCodes
   }
   public func deletePasskey(id: PasskeyID) async throws { try await execute(path: "/api/v1/security/passkeys/\(id.rawValue)", method: "DELETE") }
+  public func apiKeyOptions() async throws -> APIKeyOptions {
+    let response: RemoteAPIKeyOptions = try await decode(path: "/api/v1/api-keys/options")
+    let personalType = WorkspaceResourceType(rawValue: response.personalWorkspace.resourceType) ?? .user
+    return APIKeyOptions(
+      scopes: response.scopes.compactMap(APIKeyScope.init(rawValue:)),
+      personalWorkspace: APIKeyWorkspaceOption(
+        resourceType: personalType,
+        resourceID: WorkspaceID(rawValue: response.personalWorkspace.resourceID),
+        name: "Conta pessoal"
+      ),
+      organizations: response.organizations.compactMap { organization in
+        guard let resourceType = WorkspaceResourceType(rawValue: organization.resourceType) else {
+          return nil
+        }
+        return APIKeyWorkspaceOption(
+          resourceType: resourceType,
+          resourceID: WorkspaceID(rawValue: organization.resourceID),
+          name: organization.name
+        )
+      },
+      defaultExpirationDays: response.defaultExpirationDays,
+      maxExpirationDays: response.maxExpirationDays
+    )
+  }
   public func listAPIKeys() async throws -> [APIKeyMetadata] {
     let response: RemoteAPIKeyList = try await decode(path: "/api/v1/api-keys")
-    // The server returns revoked keys too (it doesn't filter them); match the mock and hide them.
-    return try response.items.filter { $0.revokedAt == nil }.map(apiKey(from:))
+    // Revoked integrations remain visible as immutable history, matching the web client.
+    return try response.items.map(apiKey(from:))
   }
   public func createAPIKey(_ draft: APIKeyDraft) async throws -> CreatedAPIKeySecret {
     let response: RemoteCreatedAPIKey = try await decode(
@@ -413,9 +467,12 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     )
     return CreatedAPIKeySecret(metadata: try apiKey(from: response.apiKey), secret: response.secret)
   }
-  public func updateAPIKey(id: APIKeyID, draft: APIKeyDraft) async throws -> APIKeyMetadata {
+  public func updateAPIKey(
+    id: APIKeyID, draft: APIKeyDraft, updateGrants: Bool
+  ) async throws -> APIKeyMetadata {
     let response: RemoteAPIKey = try await decode(
-      path: "/api/v1/api-keys/\(id.rawValue)", method: "PATCH", body: RemoteAPIKeyUpdate(draft: draft)
+      path: "/api/v1/api-keys/\(id.rawValue)", method: "PATCH",
+      body: RemoteAPIKeyUpdate(draft: draft, updateGrants: updateGrants)
     )
     return try apiKey(from: response)
   }
@@ -591,13 +648,38 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       lineItems: remote.lineItems.enumerated().map { index, line in
         BillLineItem(id: BillLineItemID(rawValue: "\(remote.uuid)-\(index)"), description: line.description,
           amount: Money(centavos: line.amount), kind: BillLineItemKind(rawValue: line.itemType) ?? .fixed)
-      }, receipts: (remote.receipts ?? []).map {
-        Receipt(id: ReceiptID(rawValue: $0.uuid), name: $0.filename, sortOrder: $0.sortOrder)
+      }, receipts: try (remote.receipts ?? []).map {
+        Receipt(
+          id: ReceiptID(rawValue: $0.uuid), name: $0.filename, sortOrder: $0.sortOrder,
+          mediaType: $0.contentType, byteCount: $0.fileSize,
+          createdAt: try $0.createdAt.map(WireDate.isoDate)
+        )
       },
+      communications: try (remote.communications ?? []).map { communication in
+        BillCommunication(
+          id: CommunicationID(rawValue: communication.uuid),
+          commType: CommunicationType(rawValue: communication.commType),
+          status: communication.status,
+          createdAt: try communication.createdAt.map(WireDate.isoDate),
+          sentAt: try communication.sentAt.map(WireDate.isoDate),
+          recipientName: communication.recipientName,
+          recipientEmail: communication.recipientEmail,
+          subject: communication.subject
+        )
+      },
+      statusUpdatedAt: try remote.statusUpdatedAt.map(WireDate.isoDate),
+      createdAt: try remote.createdAt.map(WireDate.isoDate),
       // Server-authoritative transitions/total for this bill (see `Bill.effectiveTransitions` /
       // `Bill.effectiveTotal`); unrecognized transition targets are dropped rather than failing the
       // whole decode, since a missing action button is a much smaller failure than a hard error.
       availableTransitions: remote.availableTransitions.compactMap { BillStatus(rawValue: $0.target) },
+      availableTransitionActions: remote.availableTransitions.compactMap { transition in
+        guard let target = BillStatus(rawValue: transition.target) else { return nil }
+        return BillTransition(
+          target: target, label: transition.label, style: transition.style,
+          requiresConfirmation: transition.requiresConfirmation
+        )
+      },
       serverTotal: Money(centavos: remote.totalAmount),
       // An unknown or absent render status means "not rendering" rather than a decode failure,
       // and an absent capabilities object stays permissive so older payloads keep working.
@@ -612,7 +694,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     return BillCapabilities(
       canDownloadInvoice: remote.canDownloadInvoice, canDownloadRecibo: remote.canDownloadRecibo,
       canSendInvoice: remote.canSendInvoice, canSendRecibo: remote.canSendRecibo,
-      canRegenerate: remote.canRegenerate
+      canRegenerate: remote.canRegenerate, canEdit: remote.canEdit, canDelete: remote.canDelete,
+      canTransition: remote.canTransition, canUploadReceipts: remote.canUploadReceipts,
+      canDeleteReceipts: remote.canDeleteReceipts,
+      canReorderReceipts: remote.canReorderReceipts, canCompose: remote.canCompose,
+      canOpenRecibo: remote.canOpenRecibo ?? false
     )
   }
 
@@ -626,11 +712,15 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
           sortOrder: index)
       },
       pixOverride: pix(key: remote.pixKey, name: remote.pixMerchantName, city: remote.pixMerchantCity),
+      pixNeedsSetup: remote.pixNeedsSetup ?? false,
       recipients: remote.recipients.compactMap { contact in
         guard let name = contact.name, let email = contact.email else { return nil }
         return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
       },
-      replyTo: remote.replyTo.first?.email,
+      replyTo: remote.replyTo.compactMap { contact in
+        guard let name = contact.name, let email = contact.email else { return nil }
+        return BillingRecipient(id: RecipientID(rawValue: contact.uuid), name: name, email: email)
+      },
       // Templates for communication types this app doesn't model are dropped rather than failing
       // the whole billing decode, the same tolerance applied to bill transitions above.
       communicationTemplates: (remote.communicationTemplates ?? []).compactMap { template in
@@ -659,7 +749,11 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     Organization(id: OrganizationID(rawValue: remote.uuid), name: remote.name,
       pix: remote.settings.flatMap { pix(key: $0.pixKey, name: $0.pixMerchantName, city: $0.pixMerchantCity) },
       members: (remote.members ?? []).map {
-        OrganizationMember(userID: $0.userID, email: $0.email, role: OrganizationRole(rawValue: $0.role) ?? .viewer)
+        OrganizationMember(
+          userID: $0.userID, email: $0.email,
+          role: OrganizationRole(rawValue: $0.role) ?? .viewer,
+          isCurrentUser: $0.isCurrentUser ?? false
+        )
       },
       requiresMFA: remote.enforceMFA, currentUserRole: OrganizationRole(rawValue: remote.currentRole) ?? .viewer,
       capabilities: OrganizationCapabilities(canManage: remote.capabilities.canManage, canInvite: remote.capabilities.canInvite,

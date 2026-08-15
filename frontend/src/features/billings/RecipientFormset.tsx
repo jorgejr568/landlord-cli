@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 
 import { FieldError } from "../../components/FieldError";
+import { limitApiCharacters } from "../../lib/textLimits";
 
 export interface ContactValue {
   email: string;
@@ -69,7 +70,7 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
                       disabled={locked}
                       id={`${kind}-${contact.id}-name`}
                       name={`${kind}-${index}-name`}
-                      onChange={(event) => update(index, "name", event.target.value)}
+                      onChange={(event) => update(index, "name", limitApiCharacters(event.target.value, 255))}
                       placeholder={isRecipient ? "Ex.: João" : "Ex.: Ana"}
                       type="text"
                       value={contact.name}
@@ -84,6 +85,7 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
                       className="input"
                       disabled={locked}
                       id={`${kind}-${contact.id}-email`}
+                      maxLength={320}
                       name={`${kind}-${index}-email`}
                       onChange={(event) => update(index, "email", event.target.value)}
                       placeholder={isRecipient ? "joao@email.com" : "ana@email.com"}

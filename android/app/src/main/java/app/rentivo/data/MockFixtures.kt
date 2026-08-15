@@ -192,11 +192,15 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
         id = ReceiptID(rawValue = stableID(2_001)),
         name = "comprovante-pix-junho.pdf",
         sortOrder = 0,
+        mediaType = "application/pdf",
+        byteCount = 184_320,
       )
       val paidReceiptImage = Receipt(
         id = ReceiptID(rawValue = stableID(2_002)),
         name = "confirmacao-bancaria.jpg",
         sortOrder = 1,
+        mediaType = "image/jpeg",
+        byteCount = 92_160,
       )
       val bills = listOf(
         bill(
@@ -371,6 +375,8 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
               lastUsedAt = now,
             )
           ),
+          setupRequired = false,
+          organizationEnforced = true,
         ),
         apiKeys = listOf(integrationKey),
         themes = mapOf(
@@ -392,7 +398,7 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
 
     private data class ItemSpec(
       val description: String,
-      val centavos: Int,
+      val centavos: Long,
       val type: BillingItemType,
     )
 
@@ -428,7 +434,12 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
           email = "fiadora@example.com",
         ),
       ),
-      replyTo = "ana@example.com",
+      replyTo = listOf(
+        BillingRecipient(
+          id = RecipientID(rawValue = "reply-aurora"), name = "Ana",
+          email = "ana@example.com",
+        )
+      ),
       communicationTemplates = defaultCommunicationTemplates,
     )
 
@@ -437,11 +448,11 @@ data class MockFixtures(val snapshot: StoreSnapshot) {
       billingID: BillingID,
       month: Int,
       status: BillStatus,
-      variableAmount: Int,
+      variableAmount: Long,
       paidAt: DateOnly? = null,
       receipts: List<Receipt> = emptyList(),
     ): Bill {
-      val fixedAmount = when (billingID) {
+      val fixedAmount: Long = when (billingID) {
         StableID.billingAurora101 -> 273_000
         StableID.billingAurora202 -> 350_000
         StableID.billingSolNascente303 -> 175_000

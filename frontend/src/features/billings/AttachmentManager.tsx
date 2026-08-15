@@ -6,10 +6,14 @@ import { FieldError } from "../../components/FieldError";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
 type AttachmentMutation = "delete" | "upload";
+
+const allowedAttachmentTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const maximumAttachmentBytes = 10 * 1024 * 1024;
 
 interface MutationToken {
   controller: AbortController;
@@ -78,6 +82,21 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setFileError("Selecione um arquivo.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (!allowedAttachmentTypes.has(file.type.toLowerCase())) {
+      setFileError("Envie um arquivo PDF, JPEG ou PNG.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (file.size === 0) {
+      setFileError("O arquivo selecionado está vazio.");
+      fileRef.current?.focus();
+      return;
+    }
+    if (file.size > maximumAttachmentBytes) {
+      setFileError("O arquivo excede o limite de 10 MB.");
       fileRef.current?.focus();
       return;
     }
@@ -169,7 +188,7 @@ export function AttachmentManager({ attachments, billingUuid, canEdit, mode, onC
       <div className="panel" style={mode === "edit" ? { marginTop: "1.5rem" } : undefined}>
         <div className="panel__head"><h3 ref={headingRef} tabIndex={-1}>Documentos</h3><span className="panel__title-eyebrow">{mode === "edit" ? "Contrato, etc." : `${attachments.length} ${attachments.length === 1 ? "anexo" : "anexos"}`}</span></div>
         {mode === "detail" ? table : <div className="panel__body">{table}{canEdit ? <form encType="multipart/form-data" onSubmit={upload}>
-          <div className="field"><label className="field__label" htmlFor="attachment_name">Nome do documento</label><input className="input" id="attachment_name" maxLength={255} name="name" onChange={(event) => setName(event.target.value)} placeholder="Ex.: Contrato de locação" type="text" value={name} /></div>
+          <div className="field"><label className="field__label" htmlFor="attachment_name">Nome do documento</label><input className="input" id="attachment_name" name="name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Contrato de locação" type="text" value={name} /></div>
           <div className="field"><label className="field__label" htmlFor="attachment_file">Arquivo</label><input accept=".pdf,.jpg,.jpeg,.png" aria-describedby="attachment-file-hint attachment-file-error" className="input" id="attachment_file" name="attachment_file" ref={fileRef} type="file" /><span className="field__hint" id="attachment-file-hint">PDF, JPG ou PNG. Máximo 10 MB.</span><FieldError id="attachment-file-error" message={fileError} /></div>
           <button className="btn btn--sm btn--primary" disabled={activeMutation !== null} type="submit">{activeMutation === "upload" ? "Enviando..." : "Enviar"}</button>
         </form> : null}</div>}

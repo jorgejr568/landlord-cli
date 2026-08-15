@@ -27,16 +27,25 @@ struct AccountProfilePIXTests {
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
-  @Test("a partially filled PIX form is incomplete, so Salvar stays disabled")
-  func partiallyFilledPIXFormIsIncomplete() {
+  @Test("an empty or complete PIX form is savable, but a partial one is not")
+  func pixFormSavabilityMatchesTheServerContract() {
     var form = ProfilePIXForm()
+    #expect(form.isSavable)
     #expect(form.configuration.isComplete == false)
     form.key = "jorge@example.com"
+    #expect(form.isSavable == false)
     #expect(form.configuration.isComplete == false)
     form.merchantName = "JORGE JUNIOR"
+    #expect(form.isSavable == false)
     #expect(form.configuration.isComplete == false)
     form.merchantCity = "SALVADOR"
+    #expect(form.isSavable)
     #expect(form.configuration.isComplete)
+    form.merchantName = String(repeating: "N", count: 26)
+    #expect(form.isSavable == false)
+    form.merchantName = "JORGE JUNIOR"
+    form.merchantCity = String(repeating: "C", count: 16)
+    #expect(form.isSavable == false)
   }
 
   @Test("demo viewer mode locks the PIX section but still reads the profile")
@@ -68,6 +77,14 @@ struct APIKeyFormRulesTests {
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [], resourceIDs: [.personal]) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: []) == false)
     #expect(APIKeyFormRules.isSavable(name: "CRM", scopes: [.profileRead], resourceIDs: [.personal]))
+    #expect(APIKeyFormRules.isSavable(name: "   ", scopes: [.profileRead], resourceIDs: [.personal]) == false)
+    #expect(
+      APIKeyFormRules.isSavable(
+        name: String(repeating: "a", count: 256),
+        scopes: [.profileRead],
+        resourceIDs: [.personal]
+      ) == false
+    )
   }
 
   @Test("existing grants are reused, new ones are typed by resource, and the order is stable")
@@ -122,14 +139,17 @@ struct APIKeyLifecycleTests {
     #expect(keys.contains { $0.id == created.metadata.id })
   }
 
-  @Test("revoking a key removes it from the list")
-  func revokingAKeyRemovesItFromTheList() async throws {
+  @Test("revoking a key preserves it as revoked history")
+  func revokingAKeyPreservesItAsRevokedHistory() async throws {
     let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
     let key = try #require(await app.dependencies.apiKeys.listAPIKeys().first)
 
     try await app.dependencies.apiKeys.revokeAPIKey(id: key.id)
 
-    #expect(try await app.dependencies.apiKeys.listAPIKeys().contains { $0.id == key.id } == false)
+    let revoked = try #require(
+      try await app.dependencies.apiKeys.listAPIKeys().first { $0.id == key.id }
+    )
+    #expect(revoked.revokedAt != nil)
   }
 
   @Test("demo viewer mode refuses to create or revoke keys")

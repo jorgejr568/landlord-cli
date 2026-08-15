@@ -38,7 +38,7 @@ data class OrganizationCapabilities(
     )
 
     val manager = OrganizationCapabilities(
-      canManage = false, canInvite = true, canCreateBilling = true, canViewBillingStats = true,
+      canManage = false, canInvite = false, canCreateBilling = true, canViewBillingStats = true,
     )
 
     val viewer = OrganizationCapabilities(
@@ -57,6 +57,7 @@ data class OrganizationMember(
   val userID: Int,
   val email: String,
   val role: OrganizationRole,
+  val isCurrentUser: Boolean = false,
 ) {
   val id: Int get() = userID
 }
@@ -69,13 +70,93 @@ data class Organization(
   val requiresMFA: Boolean,
   val currentUserRole: OrganizationRole,
   val capabilities: OrganizationCapabilities = OrganizationCapabilities.full,
+) {
+  /** Roles are descriptive; the capability returned by the API is authoritative. */
+  val billingOwnerForCreation: BillingOwner?
+    get() = if (capabilities.canCreateBilling) {
+      BillingOwner.Organization(id = id, name = name)
+    } else {
+      null
+    }
+}
+
+/**
+ * Effective policy returned after changing an organization's MFA requirement. The setup flag is
+ * user-specific: it is true when the current administrator still has no enrolled MFA method.
+ */
+data class OrganizationMFAPolicy(
+  val enforceMFA: Boolean,
+  val mfaSetupRequired: Boolean,
 )
 
 data class OrganizationDraft(
   val name: String,
   val pix: PixConfiguration?,
 ) {
-  val isValid: Boolean get() = name.trim().isNotEmpty()
+  val isValid: Boolean
+    get() = nameValidationMessage(name) == null && pix?.let {
+      pixValidationMessage(
+        key = it.key,
+        merchantName = it.merchantName,
+        city = it.merchantCity,
+      ) == null
+    } != false
+
+  companion object {
+    const val nameLimit: Int = 255
+
+    fun nameValidationMessage(name: String): String? {
+      val normalized = name.trim()
+      return when {
+        normalized.isEmpty() -> "Informe o nome da organização."
+        normalized.codePointCount(0, normalized.length) > nameLimit ->
+          "O nome da organização deve ter até 255 caracteres."
+        else -> null
+      }
+    }
+
+    fun pixValidationMessage(key: String, merchantName: String, city: String): String? {
+      val normalizedKey = key.trim()
+      val normalizedName = merchantName.trim()
+      val normalizedCity = city.trim()
+      return when {
+        normalizedKey.isEmpty() -> null
+        normalizedName.isEmpty() || normalizedCity.isEmpty() ->
+          "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+        normalizedName.codePointCount(0, normalizedName.length) > 25 ->
+          "O nome do recebedor deve ter até 25 caracteres."
+        normalizedCity.codePointCount(0, normalizedCity.length) > 15 ->
+          "A cidade do recebedor deve ter até 15 caracteres."
+        else -> null
+      }
+    }
+  }
+}
+
+/**
+ * Mirrors the deliberately permissive `OrganizationInviteCreateRequest` address contract. This
+ * must stay separate from the stricter billing-contact validator because invites accept `a@b`.
+ */
+object OrganizationInviteEmail {
+  const val maximumLength: Int = 320
+
+  fun normalized(email: String): String = email.trim().lowercase()
+
+  fun validationMessage(email: String): String? {
+    val value = normalized(email)
+    return when {
+      value.isEmpty() -> "Informe o e-mail."
+      value.codePointCount(0, value.length) > maximumLength ->
+        "O e-mail deve ter até 320 caracteres."
+      value.count { it == '@' } != 1 || value.any { it.isWhitespace() } ->
+        "Informe um e-mail válido."
+      value.substringBefore('@').isEmpty() || value.substringAfter('@').isEmpty() ->
+        "Informe um e-mail válido."
+      else -> null
+    }
+  }
+
+  fun isValid(email: String): Boolean = validationMessage(email) == null
 }
 
 enum class InvitationStatus(val wire: String) {
@@ -96,6 +177,13 @@ data class Invitation(
   val email: String,
   val role: OrganizationRole,
   val status: InvitationStatus,
+  val invitedByEmail: String? = null,
+  val organizationEnforcesMFA: Boolean = false,
+)
+
+data class InvitationAcceptance(
+  val organizationID: OrganizationID,
+  val mfaSetupRequired: Boolean,
 )
 
 data class Passkey(
@@ -109,6 +197,8 @@ data class SecuritySummary(
   val totpEnabled: Boolean,
   val recoveryCodeCount: Int,
   val passkeys: List<Passkey>,
+  val setupRequired: Boolean = false,
+  val organizationEnforced: Boolean = false,
 )
 
 data class TOTPEnrollment(
@@ -159,6 +249,38 @@ enum class WorkspaceResourceType(val wire: String) {
 
   companion object {
     fun fromWire(wire: String?): WorkspaceResourceType? = entries.firstOrNull { it.wire == wire }
+  }
+}
+
+data class APIKeyWorkspaceOption(
+  val resourceType: WorkspaceResourceType,
+  val resourceID: WorkspaceID,
+  val name: String,
+) {
+  val id: WorkspaceID get() = resourceID
+}
+
+data class APIKeyOptions(
+  val scopes: List<APIKeyScope>,
+  val personalWorkspace: APIKeyWorkspaceOption,
+  val organizations: List<APIKeyWorkspaceOption>,
+  val defaultExpirationDays: Int,
+  val maxExpirationDays: Int,
+) {
+  fun defaultExpiration(now: Instant = Instant.now()): Instant =
+    now.plusSeconds(defaultExpirationDays * 86_400L)
+
+  /** One-minute request-latency buffer, matching the web client's upper-bound clamp. */
+  fun maximumExpiration(now: Instant = Instant.now()): Instant =
+    now.plusSeconds(maxExpirationDays * 86_400L - 60)
+
+  fun clampedExpiration(selected: Instant, now: Instant = Instant.now()): Instant =
+    maxOf(minOf(selected, maximumExpiration(now)), now.plusSeconds(60))
+}
+
+object APIKeyValidation {
+  fun isValidName(name: String): Boolean = name.trim().let {
+    it.isNotEmpty() && it.codePointCount(0, it.length) <= 255
   }
 }
 

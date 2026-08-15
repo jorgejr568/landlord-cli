@@ -203,7 +203,7 @@ private struct ExpenseFormView: View {
             Text("Salvar")
           }
         }
-        .disabled(saving || description.isEmpty || centavos <= 0)
+        .disabled(saving || !ExpenseInput.isValidDescription(description) || centavos <= 0)
       }
     }
     .interactiveDismissDisabled(saving)
@@ -217,7 +217,7 @@ private struct ExpenseFormView: View {
     do {
       _ = try await app.dependencies.expenses.createExpense(
         billingID: billingID,
-        description: description,
+        description: ExpenseInput.normalizedDescription(description),
         category: category,
         incurredOn: selectedDate,
         amount: Money(centavos: centavos)
@@ -406,15 +406,22 @@ struct CommunicationComposerView: View {
   init(billing: Billing, bill: Bill) {
     self.billing = billing
     self.bill = bill
+    let initialType: CommunicationType = bill.capabilities.canSendInvoice ? .billReady : .paymentReceipt
+    _commType = State(initialValue: initialType)
     _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
-    let template = billing.template(for: .billReady)
+    let template = billing.template(for: initialType)
     _subject = State(initialValue: template?.subject ?? "")
     _message = State(initialValue: template?.body ?? "")
-    _appliedTemplateType = State(initialValue: .billReady)
+    _appliedTemplateType = State(initialValue: initialType)
   }
 
   private var availableTypes: [CommunicationType] {
-    bill.status == .paid ? CommunicationType.allCases : [.billReady]
+    CommunicationType.allCases.filter { type in
+      switch type {
+      case .billReady: bill.capabilities.canSendInvoice
+      case .paymentReceipt: bill.status == .paid && bill.capabilities.canSendRecibo
+      }
+    }
   }
 
   private var sendDisabled: Bool {
@@ -424,7 +431,7 @@ struct CommunicationComposerView: View {
       isSending: isSending,
       hasSelectedRecipients: !selectedRecipients.isEmpty,
       isRenderingPDF: bill.isRenderingPDF
-    )
+    ) || !availableTypes.contains(commType)
   }
 
   private var attachmentDescription: String {
@@ -561,6 +568,12 @@ struct CommunicationComposerView: View {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
+    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
+      sendErrorMessage = message
+      return
+    }
+    let normalizedSubject = CommunicationContent.normalizedSubject(subject)
+    let normalizedMessage = CommunicationContent.normalizedMessage(message)
     isSending = true
     defer { isSending = false }
     do {
@@ -570,8 +583,8 @@ struct CommunicationComposerView: View {
         billID: bill.id,
         commType: commType,
         recipientIDs: orderedIDs,
-        subject: subject,
-        message: message,
+        subject: normalizedSubject,
+        message: normalizedMessage,
         acknowledgeWarning: false,
         saveScope: saveScope
       )
@@ -584,19 +597,20 @@ struct CommunicationComposerView: View {
 struct ExportSimulationView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
-  @State private var format = "CSV"
+  @State private var format = BillingExportContract.formats[0]
 
   var body: some View {
     Form {
       Picker("Formato", selection: $format) {
-        Text("CSV").tag("CSV")
-        Text("XLSX").tag("XLSX")
+        ForEach(BillingExportContract.formats, id: \.self) { format in
+          Text(format.uppercased()).tag(format)
+        }
       }
       .pickerStyle(.segmented)
       Section("Conteúdo") {
-        Label("Faturas", systemImage: "doc.text")
-        Label("Despesas", systemImage: "wrench.and.screwdriver")
-        Label("Resumo financeiro", systemImage: "chart.bar")
+        ForEach(BillingExportContract.includedSections, id: \.self) { section in
+          Label(section, systemImage: "doc.text")
+        }
       }
       Button("Solicitar exportação") {
         Task { await requestExport() }
@@ -609,8 +623,8 @@ struct ExportSimulationView: View {
 
   private func requestExport() async {
     do {
-      try await app.dependencies.exports.requestExport(billingID: billingID, format: format.lowercased())
-      app.showNotice("Exportação \(format) enfileirada.")
+      try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
+      app.showNotice("Exportação \(format.uppercased()) enfileirada.")
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 }

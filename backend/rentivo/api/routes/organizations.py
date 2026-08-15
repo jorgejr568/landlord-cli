@@ -193,7 +193,7 @@ async def list_organizations(
 
 @router.post(
     "",
-    response_model=OrganizationResponse,
+    response_model=OrganizationLoginDetailResponse,
     status_code=201,
     responses={422: {"model": Problem}},
 )
@@ -203,8 +203,17 @@ async def create_organization(
     principal: Principal = Depends(_write_principal),
     _csrf: None = Depends(require_csrf),
     services: RequestServices = Depends(get_services),
-) -> OrganizationResponse:
-    organization = services.organization.create_organization(payload.name, principal.user.id)
+) -> OrganizationLoginDetailResponse:
+    try:
+        organization = services.organization.create_organization(
+            payload.name,
+            principal.user.id,
+            pix_key=payload.pix_key,
+            pix_merchant_name=payload.pix_merchant_name,
+            pix_merchant_city=payload.pix_merchant_city,
+        )
+    except ValueError:
+        raise ProblemException.invalid("validation_error", "As configurações da organização são inválidas.") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ORGANIZATION_CREATE,
@@ -215,7 +224,10 @@ async def create_organization(
     )
     member = services.organization.get_member(organization.id, principal.user.id)
     set_analytics(response, "rentivo_organization_created")
-    return _organization_response(organization, member, principal)
+    return _detail_response(
+        OrganizationAccess(organization=organization, member=member, principal=principal),
+        services,
+    )
 
 
 @router.get(

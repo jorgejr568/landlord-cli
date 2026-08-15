@@ -69,6 +69,44 @@ class FileUpload(
     "FileUpload(filename=$filename, mediaType=$mediaType, byteCount=$byteCount)"
 }
 
+object AttachmentUploadRules {
+  /** Mirrors `ALLOWED_ATTACHMENT_TYPES` in the backend billing attachment model. */
+  val allowedMediaTypes: Set<String> = setOf("application/pdf", "image/jpeg", "image/png")
+
+  /** Mirrors `MAX_ATTACHMENT_SIZE` in the backend billing attachment model. */
+  const val maximumByteCount: Int = 10 * 1024 * 1024
+
+  fun validated(upload: FileUpload): FileUpload {
+    val mediaType = upload.mediaType.substringBefore(';').trim().lowercase()
+    if (mediaType !in allowedMediaTypes) throw DemoError("Envie um arquivo PDF, JPEG ou PNG.")
+    if (upload.byteCount == 0) throw DemoError("O arquivo selecionado está vazio.")
+    if (upload.byteCount > maximumByteCount) {
+      throw DemoError("O arquivo excede o limite de 10 MB.")
+    }
+    return FileUpload(data = upload.data, filename = upload.filename, mediaType = mediaType)
+  }
+}
+
+object ReceiptUploadRules {
+  /** Mirrors the receipt model types that the backend stores instead of silently skipping. */
+  val allowedMediaTypes: Set<String> = setOf("application/pdf", "image/jpeg", "image/png")
+
+  /** Mirrors the receipt model's per-file cap. */
+  const val maximumByteCount: Int = 10 * 1024 * 1024
+
+  fun validated(upload: FileUpload): FileUpload {
+    val mediaType = upload.mediaType.substringBefore(';').trim().lowercase()
+    if (mediaType !in allowedMediaTypes) {
+      throw DemoError("Envie um comprovante em PDF, JPEG ou PNG.")
+    }
+    if (upload.byteCount == 0) throw DemoError("O comprovante selecionado está vazio.")
+    if (upload.byteCount > maximumByteCount) {
+      throw DemoError("O comprovante excede o limite de 10 MB.")
+    }
+    return FileUpload(data = upload.data, filename = upload.filename, mediaType = mediaType)
+  }
+}
+
 /** A file the API layer wrote into the downloads directory owned by `DownloadedFileStore`. */
 data class DownloadedFile(
   val file: File,

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from rentivo.api.schemas.auth import WebAuthnCredentialDescriptor, WebAuthnModel
+from rentivo.api.schemas.auth import (
+    BCRYPT_MAX_PASSWORD_BYTES,
+    WebAuthnCredentialDescriptor,
+    WebAuthnModel,
+    validate_bcrypt_password,
+)
 
 
 class _StrictModel(BaseModel):
@@ -25,8 +30,20 @@ class CurrentProfileResponse(_StrictModel):
 
 class PixUpdateRequest(_StrictModel):
     pix_key: str = ""
-    pix_merchant_name: str = ""
-    pix_merchant_city: str = ""
+    pix_merchant_name: str = Field(default="", max_length=25)
+    pix_merchant_city: str = Field(default="", max_length=15)
+
+    @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city", mode="before")
+    @classmethod
+    def normalize_pix_fields(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def require_complete_or_empty_configuration(self) -> Self:
+        fields = (self.pix_key, self.pix_merchant_name, self.pix_merchant_city)
+        if any(fields) and not all(fields):
+            raise ValueError("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.")
+        return self
 
 
 class PixUpdateResponse(_StrictModel):
@@ -34,9 +51,14 @@ class PixUpdateResponse(_StrictModel):
 
 
 class PasswordChangeRequest(_StrictModel):
-    current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=1)
-    confirm_password: str = Field(min_length=1)
+    current_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    new_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+    confirm_password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    @field_validator("current_password", "new_password", "confirm_password")
+    @classmethod
+    def passwords_within_bcrypt_limit(cls, value: str) -> str:
+        return validate_bcrypt_password(value)
 
 
 class TOTPStatusResponse(_StrictModel):
@@ -78,11 +100,15 @@ class TOTPConfirmRequest(_StrictModel):
 
 
 class TOTPDisableRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    _password_within_bcrypt_limit = field_validator("password")(validate_bcrypt_password)
 
 
 class AccountDeleteRequest(_StrictModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
+
+    _password_within_bcrypt_limit = field_validator("password")(validate_bcrypt_password)
 
 
 class RecoveryCodesResponse(_StrictModel):

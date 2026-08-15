@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 private fun makeBill(
   status: BillStatus = BillStatus.DRAFT,
@@ -30,6 +31,24 @@ private fun makeBill(
 )
 
 class BillLifecycleTest {
+  @Test
+  fun `only transferable personal billings can be moved into an organization`() {
+    val transferable = Billing(
+      id = BillingID("transferable"), name = "Pessoal", description = "",
+      owner = BillingOwner.User(id = 7, name = "Pessoal"), items = emptyList(),
+      capabilities = BillingCapabilities.full,
+    )
+    val denied = transferable.copy(id = BillingID("denied"), capabilities = BillingCapabilities.viewer)
+    val organizationOwned = transferable.copy(
+      id = BillingID("organization"),
+      owner = BillingOwner.Organization(id = OrganizationID("org-1"), name = "Organização"),
+    )
+
+    assertTrue(transferable.canTransferToOrganization)
+    assertFalse(denied.canTransferToOrganization)
+    assertFalse(organizationOwned.canTransferToOrganization)
+  }
+
 
   @Test
   fun draftCanPublishButCannotBecomeDelayedDirectly() {
@@ -115,6 +134,36 @@ class BillLifecycleTest {
   }
 
   @Test
+  fun apiKeyOptionsApplyServerExpirationLimitsAndValidateNames() {
+    val now = Instant.ofEpochSecond(1_700_000_000L)
+    val options = APIKeyOptions(
+      scopes = listOf(APIKeyScope.PROFILE_READ),
+      personalWorkspace = APIKeyWorkspaceOption(
+        resourceType = WorkspaceResourceType.USER,
+        resourceID = WorkspaceID.personal,
+        name = "Conta pessoal",
+      ),
+      organizations = emptyList(),
+      defaultExpirationDays = 30,
+      maxExpirationDays = 180,
+    )
+
+    assertEquals(now.plusSeconds(30 * 86_400L), options.defaultExpiration(now))
+    assertEquals(now.plusSeconds(180 * 86_400L - 60), options.maximumExpiration(now))
+    assertEquals(now.plusSeconds(60), options.clampedExpiration(now, now))
+    assertEquals(
+      options.maximumExpiration(now),
+      options.clampedExpiration(now.plusSeconds(365 * 86_400L), now),
+    )
+    assertTrue(APIKeyValidation.isValidName(" CRM "))
+    assertFalse(APIKeyValidation.isValidName("   "))
+    assertFalse(APIKeyValidation.isValidName("a".repeat(256)))
+    assertTrue(APIKeyValidation.isValidName("😀".repeat(255)))
+    assertFalse(APIKeyValidation.isValidName("😀".repeat(256)))
+    assertFalse(APIKeyValidation.isValidName("e\u0301".repeat(128)))
+  }
+
+  @Test
   fun apiEnumsPreserveRawValues() {
     assertEquals("manutencao", ExpenseCategory.MAINTENANCE.wire)
     assertEquals("viewer", OrganizationRole.VIEWER.wire)
@@ -170,6 +219,23 @@ class BillLifecycleTest {
     assertEquals(setOf(BillStatus.CANCELLED), bill.effectiveTransitions)
     assertTrue(bill.canTransition(BillStatus.CANCELLED))
     assertFalse(bill.canTransition(BillStatus.PUBLISHED))
+  }
+
+  @Test
+  fun billFallbackTransitionActionsConfirmConsequentialChanges() {
+    val bill = makeBill(
+      status = BillStatus.SENT,
+      availableTransitions = listOf(BillStatus.PAID, BillStatus.DELAYED_PAYMENT),
+    )
+
+    assertTrue(bill.effectiveTransitionActions.first { it.target == BillStatus.PAID }
+      .requiresConfirmation)
+    assertEquals(
+      "primary",
+      bill.effectiveTransitionActions.first { it.target == BillStatus.PAID }.style,
+    )
+    assertFalse(bill.effectiveTransitionActions.first { it.target == BillStatus.DELAYED_PAYMENT }
+      .requiresConfirmation)
   }
 
   @Test

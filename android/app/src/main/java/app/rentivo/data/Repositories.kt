@@ -3,6 +3,7 @@ package app.rentivo.data
 import app.rentivo.domain.APIKeyDraft
 import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
+import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.Bill
@@ -24,11 +25,13 @@ import app.rentivo.domain.ExpenseCategory
 import app.rentivo.domain.ExpenseID
 import app.rentivo.domain.FileUpload
 import app.rentivo.domain.Invitation
+import app.rentivo.domain.InvitationAcceptance
 import app.rentivo.domain.InvitationID
 import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MobileLoginOutcome
 import app.rentivo.domain.Money
 import app.rentivo.domain.Organization
+import app.rentivo.domain.OrganizationMFAPolicy
 import app.rentivo.domain.PasskeyAssertionPayload
 import app.rentivo.domain.PasskeyRequestOptions
 import app.rentivo.domain.OrganizationDraft
@@ -128,7 +131,12 @@ interface BillRepository {
 
   suspend fun deleteBill(billingID: BillingID, billID: BillID)
 
-  suspend fun transitionBill(billingID: BillingID, billID: BillID, status: BillStatus)
+  suspend fun transitionBill(
+    billingID: BillingID,
+    billID: BillID,
+    currentStatus: BillStatus,
+    status: BillStatus,
+  )
 
   suspend fun regenerateBill(billingID: BillingID, billID: BillID): Bill
 
@@ -235,7 +243,10 @@ interface OrganizationRepository {
     role: OrganizationRole,
   ): Invitation
 
-  suspend fun setOrganizationMFA(organizationID: OrganizationID, required: Boolean)
+  suspend fun setOrganizationMFA(
+    organizationID: OrganizationID,
+    required: Boolean,
+  ): OrganizationMFAPolicy
 
   suspend fun transferBilling(billingID: BillingID, toOrganizationID: OrganizationID)
 }
@@ -243,7 +254,7 @@ interface OrganizationRepository {
 interface InvitationRepository {
   suspend fun listPendingInvitations(): List<Invitation>
 
-  suspend fun acceptInvitation(id: InvitationID)
+  suspend fun acceptInvitation(id: InvitationID): InvitationAcceptance
 
   suspend fun declineInvitation(id: InvitationID)
 }
@@ -269,11 +280,17 @@ interface SecurityRepository {
 }
 
 interface APIKeyRepository {
+  suspend fun apiKeyOptions(): APIKeyOptions
+
   suspend fun listAPIKeys(): List<APIKeyMetadata>
 
   suspend fun createAPIKey(draft: APIKeyDraft): CreatedAPIKeySecret
 
-  suspend fun updateAPIKey(id: APIKeyID, draft: APIKeyDraft): APIKeyMetadata
+  suspend fun updateAPIKey(
+    id: APIKeyID,
+    draft: APIKeyDraft,
+    updateGrants: Boolean = true,
+  ): APIKeyMetadata
 
   suspend fun revokeAPIKey(id: APIKeyID)
 }

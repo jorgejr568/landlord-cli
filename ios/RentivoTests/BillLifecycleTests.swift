@@ -73,6 +73,32 @@ import Testing
   #expect(!APIKeyScope.integrationCases.contains(.apiKeysManage))
 }
 
+@Test func apiKeyOptionsApplyServerExpirationLimitsAndValidateNames() {
+  let now = Date(timeIntervalSince1970: 1_700_000_000)
+  let options = APIKeyOptions(
+    scopes: [.profileRead],
+    personalWorkspace: APIKeyWorkspaceOption(
+      resourceType: .user, resourceID: .personal, name: "Conta pessoal"),
+    organizations: [],
+    defaultExpirationDays: 30,
+    maxExpirationDays: 180
+  )
+
+  #expect(options.defaultExpiration(from: now) == now.addingTimeInterval(30 * 86_400))
+  #expect(options.maximumExpiration(from: now) == now.addingTimeInterval(180 * 86_400 - 60))
+  #expect(options.clampedExpiration(now, from: now) == now.addingTimeInterval(60))
+  #expect(
+    options.clampedExpiration(now.addingTimeInterval(365 * 86_400), from: now)
+      == options.maximumExpiration(from: now)
+  )
+  #expect(APIKeyValidation.isValidName(" CRM "))
+  #expect(!APIKeyValidation.isValidName("   "))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "a", count: 256)))
+  #expect(APIKeyValidation.isValidName(String(repeating: "😀", count: 255)))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "😀", count: 256)))
+  #expect(!APIKeyValidation.isValidName(String(repeating: "e\u{301}", count: 128)))
+}
+
 @Test func apiEnumsPreserveRawValues() {
   #expect(ExpenseCategory.maintenance.rawValue == "manutencao")
   #expect(OrganizationRole.viewer.rawValue == "viewer")
@@ -126,6 +152,15 @@ private func makeBill(status: BillStatus = .draft, availableTransitions: [BillSt
   #expect(!bill.canTransition(to: .published))
 }
 
+@Test func billFallbackTransitionActionsConfirmConsequentialChanges() {
+  let bill = makeBill(status: .sent, availableTransitions: [.paid, .delayedPayment])
+  let actions = bill.effectiveTransitionActions
+
+  #expect(actions.first(where: { $0.target == .paid })?.requiresConfirmation == true)
+  #expect(actions.first(where: { $0.target == .paid })?.style == "primary")
+  #expect(actions.first(where: { $0.target == .delayedPayment })?.requiresConfirmation == false)
+}
+
 @Test func billFallsBackToComputedTotalWhenServerOmitsIt() {
   let bill = makeBill()
   #expect(bill.effectiveTotal == bill.total)
@@ -136,4 +171,24 @@ private func makeBill(status: BillStatus = .draft, availableTransitions: [BillSt
   let bill = makeBill(serverTotal: Money(centavos: 99_900))
   #expect(bill.effectiveTotal == Money(centavos: 99_900))
   #expect(bill.total == Money(centavos: 180_000))
+}
+
+@Test func onlyTransferablePersonalBillingsCanBeMovedIntoAnOrganization() {
+  let transferable = Billing(
+    id: BillingID(rawValue: "transferable"), name: "Pessoal", description: "",
+    owner: .user(id: 7, name: "Pessoal"), items: [], capabilities: .full
+  )
+  let denied = Billing(
+    id: BillingID(rawValue: "denied"), name: "Sem acesso", description: "",
+    owner: .user(id: 7, name: "Pessoal"), items: [], capabilities: .viewer
+  )
+  let organizationOwned = Billing(
+    id: BillingID(rawValue: "organization"), name: "Organização", description: "",
+    owner: .organization(id: OrganizationID(rawValue: "org-1"), name: "Organização"),
+    items: [], capabilities: .full
+  )
+
+  #expect(transferable.canTransferToOrganization)
+  #expect(!denied.canTransferToOrganization)
+  #expect(!organizationOwned.canTransferToOrganization)
 }
