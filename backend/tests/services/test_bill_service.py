@@ -237,6 +237,21 @@ class TestBillService:
         created = self.mock_repo.create.call_args.args[0]
         assert created.line_items[0].amount == 0
 
+    def test_generate_bill_rejects_a_total_that_the_database_cannot_store(self):
+        billing = Billing(
+            id=1,
+            uuid="billing-uuid",
+            name="Apt 101",
+            items=[
+                BillingItem(description="Rent", amount=2_147_483_647, item_type=ItemType.FIXED),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="valor total"):
+            self.service.generate_bill(billing, "2025-03", {}, [("Extra", 1)], render=False)
+
+        self.mock_repo.create.assert_not_called()
+
     def test_update_bill(self):
         bill = Bill(
             id=1,
@@ -265,6 +280,19 @@ class TestBillService:
 
         self.mock_repo.update.assert_called_once()
         self.mock_storage.save.assert_called_once()
+
+    def test_update_bill_rejects_a_total_that_the_database_cannot_store(self):
+        bill = Bill(id=1, uuid="bill-uuid", billing_id=1, reference_month="2025-03")
+        billing = Billing(id=1, uuid="billing-uuid", name="Apt 101")
+        line_items = [
+            BillLineItem(description="Rent", amount=2_147_483_647, item_type=ItemType.FIXED),
+            BillLineItem(description="Extra", amount=1, item_type=ItemType.EXTRA),
+        ]
+
+        with pytest.raises(ValueError, match="valor total"):
+            self.service.update_bill(bill, billing, line_items, "notes")
+
+        self.mock_repo.update.assert_not_called()
 
     def test_regenerate_pdf(self):
         bill = Bill(

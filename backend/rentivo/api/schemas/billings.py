@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from rentivo.money import MAX_CENTAVOS
+
 if TYPE_CHECKING:
     from rentivo.services.billing_stats import BillingStats
 
@@ -47,7 +49,7 @@ class BillingOwnerResponse(_StrictModel):
 class BillingItemInput(_StrictModel):
     uuid: BillingItemUUID | None = None
     description: str = Field(min_length=1, max_length=255)
-    amount: int = Field(ge=0)
+    amount: int = Field(ge=0, le=MAX_CENTAVOS)
     item_type: Literal["fixed", "variable"]
 
     @model_validator(mode="after")
@@ -222,7 +224,7 @@ class BillingTransferRequest(_StrictModel):
 
 class ExpenseCreateRequest(_StrictModel):
     description: str = Field(min_length=1, max_length=2000)
-    amount: int = Field(gt=0)
+    amount: int = Field(gt=0, le=MAX_CENTAVOS)
     category: Literal["iptu", "condominio", "manutencao", "seguro", "outros"]
     incurred_on: date
 

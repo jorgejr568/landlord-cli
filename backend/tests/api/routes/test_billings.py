@@ -1093,6 +1093,7 @@ def test_create_org_billing_uses_granted_live_admin_workspace(billing_harness: B
         _billing_payload(name="   "),
         _billing_payload(items=[]),
         _billing_payload(items=[{"description": "Aluguel", "amount": -1, "item_type": "fixed"}]),
+        _billing_payload(items=[{"description": "Aluguel", "amount": 2_147_483_648, "item_type": "fixed"}]),
         _billing_payload(items=[{"description": "Agua", "amount": 1, "item_type": "variable"}]),
         _billing_payload(owner={"type": "organization", "uuid": None}),
         _billing_payload(owner={"type": "user", "uuid": ORGANIZATION.uuid}),
@@ -1480,6 +1481,7 @@ def test_expense_collection_and_create_use_expense_scopes_and_centavos(billing_h
     [
         {"description": "", "amount": 100, "category": "iptu", "incurred_on": "2026-07-18"},
         {"description": "X", "amount": 0, "category": "iptu", "incurred_on": "2026-07-18"},
+        {"description": "X", "amount": 2_147_483_648, "category": "iptu", "incurred_on": "2026-07-18"},
         {"description": "X", "amount": 100, "category": "bogus", "incurred_on": "2026-07-18"},
         {"description": "X", "amount": 100, "category": "iptu", "incurred_on": "not-a-date"},
     ],

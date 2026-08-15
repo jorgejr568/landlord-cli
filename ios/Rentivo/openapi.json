@@ -702,6 +702,7 @@
           "variable_amounts": {
             "patternProperties": {
               "^[0-9A-HJKMNP-TV-Z]{26}$": {
+                "maximum": 2147483647.0,
                 "minimum": 0.0,
                 "type": "integer"
               }
@@ -861,6 +862,7 @@
         "properties": {
           "amount": {
             "exclusiveMinimum": 0.0,
+            "maximum": 2147483647.0,
             "title": "Amount",
             "type": "integer"
           },
@@ -881,6 +883,7 @@
         "additionalProperties": false,
         "properties": {
           "amount": {
+            "maximum": 2147483647.0,
             "minimum": 0.0,
             "title": "Amount",
             "type": "integer"
@@ -1302,6 +1305,7 @@
         "additionalProperties": false,
         "properties": {
           "amount": {
+            "maximum": 2147483647.0,
             "minimum": 0.0,
             "title": "Amount",
             "type": "integer"
@@ -2672,6 +2676,7 @@
         "properties": {
           "amount": {
             "exclusiveMinimum": 0.0,
+            "maximum": 2147483647.0,
             "title": "Amount",
             "type": "integer"
           },

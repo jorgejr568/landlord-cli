@@ -706,6 +706,7 @@ def test_create_bill_rolls_back_bill_and_receipts_when_render_scheduling_fails(a
         {**_create_payload(), "due_date": "10/08/2026"},
         {**_create_payload(), "extras": [{"description": " ", "amount": 100}]},
         {**_create_payload(), "extras": [{"description": "Taxa", "amount": 0}]},
+        {**_create_payload(), "extras": [{"description": "Taxa", "amount": 2_147_483_648}]},
         {**_create_payload(), "unexpected": True},
     ],
 )
@@ -879,6 +880,16 @@ def test_patch_converts_iso_due_date_for_domain_storage_and_pdf(api: BillsAPI) -
     )
     assert response.status_code == 200
     assert api.services.bill.update_bill.call_args.kwargs["due_date"] == "31/12/2026"
+
+
+def test_patch_maps_a_domain_total_overflow_to_a_field_problem(api: BillsAPI) -> None:
+    api.services.bill.update_bill.side_effect = ValueError("O valor total é muito alto.")
+
+    response = api.client.patch(_detail_url(), json={"notes": "x"}, headers=BEARER_HEADERS)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_total_amount"
+    assert response.json()["fields"] == {"line_items": "O valor total é muito alto."}
 
 
 @pytest.mark.parametrize(

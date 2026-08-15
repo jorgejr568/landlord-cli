@@ -609,14 +609,17 @@ async def update_bill(
         due_date = access.bill.due_date or ""
     else:
         due_date = _domain_due_date(payload.due_date)
-    updated = services.bill.update_bill(
-        bill=access.bill,
-        billing=access.billing,
-        line_items=line_items,
-        notes=notes,
-        due_date=due_date,
-        actor=principal.actor,
-    )
+    try:
+        updated = services.bill.update_bill(
+            bill=access.bill,
+            billing=access.billing,
+            line_items=line_items,
+            notes=notes,
+            due_date=due_date,
+            actor=principal.actor,
+        )
+    except ValueError as exc:
+        raise ProblemException.invalid_field("invalid_total_amount", str(exc), "line_items") from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.BILL_UPDATE,
