@@ -180,13 +180,16 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
   });
   renderPage();
   await screen.findByText("IPTU 2026");
-  expect(screen.getByLabelText("Descrição da despesa")).toHaveAttribute("maxLength", "2000");
+  const expenseDescription = screen.getByLabelText("Descrição da despesa");
+  fireEvent.change(expenseDescription, { target: { value: "😀".repeat(2001) } });
+  expect(expenseDescription).toHaveValue("😀".repeat(2000));
+  fireEvent.change(expenseDescription, { target: { value: "" } });
 
   await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
   expect(await screen.findByText("Exportação CSV solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Exportar Excel" }));
   expect(await screen.findByText("Exportação XLSX solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
-  await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
+  await user.type(expenseDescription, "Pintura");
   await user.selectOptions(screen.getByLabelText("Categoria da despesa"), "manutencao");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
   await user.type(screen.getByLabelText("Valor da despesa (R$)"), "120,50");

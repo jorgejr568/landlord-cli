@@ -435,7 +435,8 @@ it("validates and normalizes communication content before sending", async () => 
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   const subject = await screen.findByLabelText("Assunto");
   const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
-  expect(subject).toHaveAttribute("maxlength", "998");
+  fireEvent.change(subject, { target: { value: "😀".repeat(999) } });
+  expect(subject).toHaveValue("😀".repeat(998));
   expect(body).toHaveAttribute("maxlength", "4096");
 
   fireEvent.change(subject, { target: { value: "   " } });
@@ -837,7 +838,6 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(screen.queryByDisplayValue("Gás")).not.toBeInTheDocument();
   const description = screen.getByLabelText("Descrição");
   const amount = screen.getByLabelText("Valor (R$)");
-  expect(description).toHaveAttribute("maxLength", "255");
   await user.clear(description);
   await user.clear(amount);
   await user.clear(screen.getByLabelText("Vencimento"));
@@ -848,13 +848,11 @@ it("validates edit rows and dates, removes extras, and focuses nested API errors
   expect(screen.getByText("Informe uma data válida.")).toBeVisible();
   expect(screen.getByLabelText("Vencimento")).toHaveFocus();
 
-  fireEvent.change(description, { target: { value: "x".repeat(256) } });
+  fireEvent.change(description, { target: { value: "😀".repeat(256) } });
+  expect(description).toHaveValue("😀".repeat(255));
   await user.type(amount, "2.500,00");
   await user.clear(screen.getByLabelText("Vencimento"));
   await user.type(screen.getByLabelText("Vencimento"), "10/08/2026");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
-  expect(await screen.findByText("A descrição deve ter no máximo 255 caracteres.")).toBeVisible();
-
   fireEvent.change(screen.getByLabelText("Descrição"), {
     target: { value: "Aluguel" },
   });

@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { components } from "../../lib/api/schema";
+import { limitApiCharacters } from "../../lib/textLimits";
 
 type ApiKey = components["schemas"]["APIKeyResponse"];
 type ApiKeyCreate = components["schemas"]["APIKeyCreateRequest"];
@@ -106,7 +107,7 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
     <form onSubmit={(event) => void handleSubmit(event)}>
       <div className="field">
         <label className="field-label" htmlFor="api-key-name">Nome</label>
-        <input autoFocus className="field-input" id="api-key-name" maxLength={255} onChange={(event) => setName(event.target.value)} value={name} />
+        <input autoFocus className="field-input" id="api-key-name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} value={name} />
         {submitted && !name.trim() ? <span className="field-hint" style={{ color: "var(--danger)" }}>Informe um nome para a chave.</span> : null}
       </div>
       <fieldset className="field" style={{ border: 0, margin: "0 0 1.1rem", padding: 0 }}>

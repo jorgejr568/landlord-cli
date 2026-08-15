@@ -8,6 +8,7 @@ import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { paths } from "../../lib/api/schema";
 import { formatBrl, formatBrlInput, parseBrl, parseDateInput } from "../../lib/format";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Billing } from "./billSupport";
@@ -268,7 +269,7 @@ export function BillGeneratePage() {
               {extras.length === 0 && <p className="text-muted">Nenhuma despesa extra.</p>}
               {extras.map((extra, index) => (
                 <div className="extras-grid" key={extra.key}>
-                  <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" maxLength={255} onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: event.target.value } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
+                  <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
                   <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} className="field-input" inputMode="decimal" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row))} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
                   <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => setExtras((rows) => rows.filter((row) => row.key !== extra.key))} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
                 </div>

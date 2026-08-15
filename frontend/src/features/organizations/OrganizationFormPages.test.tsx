@@ -66,7 +66,9 @@ afterEach(() => {
 it("caps organization names at the backend limit", () => {
   renderCreate();
 
-  expect(screen.getByLabelText("Nome da organização")).toHaveAttribute("maxlength", "255");
+  const name = screen.getByLabelText("Nome da organização");
+  fireEvent.change(name, { target: { value: "😀".repeat(256) } });
+  expect(name).toHaveValue("😀".repeat(255));
 });
 
 function LocationProbe() {

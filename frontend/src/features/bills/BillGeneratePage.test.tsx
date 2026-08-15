@@ -255,13 +255,12 @@ it("validates dates and extras locally, removes rows, and focuses nested API err
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor maior que zero.")).toBeVisible();
-  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveFocus();
-  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveAttribute("maxLength", "255");
+  const extraDescription = screen.getByLabelText("Descrição da despesa extra 1");
+  expect(extraDescription).toHaveFocus();
 
-  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 1"), { target: { value: "x".repeat(256) } });
+  fireEvent.change(extraDescription, { target: { value: "😀".repeat(256) } });
+  expect(extraDescription).toHaveValue("😀".repeat(255));
   fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
-  expect(await screen.findByText("A descrição deve ter no máximo 255 caracteres.")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
   await user.clear(screen.getByLabelText("Descrição da despesa extra 1"));

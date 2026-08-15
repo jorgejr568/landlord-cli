@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { ApiKeySection } from "../apiKeys/ApiKeySection";
 import { SubmitButton } from "../auth/AuthComponents";
 import { useAuth } from "../auth/AuthProvider";
@@ -226,8 +227,8 @@ export function SecurityPage() {
         {pixIncomplete ? <div className="toast toast--warning" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
         <form onSubmit={(event) => void updatePix(event)}>
           <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input className="field-input" id="pix_key" onChange={(event) => setPixKey(event.target.value)} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} /><span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" maxLength={25} onChange={(event) => setPixName(event.target.value)} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" maxLength={15} onChange={(event) => setPixCity(event.target.value)} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" onChange={(event) => setPixName(limitApiCharacters(event.target.value, 25))} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" onChange={(event) => setPixCity(limitApiCharacters(event.target.value, 15))} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
           <SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton>
         </form>
       </div></div>

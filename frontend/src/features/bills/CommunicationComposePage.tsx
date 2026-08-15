@@ -8,6 +8,7 @@ import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { formatMonth } from "../../lib/format";
+import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
@@ -200,7 +201,7 @@ export function CommunicationComposePage() {
           })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div></div>
 
           <div className="panel"><div className="panel__head"><h3>Mensagem</h3><span className="panel__title-eyebrow">Markdown</span></div><div className="panel__body">
-            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" maxLength={MAX_COMMUNICATION_SUBJECT_LENGTH} onChange={(event) => setSubject(event.target.value)} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
+            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
             <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={fieldErrors.body ? "body-error" : undefined} className="input" id="body" maxLength={MAX_COMMUNICATION_BODY_BYTES} onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
           </div></div>
 

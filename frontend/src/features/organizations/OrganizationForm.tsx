@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
+import { limitApiCharacters } from "../../lib/textLimits";
 
 export interface OrganizationValues {
   name: string;
@@ -69,8 +70,7 @@ export function OrganizationForm({
                 autoFocus
                 className={inputClass}
                 id="name"
-                maxLength={255}
-                onChange={(event) => update("name", event.target.value)}
+                onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))}
                 placeholder="Ex.: Ribeiro Imóveis"
                 ref={(element) => { refs.current.name = element; }}
                 required
@@ -102,7 +102,7 @@ export function OrganizationForm({
         <div className="panel-body">
           <div className="field mb-0">
             <label className={labelClass} htmlFor="name">Nome</label>
-            <input aria-describedby={describedBy("name")} className={inputClass} id="name" maxLength={255} onChange={(event) => update("name", event.target.value)} ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
+            <input aria-describedby={describedBy("name")} className={inputClass} id="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
             <FieldError id="name-error" message={fieldErrors.name} />
           </div>
         </div>
@@ -119,13 +119,13 @@ export function OrganizationForm({
           </div>
           <div className="field">
             <label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_name")} className={inputClass} id="pix_merchant_name" maxLength={25} onChange={(event) => update("pix_merchant_name", event.target.value)} ref={(element) => { refs.current.pix_merchant_name = element; }} type="text" value={form.pix_merchant_name} />
+            <input aria-describedby={describedBy("pix_merchant_name")} className={inputClass} id="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} ref={(element) => { refs.current.pix_merchant_name = element; }} type="text" value={form.pix_merchant_name} />
             <FieldError id="pix_merchant_name-error" message={fieldErrors.pix_merchant_name} />
             <span className="field-hint">Até 25 caracteres.</span>
           </div>
           <div className="field mb-0">
             <label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_city")} className={inputClass} id="pix_merchant_city" maxLength={15} onChange={(event) => update("pix_merchant_city", event.target.value)} ref={(element) => { refs.current.pix_merchant_city = element; }} type="text" value={form.pix_merchant_city} />
+            <input aria-describedby={describedBy("pix_merchant_city")} className={inputClass} id="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} ref={(element) => { refs.current.pix_merchant_city = element; }} type="text" value={form.pix_merchant_city} />
             <FieldError id="pix_merchant_city-error" message={fieldErrors.pix_merchant_city} />
             <span className="field-hint">Até 15 caracteres, sem acentos.</span>
           </div>

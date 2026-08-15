@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -136,8 +136,10 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   const key = screen.getByLabelText("Chave PIX");
   const name = screen.getByLabelText("Nome do recebedor");
   const city = screen.getByLabelText("Cidade do recebedor");
-  expect(name).toHaveAttribute("maxLength", "25");
-  expect(city).toHaveAttribute("maxLength", "15");
+  fireEvent.change(name, { target: { value: "😀".repeat(26) } });
+  fireEvent.change(city, { target: { value: "😀".repeat(16) } });
+  expect(name).toHaveValue("😀".repeat(25));
+  expect(city).toHaveValue("😀".repeat(15));
   await user.clear(key);
   await user.clear(name);
   await user.clear(city);
