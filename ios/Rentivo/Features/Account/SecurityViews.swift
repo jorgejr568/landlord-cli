@@ -1,9 +1,11 @@
 import SwiftUI
+import UIKit
 
 struct SecurityView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<SecuritySummary> = .idle
   @State private var recoveryCodes: [String] = []
+  @State private var isRegeneratingCodes = false
   @State private var showingRecoveryCodes = false
   @State private var enrollment: TOTPEnrollment?
   @State private var showingDisableTOTP = false
@@ -44,9 +46,19 @@ struct SecurityView: View {
           if !isDemoViewerLocked {
             if summary.totpEnabled {
               Button("Desativar", role: .destructive) { showingDisableTOTP = true }
-              Button("Gerar novos códigos de recuperação") {
+              Button {
                 Task { await regenerateCodes() }
+              } label: {
+                if isRegeneratingCodes {
+                  HStack(spacing: RentivoSpacing.small) {
+                    ProgressView().controlSize(.small)
+                    Text("Gerando…")
+                  }
+                } else {
+                  Text("Gerar novos códigos de recuperação")
+                }
               }
+              .disabled(isRegeneratingCodes)
             } else {
               Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
             }
@@ -106,6 +118,7 @@ struct SecurityView: View {
     .alert("Desativar autenticação em duas etapas", isPresented: $showingDisableTOTP) {
       SecureField("Senha atual", text: $password)
       Button("Desativar", role: .destructive) { Task { await disableTOTP() } }
+        .disabled(!BcryptPasswordRules.isAccepted(password))
       Button("Cancelar", role: .cancel) { password = "" }
     } message: {
       Text("Confirme sua senha para desativar o aplicativo autenticador.")
@@ -164,6 +177,9 @@ struct SecurityView: View {
   }
 
   private func regenerateCodes() async {
+    guard !isRegeneratingCodes else { return }
+    isRegeneratingCodes = true
+    defer { isRegeneratingCodes = false }
     do {
       recoveryCodes = try await app.dependencies.security.regenerateRecoveryCodes()
       await load()
@@ -295,10 +311,20 @@ private struct ChangePasswordView: View {
         scheduleFocus(.current)
         return false
       }
+      guard BcryptPasswordRules.isAccepted(currentPassword) else {
+        validationMessage = BcryptPasswordRules.limitMessage
+        scheduleFocus(.current)
+        return false
+      }
     case .new:
       guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
         validationMessage = "Informe e confirme a nova senha."
         scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
+        return false
+      }
+      guard BcryptPasswordRules.isAccepted(newPassword) else {
+        validationMessage = BcryptPasswordRules.limitMessage
+        scheduleFocus(.new)
         return false
       }
       guard newPassword == confirmPassword else {
@@ -314,8 +340,9 @@ private struct ChangePasswordView: View {
 
   private func save() {
     guard !isSaving else { return }
-    guard !currentPassword.isEmpty else {
-      validationMessage = "Informe sua senha atual."
+    guard BcryptPasswordRules.isAccepted(currentPassword) else {
+      validationMessage = currentPassword.isEmpty
+        ? "Informe sua senha atual." : BcryptPasswordRules.limitMessage
       step = .current
       scheduleFocus(.current)
       return
@@ -324,6 +351,12 @@ private struct ChangePasswordView: View {
       validationMessage = "Informe e confirme a nova senha."
       step = .new
       scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
+      return
+    }
+    guard BcryptPasswordRules.isAccepted(newPassword) else {
+      validationMessage = BcryptPasswordRules.limitMessage
+      step = .new
+      scheduleFocus(.new)
       return
     }
     guard newPassword == confirmPassword else {
@@ -380,6 +413,16 @@ private struct RecoveryCodeView: View {
               .clipShape(RoundedRectangle(cornerRadius: 10))
           }
         }
+        HStack {
+          Button {
+            UIPasteboard.general.string = codes.joined(separator: "\n")
+          } label: {
+            Label("Copiar códigos", systemImage: "doc.on.doc")
+          }
+          ShareLink(item: codes.joined(separator: "\n")) {
+            Label("Compartilhar", systemImage: "square.and.arrow.up")
+          }
+        }
         Spacer()
       }
       .padding(RentivoSpacing.page)
@@ -417,6 +460,9 @@ private struct TOTPEnrollmentView: View {
         TextField("Código do autenticador", text: $code)
           .keyboardType(.numberPad)
           .textContentType(.oneTimeCode)
+          .onChange(of: code) { _, value in
+            code = String(value.filter(\.isNumber).prefix(6))
+          }
         if let errorMessage {
           Label(errorMessage, systemImage: "exclamationmark.circle.fill")
             .font(.footnote)
@@ -433,7 +479,7 @@ private struct TOTPEnrollmentView: View {
           }
         }
         .buttonStyle(RentivoButtonStyle())
-        .disabled(isConfirming || code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(isConfirming || code.count != 6)
         Spacer()
       }
       .padding(RentivoSpacing.page)

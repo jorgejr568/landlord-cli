@@ -41,6 +41,18 @@ describe("SignupPage", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
   });
 
+  it("keeps an over-72-byte multibyte password local", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<SignupPage />, { path: "/signup" });
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "á".repeat(37));
+    await user.type(screen.getByLabelText("Confirmar Senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Criar Conta" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
+  });
+
   it("submits the generated signup contract and authenticates", async () => {
     const user = userEvent.setup();
     renderAuth(<SignupPage />, {

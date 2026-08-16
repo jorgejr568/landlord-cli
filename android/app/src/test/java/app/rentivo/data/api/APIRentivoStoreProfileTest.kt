@@ -225,6 +225,8 @@ class APIRentivoStoreProfileTest {
       listOf(APIKeyGrant(WorkspaceResourceType.USER, WorkspaceID.personal, available = true)),
       keys.first().grants,
     )
+    assertEquals(1, keys.first().unavailableScopeCount)
+    assertEquals(1, keys.first().unavailableGrantCount)
     assertNull(keys.first().revokedAt)
     assertNotNull(keys.last().revokedAt)
   }
@@ -283,7 +285,7 @@ class APIRentivoStoreProfileTest {
   }
 
   @Test
-  fun `updating an api key omits grants when workspace access was not changed`() = runTest {
+  fun `updating an api key omits server-owned scopes and grants`() = runTest {
     val dispatcher = server.routeWithSession {
       jsonResponse(
         """{"uuid":"key-1","name":"Painel financeiro","hint":"rntv-v1-ab••cd",""" +
@@ -297,7 +299,10 @@ class APIRentivoStoreProfileTest {
 
     store.updateAPIKey(
       id = app.rentivo.domain.APIKeyID(rawValue = "key-1"),
-      draft = APIKeyDraft.demo,
+      draft = APIKeyDraft.demo.copy(
+        shouldUpdateScopes = false,
+        shouldUpdateGrants = false,
+      ),
       updateGrants = false,
     )
 
@@ -305,6 +310,7 @@ class APIRentivoStoreProfileTest {
       dispatcher.bodyOf("PATCH /api/v1/api-keys/key-1")
     ).jsonObject
     assertEquals("Painel financeiro", body["name"]!!.jsonPrimitive.content)
+    assertNull(body["scopes"])
     assertNull(body["grants"])
     assertNull(body["expires_at"])
   }

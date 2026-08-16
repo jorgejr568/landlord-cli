@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import app.rentivo.designsystem.RentivoTonalButton
 import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.designsystem.TopBarChip
 import app.rentivo.domain.DemoError
+import app.rentivo.domain.EmailAddress
 import app.rentivo.domain.Invitation
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Organization
@@ -265,6 +267,7 @@ fun InviteMemberView(
   var email by remember { mutableStateOf("") }
   var role by remember { mutableStateOf(OrganizationRole.VIEWER) }
   var roleMenuExpanded by remember { mutableStateOf(false) }
+  var validationMessage by remember { mutableStateOf<String?>(null) }
   val mutationGate = remember { MutationGate() }
 
   suspend fun invite() {
@@ -322,7 +325,10 @@ fun InviteMemberView(
         FormFieldRow(
           placeholder = "E-mail",
           value = email,
-          onValueChange = { email = it },
+          onValueChange = {
+            email = it
+            validationMessage = null
+          },
           modifier = Modifier.testTag("invitation.email"),
           keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.None,
@@ -386,6 +392,9 @@ fun InviteMemberView(
               .padding(horizontal = RentivoSpacing.large, vertical = RentivoSpacing.medium),
           )
         }
+      }
+      validationMessage?.let { message ->
+        Text(message, style = RentivoTypography.caption, color = RentivoColors.coral)
       }
     }
   }

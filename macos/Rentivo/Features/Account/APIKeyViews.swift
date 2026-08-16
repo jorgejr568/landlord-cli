@@ -184,7 +184,10 @@ private struct APIKeyCard: View {
           dateColumn("Expira em", value: key.expiresAt, alignment: .trailing)
         }
         Label(
-          ptBRCount(key.grants.count, singular: "acesso", plural: "acessos"),
+          ptBRCount(
+            key.grants.count + key.unavailableGrantCount,
+            singular: "acesso", plural: "acessos"
+          ),
           systemImage: "person.2.fill"
         )
         .font(RentivoTypography.metadata)
@@ -235,8 +238,11 @@ private struct APIKeyFormView: View {
   @State private var options: LoadState<APIKeyOptions> = .idle
   @State private var saving = false
   @State private var submitFailureMessage: String?
+  @State private var confirmingDiscard = false
+  @State private var expiresAtEdited = false
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
+  private let initialDraftState: NativeAPIKeyDraftState
 
   init(
     key: APIKeyMetadata? = nil,
@@ -245,10 +251,16 @@ private struct APIKeyFormView: View {
     self.key = key
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
+    let name = key?.name ?? "Nova integração"
+    let scopes = key?.scopes ?? [.profileRead, .billingsRead]
+    let grantIDs = Set(grants.filter(\.available).map(\.resourceID))
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
-    originalGrantIDs = Set(grants.filter(\.available).map(\.resourceID))
-    _name = State(initialValue: key?.name ?? "Nova integração")
-    _scopes = State(initialValue: key?.scopes ?? [.profileRead, .billingsRead])
+    originalGrantIDs = grantIDs
+    initialDraftState = NativeAPIKeyDraftState(
+      name: name, scopes: scopes, resourceIDs: grantIDs
+    )
+    _name = State(initialValue: name)
+    _scopes = State(initialValue: scopes)
     _grantIDs = State(initialValue: originalGrantIDs)
     _expiresAt = State(initialValue: key?.expiresAt ?? Date())
   }
@@ -267,6 +279,10 @@ private struct APIKeyFormView: View {
             .foregroundStyle(RentivoColors.secondaryInk)
         case .failed(let error):
           optionsFailure(error)
+        }
+        if let key, key.unsupportedScopeCount > 0 {
+          Text("Alguns escopos desta chave exigem uma versão mais nova e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
       RentivoSection("Acesso") {
@@ -288,12 +304,16 @@ private struct APIKeyFormView: View {
           optionsFailure(error)
           .accessibilityIdentifier("api-key.form.resources.error")
         }
+        if let key, key.unavailableGrantCount > 0 {
+          Text("Alguns acessos protegidos não podem ser editados e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
       if key == nil, let options = options.value {
         RentivoSection("Validade") {
           DatePicker(
             "Expira em",
-            selection: $expiresAt,
+            selection: expiresAtBinding,
             in: Date().addingTimeInterval(60)...options.maximumExpiration(),
             displayedComponents: .date
           )
@@ -312,7 +332,10 @@ private struct APIKeyFormView: View {
     .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
+        .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
         Button(key == nil ? "Criar" : "Salvar") { Task { await save() } }
@@ -322,8 +345,29 @@ private struct APIKeyFormView: View {
           )
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
     .task { await loadOptions() }
+  }
+
+  private var hasUnsavedChanges: Bool {
+    NativeAPIKeyDraftState(name: name, scopes: scopes, resourceIDs: grantIDs)
+      .hasChanges(from: initialDraftState, expirationEdited: expiresAtEdited)
+  }
+
+  private var expiresAtBinding: Binding<Date> {
+    Binding(
+      get: { expiresAt },
+      set: { value in
+        expiresAt = value
+        expiresAtEdited = true
+      }
+    )
   }
 
   private func loadOptions() async {
@@ -360,6 +404,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .disabled((key?.unsupportedScopeCount ?? 0) > 0)
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -372,6 +417,7 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .disabled((key?.unavailableGrantCount ?? 0) > 0)
   }
 
   private func save() async {
@@ -383,7 +429,11 @@ private struct APIKeyFormView: View {
       name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
       grants: APIKeyFormRules.grants(for: grantIDs, original: originalGrants),
-      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt)
+      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt),
+      shouldUpdateGrants: key == nil
+        || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != originalGrantIDs),
+      shouldUpdateScopes: key == nil
+        || ((key?.unsupportedScopeCount ?? 0) == 0 && scopes != key?.scopes)
     )
     submitFailureMessage = nil
     saving = true
@@ -393,7 +443,7 @@ private struct APIKeyFormView: View {
         _ = try await app.dependencies.apiKeys.updateAPIKey(
           id: key.id,
           draft: draft,
-          updateGrants: grantIDs != originalGrantIDs
+          updateGrants: draft.shouldUpdateGrants
         )
         dismiss()
         app.showNotice("Metadados da chave atualizados.")

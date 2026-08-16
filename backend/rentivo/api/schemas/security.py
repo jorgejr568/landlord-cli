@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from rentivo.api.schemas.auth import (
     BCRYPT_MAX_PASSWORD_BYTES,
@@ -11,6 +11,7 @@ from rentivo.api.schemas.auth import (
     WebAuthnModel,
     validate_bcrypt_password,
 )
+from rentivo.pix import normalize_pix_triple
 
 
 class _StrictModel(BaseModel):
@@ -29,9 +30,9 @@ class CurrentProfileResponse(_StrictModel):
 
 
 class PixUpdateRequest(_StrictModel):
-    pix_key: str = ""
-    pix_merchant_name: str = Field(default="", max_length=25)
-    pix_merchant_city: str = Field(default="", max_length=15)
+    pix_key: str | None = ""
+    pix_merchant_name: str | None = Field(default="", max_length=25)
+    pix_merchant_city: str | None = Field(default="", max_length=15)
 
     @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city", mode="before")
     @classmethod
@@ -40,9 +41,26 @@ class PixUpdateRequest(_StrictModel):
 
     @model_validator(mode="after")
     def require_complete_or_empty_configuration(self) -> Self:
-        fields = (self.pix_key, self.pix_merchant_name, self.pix_merchant_city)
-        if any(fields) and not all(fields):
-            raise ValueError("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.")
+        try:
+            self.pix_key, self.pix_merchant_name, self.pix_merchant_city = normalize_pix_triple(
+                self.pix_key,
+                self.pix_merchant_name,
+                self.pix_merchant_city,
+            )
+        except ValueError as exc:
+            raise ValidationError.from_exception_data(
+                type(self).__name__,
+                [
+                    {
+                        "type": "value_error",
+                        "loc": (field,),
+                        "input": getattr(self, field),
+                        "ctx": {"error": exc},
+                    }
+                    for field in ("pix_key", "pix_merchant_name", "pix_merchant_city")
+                    if not getattr(self, field)
+                ],
+            ) from None
         return self
 
 
@@ -109,6 +127,11 @@ class AccountDeleteRequest(_StrictModel):
     password: str = Field(min_length=1, max_length=BCRYPT_MAX_PASSWORD_BYTES)
 
     _password_within_bcrypt_limit = field_validator("password")(validate_bcrypt_password)
+
+
+class AccountDeletionReadinessResponse(_StrictModel):
+    can_delete: bool
+    reason: Literal["sole_organization_admin"] | None = None
 
 
 class RecoveryCodesResponse(_StrictModel):

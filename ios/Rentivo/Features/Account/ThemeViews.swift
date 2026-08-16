@@ -4,8 +4,7 @@ enum ThemeWizardRules {
   static let invalidColorMessage = "Use uma cor hexadecimal no formato #RRGGBB."
 
   static func colorValidationMessage(_ value: String) -> String? {
-    value.range(of: #"^#[0-9A-Fa-f]{6}$"#, options: .regularExpression) == nil
-      ? invalidColorMessage : nil
+    ThemeFormRules.isHexColor(value) ? nil : invalidColorMessage
   }
 
   static func shouldLoad(isDirty: Bool, force: Bool) -> Bool {
@@ -81,6 +80,9 @@ struct ThemeEditorView: View {
     resetRequested || values != (loadedValues ?? .rentivo)
   }
 
+  private var invalidColorNames: [String] { ThemeFormRules.invalidColorNames(in: values) }
+  private var contrastWarnings: [String] { ThemeFormRules.contrastWarnings(for: values) }
+
   var body: some View {
     RentivoFormWizard(
       title: "Aparência",
@@ -108,7 +110,7 @@ struct ThemeEditorView: View {
     }
     .interactiveDismissDisabled(isDirty || saving)
     .task(id: app.dataRevision) {
-      guard !isDirty else { return }
+      guard !isDirty, !saving else { return }
       await load()
     }
     .onChange(of: values) {
@@ -119,11 +121,7 @@ struct ThemeEditorView: View {
       "Não foi possível atualizar",
       isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
     ) {
-      Button("Tentar novamente") {
-        error = nil
-        Task { await load() }
-      }
-      Button("Cancelar", role: .cancel) { error = nil }
+      Button("OK") { error = nil }
     } message: {
       Text(error?.message ?? "")
     }
@@ -213,6 +211,11 @@ struct ThemeEditorView: View {
         subtitle: "A visualização muda enquanto você edita as cores."
       ) {
         ThemePreview(values: values)
+        ForEach(contrastWarnings, id: \.self) { warning in
+          Label(warning, systemImage: "exclamationmark.triangle.fill")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.coral)
+        }
       }
       if record?.canReset == true {
         RentivoWizardSection("Herança") {
@@ -313,7 +316,9 @@ struct ThemeEditorView: View {
       loadedValues = loadedValuesToApply
       themeLoaded = true
     } catch {
-      self.error = DemoError(error)
+      let loadError = DemoError(error)
+      self.error = loadError
+      readinessMessage = loadError.message
       if record == nil { themeLoaded = false }
     }
   }
@@ -376,7 +381,7 @@ struct ThemeEditorView: View {
   }
 
   private func save() async {
-    guard !saving, record?.canEdit == true else { return }
+    guard !saving, record?.canEdit == true, invalidColorNames.isEmpty else { return }
     saving = true
     defer { saving = false }
     do {

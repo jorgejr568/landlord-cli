@@ -122,7 +122,7 @@ import Testing
 }
 
 @MainActor
-@Test func liveAPIKeyUpdateOmitsUnchangedGrants() async throws {
+@Test func liveAPIKeyUpdateOmitsServerOwnedScopesAndGrants() async throws {
   let configuration = URLSessionConfiguration.ephemeral
   configuration.protocolClasses = [CapturingAPIKeyUpdateURLProtocol.self]
   CapturingAPIKeyUpdateURLProtocol.capturedBody = nil
@@ -133,13 +133,21 @@ import Testing
 
   _ = try await store.updateAPIKey(
     id: APIKeyID(rawValue: "key-1"),
-    draft: .demo,
+    draft: APIKeyDraft(
+      name: APIKeyDraft.demo.name,
+      scopes: APIKeyDraft.demo.scopes,
+      grants: APIKeyDraft.demo.grants,
+      expiresAt: APIKeyDraft.demo.expiresAt,
+      shouldUpdateGrants: false,
+      shouldUpdateScopes: false
+    ),
     updateGrants: false
   )
 
   let body = try #require(CapturingAPIKeyUpdateURLProtocol.capturedBody)
   let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
   #expect(json["name"] as? String == "Painel financeiro")
+  #expect(json["scopes"] == nil)
   #expect(json["grants"] == nil)
   #expect(json["expires_at"] == nil)
 }

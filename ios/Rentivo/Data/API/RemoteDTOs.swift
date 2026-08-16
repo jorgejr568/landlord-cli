@@ -144,7 +144,27 @@ struct RemoteCommunicationSendRequest: Encodable {
 struct RemoteCommunicationSend: Decodable { let queuedCount: Int; enum CodingKeys: String, CodingKey { case queuedCount = "queued_count" } }
 struct RemoteExportRequest: Encodable { let format: String }
 struct RemoteExport: Decodable { let format, status: String }
-struct RemoteReceiptUpload: Decodable { let items: [RemoteReceipt] }
+struct RemoteReceiptUpload: Decodable {
+  let items: [RemoteReceipt]
+  let skippedReasons: [String]?
+
+  enum CodingKeys: String, CodingKey {
+    case items
+    case skippedReasons = "skipped_reasons"
+  }
+
+  var rejectionMessage: String? {
+    let messages = (skippedReasons ?? []).compactMap { reason in
+      switch reason {
+      case "unsupported_mime": "Envie um comprovante PDF, JPG ou PNG."
+      case "empty_file": "O arquivo selecionado está vazio."
+      case "size_limit_exceeded": "O comprovante excede o limite de 10 MB."
+      default: nil
+      }
+    }
+    return messages.isEmpty ? nil : messages.joined(separator: " ")
+  }
+}
 struct RemoteReceiptList: Decodable { let items: [RemoteReceipt] }
 struct RemoteReceiptOrder: Encodable { let order: [String] }
 struct RemoteReceipt: Decodable {
@@ -250,12 +270,13 @@ struct RemoteAPIKeyCreate: Encodable {
 }
 struct RemoteAPIKeyUpdate: Encodable {
   let name: String
-  let scopes: [String]
+  let scopes: [String]?
   let grants: [RemoteAPIKeyGrantInput]?
   init(draft: APIKeyDraft, updateGrants: Bool) {
     name = draft.name
-    scopes = draft.scopes.map(\.rawValue).sorted()
-    grants = updateGrants ? draft.grants.map(RemoteAPIKeyGrantInput.init) : nil
+    scopes = draft.shouldUpdateScopes ? draft.scopes.map(\.rawValue).sorted() : nil
+    grants = updateGrants && draft.shouldUpdateGrants
+      ? draft.grants.map(RemoteAPIKeyGrantInput.init) : nil
   }
 }
 struct RemoteAPIKeyGrantInput: Encodable {
@@ -430,7 +451,11 @@ struct RemoteProfile: Decodable {
 struct RemotePixUpdate: Encodable {
   let pixKey, pixMerchantName, pixMerchantCity: String
   enum CodingKeys: String, CodingKey { case pixKey = "pix_key"; case pixMerchantName = "pix_merchant_name"; case pixMerchantCity = "pix_merchant_city" }
-  init(pix: PixConfiguration) { pixKey = pix.key; pixMerchantName = pix.merchantName; pixMerchantCity = pix.merchantCity }
+  init(pix: PixConfiguration?) {
+    pixKey = pix?.key ?? ""
+    pixMerchantName = pix?.merchantName ?? ""
+    pixMerchantCity = pix?.merchantCity ?? ""
+  }
 }
 struct RemotePixUpdateResponse: Decodable { let profile: RemoteProfile }
 struct RemoteBillingListItem: Decodable { let uuid, name, description: String; let owner: RemoteOwner; let capabilities: RemoteBillingCapabilities }

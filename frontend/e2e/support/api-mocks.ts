@@ -386,9 +386,25 @@ export async function installApiMocks(
       await fulfillJson(route, security);
       return;
     }
+    if (path === "/security/account-deletion-readiness" && method === "GET") {
+      const readiness: Schemas["AccountDeletionReadinessResponse"] = {
+        can_delete: true,
+        reason: null,
+      };
+      await fulfillJson(route, readiness);
+      return;
+    }
     if (path === "/security/pix" && method === "POST") {
       const update = body as Schemas["PixUpdateRequest"];
-      security = { ...security, profile: { ...security.profile, ...update } };
+      security = {
+        ...security,
+        profile: {
+          ...security.profile,
+          pix_key: update.pix_key ?? "",
+          pix_merchant_name: update.pix_merchant_name ?? "",
+          pix_merchant_city: update.pix_merchant_city ?? "",
+        },
+      };
       const pixUpdate: Schemas["PixUpdateResponse"] = { profile: security.profile };
       await fulfillJson(route, pixUpdate);
       return;

@@ -100,8 +100,9 @@ def test_send_creates_one_communication_per_recipient_and_enqueues(ctx):
         actor=None,
     )
     assert len(comms) == 2
-    assert len(job.enqueued) == 2
+    assert len(job.enqueued) == 1
     assert job.enqueued[0][0] == "communication.send"
+    assert job.enqueued[0][1] == {"communication_ids": [comms[0].id, comms[1].id]}
     first = comms[0]
     assert first.subject == "Cobrança Joy 105 Bloco 2 — maio de 2026"
     assert "Prezado João" in first.body_markdown
@@ -146,9 +147,8 @@ def test_list_for_bill(ctx):
     assert len(service.list_for_bill(5)) == 1
 
 
-def test_send_marks_failed_and_reraises_when_enqueue_fails(ctx):
-    """If enqueue raises, the just-created row is marked 'failed' (not left a stuck
-    'queued' orphan with no job) and the error propagates."""
+def test_send_marks_entire_batch_failed_and_reraises_when_enqueue_fails(ctx):
+    """One failed batch enqueue leaves no queued orphan or partially enqueued job."""
     _service, _job, c = ctx
 
     class _BoomJobService:
@@ -161,9 +161,19 @@ def test_send_marks_failed_and_reraises_when_enqueue_fails(ctx):
         job_service=_BoomJobService(),
     )
     with pytest.raises(RuntimeError):
-        service.send(_bill(), _billing(), [Recipient(billing_id=1, name="R", email="r@x.com")], "s", "b", actor=None)
+        service.send(
+            _bill(),
+            _billing(),
+            [
+                Recipient(billing_id=1, name="R1", email="r1@x.com"),
+                Recipient(billing_id=1, name="R2", email="r2@x.com"),
+            ],
+            "s",
+            "b",
+            actor=None,
+        )
 
     rows = SQLAlchemyCommunicationRepository(c, Base64Backend()).list_by_bill(5)
-    assert len(rows) == 1
-    assert rows[0].status == "failed"
-    assert rows[0].job_ulid == ""
+    assert len(rows) == 2
+    assert {row.status for row in rows} == {"failed"}
+    assert {row.job_ulid for row in rows} == {""}

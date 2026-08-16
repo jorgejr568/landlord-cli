@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct APIKeyListView: View {
   @Environment(AppModel.self) private var app
@@ -141,7 +142,10 @@ private struct APIKeyCard: View {
           dateColumn("Expira em", value: key.expiresAt, alignment: .trailing)
         }
         Label(
-          ptBRCount(key.grants.count, singular: "acesso", plural: "acessos"),
+          ptBRCount(
+            key.grants.count + key.unavailableGrantCount,
+            singular: "acesso", plural: "acessos"
+          ),
           systemImage: "person.2.fill"
         )
         .font(.caption.weight(.semibold))
@@ -208,13 +212,12 @@ private struct APIKeyFormView: View {
   @State private var validationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
-  @State private var baselineScopes: Set<APIKeyScope>
-  @State private var baselineExpiresAt: Date?
+  @State private var expiresAtEdited = false
   @FocusState private var focusedField: Field?
   @AccessibilityFocusState private var accessibilityFocusedField: Field?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
-  private let initialName: String
+  private let initialDraftState: NativeAPIKeyDraftState
 
   init(
     key: APIKeyMetadata? = nil,
@@ -223,16 +226,18 @@ private struct APIKeyFormView: View {
     self.key = key
     self.onSaved = onSaved
     let grants = key?.grants ?? [APIKeyGrant(resourceType: .user, resourceID: .personal)]
+    let name = key?.name ?? "Nova integração"
+    let scopes = key?.scopes ?? [.profileRead, .billingsRead]
+    let grantIDs = Set(grants.filter(\.available).map(\.resourceID))
     originalGrants = Dictionary(uniqueKeysWithValues: grants.map { ($0.resourceID, $0) })
-    originalGrantIDs = Set(grants.filter(\.available).map(\.resourceID))
-    initialName = key?.name ?? "Nova integração"
-    let initialScopes = key?.scopes ?? [.profileRead, .billingsRead]
-    _name = State(initialValue: initialName)
-    _scopes = State(initialValue: initialScopes)
-    _baselineScopes = State(initialValue: initialScopes)
+    originalGrantIDs = grantIDs
+    initialDraftState = NativeAPIKeyDraftState(
+      name: name, scopes: scopes, resourceIDs: grantIDs
+    )
+    _name = State(initialValue: name)
+    _scopes = State(initialValue: scopes)
     _grantIDs = State(initialValue: originalGrantIDs)
     _expiresAt = State(initialValue: key?.expiresAt ?? Date())
-    _baselineExpiresAt = State(initialValue: key?.expiresAt)
   }
 
   var body: some View {
@@ -263,8 +268,7 @@ private struct APIKeyFormView: View {
   }
 
   private var isDirty: Bool {
-    name != initialName || scopes != baselineScopes || grantIDs != originalGrantIDs
-      || (key == nil && baselineExpiresAt.map { expiresAt != $0 } == true)
+    hasUnsavedChanges
   }
 
   @ViewBuilder
@@ -297,6 +301,10 @@ private struct APIKeyFormView: View {
           optionsFailure(error)
         }
         if let validationMessage { errorLabel(validationMessage) }
+        if let key, key.unsupportedScopeCount > 0 {
+          Text("Alguns escopos desta chave exigem uma versão mais nova do app e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
     case .access:
       RentivoWizardSection(
@@ -327,6 +335,10 @@ private struct APIKeyFormView: View {
           optionsFailure(error)
         }
         if let validationMessage { errorLabel(validationMessage) }
+        if let key, key.unavailableGrantCount > 0 {
+          Text("Alguns acessos protegidos não podem ser editados neste dispositivo e serão preservados.")
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
     case .expiration:
       RentivoWizardSection(
@@ -338,7 +350,7 @@ private struct APIKeyFormView: View {
         if key == nil, let options = options.value {
           DatePicker(
             "Expira em",
-            selection: $expiresAt,
+            selection: expiresAtBinding,
             in: Date().addingTimeInterval(60)...options.maximumExpiration(),
             displayedComponents: .date
           )
@@ -358,7 +370,9 @@ private struct APIKeyFormView: View {
           label: "Nome", value: name.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         RentivoWizardReviewRow(label: "Escopos", value: "\(scopes.count)")
-        RentivoWizardReviewRow(label: "Acessos", value: "\(allDraftGrants.count)")
+        RentivoWizardReviewRow(
+          label: "Acessos", value: "\(grantIDs.count + (key?.unavailableGrantCount ?? 0))"
+        )
         RentivoWizardReviewRow(
           label: "Expira em", value: (key?.expiresAt ?? expiresAt).formattedPTBR()
         )
@@ -377,15 +391,14 @@ private struct APIKeyFormView: View {
       .sorted { $0.resourceID.rawValue < $1.resourceID.rawValue }
   }
 
-  private var allDraftGrants: [APIKeyGrant] {
-    let available = grantIDs.map { resourceID in
+  private var draftGrants: [APIKeyGrant] {
+    grantIDs.map { resourceID in
       originalGrants[resourceID]
         ?? APIKeyGrant(
           resourceType: resourceID == .personal ? .user : .organization,
           resourceID: resourceID
         )
     }
-    return (available + preservedUnavailableGrants)
       .sorted { $0.resourceID.rawValue < $1.resourceID.rawValue }
   }
 
@@ -439,7 +452,7 @@ private struct APIKeyFormView: View {
         scheduleFocus(.optionsRetry)
         return false
       }
-      guard !allDraftGrants.isEmpty else {
+      guard !grantIDs.isEmpty else {
         validationMessage = "Selecione ao menos um acesso."
         if let resourceID = options.value?.personalWorkspace.resourceID {
           scheduleFocus(.access(resourceID))
@@ -458,6 +471,21 @@ private struct APIKeyFormView: View {
     return true
   }
 
+  private var hasUnsavedChanges: Bool {
+    NativeAPIKeyDraftState(name: name, scopes: scopes, resourceIDs: grantIDs)
+      .hasChanges(from: initialDraftState, expirationEdited: expiresAtEdited)
+  }
+
+  private var expiresAtBinding: Binding<Date> {
+    Binding(
+      get: { expiresAt },
+      set: { value in
+        expiresAt = value
+        expiresAtEdited = true
+      }
+    )
+  }
+
   private func loadOptions() async {
     options = .loading
     do {
@@ -465,9 +493,7 @@ private struct APIKeyFormView: View {
       options = loaded.scopes.isEmpty ? .empty : .loaded(loaded)
       if key == nil {
         scopes.formIntersection(Set(loaded.scopes))
-        baselineScopes = scopes
         expiresAt = loaded.defaultExpiration()
-        baselineExpiresAt = expiresAt
       }
     } catch { options = .failed(DemoError(error)) }
   }
@@ -507,6 +533,7 @@ private struct APIKeyFormView: View {
     .focused($focusedField, equals: .scope(scope))
     .accessibilityFocused($accessibilityFocusedField, equals: .scope(scope))
     .accessibilityIdentifier("api-key.form.scope.\(scope.rawValue)")
+    .disabled((key?.unsupportedScopeCount ?? 0) > 0)
   }
 
   private func resourceToggle(_ label: String, id: WorkspaceID) -> some View {
@@ -522,6 +549,7 @@ private struct APIKeyFormView: View {
     .focused($focusedField, equals: .access(id))
     .accessibilityFocused($accessibilityFocusedField, equals: .access(id))
     .accessibilityIdentifier("api-key.form.access.\(id.rawValue)")
+    .disabled((key?.unavailableGrantCount ?? 0) > 0)
   }
 
   private func scheduleFocus(_ field: Field) {
@@ -534,7 +562,7 @@ private struct APIKeyFormView: View {
   private func save() async {
     guard !saving, let options = options.value else { return }
     submitErrorMessage = nil
-    guard APIKeyValidation.isValidName(name), !scopes.isEmpty, !allDraftGrants.isEmpty else {
+    guard APIKeyValidation.isValidName(name), !scopes.isEmpty, !grantIDs.isEmpty else {
       step = !APIKeyValidation.isValidName(name) ? .identification : (scopes.isEmpty ? .scopes : .access)
       _ = validateCurrentStep()
       return
@@ -542,8 +570,12 @@ private struct APIKeyFormView: View {
     let draft = APIKeyDraft(
       name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
-      grants: allDraftGrants,
-      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt)
+      grants: draftGrants,
+      expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt),
+      shouldUpdateGrants: key == nil
+        || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != originalGrantIDs),
+      shouldUpdateScopes: key == nil
+        || ((key?.unsupportedScopeCount ?? 0) == 0 && scopes != key?.scopes)
     )
     saving = true
     defer { saving = false }
@@ -552,7 +584,7 @@ private struct APIKeyFormView: View {
         _ = try await app.dependencies.apiKeys.updateAPIKey(
           id: key.id,
           draft: draft,
-          updateGrants: grantIDs != originalGrantIDs
+          updateGrants: draft.shouldUpdateGrants
         )
         dismiss()
         await onSaved(nil)
@@ -564,6 +596,7 @@ private struct APIKeyFormView: View {
       }
     } catch { submitErrorMessage = DemoError(error).message }
   }
+
 }
 
 private struct APIKeySecretView: View {
@@ -584,6 +617,16 @@ private struct APIKeySecretView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(RentivoColors.surface)
           .clipShape(RoundedRectangle(cornerRadius: 12))
+        HStack {
+          Button {
+            UIPasteboard.general.string = created.secret
+          } label: {
+            Label("Copiar segredo", systemImage: "doc.on.doc")
+          }
+          ShareLink(item: created.secret) {
+            Label("Compartilhar", systemImage: "square.and.arrow.up")
+          }
+        }
         Spacer()
         Button("Já copiei") { dismiss() }
           .buttonStyle(RentivoButtonStyle())

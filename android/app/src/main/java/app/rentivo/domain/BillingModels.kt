@@ -664,6 +664,20 @@ data class BillDraft(
   }
 }
 
+/** UI editability derived from what the create and update endpoints can actually persist. */
+data class BillFormEditRule(val isEditing: Boolean) {
+  val canEditReferenceMonth: Boolean get() = !isEditing
+
+  fun canEditDescription(kind: BillLineItemKind): Boolean =
+    isEditing || kind == BillLineItemKind.EXTRA
+
+  fun canEditAmount(kind: BillLineItemKind): Boolean =
+    isEditing || kind != BillLineItemKind.FIXED
+
+  fun canDelete(kind: BillLineItemKind): Boolean =
+    kind != BillLineItemKind.FIXED && (isEditing || kind == BillLineItemKind.EXTRA)
+}
+
 enum class ExpenseCategory(val wire: String) {
   PROPERTY_TAX("iptu"),
   CONDOMINIUM("condominio"),
@@ -728,6 +742,38 @@ data class Expense(
   val category: ExpenseCategory,
   val incurredOn: DateOnly,
 )
+
+data class ExpenseFormInput(val description: String, val centavos: Int) {
+  val normalizedDescription: String get() = description.trim()
+
+  val validationMessage: String?
+    get() = when {
+      normalizedDescription.isEmpty() -> "Informe a descrição da despesa."
+      normalizedDescription.length > 2_000 -> "A descrição deve ter no máximo 2000 caracteres."
+      centavos <= 0 -> "Informe um valor maior que zero."
+      else -> null
+    }
+}
+
+data class CommunicationFormInput(val subject: String, val body: String) {
+  val normalizedSubject: String get() = subject.trim()
+  val normalizedBody: String get() = body.trim()
+  val bodyUTF8ByteCount: Int get() = body.toByteArray(Charsets.UTF_8).size
+
+  val validationMessage: String?
+    get() = when {
+      normalizedSubject.isEmpty() -> "Informe o assunto."
+      normalizedSubject.length > 998 -> "O assunto deve ter no máximo 998 caracteres."
+      normalizedBody.isEmpty() -> "Informe o corpo da mensagem."
+      bodyUTF8ByteCount > 4_096 -> "A mensagem deve ter no máximo 4096 bytes UTF-8."
+      else -> null
+    }
+}
+
+fun communicationTypes(capabilities: BillCapabilities): List<CommunicationType> = buildList {
+  if (capabilities.canSendInvoice) add(CommunicationType.BILL_READY)
+  if (capabilities.canSendRecibo) add(CommunicationType.PAYMENT_RECEIPT)
+}
 
 enum class CommunicationType(val wire: String) {
   BILL_READY("bill_ready"),

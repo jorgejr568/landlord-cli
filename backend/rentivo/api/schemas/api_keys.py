@@ -31,9 +31,9 @@ class APIKeyCreateRequest(_StrictModel):
 
 
 class APIKeyUpdateRequest(_StrictModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    scopes: tuple[str, ...] | None = Field(default=None, min_length=1)
-    grants: tuple[APIKeyGrantRequest, ...] | None = Field(default=None, min_length=1)
+    name: str = Field(default=None, min_length=1, max_length=255)
+    scopes: tuple[str, ...] = Field(default=None, min_length=1)
+    grants: tuple[APIKeyGrantRequest, ...] = Field(default=None, min_length=1)
 
     @model_validator(mode="before")
     @classmethod

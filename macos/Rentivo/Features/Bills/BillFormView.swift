@@ -73,6 +73,7 @@ struct BillFormView: View {
   /// `app.reportFailure`: the global banner renders behind this sheet, so a save that fails on the
   /// server used to look like a save that did nothing at all.
   @State private var submissionError: String?
+  @State private var confirmingDiscard = false
 
   init(billing: Billing, bill: Bill? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -114,7 +115,13 @@ struct BillFormView: View {
         .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
         Stepper("Ano: \(year)", value: $year, in: 2024...2035)
           .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
+        if bill != nil {
+          Text("A competência não pode ser alterada depois que a fatura é criada.")
+            .font(RentivoTypography.caption)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
       }
+      .disabled(bill != nil)
 
       RentivoSection("Vencimento") {
         Toggle("Definir vencimento", isOn: $hasDueDate)
@@ -130,10 +137,9 @@ struct BillFormView: View {
 
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
         RentivoSection(kind.sectionTitle) {
-          // Fixed lines mirror the billing's own recurring items and aren't deletable here; only
-          // user-added variable/extra lines can be removed.
+          // Template rows define this invoice and cannot be removed. Only ad-hoc extras can.
           ForEach(lineIndices(for: kind), id: \.self) { index in
-            lineRow(index, deletable: kind != .fixed)
+            lineRow(index, deletable: kind == .extra)
           }
           if kind == .extra {
             // Only extras get an "add new line" affordance here: extras are the server's
@@ -180,7 +186,9 @@ struct BillFormView: View {
       ToolbarItem(placement: .cancellationAction) {
         // Dismissing mid-save would leave the request running with no screen to report it, so
         // Cancelar goes down with the sheet's other exits while `saving`.
-        Button("Cancelar") { dismiss() }
+        Button("Cancelar") {
+          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        }
           .disabled(saving)
       }
       ToolbarItem(placement: .confirmationAction) {
@@ -189,7 +197,13 @@ struct BillFormView: View {
           .accessibilityIdentifier("bill.form.save")
       }
     }
-    .interactiveDismissDisabled(saving)
+    .interactiveDismissDisabled(saving || hasUnsavedChanges)
+    .confirmationDialog(
+      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button("Descartar", role: .destructive) { dismiss() }
+      Button("Continuar editando", role: .cancel) {}
+    }
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
@@ -214,11 +228,35 @@ struct BillFormView: View {
     lines.map { Money(centavos: $0.centavos) }.reduce(.zero, +)
   }
 
+  private var hasUnsavedChanges: Bool {
+    let currentMonth = ReferenceMonth(year: year, month: month)
+    let currentDueDate = hasDueDate ? DateOnly(from: dueDate) : nil
+    let currentLines = lines.map(\.domain)
+    guard let bill else {
+      let seeded = billing.items.map { item in
+        BillLineItem(
+          id: BillLineItemID(rawValue: item.id.rawValue), description: item.description,
+          amount: item.amount, kind: item.type == .fixed ? .fixed : .variable
+        )
+      }
+      return currentMonth != ReferenceMonth(
+        year: Calendar.current.component(.year, from: Date()),
+        month: Calendar.current.component(.month, from: Date())
+      ) || currentDueDate != currentMonth.defaultDueDate || !notes.isEmpty || currentLines != seeded
+    }
+    return currentMonth != bill.referenceMonth || currentDueDate != bill.dueDate
+      || notes != bill.notes || currentLines != bill.lineItems
+  }
+
   @ViewBuilder
   private func lineRow(_ index: Int, deletable: Bool) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.small) {
       HStack(spacing: RentivoSpacing.small) {
-        TextField("Descrição", text: $lines[index].description)
+        if bill == nil, lines[index].kind != .extra {
+          LabeledContent("Descrição", value: lines[index].description)
+        } else {
+          TextField("Descrição", text: $lines[index].description)
+        }
         // Swipe-to-delete has no macOS equivalent, so removable lines carry their own button.
         if deletable {
           Button(role: .destructive) {
@@ -232,7 +270,11 @@ struct BillFormView: View {
           .accessibilityLabel("Remover item")
         }
       }
-      CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+      if bill == nil, lines[index].kind == .fixed {
+        LabeledContent("Valor", value: Money(centavos: lines[index].centavos).formatted())
+      } else {
+        CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+      }
     }
   }
 

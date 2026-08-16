@@ -77,6 +77,21 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     user = UserProfile(id: 0, email: "")
   }
 
+  public func accountDeletionReadiness() async throws -> AccountDeletionReadiness {
+    struct Response: Decodable {
+      let canDelete: Bool
+      let reason: AccountDeletionReadiness.BlockingReason?
+
+      enum CodingKeys: String, CodingKey {
+        case canDelete = "can_delete"
+        case reason
+      }
+    }
+    let response: Response = try await decode(
+      path: "/api/v1/security/account-deletion-readiness")
+    return AccountDeletionReadiness(canDelete: response.canDelete, reason: response.reason)
+  }
+
   public func deleteAccount(password: String) async throws {
     struct DeleteAccountPayload: Encodable { let password: String }
     try await execute(
@@ -95,7 +110,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     user = UserProfile(id: user.id, email: remote.email, pix: pix(key: remote.pixKey, name: remote.pixMerchantName, city: remote.pixMerchantCity))
     return user
   }
-  public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
+  public func updatePix(_ pix: PixConfiguration?) async throws -> UserProfile {
     let response: RemotePixUpdateResponse = try await decode(
       path: "/api/v1/security/pix", method: "POST", body: RemotePixUpdate(pix: pix)
     )
@@ -761,20 +776,23 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
 
   private func apiKey(from remote: RemoteAPIKey) throws -> APIKeyMetadata {
-    APIKeyMetadata(
+    let scopes = Set(remote.scopes.compactMap(APIKeyScope.init(rawValue:)))
+    let grants = remote.grants.compactMap { grant -> APIKeyGrant? in
+      guard grant.available, let resourceID = grant.resourceID,
+        let resourceType = WorkspaceResourceType(rawValue: grant.resourceType)
+      else { return nil }
+      return APIKeyGrant(
+        resourceType: resourceType, resourceID: WorkspaceID(rawValue: resourceID), available: true
+      )
+    }
+    return APIKeyMetadata(
       id: APIKeyID(rawValue: remote.uuid), name: remote.name, hint: remote.hint,
-      scopes: Set(remote.scopes.compactMap(APIKeyScope.init(rawValue:))),
-      grants: remote.grants.compactMap { grant in
-        guard let resourceID = grant.resourceID,
-          let resourceType = WorkspaceResourceType(rawValue: grant.resourceType)
-        else { return nil }
-        return APIKeyGrant(
-          resourceType: resourceType, resourceID: WorkspaceID(rawValue: resourceID),
-          available: grant.available
-        )
-      },
+      scopes: scopes,
+      grants: grants,
       expiresAt: try WireDate.isoDate(remote.expiresAt), lastUsedAt: try remote.lastUsedAt.map(WireDate.isoDate),
-      createdAt: try WireDate.isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(WireDate.isoDate)
+      createdAt: try WireDate.isoDate(remote.createdAt), revokedAt: try remote.revokedAt.map(WireDate.isoDate),
+      unavailableGrantCount: remote.grants.count - grants.count,
+      unsupportedScopeCount: remote.scopes.filter { APIKeyScope(rawValue: $0) == nil }.count
     )
   }
 

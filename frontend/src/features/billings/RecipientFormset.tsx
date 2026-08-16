@@ -85,9 +85,8 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
                       className="input"
                       disabled={locked}
                       id={`${kind}-${contact.id}-email`}
-                      maxLength={320}
                       name={`${kind}-${index}-email`}
-                      onChange={(event) => update(index, "email", event.target.value)}
+                      onChange={(event) => update(index, "email", limitApiCharacters(event.target.value, 320))}
                       placeholder={isRecipient ? "joao@email.com" : "ana@email.com"}
                       type="email"
                       value={contact.email}

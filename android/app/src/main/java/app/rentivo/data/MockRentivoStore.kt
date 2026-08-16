@@ -5,6 +5,7 @@ import app.rentivo.domain.APIKeyID
 import app.rentivo.domain.APIKeyMetadata
 import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.AccountDeletionReadiness
 import app.rentivo.domain.APIKeyValidation
 import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.ActivityKind
@@ -201,6 +202,9 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
 
   override suspend fun logout() = Unit
 
+  override suspend fun accountDeletionReadiness(): AccountDeletionReadiness =
+    AccountDeletionReadiness(canDelete = true)
+
   override suspend fun deleteAccount(password: String) = Unit
 
   override fun failNextOperation() {
@@ -259,11 +263,12 @@ class MockRentivoStore(fixtures: MockFixtures = MockFixtures.canonical) :
     }
   }
 
-  override suspend fun updatePix(pix: PixConfiguration): UserProfile {
+  override suspend fun updatePix(pix: PixConfiguration?): UserProfile {
     prepareOperation()
     if (viewerModeEnabled) throw DemoError.permissionDenied
-    profileState = profileState.copy(pix = pix.takeUnless { it.isEmpty })
-    recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = pix.key)
+    val normalized = pix?.takeUnless { it.isEmpty }
+    profileState = profileState.copy(pix = normalized)
+    recordActivity(kind = ActivityKind.BILLING, title = "PIX atualizado", detail = normalized?.key.orEmpty())
     return profileState
   }
 

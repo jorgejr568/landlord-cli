@@ -212,6 +212,7 @@ private struct ExpenseFormView: View {
       case .details:
         RentivoWizardSection("Detalhes") {
           TextField("Descrição", text: $description)
+            .textInputAutocapitalization(.sentences)
             .focused($focusedField, equals: .description)
             .accessibilityFocused($accessibilityFocusedField, equals: .description)
           Picker("Categoria", selection: $category) {
@@ -243,6 +244,7 @@ private struct ExpenseFormView: View {
         }
       }
     }
+    .interactiveDismissDisabled(saving || isDirty)
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<ExpenseWizardStep>] {
@@ -367,6 +369,7 @@ struct AttachmentListView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingFileImporter = false
   @State private var pendingDeletion: Attachment?
+  @State private var isUploading = false
 
   var body: some View {
     PageStateView(state: state) { attachments in
@@ -420,6 +423,7 @@ struct AttachmentListView: View {
         } label: {
           Label("Adicionar", systemImage: "plus")
         }
+        .disabled(isUploading)
       }
     }
     .downloadedFileSheet($downloadedFile)
@@ -458,10 +462,13 @@ struct AttachmentListView: View {
   }
 
   private func add(fileURL: URL) async {
+    guard !isUploading else { return }
+    isUploading = true
+    defer { isUploading = false }
     do {
-      let accessGranted = fileURL.startAccessingSecurityScopedResource()
-      defer { if accessGranted { fileURL.stopAccessingSecurityScopedResource() } }
-      let upload = try FileUpload.from(url: fileURL)
+      let upload = try await FileUpload.fromSecurityScoped(
+        url: fileURL, policy: .rentivoDocument
+      )
       _ = try await app.dependencies.attachments.addAttachment(
         billingID: billingID,
         upload: upload
@@ -548,7 +555,7 @@ struct CommunicationComposerView: View {
   @State private var appliedTemplateType: CommunicationType
   @FocusState private var focusedField: CommunicationComposerFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: CommunicationComposerFocus?
-  private let initialCommType: CommunicationType
+  private let initialDraftState: NativeCommunicationDraftState
 
   init(billing: Billing, bill: Bill) {
     self.billing = billing
@@ -557,10 +564,15 @@ struct CommunicationComposerView: View {
     _commType = State(initialValue: initialType)
     _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
     let template = billing.template(for: initialType)
-    _subject = State(initialValue: template?.subject ?? "")
-    _message = State(initialValue: template?.body ?? "")
+    let subject = template?.subject ?? ""
+    let message = template?.body ?? ""
+    initialDraftState = NativeCommunicationDraftState(
+      commType: initialType, selectedRecipients: Set(billing.recipients.map(\.id)),
+      subject: subject, message: message, saveScope: nil
+    )
+    _subject = State(initialValue: subject)
+    _message = State(initialValue: message)
     _appliedTemplateType = State(initialValue: initialType)
-    initialCommType = initialType
   }
 
   private var availableTypes: [CommunicationType] {
@@ -570,6 +582,20 @@ struct CommunicationComposerView: View {
       case .paymentReceipt: bill.status == .paid && bill.capabilities.canSendRecibo
       }
     }
+  }
+
+  private var sendDisabled: Bool {
+    // Defense in depth: the detail screen already disables the entry point while the PDF renders,
+    // but a composer opened just before the render started must not attach a stale document.
+    communicationSendIsDisabled(
+      isSending: isSending,
+      hasSelectedRecipients: !selectedRecipients.isEmpty,
+      isRenderingPDF: bill.isRenderingPDF
+    ) || !bill.capabilities.canCompose || !availableTypes.contains(commType) || !formIssues.isEmpty
+  }
+
+  private var formIssues: [ValidationIssue] {
+    CommunicationFormRules.issues(subject: subject, body: message)
   }
 
   private var attachmentDescription: String {
@@ -582,7 +608,7 @@ struct CommunicationComposerView: View {
       descriptors: descriptors,
       selectedStep: $selectedStep,
       isBusy: isSending,
-      isPrimaryEnabled: selectedStep != .review || !bill.isRenderingPDF,
+      isPrimaryEnabled: selectedStep != .review || !sendDisabled,
       finalActionTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await send() } }
@@ -601,6 +627,7 @@ struct CommunicationComposerView: View {
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
+    .interactiveDismissDisabled(isSending || isDirty)
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<CommunicationWizardStep>] {
@@ -664,12 +691,24 @@ struct CommunicationComposerView: View {
       subtitle: "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}."
     ) {
       TextField("Assunto", text: $subject)
+        .accessibilityIdentifier("comm.subject")
         .focused($focusedField, equals: .subject)
         .accessibilityFocused($accessibilityFocusedField, equals: .subject)
       TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
         .lineLimit(5...12)
+        .accessibilityIdentifier("comm.body")
         .focused($focusedField, equals: .message)
         .accessibilityFocused($accessibilityFocusedField, equals: .message)
+      Text(
+        "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+      )
+      .font(.footnote.monospacedDigit())
+      .foregroundStyle(RentivoColors.secondaryInk)
+      ForEach(formIssues, id: \.self) { issue in
+        Label(issue.message, systemImage: "exclamationmark.circle.fill")
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.coral)
+      }
       inlineError
     }
   }
@@ -714,14 +753,6 @@ struct CommunicationComposerView: View {
     }
   }
 
-  private var isDirty: Bool {
-    commType != initialCommType
-      || selectedRecipients != Set(billing.recipients.map(\.id))
-      || subject != (billing.template(for: commType)?.subject ?? "")
-      || message != (billing.template(for: commType)?.body ?? "")
-      || saveScope != nil
-  }
-
   private func validateAndAdvance() -> Bool {
     sendErrorMessage = nil
     switch selectedStep {
@@ -739,12 +770,9 @@ struct CommunicationComposerView: View {
         return false
       }
     case .message:
-      if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
-        sendErrorMessage = message
-        scheduleFocus(CommunicationContent.normalizedSubject(subject).isEmpty
-          || CommunicationContent.normalizedSubject(subject).unicodeScalars.count
-            > CommunicationContent.maximumSubjectLength
-          ? .subject : .message)
+      if let issue = formIssues.first {
+        sendErrorMessage = issue.message
+        scheduleFocus(issue.field == .subject ? .subject : .message)
         return false
       }
     case .template, .review:
@@ -758,6 +786,13 @@ struct CommunicationComposerView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+
+  private var isDirty: Bool {
+    NativeCommunicationDraftState(
+      commType: commType, selectedRecipients: selectedRecipients, subject: subject,
+      message: message, saveScope: saveScope
+    ).hasChanges(from: initialDraftState)
   }
 
   private var ownerScopeLabel: String {
@@ -795,8 +830,8 @@ struct CommunicationComposerView: View {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
-    if let message = CommunicationContent.validationMessage(subject: subject, message: message) {
-      sendErrorMessage = message
+    guard formIssues.isEmpty, bill.capabilities.canCompose, availableTypes.contains(commType) else {
+      sendErrorMessage = formIssues.first?.message ?? "Esta comunicação não está disponível agora."
       return
     }
     let normalizedSubject = CommunicationContent.normalizedSubject(subject)

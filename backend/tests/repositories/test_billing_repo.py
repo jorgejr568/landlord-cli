@@ -1,12 +1,41 @@
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
-from rentivo.models.billing import BillingItem, ItemType
-from rentivo.repositories.sqlalchemy import SQLAlchemyBillingRepository
+from rentivo.models.billing import Billing, BillingItem, ItemType
+from rentivo.models.recipient import Recipient
+from rentivo.repositories.sqlalchemy import (
+    SQLAlchemyBillingRepository,
+    SQLAlchemyRecipientRepository,
+    SQLAlchemyReplyToRecipientRepository,
+)
 
 
 class TestBillingRepoCRUD:
+    def test_create_aggregate_rolls_back_core_and_contacts_when_reply_to_fails(
+        self, db_connection, fake_encryption, sample_billing
+    ):
+        repo = SQLAlchemyBillingRepository(db_connection, fake_encryption)
+        encrypt = fake_encryption.encrypt
+
+        def fail_on_reply_to(value: str) -> str:
+            if value == "reply-failure@example.com":
+                raise RuntimeError("injected reply-to encryption failure")
+            return encrypt(value)
+
+        with patch.object(fake_encryption, "encrypt", side_effect=fail_on_reply_to):
+            with pytest.raises(RuntimeError, match="injected reply-to encryption failure"):
+                repo.create_aggregate(
+                    sample_billing(),
+                    recipients=[Recipient(billing_id=0, name="Ana", email="ana@example.com")],
+                    reply_to=[Recipient(billing_id=0, name="Financeiro", email="reply-failure@example.com")],
+                )
+
+        assert repo.list_all() == []
+        assert db_connection.exec_driver_sql("SELECT COUNT(*) FROM billing_recipients").scalar_one() == 0
+        assert db_connection.exec_driver_sql("SELECT COUNT(*) FROM billing_reply_to").scalar_one() == 0
+
     def test_create_and_get(self, billing_repo: SQLAlchemyBillingRepository, sample_billing):
         billing = sample_billing()
         created = billing_repo.create(billing)
@@ -91,6 +120,95 @@ class TestBillingRepoCRUD:
         assert updated.items[0].description == "New item"
         assert updated.items[0].uuid == preserved_uuid
 
+    def test_update_aggregate_rolls_back_core_contacts_and_transfer_when_reply_to_fails(
+        self, db_connection, fake_encryption, sample_billing
+    ):
+        repo = SQLAlchemyBillingRepository(db_connection, fake_encryption)
+        recipient_repo = SQLAlchemyRecipientRepository(db_connection, fake_encryption)
+        reply_to_repo = SQLAlchemyReplyToRecipientRepository(db_connection, fake_encryption)
+        created = repo.create(sample_billing(owner_type="user", owner_id=7))
+        recipient_repo.replace_for_billing(
+            created.id,
+            [Recipient(billing_id=created.id, name="Original", email="original@example.com")],
+        )
+        reply_to_repo.replace_for_billing(
+            created.id,
+            [Recipient(billing_id=created.id, name="Original reply", email="original-reply@example.com")],
+        )
+        original_items = [(item.uuid, item.description) for item in created.items]
+        candidate = created.model_copy(deep=True)
+        candidate.name = "Must roll back"
+        candidate.items = [BillingItem(description="Replacement", amount=1, item_type=ItemType.FIXED)]
+        encrypt = fake_encryption.encrypt
+
+        def fail_on_reply_to(value: str) -> str:
+            if value == "reply-failure@example.com":
+                raise RuntimeError("injected reply-to encryption failure")
+            return encrypt(value)
+
+        with patch.object(fake_encryption, "encrypt", side_effect=fail_on_reply_to):
+            with pytest.raises(RuntimeError, match="injected reply-to encryption failure"):
+                repo.update_aggregate(
+                    candidate,
+                    recipients=[Recipient(billing_id=created.id, name="Changed", email="changed@example.com")],
+                    reply_to=[
+                        Recipient(billing_id=created.id, name="Changed reply", email="reply-failure@example.com")
+                    ],
+                    expected_owner_id=7,
+                    organization_id=31,
+                )
+
+        persisted = repo.get_by_id(created.id)
+        assert persisted is not None
+        assert (persisted.name, persisted.owner_type, persisted.owner_id) == (created.name, "user", 7)
+        assert [(item.uuid, item.description) for item in persisted.items] == original_items
+        assert [(row.name, row.email) for row in recipient_repo.list_by_billing(created.id)] == [
+            ("Original", "original@example.com")
+        ]
+        assert [(row.name, row.email) for row in reply_to_repo.list_by_billing(created.id)] == [
+            ("Original reply", "original-reply@example.com")
+        ]
+
+    def test_atomic_update_and_transfer_replaces_fields_items_and_owner(self, billing_repo, sample_billing):
+        created = billing_repo.create(sample_billing(owner_type="user", owner_id=7))
+        created.name = "Transferred"
+        created.items = [BillingItem(description="New", amount=1, item_type=ItemType.FIXED)]
+
+        updated = billing_repo.update_and_transfer_personal_to_organization(created, 7, 31)
+
+        assert updated is not None
+        assert (updated.owner_type, updated.owner_id, updated.name) == ("organization", 31, "Transferred")
+        assert [item.description for item in updated.items] == ["New"]
+
+    def test_atomic_update_and_transfer_cas_mismatch_leaves_billing_unchanged(self, billing_repo, sample_billing):
+        created = billing_repo.create(sample_billing(owner_type="user", owner_id=7))
+        original_name = created.name
+        created.name = "Must not persist"
+        created.items = [BillingItem(description="Must not persist", amount=1, item_type=ItemType.FIXED)]
+
+        assert billing_repo.update_and_transfer_personal_to_organization(created, 8, 31) is None
+        persisted = billing_repo.get_by_id(created.id)
+        assert persisted is not None
+        assert (persisted.owner_type, persisted.owner_id, persisted.name) == ("user", 7, original_name)
+
+    def test_atomic_update_and_transfer_rolls_back_when_item_replacement_fails(self, billing_repo, sample_billing):
+        created = billing_repo.create(sample_billing(owner_type="user", owner_id=7))
+        original_name = created.name
+        original_items = [(item.uuid, item.description) for item in created.items]
+        created.name = "Must roll back"
+        created.items = [
+            BillingItem(uuid="duplicate", description="First", amount=1, item_type=ItemType.FIXED),
+            BillingItem(uuid="duplicate", description="Second", amount=2, item_type=ItemType.FIXED),
+        ]
+
+        with pytest.raises(IntegrityError):
+            billing_repo.update_and_transfer_personal_to_organization(created, 7, 31)
+
+        persisted = billing_repo.get_by_id(created.id)
+        assert persisted is not None
+        assert (persisted.owner_type, persisted.owner_id, persisted.name) == ("user", 7, original_name)
+        assert [(item.uuid, item.description) for item in persisted.items] == original_items
+
     def test_soft_delete(self, billing_repo: SQLAlchemyBillingRepository, sample_billing):
         created = billing_repo.create(sample_billing())
         billing_repo.delete(created.id)
@@ -127,6 +245,10 @@ class TestBillingRepoCRUD:
 
 
 class TestBillingRepoEdgeCases:
+    def test_update_aggregate_rejects_unsaved_billing(self, billing_repo: SQLAlchemyBillingRepository):
+        with pytest.raises(ValueError, match="without an id"):
+            billing_repo.update_aggregate(Billing(name="Unsaved"), recipients=[], reply_to=[])
+
     def test_create_runtime_error(self, billing_repo: SQLAlchemyBillingRepository, sample_billing):
         with patch.object(billing_repo, "get_by_id", return_value=None):
             with pytest.raises(RuntimeError, match="Failed to retrieve billing after create"):

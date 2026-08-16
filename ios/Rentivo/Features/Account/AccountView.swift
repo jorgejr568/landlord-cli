@@ -6,6 +6,9 @@ struct AccountView: View {
   @State private var deleteAccountPassword = ""
   @State private var showingProfilePIX = false
   @State private var showingTheme = false
+  @State private var deletionReadiness: AccountDeletionReadiness?
+  @State private var deletionReadinessError: String?
+  @State private var loadingDeletionReadiness = false
 
   var body: some View {
     List {
@@ -113,7 +116,23 @@ struct AccountView: View {
         Button(role: .destructive) { showDeleteAccountAlert = true } label: {
           Label("Excluir conta", systemImage: "trash.fill").frame(maxWidth: .infinity)
         }
-        .disabled(app.isDeletingAccount)
+        .disabled(
+          app.isDeletingAccount || loadingDeletionReadiness
+            || deletionReadiness?.canDelete == false
+            || (app.usesLiveAPI && deletionReadiness == nil))
+        if deletionReadiness?.reason == .soleOrganizationAdmin {
+          Label(
+            "Transfira a administração das organizações em que você é o único administrador antes de excluir a conta.",
+            systemImage: "person.2.badge.gearshape"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.coral)
+        } else if deletionReadinessError != nil {
+          Button("Verificar se a conta pode ser excluída") {
+            Task { await loadDeletionReadiness() }
+          }
+          .font(.footnote)
+        }
       }
     }
     .scrollContentBackground(.hidden)
@@ -133,8 +152,22 @@ struct AccountView: View {
         deleteAccountPassword = ""
         Task { await app.deleteAccount(password: password) }
       }
+      .disabled(!BcryptPasswordRules.isAccepted(deleteAccountPassword))
     } message: {
       Text("Essa ação é permanente. Suas cobranças e seus dados pessoais serão excluídos.")
+    }
+    .task { await loadDeletionReadiness() }
+  }
+
+  private func loadDeletionReadiness() async {
+    guard !loadingDeletionReadiness else { return }
+    loadingDeletionReadiness = true
+    deletionReadinessError = nil
+    defer { loadingDeletionReadiness = false }
+    do {
+      deletionReadiness = try await app.dependencies.auth.accountDeletionReadiness()
+    } catch {
+      deletionReadinessError = DemoError(error).message
     }
   }
 }
@@ -227,7 +260,7 @@ struct ProfilePixView: View {
   private var finalActionTitle: String {
     guard profileLoaded else { return "Carregando perfil…" }
     if isDemoViewerLocked { return "Concluir" }
-    return form.configuration.isEmpty ? "Limpar PIX" : "Salvar PIX"
+    return form.configuration == nil ? "Limpar PIX" : "Salvar PIX"
   }
 
   @ViewBuilder
@@ -354,14 +387,7 @@ struct ProfilePixView: View {
   }
 
   private var profilePIXValidationMessage: String {
-    let configuration = form.configuration
-    if !configuration.isEmpty && !configuration.isComplete {
-      return "Preencha a chave, o nome e a cidade do recebedor, ou deixe todos os campos vazios."
-    }
-    if form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
-    }
-    return "A cidade do recebedor deve ter até 15 caracteres."
+    form.validationMessage ?? "Revise os dados do PIX."
   }
 
   private func commit() {
@@ -415,7 +441,7 @@ struct ProfilePixView: View {
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
       loadedForm = form
-      app.showNotice("PIX pessoal atualizado.")
+      app.showNotice(form.configuration == nil ? "PIX pessoal removido." : "PIX pessoal atualizado.")
       dismiss()
     } catch { submitErrorMessage = DemoError(error).message }
   }

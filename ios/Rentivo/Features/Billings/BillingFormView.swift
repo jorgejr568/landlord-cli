@@ -188,6 +188,7 @@ struct BillingFormView: View {
   @State private var pixKey: String
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
+  @State private var usesCustomPix: Bool
   @State private var recipients: [EditableRecipient]
   @State private var replyTo: [EditableRecipient]
   @State private var step: Step = .essentials
@@ -202,6 +203,7 @@ struct BillingFormView: View {
   @State private var organizationsLoaded: Bool
   @FocusState private var focusedField: FocusedField?
   @AccessibilityFocusState private var accessibilityFocusedField: FocusedField?
+  @State private var organizationLoadError: String?
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -213,6 +215,7 @@ struct BillingFormView: View {
     _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
+    _usesCustomPix = State(initialValue: billing?.pixOverride != nil)
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
     _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
     _organizationsLoaded = State(initialValue: billing != nil)
@@ -234,8 +237,7 @@ struct BillingFormView: View {
     .interactiveDismissDisabled(saving)
     .task {
       guard billing == nil else { return }
-      organizations = (try? await app.dependencies.organizations.listOrganizations()) ?? []
-      organizationsLoaded = true
+      await loadOrganizations()
     }
   }
 
@@ -332,13 +334,14 @@ struct BillingFormView: View {
       }
 
     case .pix:
-      RentivoWizardSection("PIX opcional", subtitle: "Deixe em branco para herdar o PIX do responsável.") {
-        TextField("Chave PIX própria", text: $pixKey)
-          .focused($focusedField, equals: .pixKey)
-          .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
-          .textInputAutocapitalization(.never)
-          .accessibilityIdentifier("billing.form.pix.key")
-        if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      RentivoWizardSection("PIX", subtitle: "Escolha se esta cobrança herda o PIX do responsável.") {
+        Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
+        if usesCustomPix {
+          TextField("Chave PIX própria", text: $pixKey)
+            .focused($focusedField, equals: .pixKey)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
+            .textInputAutocapitalization(.never)
+            .accessibilityIdentifier("billing.form.pix.key")
           TextField("Nome do recebedor", text: $pixMerchantName)
             .focused($focusedField, equals: .pixMerchantName)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantName)
@@ -348,6 +351,9 @@ struct BillingFormView: View {
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
             .textInputAutocapitalization(.characters)
             .accessibilityIdentifier("billing.form.pix.merchantCity")
+        } else {
+          Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
+            .foregroundStyle(RentivoColors.secondaryInk)
         }
         validationPanel
       }
@@ -450,7 +456,7 @@ struct BillingFormView: View {
         RentivoWizardReviewRow(label: "Subtotal fixo", value: fixedSubtotal.formatted())
         RentivoWizardReviewRow(
           label: "PIX",
-          value: pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Herdado" : "Próprio"
+          value: usesCustomPix ? "Próprio" : "Herdado"
         )
         RentivoWizardReviewRow(
           label: "Destinatários",
@@ -467,7 +473,9 @@ struct BillingFormView: View {
 
   @ViewBuilder
   private var validationPanel: some View {
-    if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil || submitErrorMessage != nil {
+    if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
+      || submitErrorMessage != nil || organizationLoadError != nil
+    {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Text("Revise os campos")
           .font(.subheadline.weight(.semibold))
@@ -476,6 +484,13 @@ struct BillingFormView: View {
         }
         if let pixRecipientRequiredMessage { validationMessage(pixRecipientRequiredMessage) }
         if let submitErrorMessage { validationMessage(submitErrorMessage) }
+        if let organizationLoadError {
+          validationMessage(organizationLoadError)
+          Button("Tentar carregar responsáveis novamente") {
+            Task { await loadOrganizations() }
+          }
+          .accessibilityIdentifier("billing.form.organizations.retry")
+        }
       }
     }
   }
@@ -547,43 +562,14 @@ struct BillingFormView: View {
     return normalized.isEmpty ? "Não informado" : normalized
   }
 
-  private var isDirty: Bool {
-    if billing == nil {
-      return !name.isEmpty || !billingDescription.isEmpty || ownerID != .personal || !items.isEmpty
-        || !pixKey.isEmpty || !pixMerchantName.isEmpty || !pixMerchantCity.isEmpty
-        || !recipients.isEmpty || !replyTo.isEmpty
-    }
-    guard let billing else { return false }
-    return name != billing.name || billingDescription != billing.description
-      || pixKey != (billing.pixOverride?.key ?? "")
-      || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
-      || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
-      || items.count != billing.items.count
-      || recipients.count != billing.recipients.count
-      || replyTo.count != billing.replyTo.count
-      || zip(items, billing.items).contains {
-        $0.description != $1.description || $0.centavos != $1.type.normalizedTemplateAmount($1.amount.centavos)
-          || $0.type != $1.type
-      }
-      || zip(recipients, billing.recipients).contains { $0.name != $1.name || $0.email != $1.email }
-      || zip(replyTo, billing.replyTo).contains { $0.name != $1.name || $0.email != $1.email }
-  }
-
   private func currentDraft() -> BillingDraft? {
     guard let selectedOwner else { return nil }
-    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     return BillingDraft(
       name: name,
       description: billingDescription,
       owner: selectedOwner,
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
-      pixOverride: pix.isEmpty
-        ? nil
-        : PixConfiguration(
-          key: pix,
-          merchantName: pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines),
-          merchantCity: pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-        ),
+      pixOverride: currentPixOverride,
       recipients: nonBlankRecipients.map { $0.domain() },
       replyTo: nonBlankReplyTo.map { $0.domain() }
     )
@@ -743,15 +729,24 @@ struct BillingFormView: View {
   }
 
   private var pixRecipientRequiredMessageForCurrentFields: String? {
-    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !pix.isEmpty else { return nil }
-    let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard merchantName.isEmpty || merchantCity.isEmpty else { return nil }
-    return "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
+    guard case .invalid(let message) = currentPixResult else { return nil }
+    return message
+  }
+
+  private var currentPixResult: PixFormResult {
+    usesCustomPix
+      ? PixFormRules.result(
+        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
+      : .inherit
+  }
+
+  private var currentPixOverride: PixConfiguration? {
+    guard case .custom(let configuration) = currentPixResult else { return nil }
+    return configuration
   }
 
   private func save() async {
+    guard !saving else { return }
     submitErrorMessage = nil
     let owner: BillingOwner
     if let billing {
@@ -767,18 +762,25 @@ struct BillingFormView: View {
     // validation below, because the update replaces the billing's whole recipient set.
     let draftRecipients = nonBlankRecipients.map { $0.domain() }
     let draftReplyTo = nonBlankReplyTo.map { $0.domain() }
-    let pix = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let merchantName = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let merchantCity = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
+    let pixResult = currentPixResult
+    let pixOverride: PixConfiguration?
+    switch pixResult {
+    case .inherit:
+      pixOverride = nil
+      pixRecipientRequiredMessage = nil
+    case .custom(let configuration):
+      pixOverride = configuration
+      pixRecipientRequiredMessage = nil
+    case .invalid(let message):
+      pixOverride = nil
+      pixRecipientRequiredMessage = message
+    }
     let draft = BillingDraft(
       name: name,
       description: billingDescription,
       owner: owner,
       items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
-      pixOverride: pix.isEmpty
-        ? nil
-        : PixConfiguration(key: pix, merchantName: merchantName, merchantCity: merchantCity),
+      pixOverride: pixOverride,
       recipients: draftRecipients,
       replyTo: draftReplyTo
     )
@@ -797,6 +799,17 @@ struct BillingFormView: View {
       dismiss()
     } catch {
       submitErrorMessage = DemoError(error).message
+    }
+  }
+
+  private func loadOrganizations() async {
+    organizationsLoaded = false
+    organizationLoadError = nil
+    do {
+      organizations = try await app.dependencies.organizations.listOrganizations()
+      organizationsLoaded = true
+    } catch {
+      organizationLoadError = DemoError(error).message
     }
   }
 }

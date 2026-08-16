@@ -66,6 +66,7 @@ import app.rentivo.domain.LocalizedError
 import app.rentivo.domain.MFAChallenge
 import app.rentivo.domain.MFAMethod
 import app.rentivo.domain.MobileLoginOutcome
+import app.rentivo.domain.PasswordInput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -301,6 +302,10 @@ private fun SignInForm(
 
   fun submit() {
     if (!canSubmit) return
+    PasswordInput.validationMessage(password)?.let { message ->
+      validationMessage = message
+      return
+    }
     validationMessage = null
     isAuthenticating = true
     scope.launch {
@@ -387,6 +392,10 @@ private fun SignUpForm(onSignIn: () -> Unit) {
 
   fun submit() {
     if (!canSubmit) return
+    PasswordInput.validationMessage(password, confirmPassword)?.let { message ->
+      validationMessage = message
+      return
+    }
     // The API takes only e-mail and password; the confirmation exists to catch a mistyped password
     // here, before an account is created with it.
     if (password != confirmPassword) {

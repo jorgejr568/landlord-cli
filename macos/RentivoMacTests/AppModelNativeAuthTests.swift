@@ -188,6 +188,9 @@ struct AppModelNativeAuthTests {
 /// `AppModel` takes the server-backed sign-out and deletion paths rather than the demo shortcuts.
 @MainActor
 private final class StubAuthRepository: AuthRepository {
+  func accountDeletionReadiness() async throws -> AccountDeletionReadiness {
+    AccountDeletionReadiness(canDelete: true)
+  }
   private let loginOutcome: MobileLoginOutcome
   private let loginError: Error?
   private let signupProfile: UserProfile

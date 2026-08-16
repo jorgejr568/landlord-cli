@@ -46,6 +46,17 @@ describe("ResetPasswordPage", () => {
     );
   });
 
+  it("keeps an over-72-byte multibyte password local", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<ResetPasswordPage />, { path: "/reset-password?token=reset-token" });
+    await user.type(await screen.findByLabelText("Nova senha"), "á".repeat(37));
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Redefinir senha" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(false);
+  });
+
   it("submits the generated contract, forwards analytics, and flashes login", async () => {
     const user = userEvent.setup();
     renderAuth(<ResetPasswordPage />, {

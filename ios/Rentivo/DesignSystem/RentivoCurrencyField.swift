@@ -57,7 +57,7 @@ struct CurrencyCentavosField: View {
         // the value that text encodes; formatting again would only rebuild the identical
         // string. Comparing the digits skips that, leaving only external value changes
         // (a parent rewriting the binding) to reformat.
-        guard (Int(text.filter(\.isNumber)) ?? 0) != newValue else { return }
+        guard MoneyInputRules.centavos(from: text) != newValue else { return }
         text = Self.format(newValue)
       }
       .onChange(of: textFieldIsFocused) { _, newValue in

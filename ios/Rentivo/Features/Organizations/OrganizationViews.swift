@@ -196,6 +196,7 @@ struct OrganizationFormView: View {
   @State private var pixKey: String
   @State private var merchantName: String
   @State private var city: String
+  @State private var usesCustomPix: Bool
   @State private var pixValidationMessage: String?
   @State private var nameValidationMessage: String?
   @State private var submitErrorMessage: String?
@@ -203,22 +204,25 @@ struct OrganizationFormView: View {
   @State private var step: Step = .organization
   @FocusState private var focusedField: Field?
   @AccessibilityFocusState private var accessibilityFocusedField: Field?
-  private let initialName: String
-  private let initialPixKey: String
-  private let initialMerchantName: String
-  private let initialCity: String
+  private let initialDraftState: NativeOrganizationDraftState
 
   init(organization: Organization? = nil, onSaved: @escaping () async -> Void) {
     self.organization = organization
     self.onSaved = onSaved
-    initialName = organization?.name ?? ""
-    initialPixKey = organization?.pix?.key ?? ""
-    initialMerchantName = organization?.pix?.merchantName ?? ""
-    initialCity = organization?.pix?.merchantCity ?? ""
-    _name = State(initialValue: initialName)
-    _pixKey = State(initialValue: initialPixKey)
-    _merchantName = State(initialValue: initialMerchantName)
-    _city = State(initialValue: initialCity)
+    let name = organization?.name ?? ""
+    let pixKey = organization?.pix?.key ?? ""
+    let merchantName = organization?.pix?.merchantName ?? ""
+    let city = organization?.pix?.merchantCity ?? ""
+    let usesCustomPix = organization?.pix != nil
+    initialDraftState = NativeOrganizationDraftState(
+      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      usesCustomPix: usesCustomPix
+    )
+    _name = State(initialValue: name)
+    _pixKey = State(initialValue: pixKey)
+    _merchantName = State(initialValue: merchantName)
+    _city = State(initialValue: city)
+    _usesCustomPix = State(initialValue: usesCustomPix)
   }
 
   var body: some View {
@@ -233,7 +237,7 @@ struct OrganizationFormView: View {
     ) { selectedStep in
       stepContent(selectedStep)
     }
-    .interactiveDismissDisabled(isDirty || saving)
+    .interactiveDismissDisabled(hasUnsavedChanges || saving)
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
@@ -244,9 +248,14 @@ struct OrganizationFormView: View {
     ]
   }
 
-  private var isDirty: Bool {
-    name != initialName || pixKey != initialPixKey || merchantName != initialMerchantName
-      || city != initialCity
+  private var hasUnsavedChanges: Bool {
+    NativeOrganizationDraftState(
+      name: name,
+      pixKey: pixKey,
+      merchantName: merchantName,
+      city: city,
+      usesCustomPix: usesCustomPix
+    ).hasChanges(from: initialDraftState)
   }
 
   @ViewBuilder
@@ -270,22 +279,30 @@ struct OrganizationFormView: View {
     case .pix:
       RentivoWizardSection(
         "Recebimento PIX",
-        subtitle: "Deixe todos os campos vazios para manter a organização sem PIX."
+        subtitle: "Escolha se a organização terá dados PIX próprios."
       ) {
-        TextField("Chave", text: $pixKey)
-          .textInputAutocapitalization(.never)
-          .focused($focusedField, equals: .pixKey)
-          .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
-          .accessibilityIdentifier("organization.form.pix.key")
-        TextField("Nome do recebedor", text: $merchantName)
-          .focused($focusedField, equals: .merchantName)
-          .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
-          .accessibilityIdentifier("organization.form.pix.merchant-name")
-        TextField("Cidade", text: $city)
-          .textInputAutocapitalization(.characters)
-          .focused($focusedField, equals: .city)
-          .accessibilityFocused($accessibilityFocusedField, equals: .city)
-          .accessibilityIdentifier("organization.form.pix.city")
+        Toggle("Usar PIX da organização", isOn: $usesCustomPix)
+          .accessibilityIdentifier("organization.form.pix.enabled")
+        if usesCustomPix {
+          TextField("Chave", text: $pixKey)
+            .textInputAutocapitalization(.never)
+            .focused($focusedField, equals: .pixKey)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
+            .accessibilityIdentifier("organization.form.pix.key")
+          TextField("Nome do recebedor", text: $merchantName)
+            .focused($focusedField, equals: .merchantName)
+            .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
+            .accessibilityIdentifier("organization.form.pix.merchant-name")
+          TextField("Cidade", text: $city)
+            .textInputAutocapitalization(.characters)
+            .focused($focusedField, equals: .city)
+            .accessibilityFocused($accessibilityFocusedField, equals: .city)
+            .accessibilityIdentifier("organization.form.pix.city")
+        } else {
+          Text("Sem PIX próprio. Cobranças podem usar o PIX pessoal do responsável.")
+            .font(.footnote)
+            .foregroundStyle(RentivoColors.secondaryInk)
+        }
         if let pixValidationMessage {
           validationLabel(pixValidationMessage)
         }
@@ -299,7 +316,7 @@ struct OrganizationFormView: View {
       }
       RentivoWizardSection("PIX") {
         RentivoWizardReviewRow(label: "Configuração", value: pixSummary)
-        if !pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if usesCustomPix {
           RentivoWizardReviewRow(
             label: "Recebedor",
             value: merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,8 +335,7 @@ struct OrganizationFormView: View {
   }
 
   private var pixSummary: String {
-    pixKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? "Sem PIX configurado" : "PIX configurado"
+    usesCustomPix ? "PIX configurado" : "Sem PIX próprio"
   }
 
   private func validationLabel(_ message: String) -> some View {
@@ -337,9 +353,19 @@ struct OrganizationFormView: View {
       if nameValidationMessage != nil { scheduleFocus(.name) }
       return nameValidationMessage == nil
     case .pix:
-      pixValidationMessage = OrganizationDraft.pixValidationMessage(
-        key: pixKey, merchantName: merchantName, city: city
-      )
+      guard usesCustomPix else {
+        pixValidationMessage = nil
+        return true
+      }
+      if case .invalid(let message) = PixFormRules.result(
+        key: pixKey,
+        merchantName: merchantName,
+        merchantCity: city
+      ) {
+        pixValidationMessage = message
+      } else {
+        pixValidationMessage = nil
+      }
       if pixValidationMessage != nil { scheduleFocus(firstInvalidPixField) }
       return pixValidationMessage == nil
     case .review:
@@ -348,8 +374,10 @@ struct OrganizationFormView: View {
   }
 
   private var firstInvalidPixField: Field {
+    let normalizedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedKey.isEmpty { return .pixKey }
     if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 25 { return .merchantName }
     if normalizedCity.isEmpty || normalizedCity.unicodeScalars.count > 15 { return .city }
     return .pixKey
@@ -358,30 +386,38 @@ struct OrganizationFormView: View {
   private func save() async {
     guard !saving else { return }
     submitErrorMessage = nil
-    let trimmedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
-    // Mirrors BillingFormView's PIX validation: a blank key means no PIX at all, but once a key
-    // is present the recipient name/city are required, and must respect the server's column
-    // limits (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city`
-    // maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
-    // 422 on data the form already accepted.
-    pixValidationMessage = OrganizationDraft.pixValidationMessage(
-      key: trimmedKey, merchantName: trimmedMerchantName, city: trimmedCity
-    )
-    guard pixValidationMessage == nil else { return }
-    let pix: PixConfiguration? =
-      trimmedKey.isEmpty
-      ? nil
-      : PixConfiguration(key: trimmedKey, merchantName: trimmedMerchantName, merchantCity: trimmedCity)
-    let draft = OrganizationDraft(name: name, pix: pix)
-    guard draft.isValid else {
-      nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
-      submitErrorMessage = nameValidationMessage
-      step = nameValidationMessage == nil ? .pix : .organization
-      scheduleFocus(nameValidationMessage == nil ? firstInvalidPixField : .name)
+    let result = usesCustomPix
+      ? PixFormRules.result(key: pixKey, merchantName: merchantName, merchantCity: city)
+      : .inherit
+    let pix: PixConfiguration?
+    switch result {
+    case .inherit:
+      pix = nil
+      pixValidationMessage = nil
+    case .custom(let configuration):
+      pix = configuration
+      pixValidationMessage = nil
+    case .invalid(let message):
+      pix = nil
+      pixValidationMessage = message
+    }
+
+    guard pixValidationMessage == nil else {
+      step = .pix
+      scheduleFocus(firstInvalidPixField)
       return
     }
+
+    let draft = OrganizationDraft(
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines), pix: pix
+    )
+    guard draft.isValid else {
+      nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
+      step = .organization
+      scheduleFocus(.name)
+      return
+    }
+
     saving = true
     defer { saving = false }
     do {
@@ -405,6 +441,13 @@ struct OrganizationFormView: View {
   }
 }
 
+private enum OrganizationDetailAction: Equatable {
+  case member(Int)
+  case policy
+  case transfer(BillingID)
+  case delete
+}
+
 struct OrganizationDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -417,6 +460,7 @@ struct OrganizationDetailView: View {
   @State private var showingTheme = false
   @State private var confirmingMFA = false
   @State private var confirmingDelete = false
+  @State private var activeAction: OrganizationDetailAction?
 
   var body: some View {
     PageStateView(state: state) { organization in
@@ -449,13 +493,14 @@ struct OrganizationDetailView: View {
       state.value?.requiresMFA == true ? "Tornar MFA opcional?" : "Exigir MFA?",
       isPresented: $confirmingMFA
     ) {
-      Button("Confirmar") { Task { await toggleMFA() } }
+      Button("Confirmar") { Task { await toggleMFA() } }.disabled(activeAction != nil)
       Button("Cancelar", role: .cancel) {}
     } message: {
       Text("A política será aplicada a todos os membros desta organização.")
     }
     .confirmationDialog("Excluir organização?", isPresented: $confirmingDelete) {
       Button("Excluir", role: .destructive) { Task { await deleteOrganization() } }
+        .disabled(activeAction != nil)
       Button("Cancelar", role: .cancel) {}
     } message: {
       Text("Primeiro transfira todas as cobranças vinculadas.")
@@ -497,6 +542,7 @@ struct OrganizationDetailView: View {
             Label("Excluir organização", systemImage: "trash").frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
+          .disabled(activeAction != nil)
         } else {
           Label(
             "Seu papel permite consultar esta organização, sem alterar sua configuração.",
@@ -559,6 +605,7 @@ struct OrganizationDetailView: View {
                 } label: {
                   Image(systemName: "ellipsis.circle")
                 }
+                .disabled(activeAction != nil)
               } else if member.role == .admin {
                 Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
               }
@@ -597,7 +644,7 @@ struct OrganizationDetailView: View {
             )
           )
           .labelsHidden()
-          .disabled(!organization.capabilities.canManage)
+          .disabled(!organization.capabilities.canManage || activeAction != nil)
           .accessibilityIdentifier("organization.mfa.toggle")
         }
       }
@@ -631,6 +678,7 @@ struct OrganizationDetailView: View {
           Label("Transferir cobrança para cá", systemImage: "arrow.right.square.fill")
         }
         .buttonStyle(.bordered)
+        .disabled(activeAction != nil)
       }
     }
   }
@@ -670,6 +718,9 @@ struct OrganizationDetailView: View {
   }
 
   private func changeRole(_ member: OrganizationMember, to role: OrganizationRole) async {
+    guard activeAction == nil else { return }
+    activeAction = .member(member.userID)
+    defer { activeAction = nil }
     do {
       try await app.dependencies.organizations.updateMemberRole(
         organizationID: organizationID,
@@ -681,6 +732,9 @@ struct OrganizationDetailView: View {
   }
 
   private func remove(_ member: OrganizationMember) async {
+    guard activeAction == nil else { return }
+    activeAction = .member(member.userID)
+    defer { activeAction = nil }
     do {
       try await app.dependencies.organizations.removeMember(
         organizationID: organizationID, userID: member.userID)
@@ -689,7 +743,9 @@ struct OrganizationDetailView: View {
   }
 
   private func toggleMFA() async {
-    guard let organization = state.value else { return }
+    guard activeAction == nil, let organization = state.value else { return }
+    activeAction = .policy
+    defer { activeAction = nil }
     do {
       let policy = try await app.dependencies.organizations.setOrganizationMFA(
         organizationID: organizationID,
@@ -707,6 +763,9 @@ struct OrganizationDetailView: View {
   }
 
   private func transfer(_ billing: Billing, to organization: Organization) async {
+    guard activeAction == nil else { return }
+    activeAction = .transfer(billing.id)
+    defer { activeAction = nil }
     do {
       try await app.dependencies.organizations.transferBilling(
         billingID: billing.id,
@@ -717,6 +776,9 @@ struct OrganizationDetailView: View {
   }
 
   private func deleteOrganization() async {
+    guard activeAction == nil else { return }
+    activeAction = .delete
+    defer { activeAction = nil }
     do {
       try await app.dependencies.organizations.deleteOrganization(id: organizationID)
       await onMutation()

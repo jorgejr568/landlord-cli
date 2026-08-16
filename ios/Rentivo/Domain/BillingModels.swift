@@ -426,6 +426,8 @@ public enum ValidationField: Hashable, Sendable {
   case pix
   case recipient
   case replyTo
+  case subject
+  case body
 }
 
 public struct ValidationIssue: Hashable, Sendable {

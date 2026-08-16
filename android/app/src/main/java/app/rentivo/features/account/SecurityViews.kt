@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import app.rentivo.app.AppNotice
 import app.rentivo.app.LocalAppModel
 import app.rentivo.designsystem.FullScreenSheet
+import app.rentivo.designsystem.MutationGate
 import app.rentivo.designsystem.PageStateView
 import app.rentivo.designsystem.RentivoButton
 import app.rentivo.designsystem.RentivoColors
@@ -53,8 +56,10 @@ import app.rentivo.designsystem.RentivoTypography
 import app.rentivo.domain.DemoError
 import app.rentivo.domain.LoadState
 import app.rentivo.domain.Passkey
+import app.rentivo.domain.PasswordInput
 import app.rentivo.domain.SecuritySummary
 import app.rentivo.domain.TOTPEnrollment
+import app.rentivo.domain.TOTPCodeRule
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -83,8 +88,10 @@ fun SecurityView(onBack: () -> Unit) {
   var enrollment by remember { mutableStateOf<TOTPEnrollment?>(null) }
   var showingDisableTOTP by remember { mutableStateOf(false) }
   var password by remember { mutableStateOf("") }
+  var disablePasswordValidationMessage by remember { mutableStateOf<String?>(null) }
   var passkeyPendingDelete by remember { mutableStateOf<Passkey?>(null) }
   var changingPassword by remember { mutableStateOf(false) }
+  val recoveryCodeGate = remember { MutationGate() }
 
   // Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is connected to the
   // live API, the signed-in user owns their own account and this screen should be fully enabled
@@ -174,12 +181,16 @@ fun SecurityView(onBack: () -> Unit) {
                   add({
                     AccountTextButtonRow(
                       title = "Gerar novos códigos de recuperação",
+                      enabled = !recoveryCodeGate.isRunning,
+                      loading = recoveryCodeGate.isRunning,
                       onClick = {
                         scope.launch {
-                          warnOnFailure {
-                            recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
-                            load()
-                            showingRecoveryCodes = true
+                          recoveryCodeGate.run {
+                            warnOnFailure {
+                              recoveryCodes = app.dependencies.security.regenerateRecoveryCodes()
+                              load()
+                              showingRecoveryCodes = true
+                            }
                           }
                         }
                       },
@@ -270,6 +281,7 @@ fun SecurityView(onBack: () -> Unit) {
       onDismissRequest = {
         showingDisableTOTP = false
         password = ""
+        disablePasswordValidationMessage = null
       },
       containerColor = RentivoColors.surface,
       title = {
@@ -285,13 +297,27 @@ fun SecurityView(onBack: () -> Unit) {
           AccountPasswordField(
             label = "Senha atual",
             value = password,
-            onValueChange = { password = it },
+            onValueChange = {
+              password = it
+              disablePasswordValidationMessage = null
+            },
           )
+          disablePasswordValidationMessage?.let { message ->
+            Text(
+              text = message,
+              style = RentivoTypography.subheadline,
+              color = RentivoColors.destructiveText,
+            )
+          }
         }
       },
       confirmButton = {
         TextButton(
           onClick = {
+            PasswordInput.validationMessage(password)?.let { message ->
+              disablePasswordValidationMessage = message
+              return@TextButton
+            }
             showingDisableTOTP = false
             scope.launch {
               warnOnFailure {
@@ -301,6 +327,7 @@ fun SecurityView(onBack: () -> Unit) {
               }
             }
           },
+          enabled = password.isNotEmpty(),
         ) {
           Text(text = "Desativar", color = RentivoColors.destructiveText)
         }
@@ -310,6 +337,7 @@ fun SecurityView(onBack: () -> Unit) {
           onClick = {
             showingDisableTOTP = false
             password = ""
+            disablePasswordValidationMessage = null
           },
         ) {
           Text(text = "Cancelar", color = RentivoColors.ink)
@@ -405,6 +433,10 @@ private fun ChangePasswordView(onBack: () -> Unit) {
   BackHandler(onBack = onBack)
 
   fun save() {
+    PasswordInput.validationMessage(currentPassword, newPassword, confirmPassword)?.let { message ->
+      validationMessage = message
+      return
+    }
     // The client-side mismatch check short-circuits the request; every other failure is the
     // server's verdict, rendered in the same coral label.
     if (newPassword != confirmPassword) {
@@ -504,11 +536,15 @@ private fun ChangePasswordView(onBack: () -> Unit) {
 /** The one-time recovery codes, shown as a full-screen sheet over [SecurityView]. */
 @Composable
 private fun RecoveryCodeView(codes: List<String>, onDismiss: () -> Unit) {
+  var acknowledged by remember { mutableStateOf(false) }
+  val clipboard = LocalClipboardManager.current
   AccountSheet(
     title = "Recuperação",
     actionTitle = "Concluir",
     onAction = onDismiss,
     onDismiss = onDismiss,
+    actionEnabled = acknowledged,
+    dismissEnabled = acknowledged,
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large)) {
       SheetHeader(title = "Códigos de recuperação", icon = Icons.Filled.Shield)
@@ -517,6 +553,10 @@ private fun RecoveryCodeView(codes: List<String>, onDismiss: () -> Unit) {
         style = RentivoTypography.body,
         color = RentivoColors.secondaryInk,
       )
+      TextButton(
+        onClick = { clipboard.setText(AnnotatedString(codes.joinToString(separator = "\n"))) },
+        modifier = Modifier.testTag("security.recovery.copy"),
+      ) { Text("Copiar códigos") }
       // Two fixed columns, like the iOS LazyVGrid; a trailing odd code keeps its own half.
       codes.chunked(2).forEach { pair ->
         Row(horizontalArrangement = Arrangement.spacedBy(RentivoSpacing.medium)) {
@@ -535,6 +575,12 @@ private fun RecoveryCodeView(codes: List<String>, onDismiss: () -> Unit) {
           if (pair.size == 1) Box(modifier = Modifier.weight(1f))
         }
       }
+      RentivoButton(
+        text = "Confirmo que guardei os códigos",
+        onClick = { acknowledged = true },
+        enabled = !acknowledged,
+        modifier = Modifier.testTag("security.recovery.acknowledge"),
+      )
     }
   }
 }
@@ -554,12 +600,32 @@ private fun TOTPEnrollmentView(
 ) {
   val scope = rememberCoroutineScope()
   var code by remember { mutableStateOf("") }
+  var isSubmitting by remember { mutableStateOf(false) }
+  var validationMessage by remember { mutableStateOf<String?>(null) }
+
+  fun submit() {
+    if (isSubmitting) return
+    validationMessage = TOTPCodeRule.validationMessage(code)
+    if (validationMessage != null) return
+    isSubmitting = true
+    scope.launch {
+      try {
+        onConfirm(code)
+      } catch (cancellation: CancellationException) {
+        throw cancellation
+      } finally {
+        isSubmitting = false
+      }
+    }
+  }
 
   AccountSheet(
     title = "Autenticador",
     actionTitle = "Cancelar",
     onAction = onDismiss,
     onDismiss = onDismiss,
+    actionEnabled = !isSubmitting,
+    dismissEnabled = !isSubmitting,
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(RentivoSpacing.large)) {
       SheetHeader(title = "Configure seu autenticador", icon = Icons.Filled.QrCode)
@@ -583,16 +649,22 @@ private fun TOTPEnrollmentView(
       }
       OutlinedTextField(
         value = code,
-        onValueChange = { code = it },
+        onValueChange = {
+          code = it
+          validationMessage = null
+        },
         label = { Text(text = "Código do autenticador") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
       )
+      validationMessage?.let { message ->
+        Text(message, style = RentivoTypography.subheadline, color = RentivoColors.coral)
+      }
       RentivoButton(
         text = "Confirmar",
-        onClick = { scope.launch { onConfirm(code) } },
-        enabled = code.isNotBlank(),
+        onClick = ::submit,
+        enabled = code.isNotBlank() && !isSubmitting,
       )
     }
   }
@@ -619,15 +691,17 @@ private fun AccountSheet(
   actionTitle: String,
   onAction: () -> Unit,
   onDismiss: () -> Unit,
+  actionEnabled: Boolean = true,
+  dismissEnabled: Boolean = true,
   content: @Composable () -> Unit,
 ) {
-  FullScreenSheet(onDismissRequest = onDismiss) {
+  FullScreenSheet(onDismissRequest = onDismiss, dismissEnabled = dismissEnabled) {
     AccountScaffold(
       title = title,
       onBack = null,
       actions = {
         AccountToolbarAction {
-          TextButton(onClick = onAction) {
+          TextButton(onClick = onAction, enabled = actionEnabled) {
             Text(text = actionTitle, color = RentivoColors.emerald)
           }
         }

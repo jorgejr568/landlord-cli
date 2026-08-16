@@ -26,6 +26,7 @@ import app.rentivo.domain.APIKeyMetadata
 import app.rentivo.domain.APIKeyOptions
 import app.rentivo.domain.APIKeyWorkspaceOption
 import app.rentivo.domain.APIKeyScope
+import app.rentivo.domain.AccountDeletionReadiness
 import app.rentivo.domain.Attachment
 import app.rentivo.domain.AttachmentID
 import app.rentivo.domain.AttachmentUploadRules
@@ -188,6 +189,13 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     user = UserProfile(id = 0, email = "")
   }
 
+  override suspend fun accountDeletionReadiness(): AccountDeletionReadiness {
+    val response = decode<RemoteAccountDeletionReadiness>(
+      path = "/api/v1/security/account-deletion-readiness",
+    )
+    return AccountDeletionReadiness(canDelete = response.canDelete, reason = response.reason)
+  }
+
   override suspend fun deleteAccount(password: String) {
     execute(
       path = "/api/v1/security/delete-account",
@@ -211,7 +219,7 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     return user
   }
 
-  override suspend fun updatePix(pix: PixConfiguration): UserProfile {
+  override suspend fun updatePix(pix: PixConfiguration?): UserProfile {
     val response = decode<RemotePixUpdate, RemotePixUpdateResponse>(
       path = "/api/v1/security/pix",
       method = "POST",
@@ -1037,26 +1045,33 @@ class APIRentivoStore(private val client: LiveAPIClient) :
     ),
   )
 
-  private fun apiKey(remote: RemoteAPIKey): APIKeyMetadata = APIKeyMetadata(
-    id = APIKeyID(rawValue = remote.uuid),
-    name = remote.name,
-    hint = remote.hint,
-    scopes = remote.scopes.mapNotNull { APIKeyScope.fromWire(it) }.toSet(),
-    grants = remote.grants.mapNotNull { grant ->
+  private fun apiKey(remote: RemoteAPIKey): APIKeyMetadata {
+    val scopes = remote.scopes.mapNotNull { APIKeyScope.fromWire(it) }.toSet()
+    val grants = remote.grants.mapNotNull { grant ->
+      if (!grant.available) return@mapNotNull null
       val resourceID = grant.resourceID ?: return@mapNotNull null
       val resourceType = WorkspaceResourceType.fromWire(grant.resourceType)
         ?: return@mapNotNull null
       APIKeyGrant(
         resourceType = resourceType,
         resourceID = WorkspaceID(rawValue = resourceID),
-        available = grant.available,
+        available = true,
       )
-    },
+    }
+    return APIKeyMetadata(
+    id = APIKeyID(rawValue = remote.uuid),
+    name = remote.name,
+    hint = remote.hint,
+    scopes = scopes,
+    grants = grants,
     expiresAt = WireDate.isoDate(remote.expiresAt),
     lastUsedAt = remote.lastUsedAt?.let(WireDate::isoDate),
     createdAt = WireDate.isoDate(remote.createdAt),
     revokedAt = remote.revokedAt?.let(WireDate::isoDate),
+    unavailableGrantCount = remote.grants.size - grants.size,
+    unavailableScopeCount = remote.scopes.count { APIKeyScope.fromWire(it) == null },
   )
+  }
 
   private fun attachment(remote: RemoteAttachment): Attachment = Attachment(
     id = AttachmentID(rawValue = remote.uuid),

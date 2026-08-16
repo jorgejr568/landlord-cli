@@ -24,6 +24,7 @@ struct BillDetailView: View {
   /// transition button is disabled while one runs: they are mutually exclusive server-side, and a
   /// second one fired mid-flight would be judged against a status that is already gone.
   @State private var transitioningTo: BillStatus?
+  @State private var isRegenerating = false
 
   private var pollKey: String {
     "\(app.dataRevision)-\(pollGeneration)-\(state.value?.isRenderingPDF == true)"
@@ -175,7 +176,7 @@ struct BillDetailView: View {
         // Regenerating stays available while a render is pending: a re-trigger supersedes the
         // in-flight render server-side.
         Button("Regenerar documento") { Task { await regenerate(bill) } }
-          .disabled(!bill.capabilities.canRegenerate)
+          .disabled(!bill.capabilities.canRegenerate || isRegenerating)
         if bill.capabilities.canOpenRecibo {
           Button {
             Task { await downloadRecibo() }
@@ -413,6 +414,9 @@ struct BillDetailView: View {
   }
 
   private func regenerate(_ bill: Bill) async {
+    guard !isRegenerating else { return }
+    isRegenerating = true
+    defer { isRegenerating = false }
     do {
       let queued = try await app.dependencies.bills.regenerateBill(
         billingID: billingID, billID: bill.id)

@@ -27,6 +27,19 @@ import Testing
   #expect(upload.byteCount == contents.count)
 }
 
+@Test func fileUploadFromSecurityScopedURLReadsOffTheCallingActor() async throws {
+  let fileURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent(UUID().uuidString)
+    .appendingPathExtension("pdf")
+  let contents = Data("%PDF async".utf8)
+  try contents.write(to: fileURL)
+  defer { try? FileManager.default.removeItem(at: fileURL) }
+
+  let upload = try await FileUpload.fromSecurityScoped(url: fileURL, policy: .rentivoDocument)
+
+  #expect(upload.data == contents)
+}
+
 @Test func fileUploadFromURLInfersImageMediaTypesFromKnownExtensions() throws {
   let directory = FileManager.default.temporaryDirectory
     .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
@@ -139,6 +139,11 @@ class ReceiptUploadSummary(_StrictModel):
     attached: int = 0
     skipped: int = 0
     total_bytes: int = 0
+    skipped_reasons: tuple[Literal["unsupported_mime", "empty_file", "size_limit_exceeded"], ...] = Field(
+        default=(),
+        description="One reason for each skipped file; valid MIME types are PDF, JPEG, and PNG, with a 10 MiB limit.",
+        json_schema_extra={"x-rentivo-max-upload-bytes": 10 * 1024 * 1024},
+    )
 
 
 class BillResponse(_StrictModel):

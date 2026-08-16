@@ -163,6 +163,14 @@ struct BillingDetailView: View {
 
   private func bills(_ data: BillingDetailData) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
+      if data.billing.pixNeedsSetup && data.billing.capabilities.canCreateBills {
+        Label(
+          "Configure a chave, o nome e a cidade do recebedor antes de gerar uma fatura.",
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .font(.footnote)
+        .foregroundStyle(RentivoColors.coral)
+      }
       HStack {
         SectionTitle(title: "Faturas", symbol: "doc.text.fill")
         Spacer()

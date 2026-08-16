@@ -33,6 +33,9 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     snapshot.profile
   }
   public func logout() async {}
+  public func accountDeletionReadiness() async throws -> AccountDeletionReadiness {
+    AccountDeletionReadiness(canDelete: true)
+  }
   public func deleteAccount(password: String) async throws {}
 
   // The demo has no credentials to check and no second factor to enrol, so native sign-in always
@@ -128,11 +131,12 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     }
   }
 
-  public func updatePix(_ pix: PixConfiguration) async throws -> UserProfile {
+  public func updatePix(_ pix: PixConfiguration?) async throws -> UserProfile {
     try await prepareOperation()
     guard !viewerMode else { throw DemoError.permissionDenied }
-    snapshot.profile.pix = pix.isEmpty ? nil : pix
-    recordActivity(kind: .billing, title: "PIX atualizado", detail: pix.key)
+    let normalized = pix?.isEmpty == true ? nil : pix
+    snapshot.profile.pix = normalized
+    recordActivity(kind: .billing, title: "PIX atualizado", detail: normalized?.key ?? "Removido")
     return snapshot.profile
   }
 

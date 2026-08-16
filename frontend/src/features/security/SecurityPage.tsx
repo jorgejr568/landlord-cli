@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
+import { passwordValidationError, validatePix } from "../../forms/validators";
 import type { components } from "../../lib/api/schema";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { ApiKeySection } from "../apiKeys/ApiKeySection";
@@ -12,6 +13,7 @@ import { PasskeyManager } from "./PasskeyManager";
 import { createPasskey } from "./webauthn";
 
 type SecuritySummary = components["schemas"]["SecuritySummaryResponse"];
+type AccountDeletionReadiness = components["schemas"]["AccountDeletionReadinessResponse"];
 
 function messageFor(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
@@ -21,12 +23,15 @@ export function SecurityPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<SecuritySummary | null>(null);
+  const [deletionReadiness, setDeletionReadiness] = useState<AccountDeletionReadiness | null>(null);
+  const [deletionReadinessError, setDeletionReadinessError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [savingPix, setSavingPix] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [regeneratingRecoveryCodes, setRegeneratingRecoveryCodes] = useState(false);
   const [disablingTotp, setDisablingTotp] = useState(false);
   const [showDisableTotp, setShowDisableTotp] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
@@ -35,6 +40,7 @@ export function SecurityPage() {
   const [pixKey, setPixKey] = useState("");
   const [pixName, setPixName] = useState("");
   const [pixCity, setPixCity] = useState("");
+  const [pixErrors, setPixErrors] = useState<Record<string, string>>({});
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -45,23 +51,32 @@ export function SecurityPage() {
   const pixCityRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const recoveryRef = useRef<HTMLButtonElement>(null);
+  const recoveryRequestInFlight = useRef(false);
   const disableTotpRef = useRef<HTMLInputElement>(null);
   const deleteAccountRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    try {
-      const { data } = await apiRequest(apiClient.GET("/api/v1/security"));
-      setSummary(data);
-      setPixKey(data.profile.pix_key);
-      setPixName(data.profile.pix_merchant_name);
-      setPixCity(data.profile.pix_merchant_city);
-    } catch (caught: unknown) {
-      setLoadError(messageFor(caught, "Não foi possível carregar as configurações de segurança."));
-    } finally {
+    setSummary(null);
+    setDeletionReadiness(null);
+    setDeletionReadinessError(null);
+    const [summaryResult, readinessResult] = await Promise.allSettled([
+      apiRequest(apiClient.GET("/api/v1/security")),
+      apiRequest(apiClient.GET("/api/v1/security/account-deletion-readiness"))
+    ]);
+    if (summaryResult.status === "rejected") {
+      setLoadError(messageFor(summaryResult.reason, "Não foi possível carregar as configurações de segurança."));
       setLoading(false);
+      return;
     }
+    setSummary(summaryResult.value.data);
+    setPixKey(summaryResult.value.data.profile.pix_key ?? "");
+    setPixName(summaryResult.value.data.profile.pix_merchant_name ?? "");
+    setPixCity(summaryResult.value.data.profile.pix_merchant_city ?? "");
+    if (readinessResult.status === "fulfilled") setDeletionReadiness(readinessResult.value.data);
+    else setDeletionReadinessError(messageFor(readinessResult.reason, "Não foi possível verificar se a conta pode ser excluída."));
+    setLoading(false);
   }, []);
 
   useEffect(() => { document.title = "Segurança - Rentivo"; void load(); }, [load]);
@@ -75,26 +90,25 @@ export function SecurityPage() {
 
   async function updatePix(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedPixKey = pixKey.trim();
-    const normalizedPixName = pixName.trim();
-    const normalizedPixCity = pixCity.trim();
-    const pixFields = [normalizedPixKey, normalizedPixName, normalizedPixCity];
-    const pixIsPartial = pixFields.some(Boolean) && !pixFields.every(Boolean);
-    const missingField = !normalizedPixKey ? pixRef.current : !normalizedPixName ? pixNameRef.current : pixCityRef.current;
-    startAction(pixIsPartial ? missingField : pixRef.current);
-    if (pixIsPartial) {
-      setActionError("Preencha a chave PIX, o nome e a cidade do recebedor, ou deixe todos os campos vazios.");
-      missingField?.focus();
+    const validation = validatePix({ city: pixCity, key: pixKey, name: pixName });
+    startAction(pixRef.current);
+    if ("errors" in validation) {
+      setPixErrors(validation.errors);
+      const first = ["key", "name", "city"].find((field) => validation.errors[field]);
+      if (first === "key") pixRef.current?.focus();
+      else if (first === "name") pixNameRef.current?.focus();
+      else pixCityRef.current?.focus();
       return;
     }
+    setPixErrors({});
     setSavingPix(true);
     try {
       const { data } = await apiRequest(
         apiClient.POST("/api/v1/security/pix", {
           body: {
-            pix_key: normalizedPixKey,
-            pix_merchant_city: normalizedPixCity,
-            pix_merchant_name: normalizedPixName
+            pix_key: validation.value.key,
+            pix_merchant_city: validation.value.city,
+            pix_merchant_name: validation.value.name
           }
         })
       );
@@ -110,6 +124,11 @@ export function SecurityPage() {
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(passwordRef.current);
+    const passwordError = passwordValidationError(currentPassword, newPassword, confirmPassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setActionError("As senhas não coincidem.");
       return;
@@ -136,6 +155,9 @@ export function SecurityPage() {
   }
 
   async function regenerateRecoveryCodes() {
+    if (recoveryRequestInFlight.current) return;
+    recoveryRequestInFlight.current = true;
+    setRegeneratingRecoveryCodes(true);
     startAction(recoveryRef.current);
     try {
       const { data, response } = await apiRequest(
@@ -145,12 +167,20 @@ export function SecurityPage() {
       navigate("/security/recovery-codes", { state: { recoveryCodes: data.recovery_codes } });
     } catch (caught: unknown) {
       setActionError(messageFor(caught, "Não foi possível regenerar os códigos de recuperação."));
+    } finally {
+      recoveryRequestInFlight.current = false;
+      setRegeneratingRecoveryCodes(false);
     }
   }
 
   async function disableTotp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(disableTotpRef.current);
+    const passwordError = passwordValidationError(disablePassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     setDisablingTotp(true);
     try {
       const { response } = await apiRequest(
@@ -170,6 +200,11 @@ export function SecurityPage() {
   async function deleteAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startAction(deleteAccountRef.current);
+    const passwordError = passwordValidationError(deletePassword);
+    if (passwordError) {
+      setActionError(passwordError);
+      return;
+    }
     setDeletingAccount(true);
     try {
       const { response } = await apiRequest(
@@ -227,9 +262,9 @@ export function SecurityPage() {
         <p className="field-hint mb-1">Estes dados são usados para gerar o QR Code nas faturas das suas cobranças pessoais. Todos os três campos são obrigatórios para gerar faturas.</p>
         {pixIncomplete ? <div className="toast toast--warning" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
         <form onSubmit={(event) => void updatePix(event)}>
-          <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input className="field-input" id="pix_key" onChange={(event) => setPixKey(event.target.value)} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} /><span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input className="field-input" id="pix_merchant_name" onChange={(event) => setPixName(limitApiCharacters(event.target.value, 25))} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} /><span className="field-hint">Até 25 caracteres.</span></div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input className="field-input" id="pix_merchant_city" onChange={(event) => setPixCity(limitApiCharacters(event.target.value, 15))} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} /><span className="field-hint">Até 15 caracteres, sem acentos.</span></div>
+          <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-invalid={Boolean(pixErrors.key)} className="field-input" id="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} />{pixErrors.key ? <span className="field-error">{pixErrors.key}</span> : <span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span>}</div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-invalid={Boolean(pixErrors.name)} className="field-input" id="pix_merchant_name" onChange={(event) => { setPixName(limitApiCharacters(event.target.value, 25)); setPixErrors({}); }} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} />{pixErrors.name ? <span className="field-error">{pixErrors.name}</span> : <span className="field-hint">Até 25 caracteres.</span>}</div>
+          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-invalid={Boolean(pixErrors.city)} className="field-input" id="pix_merchant_city" onChange={(event) => { setPixCity(limitApiCharacters(event.target.value, 15)); setPixErrors({}); }} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} />{pixErrors.city ? <span className="field-error">{pixErrors.city}</span> : <span className="field-hint">Até 15 caracteres, sem acentos.</span>}</div>
           <SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton>
         </form>
       </div></div>
@@ -240,7 +275,7 @@ export function SecurityPage() {
         <SubmitButton className="btn btn--primary btn--sm" loading={changingPassword}>Alterar Senha</SubmitButton>
       </form></div></div>
       <div className="panel"><div className="panel-head"><h5>Autenticação por Aplicativo (TOTP)</h5></div><div className="panel-body">
-        {summary.totp.enabled ? <><p>TOTP está <strong style={{ color: "var(--emerald)" }}>ativado</strong>.</p><p style={{ marginTop: "0.5rem" }}>Códigos de recuperação restantes: <strong>{summary.totp.recovery_codes_remaining}</strong>{summary.totp.recovery_codes_remaining < 3 ? <span style={{ color: "var(--danger)", fontWeight: 600 }}> — Recomendamos regenerar seus códigos.</span> : null}</p><div className="btn-row" style={{ marginTop: "1rem" }}><button className="btn btn--sm" onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar Códigos de Recuperação</button>{!showDisableTotp ? <button className="btn btn--sm btn--danger" onClick={() => setShowDisableTotp(true)} type="button">Desativar TOTP</button> : null}</div>{showDisableTotp ? <div style={{ marginTop: "1rem" }}><form onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input className="field-input" id="disable-totp-password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar Desativação</SubmitButton></form></div> : null}</> : <><p>TOTP não está configurado.</p><Link className="btn btn--primary" style={{ marginTop: "0.75rem" }} to="/security/totp/setup">Configurar TOTP</Link></>}
+        {summary.totp.enabled ? <><p>TOTP está <strong style={{ color: "var(--emerald)" }}>ativado</strong>.</p><p style={{ marginTop: "0.5rem" }}>Códigos de recuperação restantes: <strong>{summary.totp.recovery_codes_remaining}</strong>{summary.totp.recovery_codes_remaining < 3 ? <span style={{ color: "var(--danger)", fontWeight: 600 }}> — Recomendamos regenerar seus códigos.</span> : null}</p><div className="btn-row" style={{ marginTop: "1rem" }}><button aria-busy={regeneratingRecoveryCodes} className="btn btn--sm" disabled={regeneratingRecoveryCodes} onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar Códigos de Recuperação</button>{!showDisableTotp ? <button className="btn btn--sm btn--danger" onClick={() => setShowDisableTotp(true)} type="button">Desativar TOTP</button> : null}</div>{showDisableTotp ? <div style={{ marginTop: "1rem" }}><form onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input className="field-input" id="disable-totp-password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar Desativação</SubmitButton></form></div> : null}</> : <><p>TOTP não está configurado.</p><Link className="btn btn--primary" style={{ marginTop: "0.75rem" }} to="/security/totp/setup">Configurar TOTP</Link></>}
       </div></div>
       <PasskeyManager onDelete={deletePasskey} onRegister={registerPasskey} onSessionRevoked={() => { void logout().catch(() => undefined); }} organizationEnforced={summary.mfa.organization_enforced} passkeys={summary.passkeys} />
       <ApiKeySection />
@@ -248,8 +283,10 @@ export function SecurityPage() {
         <div className="panel-head"><h5>Excluir conta</h5></div>
         <div className="panel-body">
           <p>A exclusão é permanente: suas cobranças são removidas e seus dados pessoais são apagados. Registros exigidos por lei podem ser retidos conforme a <Link to="/privacy">Política de Privacidade</Link>. Se você entra apenas com o Google, defina uma senha antes em Esqueci minha senha.</p>
-          {!showDeleteAccount ? <button className="btn btn--sm btn--danger" onClick={() => setShowDeleteAccount(true)} type="button">Excluir conta</button> : null}
-          {showDeleteAccount ? <form onSubmit={(event) => void deleteAccount(event)}>
+          {deletionReadinessError ? <><div className="toast toast--warning" role="alert">{deletionReadinessError}</div><button className="btn btn--sm" onClick={() => void load()} type="button">Verificar novamente</button></> : null}
+          {deletionReadiness && !deletionReadiness.can_delete ? <div className="toast toast--warning" role="alert">{deletionReadiness.reason === "sole_organization_admin" ? "Transfira a administração ou exclua suas organizações antes de excluir a conta." : "A exclusão da conta não está disponível no momento."}</div> : null}
+          {deletionReadiness?.can_delete && !showDeleteAccount ? <button className="btn btn--sm btn--danger" onClick={() => setShowDeleteAccount(true)} type="button">Excluir conta</button> : null}
+          {deletionReadiness?.can_delete && showDeleteAccount ? <form onSubmit={(event) => void deleteAccount(event)}>
             <div className="field"><label className="field-label" htmlFor="delete-account-password">Confirme sua senha para excluir a conta</label><input className="field-input" id="delete-account-password" onChange={(event) => setDeletePassword(event.target.value)} ref={deleteAccountRef} required type="password" value={deletePassword} /></div>
             <SubmitButton className="btn btn--danger btn--sm" loading={deletingAccount}>Excluir minha conta permanentemente</SubmitButton>
           </form> : null}

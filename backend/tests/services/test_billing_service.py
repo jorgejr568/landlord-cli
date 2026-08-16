@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 from rentivo.models.billing import Billing, BillingItem, ItemType
+from rentivo.models.recipient import Recipient
 from rentivo.services.billing_service import BillingService
 
 
@@ -12,9 +13,38 @@ class TestBillingService:
     def test_create_billing(self):
         items = [BillingItem(description="Rent", amount=100000, item_type=ItemType.FIXED)]
         self.mock_repo.create.return_value = Billing(id=1, name="Apt 101", items=items)
-        result = self.service.create_billing("Apt 101", "desc", items, pix_key="test@pix.com")
+        result = self.service.create_billing(
+            "Apt 101",
+            "desc",
+            items,
+            pix_key="test@pix.com",
+            pix_merchant_name="Locador",
+            pix_merchant_city="SAO PAULO",
+        )
         self.mock_repo.create.assert_called_once()
         assert result.name == "Apt 101"
+
+    def test_create_billing_with_contacts_uses_aggregate_and_normalizes_rows(self):
+        items = [BillingItem(description="Rent", amount=100000, item_type=ItemType.FIXED)]
+        created = Billing(id=1, name="Apt 101", items=items)
+        self.mock_repo.create_aggregate.return_value = created
+
+        result = self.service.create_billing(
+            "Apt 101",
+            "desc",
+            items,
+            recipients=[
+                {"name": "  Ana  ", "email": "  ana@example.com  "},
+                {"name": "", "email": "ignored@example.com"},
+            ],
+            reply_to=None,
+        )
+
+        assert result is created
+        aggregate = self.mock_repo.create_aggregate.call_args.args
+        assert aggregate[0].name == "Apt 101"
+        assert aggregate[1] == [Recipient(billing_id=0, name="Ana", email="ana@example.com")]
+        assert aggregate[2] is None
 
     def test_list_billings(self):
         self.mock_repo.list_all.return_value = [Billing(name="A"), Billing(name="B")]
@@ -38,6 +68,23 @@ class TestBillingService:
         result = self.service.update_billing(billing)
         self.mock_repo.update.assert_called_once_with(billing)
         assert result.name == "Updated"
+
+    def test_update_billing_with_contacts_uses_aggregate(self):
+        billing = Billing(id=1, name="Updated")
+        self.mock_repo.update_aggregate.return_value = billing
+
+        result = self.service.update_billing(
+            billing,
+            recipients=[{"name": "Ana", "email": "ana@example.com"}],
+            reply_to=[],
+        )
+
+        assert result is billing
+        self.mock_repo.update_aggregate.assert_called_once_with(
+            billing,
+            [Recipient(billing_id=1, name="Ana", email="ana@example.com")],
+            [],
+        )
 
     def test_delete_billing(self):
         self.service.delete_billing(1)
@@ -73,6 +120,55 @@ class TestBillingService:
         self.mock_repo.transfer_owner_if_current.return_value = True
         self.service.transfer_to_organization(1, 5, expected_owner_id=1)
         self.mock_repo.transfer_owner_if_current.assert_called_once_with(1, "user", 1, "organization", 5)
+
+    def test_atomic_update_and_transfer_validates_pix_and_returns_updated_billing(self):
+        billing = Billing(
+            id=1,
+            name="A",
+            owner_type="user",
+            owner_id=1,
+            pix_key="test@example.com",
+            pix_merchant_name="Locador",
+            pix_merchant_city="SAO PAULO",
+        )
+        updated = billing.model_copy(update={"owner_type": "organization", "owner_id": 5})
+        self.mock_repo.update_and_transfer_personal_to_organization.return_value = updated
+
+        result = self.service.update_and_transfer_personal_to_organization(billing, 1, 5)
+
+        assert result is updated
+        self.mock_repo.update_and_transfer_personal_to_organization.assert_called_once_with(billing, 1, 5)
+
+    def test_atomic_update_and_transfer_with_contacts_uses_aggregate(self):
+        billing = Billing(id=1, name="A", owner_type="user", owner_id=1)
+        updated = billing.model_copy(update={"owner_type": "organization", "owner_id": 5})
+        self.mock_repo.update_aggregate.return_value = updated
+
+        result = self.service.update_and_transfer_personal_to_organization(
+            billing,
+            1,
+            5,
+            recipients=[],
+            reply_to=[{"name": "Financeiro", "email": "financeiro@example.com"}],
+        )
+
+        assert result is updated
+        self.mock_repo.update_aggregate.assert_called_once_with(
+            billing,
+            [],
+            [Recipient(billing_id=1, name="Financeiro", email="financeiro@example.com")],
+            expected_owner_id=1,
+            organization_id=5,
+        )
+
+    def test_atomic_update_and_transfer_reports_owner_conflict(self):
+        billing = Billing(id=1, name="A", owner_type="user", owner_id=1)
+        self.mock_repo.update_and_transfer_personal_to_organization.return_value = None
+
+        import pytest
+
+        with pytest.raises(ValueError, match="ownership changed"):
+            self.service.update_and_transfer_personal_to_organization(billing, 1, 5)
 
     def test_transfer_uses_loaded_owner_as_default_expected_state(self):
         self.mock_repo.get_by_id.return_value = Billing(id=1, name="A", owner_type="user", owner_id=1)
