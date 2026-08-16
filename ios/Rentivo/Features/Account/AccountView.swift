@@ -197,12 +197,11 @@ struct ProfilePixView: View {
       title: "Dados e PIX",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: saving,
       isPrimaryEnabled: RentivoAsyncDraftLoadRules.isPrimaryEnabled(
         hasLoadedBaseline: profileLoaded
       ),
-      primaryTitle: primaryTitle,
+      finalActionTitle: finalActionTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: commit
     ) { selectedStep in
@@ -225,11 +224,10 @@ struct ProfilePixView: View {
     form != (loadedForm ?? ProfilePIXForm())
   }
 
-  private var primaryTitle: String {
+  private var finalActionTitle: String {
     guard profileLoaded else { return "Carregando perfil…" }
-    guard step == .review else { return "Continuar" }
     if isDemoViewerLocked { return "Concluir" }
-    return form.configuration.isEmpty ? "Limpar" : "Salvar"
+    return form.configuration.isEmpty ? "Limpar PIX" : "Salvar PIX"
   }
 
   @ViewBuilder

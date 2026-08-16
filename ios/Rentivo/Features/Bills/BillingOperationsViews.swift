@@ -203,9 +203,8 @@ private struct ExpenseFormView: View {
       title: "Nova despesa",
       descriptors: descriptors,
       selectedStep: $selectedStep,
-      isDirty: isDirty,
       isBusy: saving,
-      primaryTitle: "Salvar",
+      finalActionTitle: "Salvar despesa",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await save() } }
     ) { step in
@@ -582,10 +581,9 @@ struct CommunicationComposerView: View {
       title: "Enviar \(commType.label.lowercased())",
       descriptors: descriptors,
       selectedStep: $selectedStep,
-      isDirty: isDirty,
       isBusy: isSending,
       isPrimaryEnabled: selectedStep != .review || !bill.isRenderingPDF,
-      primaryTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
+      finalActionTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await send() } }
     ) { step in
@@ -843,9 +841,8 @@ struct ExportSimulationView: View {
       title: "Exportar",
       descriptors: descriptors,
       selectedStep: $selectedStep,
-      isDirty: format != BillingExportContract.formats[0],
       isBusy: requestingExport,
-      primaryTitle: "Solicitar exportação",
+      finalActionTitle: "Solicitar exportação",
       onValidateAndAdvance: { true },
       onCommit: { Task { await requestExport() } }
     ) { step in

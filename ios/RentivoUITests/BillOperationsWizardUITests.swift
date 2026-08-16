@@ -16,6 +16,16 @@ final class BillOperationsWizardUITests: XCTestCase {
     createBill.tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
+    XCTAssertEqual(app.buttons["wizard.continue"].label, "Continuar")
+    XCTAssertTrue(app.buttons["wizard.close"].exists)
+
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.close"].tap()
+    XCTAssertTrue(app.staticTexts["Descartar alterações?"].waitForExistence(timeout: 2))
+    let keepEditing = app.buttons["xmark"]
+    XCTAssertTrue(keepEditing.waitForExistence(timeout: 2))
+    keepEditing.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 2 de 5"].exists)
   }
 
   /// Catches a regression that combines an expense's descriptive details with its amount and
@@ -26,6 +36,18 @@ final class BillOperationsWizardUITests: XCTestCase {
     app.buttons["Adicionar"].tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    let description = app.textFields["Descrição"]
+    description.tap()
+    description.typeText("Manutenção")
+    app.buttons["wizard.continue"].tap()
+
+    let amount = app.textFields["Valor em centavos"]
+    XCTAssertTrue(amount.waitForExistence(timeout: 2))
+    amount.tap()
+    amount.typeText("1000")
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertEqual(app.buttons["wizard.commit"].label, "Salvar despesa")
   }
 
   func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {

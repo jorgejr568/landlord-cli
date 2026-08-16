@@ -61,10 +61,9 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
   let title: String
   let descriptors: [RentivoWizardStepDescriptor<Step>]
   @Binding var selectedStep: Step
-  let isDirty: Bool
   let isBusy: Bool
   let isPrimaryEnabled: Bool
-  let primaryTitle: String
+  let finalActionTitle: String
   let onValidateAndAdvance: () -> Bool
   let onCommit: () -> Void
   private let content: (Step) -> Content
@@ -76,10 +75,9 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
     title: String,
     descriptors: [RentivoWizardStepDescriptor<Step>],
     selectedStep: Binding<Step>,
-    isDirty: Bool,
     isBusy: Bool,
     isPrimaryEnabled: Bool = true,
-    primaryTitle: String,
+    finalActionTitle: String,
     onValidateAndAdvance: @escaping () -> Bool,
     onCommit: @escaping () -> Void,
     @ViewBuilder content: @escaping (Step) -> Content
@@ -90,10 +88,9 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
     self.title = title
     self.descriptors = descriptors
     _selectedStep = selectedStep
-    self.isDirty = isDirty
     self.isBusy = isBusy
     self.isPrimaryEnabled = isPrimaryEnabled
-    self.primaryTitle = primaryTitle
+    self.finalActionTitle = finalActionTitle
     self.onValidateAndAdvance = onValidateAndAdvance
     self.onCommit = onCommit
     self.content = content
@@ -185,7 +182,7 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
           Text(
             RentivoWizardNavigationPolicy.primaryTitle(
               isLast: isLast,
-              finalActionTitle: primaryTitle
+              finalActionTitle: finalActionTitle
             )
           )
         }

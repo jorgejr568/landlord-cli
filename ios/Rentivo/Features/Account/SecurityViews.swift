@@ -208,9 +208,8 @@ private struct ChangePasswordView: View {
       title: "Alterar senha",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: isSaving,
-      primaryTitle: step == .review ? "Salvar" : "Continuar",
+      finalActionTitle: "Alterar senha",
       onValidateAndAdvance: validateCurrentStep,
       onCommit: save
     ) { selectedStep in

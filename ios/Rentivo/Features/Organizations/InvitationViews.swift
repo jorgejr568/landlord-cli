@@ -197,9 +197,8 @@ struct InviteMemberView: View {
       title: "Convidar membro",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: !email.isEmpty || role != .viewer,
       isBusy: saving,
-      primaryTitle: step == .review ? "Convidar" : "Continuar",
+      finalActionTitle: "Enviar convite",
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await invite() } }
     ) { selectedStep in

@@ -240,10 +240,9 @@ private struct APIKeyFormView: View {
       title: key == nil ? "Nova chave" : "Editar chave",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: saving,
       isPrimaryEnabled: step == .identification || options.value != nil,
-      primaryTitle: step == .review ? (key == nil ? "Criar" : "Salvar") : "Continuar",
+      finalActionTitle: key == nil ? "Criar chave" : "Salvar chave",
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
     ) { selectedStep in

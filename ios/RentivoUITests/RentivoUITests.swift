@@ -207,7 +207,7 @@ final class RentivoUITests: XCTestCase {
 
     app.tabBars.buttons["Conta"].tap()
     app.buttons["demo.reset"].tap()
-    app.buttons["Restaurar"].tap()
+    app.buttons["Restaurar tema"].tap()
     app.tabBars.buttons["Cobranças"].tap()
     XCTAssertTrue(
       app.buttons["billing.card.00000000-0000-0000-0000-000000000101"]

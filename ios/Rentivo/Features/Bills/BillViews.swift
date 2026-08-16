@@ -151,9 +151,8 @@ struct BillFormView: View {
       title: bill == nil ? "Gerar fatura" : "Editar fatura",
       descriptors: descriptors,
       selectedStep: $selectedStep,
-      isDirty: isDirty,
       isBusy: saving,
-      primaryTitle: bill == nil ? "Gerar fatura" : "Salvar",
+      finalActionTitle: bill == nil ? "Gerar fatura" : "Salvar fatura",
       onValidateAndAdvance: validateAndAdvance,
       onCommit: { Task { await save() } }
     ) { step in

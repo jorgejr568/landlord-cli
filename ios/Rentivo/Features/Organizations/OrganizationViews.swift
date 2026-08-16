@@ -226,9 +226,8 @@ struct OrganizationFormView: View {
       title: organization == nil ? "Nova organização" : "Editar organização",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: saving,
-      primaryTitle: step == .review ? (organization == nil ? "Criar" : "Salvar") : "Continuar",
+      finalActionTitle: organization == nil ? "Criar organização" : "Salvar organização",
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
     ) { selectedStep in

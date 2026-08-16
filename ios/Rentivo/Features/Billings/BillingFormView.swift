@@ -203,10 +203,9 @@ struct BillingFormView: View {
       title: billing == nil ? "Nova cobrança" : "Editar cobrança",
       descriptors: Step.allCases.map { RentivoWizardStepDescriptor(id: $0, title: $0.title) },
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: saving,
       isPrimaryEnabled: organizationsLoaded,
-      primaryTitle: primaryActionTitle,
+      finalActionTitle: finalActionTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: { Task { await save() } }
     ) { step in
@@ -456,9 +455,9 @@ struct BillingFormView: View {
     billing?.owner ?? ownerChoices.first(where: { $0.id == ownerID })
   }
 
-  private var primaryActionTitle: String {
+  private var finalActionTitle: String {
     if !organizationsLoaded { return "Carregando responsáveis…" }
-    return step == .review ? "Salvar cobrança" : "Continuar"
+    return billing == nil ? "Criar cobrança" : "Salvar cobrança"
   }
 
   private var fixedSubtotal: Money {

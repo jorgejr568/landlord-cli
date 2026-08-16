@@ -82,12 +82,11 @@ struct ThemeEditorView: View {
       title: "Aparência",
       descriptors: descriptors,
       selectedStep: $step,
-      isDirty: isDirty,
       isBusy: saving,
       isPrimaryEnabled: RentivoAsyncDraftLoadRules.isPrimaryEnabled(
         hasLoadedBaseline: themeLoaded
       ),
-      primaryTitle: primaryTitle,
+      finalActionTitle: finalActionTitle,
       onValidateAndAdvance: validateCurrentStep,
       onCommit: commit
     ) { selectedStep in
@@ -136,11 +135,10 @@ struct ThemeEditorView: View {
     ]
   }
 
-  private var primaryTitle: String {
+  private var finalActionTitle: String {
     guard themeLoaded else { return "Carregando tema…" }
-    guard step == .review else { return "Continuar" }
     guard record?.canEdit == true else { return "Concluir" }
-    return resetRequested ? "Restaurar" : "Salvar"
+    return resetRequested ? "Restaurar tema" : "Salvar tema"
   }
 
   @ViewBuilder
