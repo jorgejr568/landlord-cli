@@ -8,6 +8,10 @@ enum ThemeWizardRules {
       ? invalidColorMessage : nil
   }
 
+  static func shouldLoad(isDirty: Bool, force: Bool) -> Bool {
+    force || !isDirty
+  }
+
   static func loadedValuesToApply(
     _ loaded: ThemeValues,
     requestDraft: ThemeValues,
@@ -287,7 +291,8 @@ struct ThemeEditorView: View {
     }
   }
 
-  private func load() async {
+  private func load(force: Bool = false) async {
+    guard ThemeWizardRules.shouldLoad(isDirty: isDirty, force: force) else { return }
     let requestDraftRevision = draftRevision
     let requestDraft = values
     readinessMessage = nil
@@ -376,7 +381,7 @@ struct ThemeEditorView: View {
     defer { saving = false }
     do {
       try await app.dependencies.themes.updateTheme(target: target, values: values)
-      await load()
+      await load(force: true)
       app.showNotice("Tema atualizado.")
       dismiss()
     } catch { self.error = DemoError(error) }
@@ -389,7 +394,7 @@ struct ThemeEditorView: View {
     do {
       try await app.dependencies.themes.resetTheme(target: target)
       resetRequested = false
-      await load()
+      await load(force: true)
       app.showNotice("Herança de tema restaurada.")
       dismiss()
     } catch { self.error = DemoError(error) }

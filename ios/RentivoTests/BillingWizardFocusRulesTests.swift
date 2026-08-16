@@ -54,4 +54,20 @@ import Testing
       ) == .addItem
     )
   }
+
+  @Test func billingWizardReordersRowsByStableIdentity() {
+    struct Row: Identifiable, Equatable {
+      let id: String
+    }
+
+    var rows = [Row(id: "first"), Row(id: "second"), Row(id: "third")]
+
+    #expect(BillingWizardReordering.move(id: "third", direction: .up, in: &rows))
+    #expect(rows.map(\.id) == ["first", "third", "second"])
+    #expect(BillingWizardReordering.move(id: "first", direction: .down, in: &rows))
+    #expect(rows.map(\.id) == ["third", "first", "second"])
+
+    #expect(!BillingWizardReordering.move(id: "third", direction: .up, in: &rows))
+    #expect(!BillingWizardReordering.move(id: "second", direction: .down, in: &rows))
+  }
 #endif

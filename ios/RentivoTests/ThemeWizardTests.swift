@@ -50,4 +50,10 @@ import Testing
       ) == .sunset
     )
   }
+
+  @Test func themeLoadPolicyProtectsDirtyDrafts() {
+    #expect(ThemeWizardRules.shouldLoad(isDirty: false, force: false))
+    #expect(!ThemeWizardRules.shouldLoad(isDirty: true, force: false))
+    #expect(ThemeWizardRules.shouldLoad(isDirty: true, force: true))
+  }
 #endif

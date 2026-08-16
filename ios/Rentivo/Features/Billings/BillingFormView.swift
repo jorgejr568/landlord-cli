@@ -122,6 +122,26 @@ enum BillingWizardFocusRules {
   }
 }
 
+enum BillingWizardReordering {
+  enum Direction {
+    case up
+    case down
+  }
+
+  @discardableResult
+  static func move<Element: Identifiable>(
+    id: Element.ID,
+    direction: Direction,
+    in elements: inout [Element]
+  ) -> Bool {
+    guard let index = elements.firstIndex(where: { $0.id == id }) else { return false }
+    let destination = direction == .up ? index - 1 : index + 1
+    guard elements.indices.contains(destination) else { return false }
+    elements.swapAt(index, destination)
+    return true
+  }
+}
+
 struct BillingFormView: View {
   private enum Step: CaseIterable {
     case essentials
@@ -248,35 +268,44 @@ struct BillingFormView: View {
         "Itens recorrentes",
         subtitle: "Use valor zero para itens variáveis que serão preenchidos em cada fatura."
       ) {
-        ForEach(Array(items.indices), id: \.self) { index in
+        ForEach($items) { $item in
+          let index = items.firstIndex(where: { $0.id == item.id }) ?? 0
           VStack(alignment: .leading, spacing: RentivoSpacing.small) {
             HStack {
               Text("Item \(index + 1)")
                 .font(.subheadline.weight(.semibold))
               Spacer()
+              reorderButtons(
+                position: index,
+                count: items.count,
+                label: "item \(index + 1)",
+                identifierPrefix: "billing.form.item.\(item.id.rawValue)"
+              ) { direction in
+                BillingWizardReordering.move(id: item.id, direction: direction, in: &items)
+              }
               Button("Remover", role: .destructive) {
-                items.remove(at: index)
+                items.removeAll { $0.id == item.id }
               }
               .accessibilityIdentifier("billing.form.item.\(index).remove")
             }
-            TextField("Descrição do item", text: $items[index].description)
+            TextField("Descrição do item", text: $item.description)
               .focused($focusedField, equals: .itemDescription(index))
               .accessibilityFocused($accessibilityFocusedField, equals: .itemDescription(index))
               .accessibilityIdentifier("billing.form.item.\(index).description")
-            Picker("Tipo", selection: $items[index].type) {
+            Picker("Tipo", selection: $item.type) {
               ForEach(BillingItemType.allCases, id: \.self) { type in
                 Text(type.label).tag(type)
               }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("billing.form.item.\(index).type")
-            .onChange(of: items[index].type) { _, type in
-              items[index].centavos = type.normalizedTemplateAmount(items[index].centavos)
+            .onChange(of: item.type) { _, type in
+              item.centavos = type.normalizedTemplateAmount(item.centavos)
             }
-            if items[index].type.showsTemplateAmount {
+            if item.type.showsTemplateAmount {
               CurrencyCentavosField(
                 "Valor do item",
-                centavos: $items[index].centavos,
+                centavos: $item.centavos,
                 isFocused: itemAmountFocusBinding(for: index),
                 isAccessibilityFocused: itemAmountAccessibilityFocusBinding(for: index)
               )
@@ -326,22 +355,31 @@ struct BillingFormView: View {
     case .communication:
       Group {
         RentivoWizardSection("Destinatários", subtitle: "Todos os destinatários recebem as comunicações desta cobrança.") {
-          ForEach(Array(recipients.indices), id: \.self) { index in
+          ForEach($recipients) { $recipient in
+            let index = recipients.firstIndex(where: { $0.id == recipient.id }) ?? 0
             VStack(alignment: .leading, spacing: RentivoSpacing.small) {
               HStack {
                 Text("Destinatário \(index + 1)")
                   .font(.subheadline.weight(.semibold))
                 Spacer()
+                reorderButtons(
+                  position: index,
+                  count: recipients.count,
+                  label: "destinatário \(index + 1)",
+                  identifierPrefix: "billing.form.recipient.\(recipient.id.rawValue)"
+                ) { direction in
+                  BillingWizardReordering.move(id: recipient.id, direction: direction, in: &recipients)
+                }
                 Button("Remover", role: .destructive) {
-                  recipients.remove(at: index)
+                  recipients.removeAll { $0.id == recipient.id }
                 }
                 .accessibilityIdentifier("billing.form.recipient.\(index).remove")
               }
-              TextField("Nome do destinatário", text: $recipients[index].name)
+              TextField("Nome do destinatário", text: $recipient.name)
                 .focused($focusedField, equals: .recipientName(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .recipientName(index))
                 .accessibilityIdentifier("billing.form.recipient.\(index).name")
-              TextField("E-mail do destinatário", text: $recipients[index].email)
+              TextField("E-mail do destinatário", text: $recipient.email)
                 .focused($focusedField, equals: .recipientEmail(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .recipientEmail(index))
                 .keyboardType(.emailAddress)
@@ -360,22 +398,31 @@ struct BillingFormView: View {
         }
 
         RentivoWizardSection("Responder para", subtitle: "Opcionalmente, defina contatos que receberão as respostas.") {
-          ForEach(Array(replyTo.indices), id: \.self) { index in
+          ForEach($replyTo) { $contact in
+            let index = replyTo.firstIndex(where: { $0.id == contact.id }) ?? 0
             VStack(alignment: .leading, spacing: RentivoSpacing.small) {
               HStack {
                 Text("Contato de resposta \(index + 1)")
                   .font(.subheadline.weight(.semibold))
                 Spacer()
+                reorderButtons(
+                  position: index,
+                  count: replyTo.count,
+                  label: "contato de resposta \(index + 1)",
+                  identifierPrefix: "billing.form.reply-to.\(contact.id.rawValue)"
+                ) { direction in
+                  BillingWizardReordering.move(id: contact.id, direction: direction, in: &replyTo)
+                }
                 Button("Remover", role: .destructive) {
-                  replyTo.remove(at: index)
+                  replyTo.removeAll { $0.id == contact.id }
                 }
                 .accessibilityIdentifier("billing.form.reply-to.\(index).remove")
               }
-              TextField("Nome para resposta", text: $replyTo[index].name)
+              TextField("Nome para resposta", text: $contact.name)
                 .focused($focusedField, equals: .replyToName(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .replyToName(index))
                 .accessibilityIdentifier("billing.form.reply-to.\(index).name")
-              TextField("E-mail para resposta", text: $replyTo[index].email)
+              TextField("E-mail para resposta", text: $contact.email)
                 .focused($focusedField, equals: .replyToEmail(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .replyToEmail(index))
                 .keyboardType(.emailAddress)
@@ -437,6 +484,31 @@ struct BillingFormView: View {
     Label(message, systemImage: "exclamationmark.circle.fill")
       .foregroundStyle(RentivoColors.coral)
       .accessibilityIdentifier("billing.form.validation")
+  }
+
+  @ViewBuilder
+  private func reorderButtons(
+    position: Int,
+    count: Int,
+    label: String,
+    identifierPrefix: String,
+    onMove: @escaping (BillingWizardReordering.Direction) -> Void
+  ) -> some View {
+    if count > 1 {
+      Button { onMove(.up) } label: {
+        Image(systemName: "arrow.up")
+      }
+      .disabled(position == 0)
+      .accessibilityLabel("Mover \(label) para cima")
+      .accessibilityIdentifier("\(identifierPrefix).move-up")
+
+      Button { onMove(.down) } label: {
+        Image(systemName: "arrow.down")
+      }
+      .disabled(position == count - 1)
+      .accessibilityLabel("Mover \(label) para baixo")
+      .accessibilityIdentifier("\(identifierPrefix).move-down")
+    }
   }
 
   private var ownerChoices: [BillingOwner] {
