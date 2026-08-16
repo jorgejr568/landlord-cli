@@ -28,6 +28,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser
 
+# The runtime resolves everything from /app/.venv, which uv builds without pip.
+# The interpreter image still ships pip to bootstrap installs, and pip vendors
+# its own copies of msgpack and setuptools that image scanners report as
+# vulnerable even though nothing here can execute them. Drop pip and the
+# ensurepip bundle that would restore it, then assert the removal so a base
+# image change cannot silently reintroduce them.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+        /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.*/ensurepip \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
+    && ! python -c "import pip" 2>/dev/null
+
 WORKDIR /app
 
 COPY --from=builder /app /app
