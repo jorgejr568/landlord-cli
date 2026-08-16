@@ -54,18 +54,15 @@ struct APIKeyListView: View {
         .accessibilityIdentifier("api-key.create")
       }
     }
-    .sheet(isPresented: $showingCreate) {
-      NavigationStack {
-        APIKeyFormView { secret in
-          createdSecret = secret
-          await load()
-        }
+    .rentivoFullScreenWizard(isPresented: $showingCreate) {
+      APIKeyFormView { secret in
+        createdSecret = secret
+        await load()
       }
     }
-    .sheet(item: $editingKey) { key in
-      NavigationStack {
-        APIKeyFormView(key: key) { _ in await load() }
-      }
+    .fullScreenCover(item: $editingKey) { key in
+      APIKeyFormView(key: key) { _ in await load() }
+        .tint(RentivoColors.emerald)
     }
     .sheet(item: $createdSecret) { secret in
       APIKeySecretView(created: secret)
@@ -186,6 +183,22 @@ private struct APIKeyCard: View {
 }
 
 private struct APIKeyFormView: View {
+  private enum Step: CaseIterable {
+    case identification
+    case scopes
+    case access
+    case expiration
+    case review
+  }
+
+  private enum Field: Hashable {
+    case name
+    case scope(APIKeyScope)
+    case access(WorkspaceID)
+    case expiration
+    case optionsRetry
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let key: APIKeyMetadata?
@@ -195,12 +208,13 @@ private struct APIKeyFormView: View {
   @State private var grantIDs: Set<WorkspaceID>
   @State private var expiresAt: Date
   @State private var options: LoadState<APIKeyOptions> = .idle
-  /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
-  /// and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var step: Step = .identification
+  @State private var validationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
-  @State private var confirmingDiscard = false
   @State private var expiresAtEdited = false
+  @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
   private let originalGrants: [WorkspaceID: APIKeyGrant]
   private let originalGrantIDs: Set<WorkspaceID>
   private let initialDraftState: NativeAPIKeyDraftState
@@ -227,95 +241,234 @@ private struct APIKeyFormView: View {
   }
 
   var body: some View {
-    Form {
-      Section("Identificação") { TextField("Nome", text: $name) }
-      Section("Escopos seguros") {
+    RentivoFormWizard(
+      title: key == nil ? "Nova chave" : "Editar chave",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isBusy: saving,
+      isPrimaryEnabled: step == .identification || options.value != nil,
+      finalActionTitle: key == nil ? "Criar chave" : "Salvar chave",
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: { Task { await save() } }
+    ) { selectedStep in
+      stepContent(selectedStep)
+    }
+    .interactiveDismissDisabled(isDirty || saving)
+    .task { await loadOptions() }
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .identification, title: "Identificação"),
+      .init(id: .scopes, title: "Escopos"),
+      .init(id: .access, title: "Acessos"),
+      .init(id: .expiration, title: "Expiração"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  private var isDirty: Bool {
+    hasUnsavedChanges
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .identification:
+      RentivoWizardSection(
+        "Identifique a integração",
+        subtitle: "Use um nome que deixe claro onde esta chave será usada."
+      ) {
+        TextField("Nome", text: $name)
+          .focused($focusedField, equals: .name)
+          .accessibilityFocused($accessibilityFocusedField, equals: .name)
+          .accessibilityIdentifier("api-key.form.name")
+        if let validationMessage { errorLabel(validationMessage) }
+      }
+    case .scopes:
+      RentivoWizardSection(
+        "Escopos seguros",
+        subtitle: "Conceda somente as operações necessárias para a integração."
+      ) {
         switch options {
         case .loaded(let options):
           ForEach(options.scopes, id: \.self) { scope in scopeToggle(scope) }
         case .idle, .loading:
           ProgressView("Carregando opções…")
         case .empty:
-          Text("Nenhum escopo de integração está disponível.")
-            .foregroundStyle(RentivoColors.secondaryInk)
+          optionsUnavailable("Nenhum escopo de integração está disponível.")
         case .failed(let error):
           optionsFailure(error)
         }
+        if let validationMessage { errorLabel(validationMessage) }
         if let key, key.unsupportedScopeCount > 0 {
           Text("Alguns escopos desta chave exigem uma versão mais nova do app e serão preservados.")
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
-      Section("Acesso") {
+    case .access:
+      RentivoWizardSection(
+        "Espaços de trabalho",
+        subtitle: "Escolha em quais contas e organizações a chave poderá atuar."
+      ) {
         switch options {
         case .loaded(let options):
           resourceToggle(options.personalWorkspace.name, id: options.personalWorkspace.resourceID)
           ForEach(options.organizations) { workspace in
             resourceToggle(workspace.name, id: workspace.resourceID)
           }
+          ForEach(preservedUnavailableGrants, id: \.resourceID) { grant in
+            HStack {
+              Label("Acesso original indisponível", systemImage: "lock.fill")
+              Spacer()
+              Text("Mantido")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(RentivoColors.secondaryInk)
+            }
+            .accessibilityElement(children: .combine)
+          }
         case .idle, .loading:
           ProgressView("Carregando espaços de trabalho…")
         case .empty:
-          EmptyView()
+          optionsUnavailable("Nenhum acesso está disponível.")
         case .failed(let error):
           optionsFailure(error)
         }
+        if let validationMessage { errorLabel(validationMessage) }
         if let key, key.unavailableGrantCount > 0 {
           Text("Alguns acessos protegidos não podem ser editados neste dispositivo e serão preservados.")
             .foregroundStyle(RentivoColors.secondaryInk)
         }
       }
-      if key == nil, let options = options.value {
-        Section("Validade") {
+    case .expiration:
+      RentivoWizardSection(
+        "Validade da chave",
+        subtitle: key == nil
+          ? "A chave deixa de funcionar automaticamente depois desta data."
+          : "A validade de uma chave existente não pode ser alterada."
+      ) {
+        if key == nil, let options = options.value {
           DatePicker(
             "Expira em",
             selection: expiresAtBinding,
             in: Date().addingTimeInterval(60)...options.maximumExpiration(),
             displayedComponents: .date
           )
+          .focused($focusedField, equals: .expiration)
+          .accessibilityFocused($accessibilityFocusedField, equals: .expiration)
+          .accessibilityIdentifier("api-key.form.expiration")
+        } else if let key {
+          RentivoWizardReviewRow(label: "Expira em", value: key.expiresAt.formattedPTBR())
+        } else {
+          optionsStateView(loadingMessage: "Carregando validade…")
         }
+        if let validationMessage { errorLabel(validationMessage) }
       }
-      if let submitErrorMessage {
-        Section {
-          Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(RentivoColors.coral)
-            .accessibilityIdentifier("api-key.form.error")
-        }
-      }
-    }
-    .navigationTitle(key == nil ? "Nova chave" : "Editar chave")
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") {
-          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
-        }
-        .disabled(saving)
-      }
-      ToolbarItem(placement: .confirmationAction) {
-        // The spinner is the only sign the request is still in flight: everything else this form
-        // does while saving is a disable, which on a stalled request reads as a frozen sheet.
-        Button {
-          Task { await save() }
-        } label: {
-          HStack(spacing: RentivoSpacing.small) {
-            if saving { ProgressView() }
-            Text(key == nil ? "Criar" : "Salvar")
-          }
-        }
-        .disabled(
-          saving || options.value == nil || !APIKeyValidation.isValidName(name)
-            || scopes.isEmpty || grantIDs.isEmpty
+    case .review:
+      RentivoWizardSection("Chave de integração") {
+        RentivoWizardReviewRow(
+          label: "Nome", value: name.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        RentivoWizardReviewRow(label: "Escopos", value: "\(scopes.count)")
+        RentivoWizardReviewRow(
+          label: "Acessos", value: "\(grantIDs.count + (key?.unavailableGrantCount ?? 0))"
+        )
+        RentivoWizardReviewRow(
+          label: "Expira em", value: (key?.expiresAt ?? expiresAt).formattedPTBR()
         )
       }
+      if let submitErrorMessage {
+        RentivoWizardSection("Não foi possível salvar") {
+          errorLabel(submitErrorMessage)
+        }
+      }
     }
-    .interactiveDismissDisabled(saving || hasUnsavedChanges)
-    .confirmationDialog(
-      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
-    ) {
-      Button("Descartar", role: .destructive) { dismiss() }
-      Button("Continuar editando", role: .cancel) {}
+  }
+
+  private var preservedUnavailableGrants: [APIKeyGrant] {
+    originalGrants.values
+      .filter { !$0.available }
+      .sorted { $0.resourceID.rawValue < $1.resourceID.rawValue }
+  }
+
+  private var draftGrants: [APIKeyGrant] {
+    grantIDs.map { resourceID in
+      originalGrants[resourceID]
+        ?? APIKeyGrant(
+          resourceType: resourceID == .personal ? .user : .organization,
+          resourceID: resourceID
+        )
     }
-    .task { await loadOptions() }
+      .sorted { $0.resourceID.rawValue < $1.resourceID.rawValue }
+  }
+
+  @ViewBuilder
+  private func optionsStateView(loadingMessage: String) -> some View {
+    switch options {
+    case .idle, .loading:
+      ProgressView(loadingMessage)
+    case .failed(let error):
+      optionsFailure(error)
+    case .empty:
+      optionsUnavailable("As opções da chave estão indisponíveis.")
+    case .loaded:
+      EmptyView()
+    }
+  }
+
+  private func errorLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("api-key.form.error")
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    validationMessage = nil
+    switch step {
+    case .identification:
+      guard APIKeyValidation.isValidName(name) else {
+        validationMessage = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          ? "Informe o nome da chave."
+          : "O nome da chave deve ter até 255 caracteres."
+        scheduleFocus(.name)
+        return false
+      }
+    case .scopes:
+      guard options.value != nil else {
+        validationMessage = "Aguarde o carregamento das opções antes de continuar."
+        scheduleFocus(.optionsRetry)
+        return false
+      }
+      guard !scopes.isEmpty else {
+        validationMessage = "Selecione ao menos um escopo."
+        if let scope = options.value?.scopes.first { scheduleFocus(.scope(scope)) }
+        return false
+      }
+    case .access:
+      guard options.value != nil else {
+        validationMessage = "Aguarde o carregamento dos acessos antes de continuar."
+        scheduleFocus(.optionsRetry)
+        return false
+      }
+      guard !grantIDs.isEmpty else {
+        validationMessage = "Selecione ao menos um acesso."
+        if let resourceID = options.value?.personalWorkspace.resourceID {
+          scheduleFocus(.access(resourceID))
+        }
+        return false
+      }
+    case .expiration:
+      guard options.value != nil else {
+        validationMessage = "Aguarde o carregamento da validade antes de continuar."
+        scheduleFocus(.optionsRetry)
+        return false
+      }
+    case .review:
+      break
+    }
+    return true
   }
 
   private var hasUnsavedChanges: Bool {
@@ -350,6 +503,20 @@ private struct APIKeyFormView: View {
       Label(error.message, systemImage: "exclamationmark.triangle.fill")
         .foregroundStyle(RentivoColors.coral)
       Button("Tentar novamente") { Task { await loadOptions() } }
+        .focused($focusedField, equals: .optionsRetry)
+        .accessibilityFocused($accessibilityFocusedField, equals: .optionsRetry)
+        .accessibilityIdentifier("api-key.form.options.retry")
+    }
+  }
+
+  private func optionsUnavailable(_ message: String) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+      Text(message)
+        .foregroundStyle(RentivoColors.secondaryInk)
+      Button("Tentar novamente") { Task { await loadOptions() } }
+        .focused($focusedField, equals: .optionsRetry)
+        .accessibilityFocused($accessibilityFocusedField, equals: .optionsRetry)
+        .accessibilityIdentifier("api-key.form.options.retry")
     }
   }
 
@@ -363,6 +530,9 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .focused($focusedField, equals: .scope(scope))
+    .accessibilityFocused($accessibilityFocusedField, equals: .scope(scope))
+    .accessibilityIdentifier("api-key.form.scope.\(scope.rawValue)")
     .disabled((key?.unsupportedScopeCount ?? 0) > 0)
   }
 
@@ -376,26 +546,31 @@ private struct APIKeyFormView: View {
         }
       )
     )
+    .focused($focusedField, equals: .access(id))
+    .accessibilityFocused($accessibilityFocusedField, equals: .access(id))
+    .accessibilityIdentifier("api-key.form.access.\(id.rawValue)")
     .disabled((key?.unavailableGrantCount ?? 0) > 0)
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
   }
 
   private func save() async {
     guard !saving, let options = options.value else { return }
     submitErrorMessage = nil
-    let grants =
-      grantIDs
-      .sorted { $0.rawValue < $1.rawValue }
-      .map { resourceID in
-        originalGrants[resourceID]
-          ?? APIKeyGrant(
-            resourceType: resourceID == .personal ? .user : .organization,
-            resourceID: resourceID
-          )
-      }
+    guard APIKeyValidation.isValidName(name), !scopes.isEmpty, !grantIDs.isEmpty else {
+      step = !APIKeyValidation.isValidName(name) ? .identification : (scopes.isEmpty ? .scopes : .access)
+      _ = validateCurrentStep()
+      return
+    }
     let draft = APIKeyDraft(
       name: name.trimmingCharacters(in: .whitespacesAndNewlines),
       scopes: scopes,
-      grants: grants,
+      grants: draftGrants,
       expiresAt: key?.expiresAt ?? options.clampedExpiration(expiresAt),
       shouldUpdateGrants: key == nil
         || ((key?.unavailableGrantCount ?? 0) == 0 && grantIDs != originalGrantIDs),

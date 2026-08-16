@@ -49,10 +49,8 @@ struct BillingListView: View {
         }
       }
     }
-    .sheet(isPresented: $showingCreate) {
-      NavigationStack {
-        BillingFormView { await load() }
-      }
+    .rentivoFullScreenWizard(isPresented: $showingCreate) {
+      BillingFormView { await load() }
     }
     .navigationDestination(for: BillingID.self) { id in
       BillingDetailView(billingID: id) { await load() }

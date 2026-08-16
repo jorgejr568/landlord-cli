@@ -43,6 +43,43 @@ private struct EditableBillLine: Identifiable {
   }
 }
 
+private enum BillWizardStep: Hashable {
+  case competence
+  case dueDate
+  case items
+  case notes
+  case review
+}
+
+enum BillFormFocus: Hashable {
+  case lineDescription(BillLineItemID)
+  case lineAmount(BillLineItemID)
+  case addExtra
+}
+
+func billFormFocusTarget(issues: [ValidationIssue], lines: [BillLineItem]) -> BillFormFocus? {
+  if issues.contains(where: { $0.field == .items }) { return .addExtra }
+  if issues.contains(where: { $0.field == .itemDescription }),
+    let line = lines.first(where: {
+      $0.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || $0.description.unicodeScalars.count > 255
+    }) {
+    return .lineDescription(line.id)
+  }
+  if issues.contains(where: { $0.field == .itemAmount }) {
+    if let line = lines.first(where: {
+      ($0.kind == .extra && $0.amount.centavos <= 0)
+        || ($0.kind != .extra && $0.amount.centavos < 0)
+    }) {
+      return .lineAmount(line.id)
+    }
+    if !Money.fitsPersistedTotal(lines.lazy.map(\.amount.centavos)), let line = lines.first {
+      return .lineAmount(line.id)
+    }
+  }
+  return nil
+}
+
 struct BillFormView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
@@ -60,11 +97,18 @@ struct BillFormView: View {
   @State private var notes: String
   @State private var lines: [EditableBillLine]
   @State private var issues: [ValidationIssue] = []
+  @State private var selectedStep: BillWizardStep = .competence
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
   @State private var saving = false
-  @State private var confirmingDiscard = false
+  @FocusState private var focusedField: BillFormFocus?
+  @AccessibilityFocusState private var accessibilityFocusedField: BillFormFocus?
+  private let initialReferenceMonth: ReferenceMonth
+  private let initialDueDate: DateOnly?
+  private let initialHasDueDate: Bool
+  private let initialNotes: String
+  private let initialLines: [BillLineItem]
 
   init(billing: Billing, bill: Bill? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -95,111 +139,143 @@ struct BillFormView: View {
         EditableBillLine(seededFrom: item, kind: item.type == .fixed ? .fixed : .variable)
       }
     _lines = State(initialValue: initialLines)
+    initialReferenceMonth = referenceMonth
+    initialDueDate = bill?.dueDate ?? referenceMonth.defaultDueDate
+    initialHasDueDate = bill.map { $0.dueDate != nil } ?? true
+    initialNotes = bill?.notes ?? ""
+    self.initialLines = initialLines.map(\.domain)
   }
 
   var body: some View {
-    Form {
-      Section("Competência") {
-        Picker("Mês", selection: $month) {
-          ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+    RentivoFormWizard(
+      title: bill == nil ? "Gerar fatura" : "Editar fatura",
+      descriptors: descriptors,
+      selectedStep: $selectedStep,
+      isBusy: saving,
+      finalActionTitle: bill == nil ? "Gerar fatura" : "Salvar fatura",
+      onValidateAndAdvance: validateAndAdvance,
+      onCommit: { Task { await save() } }
+    ) { step in
+      switch step {
+      case .competence:
+        RentivoWizardSection("Competência") {
+          Picker("Mês", selection: $month) {
+            ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+          }
+          .pickerStyle(.menu)
+          .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
+          Stepper("Ano: \(year)", value: $year, in: 2024...2035)
+            .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
+          if bill != nil {
+            Text("A competência não pode ser alterada depois que a fatura é criada.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
-        .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
-        Stepper("Ano: \(year)", value: $year, in: 2024...2035)
-          .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
-        if bill != nil {
-          Text("A competência não pode ser alterada depois que a fatura é criada.")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
+        .disabled(bill != nil)
+      case .dueDate:
+        RentivoWizardSection(
+          "Vencimento",
+          subtitle: "A competência é o mês de referência. O vencimento pode cair em outro mês."
+        ) {
+          Toggle("Definir vencimento", isOn: $hasDueDate)
+            .accessibilityIdentifier("bill.form.hasDueDate")
+          if hasDueDate {
+            DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
+              .accessibilityIdentifier("bill.form.dueDate")
+          }
         }
+      case .items:
+        itemsStep
+      case .notes:
+        RentivoWizardSection("Observações", subtitle: "Opcional") {
+          TextField("Mensagem opcional", text: $notes, axis: .vertical)
+            .lineLimit(3...6)
+        }
+      case .review:
+        reviewStep
       }
-      .disabled(bill != nil)
+    }
+    .interactiveDismissDisabled(saving || isDirty)
+  }
 
-      Section("Vencimento") {
-        Toggle("Definir vencimento", isOn: $hasDueDate)
-          .accessibilityIdentifier("bill.form.hasDueDate")
-        if hasDueDate {
-          DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
-            .accessibilityIdentifier("bill.form.dueDate")
-          Text("A competência é o mês de referência da fatura. O vencimento pode cair em outro mês.")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
-        }
-      }
+  private var descriptors: [RentivoWizardStepDescriptor<BillWizardStep>] {
+    [
+      RentivoWizardStepDescriptor(id: .competence, title: "Competência"),
+      RentivoWizardStepDescriptor(id: .dueDate, title: "Vencimento"),
+      RentivoWizardStepDescriptor(id: .items, title: "Itens"),
+      RentivoWizardStepDescriptor(id: .notes, title: "Observações"),
+      RentivoWizardStepDescriptor(id: .review, title: "Revisar fatura"),
+    ]
+  }
 
+  private var itemsStep: some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.section) {
       ForEach(BillLineItemKind.allCases, id: \.self) { kind in
-        Section(kind.sectionTitle) {
-          // Fixed and variable template rows are mandatory. Only ad-hoc extras are removable.
-          if kind != .extra {
-            ForEach(lineIndices(for: kind), id: \.self) { index in
-              lineRow(index)
-            }
-          } else {
-            ForEach(lineIndices(for: kind), id: \.self) { index in
-              lineRow(index)
-            }
-            .onDelete { offsets in removeLines(at: offsets, kind: kind) }
+        RentivoWizardSection(kind.sectionTitle) {
+          ForEach(lineIndices(for: kind), id: \.self) { index in
+            // Fixed and variable template rows are mandatory. Only ad-hoc extras are removable.
+            lineRow(index, canRemove: kind == .extra)
           }
           if kind == .extra {
-            // Only extras get an "add new line" affordance here: extras are the server's
-            // mechanism for ad-hoc per-bill lines. Variable items are defined by the billing
-            // (cobrança) itself, seeded above from `billing.items`; the live store's
-            // `variable_amounts` only accepts the billing's own ULID-keyed variable items, so a
-            // client-minted UUID for a brand-new variable line would silently be dropped on
-            // save. Previously seeded variable lines still render and remain editable via
-            // `lineRow` and deletable via the `.onDelete` above.
+            // Extras are the only client-created lines. Variable lines preserve the billing item
+            // ULID seeded above because `variable_amounts` is keyed by that server-issued ID.
             Button {
               lines.append(EditableBillLine(kind: kind))
             } label: {
               Label("Adicionar \(kind.actionLabel)", systemImage: "plus.circle.fill")
             }
+            .focused($focusedField, equals: .addExtra)
+            .accessibilityFocused($accessibilityFocusedField, equals: .addExtra)
           }
         }
       }
-
-      Section("Observações") {
-        TextField("Mensagem opcional", text: $notes, axis: .vertical)
-          .lineLimit(3...6)
+      if !issues.isEmpty {
+        validationIssues
       }
+    }
+  }
 
-      Section("Total") {
-        MoneyText(money: total)
+  private var reviewStep: some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.section) {
+      RentivoWizardSection("Resumo") {
+        RentivoWizardReviewRow(label: "Competência", value: ReferenceMonth(year: year, month: month).label)
+        RentivoWizardReviewRow(
+          label: "Vencimento",
+          value: hasDueDate ? DateOnly(from: dueDate).displayFormatted : "Não definido"
+        )
+        RentivoWizardReviewRow(label: "Itens", value: "\(lines.count)")
+        RentivoWizardReviewRow(label: "Total", value: total.formatted())
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          RentivoWizardReviewRow(label: "Observações", value: notes)
+        }
       }
-
       if !issues.isEmpty || submitErrorMessage != nil {
-        Section("Revise a fatura") {
-          ForEach(issues, id: \.self) { issue in
-            Label(issue.message, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-          }
-          if let submitErrorMessage {
-            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("bill.form.error")
-          }
-        }
+        validationIssues
       }
     }
-    .navigationTitle(bill == nil ? "Gerar fatura" : "Editar fatura")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") {
-          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
-        }
+  }
+
+  private var validationIssues: some View {
+    RentivoWizardSection("Revise a fatura") {
+      ForEach(issues, id: \.self) { issue in
+        Label(issue.message, systemImage: "exclamationmark.circle.fill")
+          .foregroundStyle(RentivoColors.coral)
       }
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Salvar") { Task { await save() } }
-          .disabled(saving)
-          .accessibilityIdentifier("bill.form.save")
+      if let submitErrorMessage {
+        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+          .foregroundStyle(RentivoColors.coral)
+          .accessibilityIdentifier("bill.form.error")
       }
     }
-    .interactiveDismissDisabled(saving || hasUnsavedChanges)
-    .confirmationDialog(
-      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
-    ) {
-      Button("Descartar", role: .destructive) { dismiss() }
-      Button("Continuar editando", role: .cancel) {}
-    }
+  }
+
+  private var isDirty: Bool {
+    ReferenceMonth(year: year, month: month) != initialReferenceMonth
+      || hasDueDate != initialHasDueDate
+      || (hasDueDate && DateOnly(from: dueDate) != initialDueDate)
+      || notes != initialNotes
+      || lines.map(\.domain) != initialLines
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
@@ -224,38 +300,31 @@ struct BillFormView: View {
     lines.map { Money(centavos: $0.centavos) }.reduce(.zero, +)
   }
 
-  private var hasUnsavedChanges: Bool {
-    let currentMonth = ReferenceMonth(year: year, month: month)
-    let currentDueDate = hasDueDate ? DateOnly(from: dueDate) : nil
-    let currentLines = lines.map(\.domain)
-    guard let bill else {
-      let seeded = billing.items.map { item in
-        BillLineItem(
-          id: BillLineItemID(rawValue: item.id.rawValue), description: item.description,
-          amount: item.amount, kind: item.type == .fixed ? .fixed : .variable
-        )
-      }
-      return currentMonth != ReferenceMonth(
-        year: Calendar.current.component(.year, from: Date()),
-        month: Calendar.current.component(.month, from: Date())
-      ) || currentDueDate != currentMonth.defaultDueDate || !notes.isEmpty || currentLines != seeded
-    }
-    return currentMonth != bill.referenceMonth || currentDueDate != bill.dueDate
-      || notes != bill.notes || currentLines != bill.lineItems
-  }
-
   @ViewBuilder
-  private func lineRow(_ index: Int) -> some View {
+  private func lineRow(_ index: Int, canRemove: Bool) -> some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.small) {
       if bill == nil, lines[index].kind != .extra {
         LabeledContent("Descrição", value: lines[index].description)
       } else {
         TextField("Descrição", text: $lines[index].description)
+          .focused($focusedField, equals: .lineDescription(lines[index].id))
+          .accessibilityFocused($accessibilityFocusedField, equals: .lineDescription(lines[index].id))
       }
       if bill == nil, lines[index].kind == .fixed {
         LabeledContent("Valor", value: Money(centavos: lines[index].centavos).formatted())
       } else {
-        CurrencyCentavosField("Valor em centavos", centavos: $lines[index].centavos)
+        CurrencyCentavosField(
+          "Valor em centavos",
+          centavos: $lines[index].centavos,
+          isFocused: amountFocusBinding(for: lines[index].id),
+          isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id)
+        )
+      }
+      if canRemove {
+        Button("Remover item", role: .destructive) {
+          lines.remove(at: index)
+        }
+        .font(.footnote)
       }
     }
   }
@@ -264,24 +333,72 @@ struct BillFormView: View {
     lines.indices.filter { lines[$0].kind == kind }
   }
 
-  private func removeLines(at offsets: IndexSet, kind: BillLineItemKind) {
-    let indices = lineIndices(for: kind)
-    let targets = offsets.map { indices[$0] }
-    lines.remove(atOffsets: IndexSet(targets))
+  private func validateAndAdvance() -> Bool {
+    submitErrorMessage = nil
+    guard selectedStep == .items else { return true }
+    issues = draft.validate()
+    focusFirstInvalidLine()
+    return issues.isEmpty
   }
 
-  private func save() async {
-    // A disabled toolbar item is not a synchronization primitive: two queued taps can enter this
-    // async handler before SwiftUI redraws. Claim the in-flight state before any suspension.
-    guard !saving else { return }
-    submitErrorMessage = nil
-    let draft = BillDraft(
+  /// Validation aggregates a row's problems into one message. Returning focus to that row's
+  /// description gives keyboard users a deterministic first correction point, including extras
+  /// that were just added to the invoice.
+  private func focusFirstInvalidLine() {
+    guard let target = billFormFocusTarget(issues: issues, lines: lines.map(\.domain)) else { return }
+    scheduleFocus(target)
+  }
+
+  private func amountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == .lineAmount(id) },
+      set: { isFocused in
+        if isFocused {
+          focusedField = .lineAmount(id)
+        } else if focusedField == .lineAmount(id) {
+          focusedField = nil
+        }
+      }
+    )
+  }
+
+  private func accessibilityAmountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == .lineAmount(id) },
+      set: { isFocused in
+        if isFocused {
+          accessibilityFocusedField = .lineAmount(id)
+        } else if accessibilityFocusedField == .lineAmount(id) {
+          accessibilityFocusedField = nil
+        }
+      }
+    )
+  }
+
+  /// The Continue button becomes first responder for the validation action. Deferring the field
+  /// assignment by one main-actor turn lets that button resign before SwiftUI restores focus.
+  private func scheduleFocus(_ field: BillFormFocus) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
+  }
+
+  private var draft: BillDraft {
+    BillDraft(
       billingID: billing.id,
       referenceMonth: ReferenceMonth(year: year, month: month),
       dueDate: hasDueDate ? DateOnly(from: dueDate) : nil,
       notes: notes,
       lineItems: lines.map(\.domain)
     )
+  }
+
+  private func save() async {
+    // A disabled action is not a synchronization primitive: claim the in-flight state before
+    // any suspension so queued commits cannot submit the same draft twice.
+    guard !saving else { return }
+    submitErrorMessage = nil
     issues = draft.validate()
     guard issues.isEmpty else { return }
     saving = true
@@ -349,21 +466,17 @@ struct BillDetailView: View {
         Button("Editar") { showingEdit = true }
       }
     }
-    .sheet(isPresented: $showingEdit) {
+    .fullScreenCover(isPresented: $showingEdit) {
       if let billing, let bill = state.value {
-        NavigationStack {
-          BillFormView(billing: billing, bill: bill) {
-            await refreshAll()
-          }
+        BillFormView(billing: billing, bill: bill) {
+          await refreshAll()
         }
       }
     }
     .downloadedFileSheet($downloadedFile)
-    .sheet(isPresented: $showingCommunication) {
+    .fullScreenCover(isPresented: $showingCommunication) {
       if let billing, let bill = state.value {
-        NavigationStack {
-          CommunicationComposerView(billing: billing, bill: bill)
-        }
+        CommunicationComposerView(billing: billing, bill: bill)
       }
     }
     .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
@@ -383,6 +496,7 @@ struct BillDetailView: View {
         guard let currentStatus = state.value?.status else { return }
         Task { await transition(from: currentStatus, to: action.target) }
       }
+      .accessibilityIdentifier("bill.transition.confirm.\(action.target.rawValue)")
       Button("Cancelar", role: .cancel) {}
     } message: { _ in
       Text("Confirme a alteração de status desta fatura.")

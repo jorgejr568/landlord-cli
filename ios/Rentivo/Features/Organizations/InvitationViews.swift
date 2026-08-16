@@ -173,66 +173,135 @@ struct InvitationListView: View {
 }
 
 struct InviteMemberView: View {
+  private enum Step: CaseIterable {
+    case person
+    case permission
+    case review
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   let organization: Organization
   let onSaved: () async -> Void
   @State private var email = ""
   @State private var role: OrganizationRole = .viewer
-  /// Server-side rejection (e.g. a 422 on the e-mail) for the last submit. This form is presented
-  /// in a sheet and the global notice banner renders behind it, so the message has to stay inline.
+  @State private var emailValidationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
+  @State private var step: Step = .person
+  @FocusState private var emailIsFocused: Bool
+  @AccessibilityFocusState private var emailIsAccessibilityFocused: Bool
 
   var body: some View {
-    Form {
-      TextField("E-mail", text: $email)
-        .keyboardType(.emailAddress)
-        .textInputAutocapitalization(.never)
-      Picker("Função", selection: $role) {
-        ForEach(OrganizationRole.allCases, id: \.self) { role in
-          Text(role.label).tag(role)
-        }
-      }
-      // This disclosure only describes the mock store's in-memory behavior;
-      // against the live API the invite is actually persisted server-side, so
-      // showing it there would be misleading demo residue.
-      if !app.usesLiveAPI {
-        Label("O convite ficará pendente apenas na memória do app.", systemImage: "info.circle")
-          .font(.footnote)
-      }
-      if let submitErrorMessage {
-        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
-          .accessibilityIdentifier("invite.form.error")
-      }
+    RentivoFormWizard(
+      title: "Convidar membro",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isBusy: saving,
+      finalActionTitle: "Enviar convite",
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: { Task { await invite() } }
+    ) { selectedStep in
+      stepContent(selectedStep)
     }
-    .navigationTitle("Convidar membro")
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") { dismiss() }.disabled(saving)
+    .interactiveDismissDisabled(!email.isEmpty || role != .viewer || saving)
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .person, title: "Pessoa"),
+      .init(id: .permission, title: "Permissão"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .person:
+      RentivoWizardSection(
+        "Quem você quer convidar?",
+        subtitle: "O convite será enviado para este endereço."
+      ) {
+        TextField("E-mail", text: $email)
+          .keyboardType(.emailAddress)
+          .textInputAutocapitalization(.never)
+          .focused($emailIsFocused)
+          .accessibilityFocused($emailIsAccessibilityFocused)
+          .accessibilityIdentifier("invite.form.email")
+        if let emailValidationMessage { errorLabel(emailValidationMessage) }
       }
-      ToolbarItem(placement: .confirmationAction) {
-        // The spinner is the only sign the request is still in flight: everything else this form
-        // does while saving is a disable, which on a stalled request reads as a frozen sheet.
-        Button {
-          Task { await invite() }
-        } label: {
-          HStack(spacing: RentivoSpacing.small) {
-            if saving { ProgressView() }
-            Text("Convidar")
+    case .permission:
+      RentivoWizardSection(
+        "Permissão na organização",
+        subtitle: "Escolha o que esta pessoa poderá consultar e alterar."
+      ) {
+        Picker("Função", selection: $role) {
+          ForEach(OrganizationRole.allCases, id: \.self) { role in
+            Text(role.label).tag(role)
           }
         }
-        .disabled(saving || !OrganizationInviteEmail.isValid(email))
+        .accessibilityIdentifier("invite.form.role")
+        if organization.requiresMFA {
+          Label(
+            "Esta organização exige MFA. A pessoa precisará configurar um fator de autenticação ao aceitar o convite.",
+            systemImage: "lock.shield.fill"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.coral)
+          .accessibilityIdentifier("invite.mfa.consequence")
+        } else {
+          Label(
+            "A autenticação multifator é opcional nesta organização.",
+            systemImage: "lock.open"
+          )
+          .font(.footnote)
+          .foregroundStyle(RentivoColors.secondaryInk)
+        }
+      }
+      if !app.usesLiveAPI {
+        RentivoWizardSection("Demonstração") {
+          Label("O convite ficará pendente apenas na memória do app.", systemImage: "info.circle")
+            .font(.footnote)
+        }
+      }
+    case .review:
+      RentivoWizardSection("Convite") {
+        RentivoWizardReviewRow(label: "E-mail", value: OrganizationInviteEmail.normalized(email))
+        RentivoWizardReviewRow(label: "Função", value: role.label)
+        RentivoWizardReviewRow(
+          label: "MFA", value: organization.requiresMFA ? "Obrigatório" : "Opcional"
+        )
+      }
+      if let submitErrorMessage {
+        RentivoWizardSection("Não foi possível convidar") {
+          errorLabel(submitErrorMessage)
+        }
       }
     }
-    .interactiveDismissDisabled(saving)
+  }
+
+  private func errorLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("invite.form.error")
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    guard step == .person else { return true }
+    emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
+    if emailValidationMessage != nil { scheduleEmailFocus() }
+    return emailValidationMessage == nil
   }
 
   private func invite() async {
     guard !saving else { return }
     if let message = OrganizationInviteEmail.validationMessage(email) {
-      submitErrorMessage = message
+      emailValidationMessage = message
+      step = .person
+      scheduleEmailFocus()
       return
     }
     submitErrorMessage = nil
@@ -248,5 +317,12 @@ struct InviteMemberView: View {
       dismiss()
       app.showNotice("Convite enviado.")
     } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private func scheduleEmailFocus() {
+    Task { @MainActor in
+      emailIsFocused = true
+      emailIsAccessibilityFocused = true
+    }
   }
 }

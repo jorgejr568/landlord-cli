@@ -62,7 +62,120 @@ private struct EditableRecipient: Identifiable {
   }
 }
 
+enum BillingWizardFocusRules {
+  enum ItemTarget: Equatable {
+    case addItem
+  }
+
+  enum PIXTarget: Equatable {
+    case key
+    case merchantName
+    case merchantCity
+  }
+
+  enum ContactTarget: Equatable {
+    case name
+    case email
+  }
+
+  struct ItemAmount: Equatable {
+    let type: BillingItemType
+    let centavos: Int
+  }
+
+  static func pixTarget(key: String, merchantName: String, merchantCity: String) -> PIXTarget {
+    if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .key }
+
+    let normalizedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedMerchantName.isEmpty || normalizedMerchantName.unicodeScalars.count > 25 {
+      return .merchantName
+    }
+
+    let normalizedMerchantCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedMerchantCity.isEmpty || normalizedMerchantCity.unicodeScalars.count > 15 {
+      return .merchantCity
+    }
+    return .key
+  }
+
+  static func contactTarget(name: String, email: String) -> ContactTarget {
+    let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255 { return .name }
+    return .email
+  }
+
+  static func firstFixedOverflowIndex(in items: [ItemAmount]) -> Int? {
+    var fixedTotal = 0
+    for (index, item) in items.enumerated() where item.type == .fixed {
+      guard item.centavos >= 0 else { continue }
+      if item.centavos > Money.maximumPersistedCentavos
+        || fixedTotal > Money.maximumPersistedCentavos - item.centavos {
+        return index
+      }
+      fixedTotal += item.centavos
+    }
+    return nil
+  }
+
+  static func itemTarget(issues: [ValidationIssue], items: [ItemAmount]) -> ItemTarget? {
+    issues.contains(where: { $0.field == .items }) && items.isEmpty ? .addItem : nil
+  }
+}
+
+enum BillingWizardReordering {
+  enum Direction {
+    case up
+    case down
+  }
+
+  @discardableResult
+  static func move<Element: Identifiable>(
+    id: Element.ID,
+    direction: Direction,
+    in elements: inout [Element]
+  ) -> Bool {
+    guard let index = elements.firstIndex(where: { $0.id == id }) else { return false }
+    let destination = direction == .up ? index - 1 : index + 1
+    guard elements.indices.contains(destination) else { return false }
+    elements.swapAt(index, destination)
+    return true
+  }
+}
+
 struct BillingFormView: View {
+  private enum Step: CaseIterable {
+    case essentials
+    case items
+    case pix
+    case communication
+    case review
+
+    var title: String {
+      switch self {
+      case .essentials: "Essenciais"
+      case .items: "Itens recorrentes"
+      case .pix: "PIX"
+      case .communication: "Comunicação"
+      case .review: "Revisão"
+      }
+    }
+  }
+
+  private enum FocusedField: Hashable {
+    case name
+    case description
+    case itemDescription(Int)
+    case itemAmount(Int)
+    case addItem
+    case pixKey
+    case pixMerchantName
+    case pixMerchantCity
+    case recipientName(Int)
+    case recipientEmail(Int)
+    case replyToName(Int)
+    case replyToEmail(Int)
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   private let billing: Billing?
@@ -78,6 +191,7 @@ struct BillingFormView: View {
   @State private var usesCustomPix: Bool
   @State private var recipients: [EditableRecipient]
   @State private var replyTo: [EditableRecipient]
+  @State private var step: Step = .essentials
   @State private var validationIssues: [ValidationIssue] = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
@@ -87,8 +201,9 @@ struct BillingFormView: View {
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded: Bool
+  @FocusState private var focusedField: FocusedField?
+  @AccessibilityFocusState private var accessibilityFocusedField: FocusedField?
   @State private var organizationLoadError: String?
-  @State private var confirmingDiscard = false
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -107,11 +222,38 @@ struct BillingFormView: View {
   }
 
   var body: some View {
-    Form {
-      Section("Identificação") {
+    RentivoFormWizard(
+      title: billing == nil ? "Nova cobrança" : "Editar cobrança",
+      descriptors: Step.allCases.map { RentivoWizardStepDescriptor(id: $0, title: $0.title) },
+      selectedStep: $step,
+      isBusy: saving,
+      isPrimaryEnabled: organizationsLoaded,
+      finalActionTitle: finalActionTitle,
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: { Task { await save() } }
+    ) { step in
+      stepContent(step)
+    }
+    .interactiveDismissDisabled(saving)
+    .task {
+      guard billing == nil else { return }
+      await loadOrganizations()
+    }
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .essentials:
+      RentivoWizardSection("Identificação", subtitle: "Defina a cobrança e seu responsável.") {
         TextField("Nome", text: $name)
+          .focused($focusedField, equals: .name)
+          .accessibilityFocused($accessibilityFocusedField, equals: .name)
           .accessibilityIdentifier("billing.form.name")
         TextField("Descrição", text: $billingDescription, axis: .vertical)
+          .focused($focusedField, equals: .description)
+          .accessibilityFocused($accessibilityFocusedField, equals: .description)
+          .accessibilityIdentifier("billing.form.description")
           .lineLimit(2...4)
         if billing == nil {
           Picker("Responsável", selection: $ownerID) {
@@ -120,158 +262,268 @@ struct BillingFormView: View {
             }
           }
         }
+        validationPanel
       }
 
-      Section {
+    case .items:
+      RentivoWizardSection(
+        "Itens recorrentes",
+        subtitle: "Use valor zero para itens variáveis que serão preenchidos em cada fatura."
+      ) {
         ForEach($items) { $item in
+          let index = items.firstIndex(where: { $0.id == item.id }) ?? 0
           VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+            HStack {
+              Text("Item \(index + 1)")
+                .font(.subheadline.weight(.semibold))
+              Spacer()
+              reorderButtons(
+                position: index,
+                count: items.count,
+                label: "item \(index + 1)",
+                identifierPrefix: "billing.form.item.\(item.id.rawValue)"
+              ) { direction in
+                BillingWizardReordering.move(id: item.id, direction: direction, in: &items)
+              }
+              Button("Remover", role: .destructive) {
+                items.removeAll { $0.id == item.id }
+              }
+              .accessibilityIdentifier("billing.form.item.\(index).remove")
+            }
             TextField("Descrição do item", text: $item.description)
+              .focused($focusedField, equals: .itemDescription(index))
+              .accessibilityFocused($accessibilityFocusedField, equals: .itemDescription(index))
+              .accessibilityIdentifier("billing.form.item.\(index).description")
             Picker("Tipo", selection: $item.type) {
               ForEach(BillingItemType.allCases, id: \.self) { type in
                 Text(type.label).tag(type)
               }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("billing.form.item.\(index).type")
             .onChange(of: item.type) { _, type in
               item.centavos = type.normalizedTemplateAmount(item.centavos)
             }
             if item.type.showsTemplateAmount {
-              CurrencyCentavosField("Valor do item", centavos: $item.centavos)
+              CurrencyCentavosField(
+                "Valor do item",
+                centavos: $item.centavos,
+                isFocused: itemAmountFocusBinding(for: index),
+                isAccessibilityFocused: itemAmountAccessibilityFocusBinding(for: index)
+              )
+                .accessibilityIdentifier("billing.form.item.\(index).amount")
             }
           }
           .padding(.vertical, RentivoSpacing.tiny)
         }
-        .onDelete { items.remove(atOffsets: $0) }
-        .onMove { items.move(fromOffsets: $0, toOffset: $1) }
         Button {
           items.append(EditableBillingItem())
         } label: {
           Label("Adicionar item", systemImage: "plus.circle.fill")
         }
-      } header: {
+        .focused($focusedField, equals: .addItem)
+        .accessibilityFocused($accessibilityFocusedField, equals: .addItem)
+        .accessibilityIdentifier("billing.form.items.add")
         HStack {
-          Text("Itens recorrentes")
+          Text("Subtotal fixo")
+            .foregroundStyle(RentivoColors.secondaryInk)
           Spacer()
-          EditButton()
+          MoneyText(money: fixedSubtotal)
         }
-      } footer: {
-        Text("Use valor zero para itens variáveis que serão preenchidos em cada fatura.")
+        validationPanel
       }
 
-      Section("PIX") {
+    case .pix:
+      RentivoWizardSection("PIX", subtitle: "Escolha se esta cobrança herda o PIX do responsável.") {
         Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
         if usesCustomPix {
           TextField("Chave PIX própria", text: $pixKey)
+            .focused($focusedField, equals: .pixKey)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
             .textInputAutocapitalization(.never)
             .accessibilityIdentifier("billing.form.pix.key")
           TextField("Nome do recebedor", text: $pixMerchantName)
+            .focused($focusedField, equals: .pixMerchantName)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantName)
             .accessibilityIdentifier("billing.form.pix.merchantName")
           TextField("Cidade do recebedor", text: $pixMerchantCity)
+            .focused($focusedField, equals: .pixMerchantCity)
+            .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
             .textInputAutocapitalization(.characters)
             .accessibilityIdentifier("billing.form.pix.merchantCity")
         } else {
           Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
             .foregroundStyle(RentivoColors.secondaryInk)
         }
+        validationPanel
       }
 
-      Section {
-        ForEach($recipients) { $recipient in
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            TextField("Nome do destinatário", text: $recipient.name)
-            TextField("E-mail do destinatário", text: $recipient.email)
-              .keyboardType(.emailAddress)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-          }
-          .padding(.vertical, RentivoSpacing.tiny)
-        }
-        .onDelete { recipients.remove(atOffsets: $0) }
-        .onMove { recipients.move(fromOffsets: $0, toOffset: $1) }
-        Button {
-          recipients.append(EditableRecipient())
-        } label: {
-          Label("Adicionar destinatário", systemImage: "plus.circle.fill")
-        }
-        .accessibilityIdentifier("billing.form.recipients.add")
-        ForEach($replyTo) { $contact in
-          VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-            TextField("Nome para resposta", text: $contact.name)
-            TextField("E-mail para resposta", text: $contact.email)
-              .keyboardType(.emailAddress)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-          }
-          .padding(.vertical, RentivoSpacing.tiny)
-        }
-        .onDelete { replyTo.remove(atOffsets: $0) }
-        .onMove { replyTo.move(fromOffsets: $0, toOffset: $1) }
-        Button {
-          replyTo.append(EditableRecipient())
-        } label: {
-          Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
-        }
-      } header: {
-        HStack {
-          Text("Comunicação")
-          Spacer()
-          EditButton()
-        }
-      } footer: {
-        Text("Todos os destinatários listados recebem as comunicações desta cobrança.")
-      }
-
-      if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
-        || submitErrorMessage != nil || organizationLoadError != nil
-      {
-        Section("Revise os campos") {
-          ForEach(validationIssues, id: \.self) { issue in
-            Label(issue.message, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
-          if let pixRecipientRequiredMessage {
-            Label(pixRecipientRequiredMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
-          if let submitErrorMessage {
-            Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
-              .accessibilityIdentifier("billing.form.validation")
-          }
-          if let organizationLoadError {
-            Label(organizationLoadError, systemImage: "exclamationmark.triangle.fill")
-              .foregroundStyle(RentivoColors.coral)
-            Button("Tentar carregar responsáveis novamente") {
-              Task { await loadOrganizations() }
+    case .communication:
+      Group {
+        RentivoWizardSection("Destinatários", subtitle: "Todos os destinatários recebem as comunicações desta cobrança.") {
+          ForEach($recipients) { $recipient in
+            let index = recipients.firstIndex(where: { $0.id == recipient.id }) ?? 0
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              HStack {
+                Text("Destinatário \(index + 1)")
+                  .font(.subheadline.weight(.semibold))
+                Spacer()
+                reorderButtons(
+                  position: index,
+                  count: recipients.count,
+                  label: "destinatário \(index + 1)",
+                  identifierPrefix: "billing.form.recipient.\(recipient.id.rawValue)"
+                ) { direction in
+                  BillingWizardReordering.move(id: recipient.id, direction: direction, in: &recipients)
+                }
+                Button("Remover", role: .destructive) {
+                  recipients.removeAll { $0.id == recipient.id }
+                }
+                .accessibilityIdentifier("billing.form.recipient.\(index).remove")
+              }
+              TextField("Nome do destinatário", text: $recipient.name)
+                .focused($focusedField, equals: .recipientName(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .recipientName(index))
+                .accessibilityIdentifier("billing.form.recipient.\(index).name")
+              TextField("E-mail do destinatário", text: $recipient.email)
+                .focused($focusedField, equals: .recipientEmail(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .recipientEmail(index))
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("billing.form.recipient.\(index).email")
             }
+            .padding(.vertical, RentivoSpacing.tiny)
           }
+          Button {
+            recipients.append(EditableRecipient())
+          } label: {
+            Label("Adicionar destinatário", systemImage: "plus.circle.fill")
+          }
+          .accessibilityIdentifier("billing.form.recipients.add")
+        }
+
+        RentivoWizardSection("Responder para", subtitle: "Opcionalmente, defina contatos que receberão as respostas.") {
+          ForEach($replyTo) { $contact in
+            let index = replyTo.firstIndex(where: { $0.id == contact.id }) ?? 0
+            VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+              HStack {
+                Text("Contato de resposta \(index + 1)")
+                  .font(.subheadline.weight(.semibold))
+                Spacer()
+                reorderButtons(
+                  position: index,
+                  count: replyTo.count,
+                  label: "contato de resposta \(index + 1)",
+                  identifierPrefix: "billing.form.reply-to.\(contact.id.rawValue)"
+                ) { direction in
+                  BillingWizardReordering.move(id: contact.id, direction: direction, in: &replyTo)
+                }
+                Button("Remover", role: .destructive) {
+                  replyTo.removeAll { $0.id == contact.id }
+                }
+                .accessibilityIdentifier("billing.form.reply-to.\(index).remove")
+              }
+              TextField("Nome para resposta", text: $contact.name)
+                .focused($focusedField, equals: .replyToName(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .replyToName(index))
+                .accessibilityIdentifier("billing.form.reply-to.\(index).name")
+              TextField("E-mail para resposta", text: $contact.email)
+                .focused($focusedField, equals: .replyToEmail(index))
+                .accessibilityFocused($accessibilityFocusedField, equals: .replyToEmail(index))
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("billing.form.reply-to.\(index).email")
+            }
+            .padding(.vertical, RentivoSpacing.tiny)
+          }
+          Button {
+            replyTo.append(EditableRecipient())
+          } label: {
+            Label("Adicionar contato de resposta", systemImage: "plus.circle.fill")
+          }
+          .accessibilityIdentifier("billing.form.reply-to.add")
+          validationPanel
+        }
+      }
+
+    case .review:
+      RentivoWizardSection("Revise sua cobrança") {
+        RentivoWizardReviewRow(label: "Nome", value: displayName)
+        RentivoWizardReviewRow(label: "Responsável", value: selectedOwner?.name ?? "Não informado")
+        RentivoWizardReviewRow(label: "Itens", value: ptBRCount(items.count, singular: "item", plural: "itens"))
+        RentivoWizardReviewRow(label: "Subtotal fixo", value: fixedSubtotal.formatted())
+        RentivoWizardReviewRow(
+          label: "PIX",
+          value: usesCustomPix ? "Próprio" : "Herdado"
+        )
+        RentivoWizardReviewRow(
+          label: "Destinatários",
+          value: ptBRCount(nonBlankRecipients.count, singular: "destinatário", plural: "destinatários")
+        )
+        RentivoWizardReviewRow(
+          label: "Responder para",
+          value: ptBRCount(nonBlankReplyTo.count, singular: "contato", plural: "contatos")
+        )
+        validationPanel
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var validationPanel: some View {
+    if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
+      || submitErrorMessage != nil || organizationLoadError != nil
+    {
+      VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+        Text("Revise os campos")
+          .font(.subheadline.weight(.semibold))
+        ForEach(validationIssues, id: \.self) { issue in
+          validationMessage(issue.message)
+        }
+        if let pixRecipientRequiredMessage { validationMessage(pixRecipientRequiredMessage) }
+        if let submitErrorMessage { validationMessage(submitErrorMessage) }
+        if let organizationLoadError {
+          validationMessage(organizationLoadError)
+          Button("Tentar carregar responsáveis novamente") {
+            Task { await loadOrganizations() }
+          }
+          .accessibilityIdentifier("billing.form.organizations.retry")
         }
       }
     }
-    .navigationTitle(billing == nil ? "Nova cobrança" : "Editar cobrança")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Cancelar") {
-          if hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
-        }
+  }
+
+  private func validationMessage(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("billing.form.validation")
+  }
+
+  @ViewBuilder
+  private func reorderButtons(
+    position: Int,
+    count: Int,
+    label: String,
+    identifierPrefix: String,
+    onMove: @escaping (BillingWizardReordering.Direction) -> Void
+  ) -> some View {
+    if count > 1 {
+      Button { onMove(.up) } label: {
+        Image(systemName: "arrow.up")
       }
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Salvar") { Task { await save() } }
-          .disabled(saving || !organizationsLoaded)
-          .accessibilityIdentifier("billing.form.save")
+      .disabled(position == 0)
+      .accessibilityLabel("Mover \(label) para cima")
+      .accessibilityIdentifier("\(identifierPrefix).move-up")
+
+      Button { onMove(.down) } label: {
+        Image(systemName: "arrow.down")
       }
+      .disabled(position == count - 1)
+      .accessibilityLabel("Mover \(label) para baixo")
+      .accessibilityIdentifier("\(identifierPrefix).move-down")
     }
-    .interactiveDismissDisabled(saving || hasUnsavedChanges)
-    .confirmationDialog(
-      "Descartar as alterações?", isPresented: $confirmingDiscard, titleVisibility: .visible
-    ) {
-      Button("Descartar", role: .destructive) { dismiss() }
-      Button("Continuar editando", role: .cancel) {}
-    }
-    .task { await loadOrganizations() }
   }
 
   private var ownerChoices: [BillingOwner] {
@@ -286,21 +538,211 @@ struct BillingFormView: View {
     return owners
   }
 
-  private var hasUnsavedChanges: Bool {
-    let currentItems = items.enumerated().map { $0.element.domain(sortOrder: $0.offset) }
-    let currentRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
-    let currentReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
-    guard let billing else {
-      return !name.isEmpty || !billingDescription.isEmpty || !currentItems.isEmpty
-        || usesCustomPix || !currentRecipients.isEmpty || !currentReplyTo.isEmpty
+  private var selectedOwner: BillingOwner? {
+    billing?.owner ?? ownerChoices.first(where: { $0.id == ownerID })
+  }
+
+  private var finalActionTitle: String {
+    if !organizationsLoaded { return "Carregando responsáveis…" }
+    return billing == nil ? "Criar cobrança" : "Salvar cobrança"
+  }
+
+  private var fixedSubtotal: Money {
+    items.lazy
+      .filter { $0.type == .fixed }
+      .map { Money(centavos: $0.centavos) }
+      .reduce(.zero, +)
+  }
+
+  private var nonBlankRecipients: [EditableRecipient] { recipients.filter { !$0.isBlank } }
+  private var nonBlankReplyTo: [EditableRecipient] { replyTo.filter { !$0.isBlank } }
+
+  private var displayName: String {
+    let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? "Não informado" : normalized
+  }
+
+  private func currentDraft() -> BillingDraft? {
+    guard let selectedOwner else { return nil }
+    return BillingDraft(
+      name: name,
+      description: billingDescription,
+      owner: selectedOwner,
+      items: items.enumerated().map { $0.element.domain(sortOrder: $0.offset) },
+      pixOverride: currentPixOverride,
+      recipients: nonBlankRecipients.map { $0.domain() },
+      replyTo: nonBlankReplyTo.map { $0.domain() }
+    )
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    switch step {
+    case .essentials: return validateEssentials()
+    case .items: return validateItems()
+    case .pix: return validatePIX()
+    case .communication: return validateCommunication()
+    case .review: return true
     }
-    return name != billing.name || billingDescription != billing.description
-      || ownerID != billing.owner.id || currentItems != billing.items
-      || usesCustomPix != (billing.pixOverride != nil)
-      || pixKey != (billing.pixOverride?.key ?? "")
-      || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
-      || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
-      || currentRecipients != billing.recipients || currentReplyTo != billing.replyTo
+  }
+
+  private func validateEssentials() -> Bool {
+    validate(fields: [.name, .description])
+  }
+
+  private func validateItems() -> Bool {
+    validate(fields: [.items, .itemDescription, .itemAmount])
+  }
+
+  private func validatePIX() -> Bool {
+    pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
+    let isValid = validate(fields: [.pix])
+    guard isValid && pixRecipientRequiredMessage == nil else {
+      if isValid { focusPIXRecipientField() }
+      return false
+    }
+    return true
+  }
+
+  private func validateCommunication() -> Bool {
+    validate(fields: [.recipient, .replyTo])
+  }
+
+  private func validate(fields: Set<ValidationField>) -> Bool {
+    validationIssues = currentDraft()?.validate().filter { fields.contains($0.field) } ?? [
+      ValidationIssue(field: .name, message: "Não foi possível confirmar o responsável.")
+    ]
+    if !validationIssues.isEmpty { focusFirstInvalidControl() }
+    return validationIssues.isEmpty
+  }
+
+  private func focusFirstInvalidControl() {
+    switch step {
+    case .essentials:
+      scheduleFocus(validationIssues.contains(where: { $0.field == .name }) ? .name : .description)
+    case .items:
+      if BillingWizardFocusRules.itemTarget(
+        issues: validationIssues,
+        items: items.map { .init(type: $0.type, centavos: $0.centavos) }
+      ) == .addItem {
+        scheduleFocus(.addItem)
+      } else if validationIssues.contains(where: { $0.field == .itemDescription }),
+        let index = firstInvalidItemDescriptionIndex {
+        scheduleFocus(.itemDescription(index))
+      } else if validationIssues.contains(where: { $0.field == .itemAmount }),
+        let index = firstInvalidItemAmountIndex {
+        scheduleFocus(.itemAmount(index))
+      }
+    case .pix:
+      focusPIXField()
+    case .communication:
+      if validationIssues.contains(where: { $0.field == .recipient }),
+        let index = firstInvalidContactIndex(in: recipients) {
+        focusContact(recipients[index], at: index, isReplyTo: false)
+      } else if validationIssues.contains(where: { $0.field == .replyTo }),
+        let index = firstInvalidContactIndex(in: replyTo) {
+        focusContact(replyTo[index], at: index, isReplyTo: true)
+      }
+    case .review:
+      break
+    }
+  }
+
+  private func focusPIXRecipientField() {
+    focusPIXField()
+  }
+
+  private func focusPIXField() {
+    switch BillingWizardFocusRules.pixTarget(
+      key: pixKey,
+      merchantName: pixMerchantName,
+      merchantCity: pixMerchantCity
+    ) {
+    case .key: scheduleFocus(.pixKey)
+    case .merchantName: scheduleFocus(.pixMerchantName)
+    case .merchantCity: scheduleFocus(.pixMerchantCity)
+    }
+  }
+
+  private var firstInvalidItemDescriptionIndex: Int? {
+    items.firstIndex {
+      let description = $0.description.trimmingCharacters(in: .whitespacesAndNewlines)
+      return description.isEmpty || description.unicodeScalars.count > 255
+    }
+  }
+
+  private func itemAmountFocusBinding(for index: Int) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == .itemAmount(index) },
+      set: { focusedField = $0 ? .itemAmount(index) : nil }
+    )
+  }
+
+  private func itemAmountAccessibilityFocusBinding(for index: Int) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == .itemAmount(index) },
+      set: { accessibilityFocusedField = $0 ? .itemAmount(index) : nil }
+    )
+  }
+
+  private var firstInvalidItemAmountIndex: Int? {
+    if let negativeAmount = items.firstIndex(where: { $0.centavos < 0 }) { return negativeAmount }
+    if let overflow = BillingWizardFocusRules.firstFixedOverflowIndex(
+      in: items.map { .init(type: $0.type, centavos: $0.centavos) }
+    ) { return overflow }
+    return items.firstIndex { $0.type == .variable && $0.centavos != 0 }
+  }
+
+  private func firstInvalidContactIndex(in contacts: [EditableRecipient]) -> Int? {
+    let nonBlankIndices = contacts.indices.filter { !contacts[$0].isBlank }
+    if let invalidContact = nonBlankIndices.first(where: { index in
+      let contact = contacts[index]
+      let name = contact.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      return name.isEmpty || name.unicodeScalars.count > 255
+        || !EmailAddress.isValid(contact.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    }) {
+      return invalidContact
+    }
+
+    var seenEmails = Set<String>()
+    for index in nonBlankIndices {
+      let email = contacts[index].email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      if !seenEmails.insert(email).inserted { return index }
+    }
+    return nil
+  }
+
+  private func focusContact(_ contact: EditableRecipient, at index: Int, isReplyTo: Bool) {
+    switch (isReplyTo, BillingWizardFocusRules.contactTarget(name: contact.name, email: contact.email)) {
+    case (false, .name): scheduleFocus(.recipientName(index))
+    case (false, .email): scheduleFocus(.recipientEmail(index))
+    case (true, .name): scheduleFocus(.replyToName(index))
+    case (true, .email): scheduleFocus(.replyToEmail(index))
+    }
+  }
+
+  private func scheduleFocus(_ field: FocusedField) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
+    }
+  }
+
+  private var pixRecipientRequiredMessageForCurrentFields: String? {
+    guard case .invalid(let message) = currentPixResult else { return nil }
+    return message
+  }
+
+  private var currentPixResult: PixFormResult {
+    usesCustomPix
+      ? PixFormRules.result(
+        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
+      : .inherit
+  }
+
+  private var currentPixOverride: PixConfiguration? {
+    guard case .custom(let configuration) = currentPixResult else { return nil }
+    return configuration
   }
 
   private func save() async {
@@ -318,12 +760,9 @@ struct BillingFormView: View {
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
     // so it is dropped rather than reported as invalid. Partially filled rows still fail
     // validation below, because the update replaces the billing's whole recipient set.
-    let draftRecipients = recipients.filter { !$0.isBlank }.map { $0.domain() }
-    let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
-    let pixResult = usesCustomPix
-      ? PixFormRules.result(
-        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
-      : .inherit
+    let draftRecipients = nonBlankRecipients.map { $0.domain() }
+    let draftReplyTo = nonBlankReplyTo.map { $0.domain() }
+    let pixResult = currentPixResult
     let pixOverride: PixConfiguration?
     switch pixResult {
     case .inherit:

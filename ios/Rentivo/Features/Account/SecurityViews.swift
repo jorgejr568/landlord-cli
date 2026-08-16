@@ -9,6 +9,7 @@ struct SecurityView: View {
   @State private var showingRecoveryCodes = false
   @State private var enrollment: TOTPEnrollment?
   @State private var showingDisableTOTP = false
+  @State private var showingChangePassword = false
   @State private var password = ""
   @State private var passkeyPendingDelete: Passkey?
 
@@ -33,11 +34,12 @@ struct SecurityView: View {
           }
         }
         Section("Senha") {
-          NavigationLink {
-            ChangePasswordView()
+          Button {
+            showingChangePassword = true
           } label: {
             Label("Alterar senha", systemImage: "key.fill")
           }
+          .accessibilityIdentifier("security.password.change")
         }
         Section("Autenticação em duas etapas") {
           LabeledContent("Aplicativo autenticador", value: summary.totpEnabled ? "Ativado" : "Desativado")
@@ -100,6 +102,9 @@ struct SecurityView: View {
     .background(RentivoColors.paper)
     .navigationTitle("Segurança")
     .task(id: app.dataRevision) { await load() }
+    .rentivoFullScreenWizard(isPresented: $showingChangePassword) {
+      ChangePasswordView()
+    }
     .sheet(isPresented: $showingRecoveryCodes) {
       RecoveryCodeView(codes: recoveryCodes)
     }
@@ -191,6 +196,18 @@ struct SecurityView: View {
 }
 
 private struct ChangePasswordView: View {
+  private enum Step: CaseIterable {
+    case current
+    case new
+    case review
+  }
+
+  private enum Field: Hashable {
+    case current
+    case new
+    case confirmation
+  }
+
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
   @State private var currentPassword = ""
@@ -198,49 +215,154 @@ private struct ChangePasswordView: View {
   @State private var confirmPassword = ""
   @State private var isSaving = false
   @State private var validationMessage: String?
+  @State private var step: Step = .current
+  @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
 
   var body: some View {
-    Form {
-      Section {
+    RentivoFormWizard(
+      title: "Alterar senha",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isBusy: isSaving,
+      finalActionTitle: "Alterar senha",
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: save
+    ) { selectedStep in
+      stepContent(selectedStep)
+    }
+    .interactiveDismissDisabled(isDirty || isSaving)
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .current, title: "Senha atual"),
+      .init(id: .new, title: "Nova senha"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  private var isDirty: Bool {
+    !currentPassword.isEmpty || !newPassword.isEmpty || !confirmPassword.isEmpty
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .current:
+      RentivoWizardSection(
+        "Confirme sua identidade",
+        subtitle: "Informe a senha usada atualmente na sua conta."
+      ) {
         SecureField("Senha atual", text: $currentPassword)
           .textContentType(.password)
+          .focused($focusedField, equals: .current)
+          .accessibilityFocused($accessibilityFocusedField, equals: .current)
+          .accessibilityIdentifier("password.form.current")
+        if let validationMessage { errorLabel(validationMessage) }
+      }
+    case .new:
+      RentivoWizardSection(
+        "Escolha a nova senha",
+        subtitle: "Use uma senha forte e exclusiva para sua conta Rentivo."
+      ) {
         SecureField("Nova senha", text: $newPassword)
           .textContentType(.newPassword)
+          .focused($focusedField, equals: .new)
+          .accessibilityFocused($accessibilityFocusedField, equals: .new)
+          .accessibilityIdentifier("password.form.new")
         SecureField("Confirmar nova senha", text: $confirmPassword)
           .textContentType(.newPassword)
-      } header: {
-        Text("Alterar senha")
-      } footer: {
-        Text("Use uma senha forte e exclusiva para sua conta Rentivo.")
+          .focused($focusedField, equals: .confirmation)
+          .accessibilityFocused($accessibilityFocusedField, equals: .confirmation)
+          .accessibilityIdentifier("password.form.confirmation")
+        if let validationMessage { errorLabel(validationMessage) }
       }
-
+    case .review:
+      RentivoWizardSection("Confirmação de segurança") {
+        Label(
+          "Sua senha atual e a nova senha foram preenchidas. Por segurança, os valores não são exibidos nesta revisão.",
+          systemImage: "lock.shield.fill"
+        )
+        .foregroundStyle(RentivoColors.secondaryInk)
+        .accessibilityIdentifier("password.review.redacted")
+      }
       if let validationMessage {
-        Section {
-          Label(validationMessage, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(RentivoColors.coral)
+        RentivoWizardSection("Não foi possível alterar") {
+          errorLabel(validationMessage)
         }
       }
-
-      Section {
-        Button("Salvar nova senha", action: save)
-          .disabled(
-            isSaving || !BcryptPasswordRules.isAccepted(currentPassword)
-              || !BcryptPasswordRules.isAccepted(newPassword) || newPassword != confirmPassword
-          )
-      }
     }
-    .navigationTitle("Senha")
+  }
+
+  private func errorLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("password.form.error")
+  }
+
+  private func validateCurrentStep() -> Bool {
+    validationMessage = nil
+    switch step {
+    case .current:
+      guard !currentPassword.isEmpty else {
+        validationMessage = "Informe sua senha atual."
+        scheduleFocus(.current)
+        return false
+      }
+      guard BcryptPasswordRules.isAccepted(currentPassword) else {
+        validationMessage = BcryptPasswordRules.limitMessage
+        scheduleFocus(.current)
+        return false
+      }
+    case .new:
+      guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
+        validationMessage = "Informe e confirme a nova senha."
+        scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
+        return false
+      }
+      guard BcryptPasswordRules.isAccepted(newPassword) else {
+        validationMessage = BcryptPasswordRules.limitMessage
+        scheduleFocus(.new)
+        return false
+      }
+      guard newPassword == confirmPassword else {
+        validationMessage = "As senhas não coincidem."
+        scheduleFocus(.confirmation)
+        return false
+      }
+    case .review:
+      break
+    }
+    return true
   }
 
   private func save() {
-    guard BcryptPasswordRules.isAccepted(currentPassword),
-      BcryptPasswordRules.isAccepted(newPassword)
-    else {
+    guard !isSaving else { return }
+    guard BcryptPasswordRules.isAccepted(currentPassword) else {
+      validationMessage = currentPassword.isEmpty
+        ? "Informe sua senha atual." : BcryptPasswordRules.limitMessage
+      step = .current
+      scheduleFocus(.current)
+      return
+    }
+    guard !newPassword.isEmpty, !confirmPassword.isEmpty else {
+      validationMessage = "Informe e confirme a nova senha."
+      step = .new
+      scheduleFocus(newPassword.isEmpty ? .new : .confirmation)
+      return
+    }
+    guard BcryptPasswordRules.isAccepted(newPassword) else {
       validationMessage = BcryptPasswordRules.limitMessage
+      step = .new
+      scheduleFocus(.new)
       return
     }
     guard newPassword == confirmPassword else {
       validationMessage = "As senhas não coincidem."
+      step = .new
+      scheduleFocus(.confirmation)
       return
     }
     validationMessage = nil
@@ -259,6 +381,13 @@ private struct ChangePasswordView: View {
       } catch {
         validationMessage = DemoError(error).message
       }
+    }
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
     }
   }
 }

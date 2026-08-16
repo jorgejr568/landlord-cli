@@ -4,6 +4,8 @@ struct AccountView: View {
   @Environment(AppModel.self) private var app
   @State private var showDeleteAccountAlert = false
   @State private var deleteAccountPassword = ""
+  @State private var showingProfilePIX = false
+  @State private var showingTheme = false
   @State private var deletionReadiness: AccountDeletionReadiness?
   @State private var deletionReadinessError: String?
   @State private var loadingDeletionReadiness = false
@@ -24,11 +26,12 @@ struct AccountView: View {
       }
 
       Section("Perfil") {
-        NavigationLink {
-          ProfilePixView()
+        Button {
+          showingProfilePIX = true
         } label: {
           AccountRow(title: "Dados e PIX", subtitle: "Chave e dados do recebedor", symbol: "qrcode")
         }
+        .accessibilityIdentifier("account.pix")
         NavigationLink {
           SecurityView()
         } label: {
@@ -45,12 +48,13 @@ struct AccountView: View {
           AccountRow(
             title: "Chaves de integração", subtitle: "Escopos e acessos", symbol: "key.fill")
         }
-        NavigationLink {
-          ThemeEditorView(target: .user)
+        Button {
+          showingTheme = true
         } label: {
           AccountRow(
             title: "Aparência", subtitle: "Fontes, cores e prévia", symbol: "paintpalette.fill")
         }
+        .accessibilityIdentifier("account.theme")
       }
 
       if !app.usesLiveAPI {
@@ -134,6 +138,12 @@ struct AccountView: View {
     .scrollContentBackground(.hidden)
     .background(RentivoColors.paper)
     .navigationTitle("Conta")
+    .rentivoFullScreenWizard(isPresented: $showingProfilePIX) {
+      ProfilePixView()
+    }
+    .rentivoFullScreenWizard(isPresented: $showingTheme) {
+      ThemeEditorView(target: .user)
+    }
     .alert("Excluir sua conta?", isPresented: $showDeleteAccountAlert) {
       SecureField("Senha", text: $deleteAccountPassword)
       Button("Cancelar", role: .cancel) { deleteAccountPassword = "" }
@@ -182,11 +192,31 @@ private struct AccountRow: View {
 }
 
 struct ProfilePixView: View {
+  private enum Step: CaseIterable {
+    case key
+    case recipient
+    case review
+  }
+
+  private enum Field: Hashable {
+    case key
+    case merchantName
+    case city
+  }
+
   @Environment(AppModel.self) private var app
+  @Environment(\.dismiss) private var dismiss
   @State private var form = ProfilePIXForm()
-  @State private var hasLoaded = false
-  @State private var loadFailureMessage: String?
-  @State private var isSaving = false
+  @State private var loadedForm: ProfilePIXForm?
+  @State private var step: Step = .key
+  @State private var validationMessage: String?
+  @State private var submitErrorMessage: String?
+  @State private var saving = false
+  @State private var profileLoaded = false
+  @State private var profileLoadErrorMessage: String?
+  @State private var draftRevision = 0
+  @FocusState private var focusedField: Field?
+  @AccessibilityFocusState private var accessibilityFocusedField: Field?
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -196,77 +226,223 @@ struct ProfilePixView: View {
   }
 
   var body: some View {
-    Form {
-      Section("Conta") {
-        LabeledContent("E-mail", value: app.currentUser.email)
-        LabeledContent("Ambiente", value: app.usesLiveAPI ? "Rentivo" : "Demonstração local")
-      }
-      Section("PIX pessoal") {
-        if hasLoaded {
-          Group {
-            TextField("Chave PIX", text: $form.key)
-              .textInputAutocapitalization(.never)
-            TextField("Nome do recebedor", text: $form.merchantName)
-            TextField("Cidade", text: $form.merchantCity)
-              .textInputAutocapitalization(.characters)
-            if let message = form.validationMessage {
-              Label(message, systemImage: "exclamationmark.circle.fill")
-                .foregroundStyle(RentivoColors.coral)
-            }
-          }
-          .disabled(isDemoViewerLocked)
-        } else if let loadFailureMessage {
-          Label(loadFailureMessage, systemImage: "exclamationmark.triangle.fill")
-            .foregroundStyle(RentivoColors.coral)
-          Button("Tentar novamente") { Task { await load() } }
-        } else {
-          HStack {
-            ProgressView()
-            Text("Carregando seus dados…")
-              .foregroundStyle(RentivoColors.secondaryInk)
-          }
+    RentivoFormWizard(
+      title: "Dados e PIX",
+      descriptors: descriptors,
+      selectedStep: $step,
+      isBusy: saving,
+      isPrimaryEnabled: RentivoAsyncDraftLoadRules.isPrimaryEnabled(
+        hasLoadedBaseline: profileLoaded
+      ),
+      finalActionTitle: finalActionTitle,
+      onValidateAndAdvance: validateCurrentStep,
+      onCommit: commit
+    ) { selectedStep in
+      stepContent(selectedStep)
+    }
+    .interactiveDismissDisabled(isDirty || saving)
+    .task { await loadProfile() }
+    .onChange(of: form) { draftRevision &+= 1 }
+  }
+
+  private var descriptors: [RentivoWizardStepDescriptor<Step>] {
+    [
+      .init(id: .key, title: "Chave"),
+      .init(id: .recipient, title: "Recebedor"),
+      .init(id: .review, title: "Revisão"),
+    ]
+  }
+
+  private var isDirty: Bool {
+    form != (loadedForm ?? ProfilePIXForm())
+  }
+
+  private var finalActionTitle: String {
+    guard profileLoaded else { return "Carregando perfil…" }
+    if isDemoViewerLocked { return "Concluir" }
+    return form.configuration == nil ? "Limpar PIX" : "Salvar PIX"
+  }
+
+  @ViewBuilder
+  private func stepContent(_ step: Step) -> some View {
+    switch step {
+    case .key:
+      RentivoWizardSection(
+        "Chave PIX pessoal",
+        subtitle: "Deixe a chave e os dados do recebedor vazios para remover a configuração atual."
+      ) {
+        TextField("Chave PIX", text: $form.key)
+          .textInputAutocapitalization(.never)
+          .disabled(isDemoViewerLocked || !profileLoaded)
+          .focused($focusedField, equals: .key)
+          .accessibilityFocused($accessibilityFocusedField, equals: .key)
+          .accessibilityIdentifier("profile.pix.key")
+        if isDemoViewerLocked { readOnlyNotice }
+        if let profileLoadErrorMessage {
+          errorLabel(profileLoadErrorMessage)
+          Button("Tentar novamente") { Task { await loadProfile() } }
+            .accessibilityIdentifier("profile.pix.retry")
         }
       }
-      Section {
+    case .recipient:
+      RentivoWizardSection(
+        "Dados do recebedor",
+        subtitle: "Estes dados acompanham a chave nas cobranças pessoais."
+      ) {
+        TextField("Nome do recebedor", text: $form.merchantName)
+          .disabled(isDemoViewerLocked || !profileLoaded)
+          .focused($focusedField, equals: .merchantName)
+          .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
+          .accessibilityIdentifier("profile.pix.merchant-name")
+        TextField("Cidade", text: $form.merchantCity)
+          .textInputAutocapitalization(.characters)
+          .disabled(isDemoViewerLocked || !profileLoaded)
+          .focused($focusedField, equals: .city)
+          .accessibilityFocused($accessibilityFocusedField, equals: .city)
+          .accessibilityIdentifier("profile.pix.city")
+        if let validationMessage { errorLabel(validationMessage) }
+      }
+      RentivoWizardSection("Herança") {
         Label(
           "Cobranças pessoais sem PIX próprio herdam esta configuração.",
           systemImage: "arrow.triangle.branch"
         )
         .font(.footnote)
       }
-    }
-    .navigationTitle("Dados e PIX")
-    .toolbar {
-      if !isDemoViewerLocked {
-        Button {
-          Task { await save() }
-        } label: {
-          if isSaving { ProgressView() } else { Text("Salvar") }
+    case .review:
+      RentivoWizardSection("Conta") {
+        RentivoWizardReviewRow(label: "E-mail", value: app.currentUser.email)
+        RentivoWizardReviewRow(
+          label: "Ambiente", value: app.usesLiveAPI ? "Rentivo" : "Demonstração local"
+        )
+      }
+      RentivoWizardSection("PIX pessoal") {
+        RentivoWizardReviewRow(label: "Chave", value: maskedKey)
+        RentivoWizardReviewRow(
+          label: "Recebedor",
+          value: form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Não informado"
+            : form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        RentivoWizardReviewRow(
+          label: "Cidade",
+          value: form.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Não informada"
+            : form.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+      }
+      if let submitErrorMessage {
+        RentivoWizardSection("Não foi possível atualizar") {
+          errorLabel(submitErrorMessage)
         }
-          .disabled(!hasLoaded || isSaving || !form.isSavable)
-          .accessibilityIdentifier("profile.pix.save")
       }
     }
-    .task { await load() }
   }
 
-  private func load() async {
-    loadFailureMessage = nil
+  private var readOnlyNotice: some View {
+    Label("A configuração está disponível somente para consulta no modo visualizador.", systemImage: "eye.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.secondaryInk)
+  }
+
+  private var maskedKey: String {
+    let key = form.key.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return "Sem chave configurada" }
+    guard key.count > 4 else { return key }
+    return "••••\(key.suffix(4))"
+  }
+
+  private func errorLabel(_ message: String) -> some View {
+    Label(message, systemImage: "exclamationmark.circle.fill")
+      .font(.footnote)
+      .foregroundStyle(RentivoColors.coral)
+      .accessibilityIdentifier("profile.pix.error")
+  }
+
+  private func validateCurrentStep() -> Bool {
+    submitErrorMessage = nil
+    guard step == .recipient else { return true }
+    guard form.isSavable else {
+      validationMessage = profilePIXValidationMessage
+      routeToFirstInvalidField()
+      return false
+    }
+    validationMessage = nil
+    return true
+  }
+
+  private func routeToFirstInvalidField() {
+    let key = form.key.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if key.isEmpty {
+      step = .key
+      scheduleFocus(.key)
+    } else if name.isEmpty || name.unicodeScalars.count > 25 {
+      step = .recipient
+      scheduleFocus(.merchantName)
+    } else {
+      step = .recipient
+      scheduleFocus(.city)
+    }
+  }
+
+  private var profilePIXValidationMessage: String {
+    form.validationMessage ?? "Revise os dados do PIX."
+  }
+
+  private func commit() {
+    if isDemoViewerLocked {
+      dismiss()
+    } else {
+      Task { await save() }
+    }
+  }
+
+  private func loadProfile() async {
+    let requestDraft = form
+    let requestRevision = draftRevision
+    profileLoadErrorMessage = nil
     do {
-      form = ProfilePIXForm(profile: try await app.loadProfile())
-      hasLoaded = true
+      let loaded = ProfilePIXForm(profile: try await app.loadProfile())
+      guard RentivoAsyncDraftLoadRules.shouldApply(
+        requestDraft: requestDraft,
+        currentDraft: form,
+        requestRevision: requestRevision,
+        currentRevision: draftRevision
+      ) else {
+        profileLoadErrorMessage = "O perfil mudou durante o carregamento. Tente novamente para atualizar os dados."
+        return
+      }
+      form = loaded
+      loadedForm = loaded
+      profileLoaded = true
     } catch {
-      loadFailureMessage = DemoError(error).message
+      profileLoadErrorMessage = DemoError(error).message
+    }
+  }
+
+  private func scheduleFocus(_ field: Field) {
+    Task { @MainActor in
+      focusedField = field
+      accessibilityFocusedField = field
     }
   }
 
   private func save() async {
-    guard !isSaving else { return }
-    isSaving = true
-    defer { isSaving = false }
+    guard !saving else { return }
+    guard form.isSavable else {
+      validationMessage = profilePIXValidationMessage
+      routeToFirstInvalidField()
+      return
+    }
+    submitErrorMessage = nil
+    saving = true
+    defer { saving = false }
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
+      loadedForm = form
       app.showNotice(form.configuration == nil ? "PIX pessoal removido." : "PIX pessoal atualizado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+      dismiss()
+    } catch { submitErrorMessage = DemoError(error).message }
   }
 }

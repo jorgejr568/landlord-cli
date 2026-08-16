@@ -58,6 +58,26 @@ struct RentivoButtonStyle: ButtonStyle {
   }
 }
 
+struct RentivoSecondaryButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.headline.weight(.bold))
+      .foregroundStyle(RentivoColors.ink)
+      .frame(maxWidth: .infinity, minHeight: 48)
+      .padding(.horizontal, RentivoSpacing.medium)
+      .background(configuration.isPressed ? RentivoColors.paper : RentivoColors.surface)
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(RentivoColors.ink, lineWidth: 2)
+      }
+      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+      .saturation(isEnabled ? 1 : 0.6)
+  }
+}
+
 struct BrandMark: View {
   var compact: Bool
 

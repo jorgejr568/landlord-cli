@@ -15,6 +15,7 @@ struct BillingDetailView: View {
   @State private var state: LoadState<BillingDetailData> = .idle
   @State private var showingEdit = false
   @State private var showingCreateBill = false
+  @State private var showingTheme = false
   @State private var confirmingDelete = false
 
   var body: some View {
@@ -34,25 +35,24 @@ struct BillingDetailView: View {
         }
       }
     }
-    .sheet(isPresented: $showingEdit) {
+    .rentivoFullScreenWizard(isPresented: $showingEdit) {
       if let billing = state.value?.billing {
-        NavigationStack {
-          BillingFormView(billing: billing) {
-            await load()
-            await onMutation()
-          }
+        BillingFormView(billing: billing) {
+          await load()
+          await onMutation()
         }
       }
     }
-    .sheet(isPresented: $showingCreateBill) {
+    .rentivoFullScreenWizard(isPresented: $showingCreateBill) {
       if let billing = state.value?.billing {
-        NavigationStack {
-          BillFormView(billing: billing) {
-            await load()
-            await onMutation()
-          }
+        BillFormView(billing: billing) {
+          await load()
+          await onMutation()
         }
       }
+    }
+    .rentivoFullScreenWizard(isPresented: $showingTheme) {
+      ThemeEditorView(target: .billing(billingID))
     }
     .confirmationDialog(
       "Excluir esta cobrança?",
@@ -106,8 +106,8 @@ struct BillingDetailView: View {
         recipients(data.billing)
 
         if data.billing.capabilities.canReadTheme {
-          NavigationLink {
-            ThemeEditorView(target: .billing(billingID))
+          Button {
+            showingTheme = true
           } label: {
             Label("Aparência dos documentos", systemImage: "paintpalette.fill")
               .frame(maxWidth: .infinity)
