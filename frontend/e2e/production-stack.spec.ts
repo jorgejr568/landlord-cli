@@ -251,6 +251,9 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("create a billing and its first real invoice", async () => {
     await page.goto("/billings/create");
     await page.getByLabel("Nome do imóvel").fill(`Apartamento ${unique}`);
+    // The billing form inherits the owner's PIX unless this opt-in is checked,
+    // which is what reveals the override fields below.
+    await page.getByLabel("Usar PIX personalizado").check();
     await page.getByLabel("Chave PIX").fill(email);
     await page.getByLabel("Nome do recebedor").fill("RENTIVO RELEASE");
     await page.getByLabel("Cidade do recebedor").fill("SALVADOR");
@@ -262,7 +265,8 @@ test("exercises the replacement stack without network interception", async ({ ba
     await expect(page.getByText("Nenhuma fatura gerada para este imóvel.")).toBeVisible();
     await page.getByRole("link", { name: "Gerar primeira fatura" }).click();
     await page.getByLabel("Mês de Referência").fill("2030-12");
-    await page.getByLabel("Vencimento").fill("10/12/2030");
+    // Native date control — it only accepts the ISO value, not the pt-BR display format.
+    await page.getByLabel("Vencimento").fill("2030-12-10");
     await page.getByRole("button", { name: "Gerar Fatura" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/billings/${ULID_PATH_SEGMENT}/bills/${ULID_PATH_SEGMENT}$`));
