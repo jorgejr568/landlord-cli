@@ -75,7 +75,7 @@ See [AGENTS.md](AGENTS.md) for the agent-facing version of this rule.
 
 Rentivo follows [SemVer 2.0.0](https://semver.org/); the release history lives in [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog format). Releases are cut by maintainers: version bump + changelog PR (`chore(release): vX.Y.Z`), then a `vX.Y.Z` tag triggers the release workflow. When unsure which component to bump, bump higher.
 
-The iOS app versions **independently** of the backend. Its release train is `MARKETING_VERSION` in `ios/Rentivo.xcodeproj/project.pbxproj`: changing it on `main` triggers `.github/workflows/ios-release.yml`, which archives, signs, and uploads to App Store Connect — so merging a PR that bumps it releases the app. Shipped iOS versions are tagged `ios/v<MARKETING_VERSION>` (for example `ios/v1.2`); see [docs/runbooks/ios-release.md](docs/runbooks/ios-release.md).
+The iOS app versions **independently** of the backend. Merging **any** change under `ios/` to `main` triggers `.github/workflows/ios-release.yml`, which archives, signs, uploads to App Store Connect, and distributes to TestFlight — so every iOS PR ships a build. `MARKETING_VERSION` in `ios/Rentivo.xcodeproj/project.pbxproj` is the release train and labels those builds; bump it when a change starts a new one. Shipped iOS versions are tagged `ios/v<MARKETING_VERSION>` (for example `ios/v1.2`); see [docs/runbooks/ios-release.md](docs/runbooks/ios-release.md).
 
 The Android app has **no release automation yet** — CI builds, unit-tests, and lints it, but nothing publishes it, and it carries no independent version track.
 

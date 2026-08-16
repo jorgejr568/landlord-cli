@@ -3,8 +3,20 @@ name: iOS App Store Release
 on:
   push:
     branches: [main]
+    # Every change to the app releases, not only a MARKETING_VERSION bump: the
+    # build number is `github.run_number`, so successive commits on one
+    # marketing version each get a distinct TestFlight build. Deliberately
+    # narrower than `IOS_PATH_PATTERN` in scripts/ios-ci.sh, which also covers
+    # CI-only inputs that cannot change the binary. The exclusions below are
+    # inside ios/ but out of the shipped app: the test targets, and the
+    # reference contract copy that Package.swift excludes from its sources and
+    # `make ios-openapi-sync` rewrites on every backend schema change. A push
+    # touching one of these *and* real app code still releases.
     paths:
-      - ios/Rentivo.xcodeproj/project.pbxproj
+      - ios/**
+      - '!ios/RentivoTests/**'
+      - '!ios/RentivoUITests/**'
+      - '!ios/Rentivo/openapi.json'
   workflow_dispatch:
     inputs:
       # Defaults to a dry run: a manual dispatch releases unconditionally, so an
@@ -24,68 +36,30 @@ concurrency:
 
 jobs:
   detect:
-    name: detect marketing version change
+    name: resolve the release version
     runs-on: ubuntu-latest
     outputs:
-      release: ${{ steps.version.outputs.release }}
       marketing-version: ${{ steps.version.outputs.marketing-version }}
       build-number: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          # The base commit this push replaced can be arbitrarily far back; the
-          # comparison below needs it present locally.
-          fetch-depth: 0
-      - name: Compare MARKETING_VERSION with the pushed-from commit
+      # Whether to release at all is decided by `on.push.paths` above; this only
+      # reads the version the build will carry. MARKETING_VERSION stays the
+      # release train a human edits, but it no longer gates the release.
+      - name: Read MARKETING_VERSION from the project file
         id: version
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.before }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          pbxproj=ios/Rentivo.xcodeproj/project.pbxproj
-          current="$(./scripts/ios-ci.sh marketing-version "$pbxproj")"
+          current="$(./scripts/ios-ci.sh marketing-version ios/Rentivo.xcodeproj/project.pbxproj)"
+          echo "Releasing $current as build $BUILD_NUMBER."
           echo "marketing-version=$current" >> "$GITHUB_OUTPUT"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "Manual dispatch: releasing $current as build $BUILD_NUMBER."
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The comparison base is what `main` pointed at before this push, not
-          # HEAD^. They only coincide under squash- or merge-commit merges: with
-          # a rebase-merged multi-commit PR whose version bump is not the last
-          # commit, HEAD^ already carries the new version and the release would
-          # silently never happen.
-          if [ -z "$BASE_SHA" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            echo "This push reports no base commit (before='$BASE_SHA'); refusing to release." >&2
-            exit 1
-          fi
-          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            echo "Base commit $BASE_SHA is unreachable in the fetched history; refusing to release." >&2
-            exit 1
-          fi
-          if ! git cat-file -e "${BASE_SHA}:$pbxproj" 2>/dev/null; then
-            echo "No $pbxproj at $BASE_SHA; the iOS project is new, releasing $current as build $BUILD_NUMBER."
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          previous_file="$(mktemp)"
-          git show "${BASE_SHA}:$pbxproj" > "$previous_file"
-          previous="$(./scripts/ios-ci.sh marketing-version "$previous_file")"
-          if [ "$current" = "$previous" ]; then
-            echo "MARKETING_VERSION unchanged at $current since $BASE_SHA; nothing to release."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "MARKETING_VERSION $previous -> $current since $BASE_SHA; releasing as build $BUILD_NUMBER."
-            echo "release=true" >> "$GITHUB_OUTPUT"
-          fi
 
   verify:
     name: iOS checks for the release commit
     runs-on: macos-15
     needs: detect
-    if: needs.detect.outputs.release == 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -97,7 +71,6 @@ jobs:
     name: confirm the build number is free
     runs-on: ubuntu-latest
     needs: detect
-    if: needs.detect.outputs.release == 'true'
     steps:
       - uses: actions/checkout@v7
       - name: Install uv

@@ -250,14 +250,15 @@ taps). A green `make ios-test` is therefore weaker than a green CI run; the
 shared test files compile in both modes through a `#if canImport(RentivoCore)`
 guard. The job is path-gated by `scripts/ios-ci.sh paths-changed`.
 
-**Release.** Bumping `MARKETING_VERSION` in
-`ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
+**Release.** Any change under `ios/` landing on `main` triggers
 `.github/workflows/ios-release.yml`, which archives, signs, uploads to App
-Store Connect, and distributes to TestFlight. The build number is
-`github.run_number`, not a value in the project file. The workflow creates no
-tag and no GitHub Release; tagging the release commit `ios/v<MARKETING_VERSION>`
-is a manual operator step after the upload reports `state=VALID`. Full procedure
-and triage: [`runbooks/ios-release.md`](runbooks/ios-release.md).
+Store Connect, and distributes to TestFlight — every merged iOS PR reaches
+testers. The build number is `github.run_number`, not a value in the project
+file, so `MARKETING_VERSION` in `ios/Rentivo.xcodeproj/project.pbxproj` names
+the train while the run number distinguishes builds within it. The workflow
+creates no tag and no GitHub Release; tagging a shipped version
+`ios/v<MARKETING_VERSION>` is a manual operator step. Full procedure and
+triage: [`runbooks/ios-release.md`](runbooks/ios-release.md).
 
 ## Android
 

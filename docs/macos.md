@@ -321,7 +321,7 @@ tree unchanged. Regenerate and commit the result whenever the iOS icon changes.
 
 ## Release
 
-There is none yet. Unlike iOS — where bumping `MARKETING_VERSION` on `main`
+There is none yet. Unlike iOS — where any change under `ios/` landing on `main`
 triggers `.github/workflows/ios-release.yml` and an App Store Connect upload —
 no workflow archives, signs, notarizes, or publishes the macOS app. `make
 macos-dmg` on a developer machine is the distribution artifact today, and the

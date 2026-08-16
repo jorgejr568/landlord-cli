@@ -191,10 +191,12 @@ and tests the exact images without rebuilding. Protected deployment automation
 validates production configuration and real integration reachability before
 migration and rollout. See `docs/runbooks/production-release.md`.
 
-The iOS app releases independently: changing `MARKETING_VERSION` in
-`ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
-`.github/workflows/ios-release.yml`, which archives, signs, and uploads to App
-Store Connect. See `docs/runbooks/ios-release.md`.
+The iOS app releases independently: any change under `ios/` landing on `main`
+triggers `.github/workflows/ios-release.yml`, which archives, signs, uploads to
+App Store Connect, and distributes to TestFlight. `MARKETING_VERSION` in
+`ios/Rentivo.xcodeproj/project.pbxproj` labels the build but does not gate the
+release; the build number is the workflow run number, so one marketing version
+covers many builds. See `docs/runbooks/ios-release.md`.
 
 The macOS app has no release workflow. `make macos-dmg` runs
 `scripts/macos-dmg.sh`, which builds Release and writes a drag-to-Applications
