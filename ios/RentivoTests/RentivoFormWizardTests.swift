@@ -20,6 +20,26 @@ import Testing
     #expect(flow.advance() == false)
   }
 
+  @Test func wizardNavigationPolicyUsesContinueUntilTheFinalStep() {
+    #expect(
+      RentivoWizardNavigationPolicy.primaryTitle(
+        isLast: false,
+        finalActionTitle: "Gerar fatura"
+      ) == "Continuar"
+    )
+    #expect(
+      RentivoWizardNavigationPolicy.primaryTitle(
+        isLast: true,
+        finalActionTitle: "Gerar fatura"
+      ) == "Gerar fatura"
+    )
+  }
+
+  @Test func wizardNavigationPolicyConfirmsCloseOnlyAfterTheFirstStep() {
+    #expect(!RentivoWizardNavigationPolicy.closeRequiresConfirmation(isFirst: true))
+    #expect(RentivoWizardNavigationPolicy.closeRequiresConfirmation(isFirst: false))
+  }
+
   @Test func billValidationFocusRoutesToTheFirstActionableControl() {
     let fixedID = BillLineItemID(rawValue: "fixed")
     let extraID = BillLineItemID(rawValue: "extra")

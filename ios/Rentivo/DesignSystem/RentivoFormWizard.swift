@@ -49,6 +49,14 @@ struct RentivoWizardFlow<Step: Hashable> {
   }
 }
 
+enum RentivoWizardNavigationPolicy {
+  static func primaryTitle(isLast: Bool, finalActionTitle: String) -> String {
+    isLast ? finalActionTitle : "Continuar"
+  }
+
+  static func closeRequiresConfirmation(isFirst: Bool) -> Bool { !isFirst }
+}
+
 struct RentivoFormWizard<Step: Hashable, Content: View>: View {
   let title: String
   let descriptors: [RentivoWizardStepDescriptor<Step>]
@@ -108,11 +116,12 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button(isFirst ? "Cancelar" : "Voltar") {
-            isFirst ? cancel() : retreat()
+          Button(action: close) {
+            Image(systemName: "xmark")
           }
           .disabled(isBusy)
-          .accessibilityIdentifier(isFirst ? "wizard.cancel" : "wizard.back")
+          .accessibilityLabel("Fechar")
+          .accessibilityIdentifier("wizard.close")
         }
       }
       .confirmationDialog(
@@ -173,7 +182,12 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
             ProgressView()
               .tint(.white)
           }
-          Text(primaryTitle)
+          Text(
+            RentivoWizardNavigationPolicy.primaryTitle(
+              isLast: isLast,
+              finalActionTitle: primaryTitle
+            )
+          )
         }
       }
       .buttonStyle(RentivoButtonStyle())
@@ -205,8 +219,8 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
     selectedStep = descriptors[selectedIndex - 1].id
   }
 
-  private func cancel() {
-    if isDirty {
+  private func close() {
+    if RentivoWizardNavigationPolicy.closeRequiresConfirmation(isFirst: isFirst) {
       confirmingDiscard = true
     } else {
       dismiss()
