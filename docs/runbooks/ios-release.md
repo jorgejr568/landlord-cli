@@ -1,13 +1,21 @@
 # iOS Release Runbook
 
 The iOS app ships to App Store Connect from CI. A release is triggered by one
-thing: changing `MARKETING_VERSION` in `ios/Rentivo.xcodeproj/project.pbxproj`
-and merging that change to `main`.
+thing: merging any change under `ios/` to `main`. Every such push archives,
+signs, uploads, and distributes a TestFlight build — the point is to get changes
+in front of testers without waiting for a version bump.
+
+`MARKETING_VERSION` is still the release train, but it no longer decides
+*whether* a release happens, only what the build is labelled. Several builds
+under one marketing version are normal and expected: the build number is
+`github.run_number`, so each push takes the next one.
 
 ## How a release happens
 
-1. Open a PR that bumps `MARKETING_VERSION` (for example `1.2` -> `1.3`).
-   Leave `CURRENT_PROJECT_VERSION` alone — CI supplies the build number.
+1. Open a PR touching `ios/`. Bump `MARKETING_VERSION` (for example `1.2` ->
+   `1.3`) when the change starts a new release train; leave it alone for a
+   change that belongs to the current one. Leave `CURRENT_PROJECT_VERSION`
+   alone either way — CI supplies the build number.
 2. The PR runs the normal release gate. The macOS `ios` job runs only when the
    PR touches `ios/`, `.github/actions/ios-unit-tests/`, `scripts/ios-ci.sh`,
    `scripts/sync-ios-openapi.sh`, `scripts/tests/ios-ci-test.sh`,
@@ -25,19 +33,20 @@ and merging that change to `main`.
    own `scripts` job (which is never path-filtered, precisely because it owns
    the tests for the classifiers that gate everything else) and locally under
    `make scripts-test`.
-3. Merging to `main` starts `.github/workflows/ios-release.yml`. Its `detect`
-   job compares `MARKETING_VERSION` in `project.pbxproj` at the pushed commit
-   against its value at `github.event.before` — the commit `main` pointed at
-   before the push, *not* `HEAD^`. The two only coincide under a squash or
-   merge commit; with a rebase-merged multi-commit PR whose version bump isn't
-   the final commit, `HEAD^` already carries the new version and the release
-   would silently never happen. If `MARKETING_VERSION` did not change, the run
-   stops there. If the base commit is missing, all zeros, or unreachable in the
-   fetched history (`fetch-depth: 0`), `detect` fails outright rather than
-   guessing — errors err toward *not* releasing. A base commit that simply has
-   no `project.pbxproj` is not an error: it means the iOS project was just
-   added, and that releases. If `detect` decides a release is warranted, two
-   jobs run against that commit:
+3. Merging to `main` starts `.github/workflows/ios-release.yml`. Whether it
+   starts at all is decided entirely by its `on.push.paths` filter; there is no
+   second gate inside the workflow. `detect` only reads `MARKETING_VERSION` out
+   of `project.pbxproj` so the later jobs know what to label the build. The
+   filter is `ios/**` minus three things that live under `ios/` but never reach
+   the binary: `RentivoTests/`, `RentivoUITests/`, and `Rentivo/openapi.json` —
+   the reference contract copy `Package.swift` excludes from its sources and
+   `make ios-openapi-sync` rewrites on every backend schema change, which would
+   otherwise make backend contract PRs release the app. A push that touches one
+   of those *and* real app code still releases. The whole filter is narrower
+   than `IOS_PATH_PATTERN` in `scripts/ios-ci.sh`, which additionally covers the
+   composite action, the sync script, and the workflow files — CI inputs that
+   must re-run the checks but must not burn a build number. Two jobs then run
+   against the pushed commit:
    - `verify` (macOS): `./scripts/sync-ios-openapi.sh check`, then
      `swift test --package-path ios` and the Xcode-hosted `RentivoTests`
      target via the `ios-unit-tests` composite action.
@@ -53,20 +62,30 @@ and merging that change to `main`.
 
 The upload is automatic and irreversible. A build number is consumed
 permanently and an uploaded build can only be expired, never deleted. There is
-no approval step between merging a version bump and the upload.
+no approval step between merging an `ios/` change and the upload.
 
-## After the upload: tag the release commit
+Pushes are serialised by the `ios-appstore-release` concurrency group with
+`cancel-in-progress: false`, so a running release always finishes. A queued one
+does not: GitHub keeps a single pending run per group, so if two more `ios/`
+pushes land while a release is running, the middle commit's run is cancelled
+before it starts and only the newest reaches TestFlight. Merging `ios/` changes
+in quick succession therefore ships the last of them, not each one.
+
+## Tagging a marketing version
 
 `ios-release.yml` creates no tag and no GitHub Release — it has no
 `contents: write` on the `release` job and never calls `git tag` or
 `gh release`. Tagging is a manual step the operator does afterwards, and the
-convention in this repository is an annotated `ios/v<MARKETING_VERSION>` tag on
-the commit that bumped `MARKETING_VERSION` (`ios/v1.1` and `ios/v1.2` exist,
-subjects `Release iOS 1.1` and `Release iOS 1.2`). The `ios/` prefix keeps these
-off the `v*.*.*` pattern that triggers `.github/workflows/release.yml` for the
-backend stack — the two release trains share no version and no cadence.
+convention in this repository is an annotated `ios/v<MARKETING_VERSION>` tag
+(`ios/v1.1` and `ios/v1.2` exist, subjects `Release iOS 1.1` and
+`Release iOS 1.2`). The `ios/` prefix keeps these off the `v*.*.*` pattern that
+triggers `.github/workflows/release.yml` for the backend stack — the two
+release trains share no version and no cadence.
 
-Once the build reports `state=VALID`, tag the release commit and push it:
+Tags mark marketing versions, not builds. Most uploads are intermediate builds
+of a train that is already tagged, and those get no tag of their own. Tag when
+a version is what you actually shipped — the build promoted to the App Store,
+or the one testers should treat as that version:
 
 ```bash
 git fetch origin main
@@ -75,31 +94,26 @@ git tag -a ios/v<MARKETING_VERSION> <release-commit-sha> \
 git push origin ios/v<MARKETING_VERSION>
 ```
 
-Tag the commit the workflow actually built — the one whose `project.pbxproj`
-carries the new `MARKETING_VERSION` — not whatever `main` has drifted to since.
-Pushing this tag starts nothing; it is a record.
+Tag the commit the workflow actually built for that build — not whatever `main`
+has drifted to since. Pushing this tag starts nothing; it is a record.
 
 ## Triage: why a release didn't happen
 
-Six things stop or skip a release before it uploads. Each is the pipeline
+Five things stop or skip a release before it uploads. Each is the pipeline
 working as designed, not a bug:
 
-- **`MARKETING_VERSION` was unchanged from the pushed-from commit.** `detect`'s
-  "Compare MARKETING_VERSION with the pushed-from commit" step logs
-  `MARKETING_VERSION unchanged at $current since $BASE_SHA; nothing to
-  release.` and sets `release=false`; `verify`, `preflight`, and `release` all
-  skip. `$BASE_SHA` is `github.event.before`, so check that commit — not
-  `HEAD^` — when the decision looks wrong.
-- **The push didn't touch `project.pbxproj`.** The workflow's `on.push.paths`
-  filter means it never starts at all — no run appears for that commit in
-  the Actions list, not even a skipped one.
-- **The base commit couldn't be resolved.** `detect` exits non-zero with
-  `This push reports no base commit (before='...'); refusing to release.` or
-  `Base commit <sha> is unreachable in the fetched history; refusing to
-  release.` — a branch-creation or force-push edge case, not expected on
-  ordinary pushes to `main`. `detect` shows as failed (red), not skipped. To
-  release after one of these, dispatch the workflow manually from `main` with
-  `skip_upload` unchecked.
+- **The push didn't touch shipping `ios/` code.** The workflow's `on.push.paths`
+  filter means it never starts at all — no run appears for that commit in the
+  Actions list, not even a skipped one. That covers changes to
+  `scripts/ios-ci.sh`, the `ios-unit-tests` composite action, or
+  `ios-release.yml` itself, and changes confined to `ios/RentivoTests/`,
+  `ios/RentivoUITests/`, or `ios/Rentivo/openapi.json`: all of them run the
+  PR's `ios` gate job but ship nothing. Dispatch the workflow manually from
+  `main` to release one of them anyway.
+- **A newer `ios/` push superseded it while queued.** The run shows as
+  cancelled with no jobs having started, because `ios-appstore-release` holds
+  only one pending run. The newer commit releases instead, and it contains the
+  superseded one — testers get the changes either way, just under one build.
 - **The version/build pair was already consumed.** `preflight` runs
   `asc_builds.py check` and fails with
   `Build <version> (<build>) is already consumed: ...`. Re-running the same
@@ -151,7 +165,9 @@ a slow processing queue and is *not* a failed release.
 
 - `MARKETING_VERSION` is the release train (`CFBundleShortVersionString`) and is
   the only value a human edits. Debug and Release must agree; `scripts/ios-ci.sh
-  marketing-version` fails loudly if they diverge instead of guessing.
+  marketing-version` fails loudly if they diverge instead of guessing. It labels
+  the build; it does not gate the release, so one marketing version normally
+  covers many builds.
 - The build number (`CFBundleVersion`) is `github.run_number`, injected via
   `CURRENT_PROJECT_VERSION="$BUILD_NUMBER"` at archive time. The project file's
   own `CURRENT_PROJECT_VERSION` stays `1` and is not used for a release build.
@@ -243,10 +259,10 @@ revoke the old key.
 
 ## Manual runs
 
-`workflow_dispatch` skips the version-change check — `detect` sets
-`release=true` unconditionally for a manual run, so `verify` and `preflight`
-always execute against whatever `MARKETING_VERSION` is on the dispatched ref.
-The `release` job, however, is additionally gated on `github.ref ==
+`workflow_dispatch` bypasses the `on.push.paths` filter, so it is how you
+release a commit that changed nothing under `ios/`. `detect`, `verify`, and
+`preflight` execute against whatever `MARKETING_VERSION` is on the dispatched
+ref. The `release` job, however, is additionally gated on `github.ref ==
 'refs/heads/main'`: dispatching from any other branch runs `detect`, `verify`,
 and `preflight` and then stops — nothing is archived, signed, or uploaded. To
 actually produce a build you must dispatch with `main` selected as the ref.
@@ -256,12 +272,12 @@ upload and the VALID-polling step are both conditioned on
 `!inputs.skip_upload`); use it from `main` to prove the signing path still
 works without consuming a build number.
 
-**`skip_upload` defaults to checked.** Because a manual dispatch releases
-regardless of whether the version changed, the default has to be the safe one:
-clicking "Run workflow" to see what the pipeline does must not consume a build
-number for a duplicate binary. Uploading by hand means deliberately unchecking
-the box. The automatic `push` path never reads this input — it is intentionally
-ungated and always uploads.
+**`skip_upload` defaults to checked.** A manual dispatch releases whatever the
+ref currently holds, so the default has to be the safe one: clicking "Run
+workflow" to see what the pipeline does must not consume a build number for a
+duplicate binary. Uploading by hand means deliberately unchecking the box. The
+automatic `push` path never reads this input — it is intentionally ungated and
+always uploads.
 
 ## TestFlight
 

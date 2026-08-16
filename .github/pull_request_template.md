@@ -36,7 +36,7 @@ Only if the area is touched — mark **N/A** otherwise:
 - Env vars:
 - Migrations:
 - Feature flags:
-- iOS `MARKETING_VERSION` bumped? <!-- yes/no. "yes" means merging this PR automatically archives, signs, and uploads a build to App Store Connect — an irreversible release action. -->
+- Touches `ios/`? <!-- yes/no. "yes" means merging this PR automatically archives, signs, and uploads a build to App Store Connect and distributes it to TestFlight — an irreversible release action. Note whether `MARKETING_VERSION` is bumped too. -->
 
 ## Risk & rollback
 <!-- What could break, and how to revert. -->

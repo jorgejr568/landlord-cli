@@ -86,11 +86,12 @@ make ios-test            # swift test --package-path ios (requires full Xcode)
 make ios-openapi-check   # verify ios/Rentivo/openapi.json matches frontend/openapi.json
 ```
 
-Releases are automated: bumping `MARKETING_VERSION` in
-`ios/Rentivo.xcodeproj/project.pbxproj` on `main` triggers
+Releases are automated: any change under `ios/` landing on `main` triggers
 `.github/workflows/ios-release.yml`, which archives, signs with an Apple
 Distribution certificate, uploads to App Store Connect, and distributes the
-processed build to its TestFlight group. CI supplies the build number. See the
+processed build to its TestFlight group. CI supplies the build number, so
+successive commits ship as successive builds of the `MARKETING_VERSION`
+currently in `ios/Rentivo.xcodeproj/project.pbxproj`. See the
 [iOS release runbook](docs/runbooks/ios-release.md) for the procedure and
 triage.
 
