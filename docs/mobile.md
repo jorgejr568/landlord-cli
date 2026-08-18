@@ -308,15 +308,44 @@ automation ships.
 
 ## Local development and mock mode
 
-Both clients hardcode the production base URL:
+Both clients ship pointed at the production base URL:
 
 - iOS — `LiveAPIClient.productionURL` (`ios/Rentivo/Data/API/LiveAPIClient.swift`)
 - Android — `LiveAPIClient.PRODUCTION_URL` and
   `MobileWebAuthenticationFlow.PRODUCTION_BASE_URL`
 
-There is no setting, environment variable, build flavor, or scheme that points
-a build at a local backend. Running either app against the development Compose
-stack is not supported today; changing the URL means editing the source.
+**Pointing an iOS DEBUG build at a local backend.** `LiveAPIClient.baseURL`
+resolves once per process and is what the request builders send to. In DEBUG
+builds it takes the first usable value of:
+
+1. `RENTIVO_API_BASE_URL` in the process environment
+2. the `RentivoAPIBaseURL` string in `UserDefaults.standard`
+3. `LiveAPIClient.productionURL`
+
+A candidate is adopted only if it parses into an absolute URL carrying both a
+scheme and a host, so an empty or malformed value falls through to the next
+source instead of breaking every request. Only API traffic follows the
+override: the support, privacy, terms, and forgot-password links read
+`productionURL` directly and keep pointing at the real site.
+
+```bash
+# Per launch, through the environment: simctl forwards SIMCTL_CHILD_* to the app
+SIMCTL_CHILD_RENTIVO_API_BASE_URL=http://localhost:8080 \
+  xcrun simctl launch --console booted br.com.rentivo.ios
+
+# Persisted on the simulator until removed
+xcrun simctl spawn booted defaults write br.com.rentivo.ios \
+  RentivoAPIBaseURL http://localhost:8080
+xcrun simctl spawn booted defaults delete br.com.rentivo.ios RentivoAPIBaseURL
+```
+
+Use whichever port the development Compose stack is published on — `make
+compose-dev` serves `http://localhost:8080`. Running from Xcode works the same
+way with an environment variable on the Run scheme. Release builds compile the
+override away entirely (`#if DEBUG`) and always talk to production.
+
+Android has no equivalent: pointing it at a local backend still means editing
+the source.
 
 The supported offline path is the built-in mock/demo mode, which swaps the live
 dependency graph for in-memory fixtures. It is gated to non-shippable builds:

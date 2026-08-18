@@ -58,6 +58,52 @@ extension Notification.Name {
 public actor LiveAPIClient {
   public static let productionURL = URL(string: "https://rentivo.com.br")!
 
+  #if DEBUG
+    /// Launch environment variable read by `baseURL`, e.g.
+    /// `SIMCTL_CHILD_RENTIVO_API_BASE_URL=http://localhost:8080 xcrun simctl launch ...`.
+    /// See the "Local development and mock mode" section of `docs/mobile.md`.
+    static let baseURLEnvironmentKey = "RENTIVO_API_BASE_URL"
+    /// `UserDefaults` key read by `baseURL`, for a value that has to survive across launches, e.g.
+    /// `xcrun simctl spawn <udid> defaults write br.com.rentivo.ios RentivoAPIBaseURL <url>`.
+    static let baseURLDefaultsKey = "RentivoAPIBaseURL"
+
+    /// The address API requests are built from. In DEBUG builds a simulator can be pointed at a
+    /// local backend without editing source; everything else that reads `productionURL` — the
+    /// "Sobre e suporte" links, the forgot-password link — keeps pointing at the real site, because
+    /// only the request builders below read this.
+    ///
+    /// Resolved once per process: the override describes where the process was launched, so
+    /// re-reading it mid-run would only let some requests land on a different backend than others.
+    static let baseURL = resolveBaseURL(
+      environmentValue: ProcessInfo.processInfo.environment[baseURLEnvironmentKey],
+      defaultsValue: UserDefaults.standard.string(forKey: baseURLDefaultsKey)
+    )
+
+    /// Picks the first usable override, environment before `UserDefaults`, and falls back to
+    /// `productionURL` when neither is usable. A candidate counts as usable only if it parses into
+    /// an absolute URL with both a scheme and a host — `URL(string:)` accepts plenty of strings
+    /// that would silently produce a relative request path, and a typo must not quietly retarget
+    /// the app at nothing.
+    ///
+    /// Takes both values as parameters instead of reading the process state itself so it stays a
+    /// pure function the tests can drive.
+    static func resolveBaseURL(environmentValue: String?, defaultsValue: String?) -> URL {
+      for candidate in [environmentValue, defaultsValue] {
+        guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty,
+          let url = URL(string: trimmed),
+          url.scheme != nil,
+          let host = url.host(), !host.isEmpty
+        else { continue }
+        return url
+      }
+      return productionURL
+    }
+  #else
+    /// Release builds have no override to resolve: the constant is the production address.
+    static let baseURL = productionURL
+  #endif
+
   private let session: URLSession
   private let credentials: any CredentialStore
   private let downloads: DownloadedFileStore
@@ -259,7 +305,7 @@ public actor LiveAPIClient {
     guard let accessToken else {
       throw LiveAPIError.sessionExpired
     }
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -341,7 +387,7 @@ public actor LiveAPIClient {
     guard let accessToken else {
       throw LiveAPIError.sessionExpired
     }
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue(mediaType, forHTTPHeaderField: "Accept")
     // `download(for:)` streams the body straight to a file instead of accumulating it in memory,
@@ -432,7 +478,7 @@ public actor LiveAPIClient {
     body: Body?,
     token: String?
   ) async throws -> (Data, Int) {
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     if let token {
