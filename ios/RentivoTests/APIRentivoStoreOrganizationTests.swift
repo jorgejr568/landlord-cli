@@ -111,7 +111,7 @@ import Testing
     )
     Issue.record("Expected the stubbed 403 invite POST to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }

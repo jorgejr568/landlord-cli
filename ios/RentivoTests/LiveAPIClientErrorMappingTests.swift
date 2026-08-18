@@ -27,7 +27,7 @@ import Testing
     _ = try await client.request(path: "/api/v1/billings")
     Issue.record("Expected the stubbed 422 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -77,7 +77,7 @@ private final class ProblemDetailURLProtocol: URLProtocol, @unchecked Sendable {
     _ = try await client.request(path: "/api/v1/billings")
     Issue.record("Expected the stubbed 422 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -133,7 +133,7 @@ private final class SchemaValidationProblemURLProtocol: URLProtocol, @unchecked 
     _ = try await client.request(path: "/api/v1/billings")
     Issue.record("Expected the stubbed 422 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -178,7 +178,7 @@ private final class DetaillessProblemURLProtocol: URLProtocol, @unchecked Sendab
     _ = try await client.request(path: "/api/v1/security/pix")
     Issue.record("Expected the stubbed 422 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -223,7 +223,7 @@ private final class InvalidFieldProblemURLProtocol: URLProtocol, @unchecked Send
     _ = try await client.request(path: "/api/v1/billings/billing-1")
     Issue.record("Expected the stubbed 403 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -266,7 +266,7 @@ private final class EmptyFieldsProblemURLProtocol: URLProtocol, @unchecked Senda
     _ = try await client.request(path: "/api/v1/billings")
     Issue.record("Expected the stubbed 500 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -311,7 +311,7 @@ private final class UndecodableErrorBodyURLProtocol: URLProtocol, @unchecked Sen
     _ = try await client.download(path: "/api/v1/billings/b/bills/1/invoice", filename: "fatura")
     Issue.record("Expected the stubbed 403 response to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, let statusCode) = error else {
+    guard case .server(let message, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -538,7 +538,7 @@ private final class DownloadPDFURLProtocol: URLProtocol, @unchecked Sendable {
     _ = try await client.exchangeMobileAuthorization(code: "any-code")
     Issue.record("Expected a timeout to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, _) = error else {
+    guard case .server(let message, _, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -556,7 +556,7 @@ private final class DownloadPDFURLProtocol: URLProtocol, @unchecked Sendable {
     _ = try await client.exchangeMobileAuthorization(code: "any-code")
     Issue.record("Expected an offline error to throw")
   } catch let error as LiveAPIError {
-    guard case .server(let message, _) = error else {
+    guard case .server(let message, _, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }
@@ -575,5 +575,136 @@ private final class OfflineURLProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
+  override func stopLoading() {}
+}
+
+// MARK: - The problem document's machine-readable `code`
+//
+// `detail` is display copy and `status` is shared by every unrelated failure, so neither can tell
+// one server policy from another. RFC 7807's `code` is the stable half, and at least one screen has
+// to branch on a specific value: the backend answers `GET /api/v1/security` with a 403
+// `mfa_setup_required` while a user pending MFA enrollment still *may* call the enrollment routes,
+// so `SecurityView` has to recognize that exact problem to offer setup instead of a dead end.
+// Both non-2xx paths — `request` (bearer routes) and `sendRaw` (the auth routes) — must carry it.
+
+@Test func requestCarriesTheProblemCodeAlongsideTheMessageAndStatus() async throws {
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [MFASetupRequiredURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  _ = try #require(try await client.restoreSession())
+
+  do {
+    _ = try await client.request(path: "/api/v1/security")
+    Issue.record("Expected the stubbed 403 response to throw")
+  } catch let error as LiveAPIError {
+    guard case .server(let message, let statusCode, let code) = error else {
+      Issue.record("Expected .server, got \(error)")
+      return
+    }
+    #expect(message == "Sua organização exige a configuração da autenticação multifator.")
+    #expect(statusCode == 403)
+    #expect(code == "mfa_setup_required")
+    #expect(error.problemCode == "mfa_setup_required")
+  }
+}
+
+private final class MFASetupRequiredURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isSessionRestore = request.url?.path == "/api/v1/auth/session"
+    let statusCode = isSessionRestore ? 200 : 403
+    let body =
+      isSessionRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : #"{"type":"https://rentivo.com.br/problems/mfa_setup_required","title":"Acesso negado","status":403,"code":"mfa_setup_required","detail":"Sua organização exige a configuração da autenticação multifator.","fields":{},"request_id":"req-9"}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
+      headerFields: ["Content-Type": "application/problem+json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
+@Test func theAuthRoutesAlsoCarryTheProblemCode() async throws {
+  // `sendRaw` is a second, independent decode of the same envelope (the auth routes run before
+  // there is a bearer token), so it needs its own coverage or the code would reach only half the app.
+  let credentials = MemoryCredentialStore()
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [CodedAuthProblemURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+
+  do {
+    _ = try await client.exchangeMobileAuthorization(code: "any-code")
+    Issue.record("Expected the stubbed 400 response to throw")
+  } catch let error as LiveAPIError {
+    #expect(error.problemCode == "invalid_authorization_code")
+    #expect(error.statusCode == 400)
+  }
+}
+
+private final class CodedAuthProblemURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let body =
+      #"{"code":"invalid_authorization_code","detail":"Código de autorização inválido.","fields":{}}"#
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: 400, httpVersion: nil,
+      headerFields: ["Content-Type": "application/problem+json"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
+@Test func aBodyThatIsNotAProblemDocumentCarriesNoProblemCode() async throws {
+  // The fallback message must not come with a made-up code: a screen branching on one would
+  // otherwise be able to mistake an opaque gateway error for a specific server policy.
+  let credentials = MemoryCredentialStore(token: "stored-token")
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [UncodedErrorBodyURLProtocol.self]
+  let client = LiveAPIClient(session: URLSession(configuration: configuration), credentials: credentials)
+  _ = try #require(try await client.restoreSession())
+
+  do {
+    _ = try await client.request(path: "/api/v1/security")
+    Issue.record("Expected the stubbed 403 response to throw")
+  } catch let error as LiveAPIError {
+    #expect(error.problemCode == nil)
+    #expect(error.statusCode == 403)
+  }
+}
+
+private final class UncodedErrorBodyURLProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    let isSessionRestore = request.url?.path == "/api/v1/auth/session"
+    let statusCode = isSessionRestore ? 200 : 403
+    let body =
+      isSessionRestore
+      ? #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
+      : "forbidden by an intermediary, not json"
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: statusCode, httpVersion: nil,
+      headerFields: ["Content-Type": "text/plain"]
+    )!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
   override func stopLoading() {}
 }

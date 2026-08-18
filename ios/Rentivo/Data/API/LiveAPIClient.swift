@@ -14,21 +14,30 @@ enum LiveLoginOutcome: Sendable, Equatable {
 }
 
 public enum LiveAPIError: LocalizedError, Sendable, Equatable {
-  case server(message: String, statusCode: Int? = nil)
+  /// `code` is the RFC 7807 problem document's machine-readable `code` field, when the server sent
+  /// one. `message`/`statusCode` are shared by every unrelated failure, so a caller that needs to
+  /// recognize one *specific* server policy (e.g. `mfa_setup_required`) has to branch on this
+  /// instead — `detail` is display copy, not a stable identifier.
+  case server(message: String, statusCode: Int? = nil, code: String? = nil)
   case invalidResponse
   case sessionExpired
 
   public var errorDescription: String? {
     switch self {
-    case .server(let message, _): message
+    case .server(let message, _, _): message
     case .invalidResponse: "Não foi possível interpretar a resposta do Rentivo."
     case .sessionExpired: "Sua sessão expirou. Entre novamente para continuar."
     }
   }
 
   public var statusCode: Int? {
-    guard case let .server(_, statusCode) = self else { return nil }
+    guard case let .server(_, statusCode, _) = self else { return nil }
     return statusCode
+  }
+
+  public var problemCode: String? {
+    guard case let .server(_, _, code) = self else { return nil }
+    return code
   }
 }
 
@@ -327,7 +336,8 @@ public actor LiveAPIClient {
     guard (200..<300).contains(http.statusCode) else {
       let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode,
+        code: problem?.code
       )
     }
     return data
@@ -498,7 +508,8 @@ public actor LiveAPIClient {
     guard (200..<300).contains(http.statusCode) else {
       let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode,
+        code: problem?.code
       )
     }
     return (data, http.statusCode)
@@ -679,6 +690,11 @@ private struct ProfileResponse: Decodable {
 /// `backend/rentivo/api/errors.py`). Only the two human-readable halves are decoded.
 private struct ProblemResponse: Decodable {
   let detail: String?
+  /// The problem's stable machine-readable identifier (e.g. `mfa_setup_required`) — the one part of
+  /// the envelope safe to branch application logic on. `detail`/`title` are display copy that can
+  /// change wording without changing meaning, and `status` is shared by every unrelated failure at
+  /// the same HTTP code.
+  let code: String?
   /// Per-field PT-BR copy, keyed by the request location that failed. Schema-origin keys come from
   /// FastAPI's `loc` joined with dots and are prefixed with the request part
   /// (`body.items.0.description`); route-origin ones (`ProblemException.invalid_field`) are the
