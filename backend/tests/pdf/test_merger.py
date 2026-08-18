@@ -53,6 +53,14 @@ def _make_landscape_image() -> bytes:
     return buf.getvalue()
 
 
+def _make_camera_resolution_photo() -> bytes:
+    """A 4032x3024 (12MP) portrait JPEG — a typical modern phone-camera photo."""
+    img = Image.new("RGB", (3024, 4032), color="gray")
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
 def _make_exif_rotated_jpeg() -> bytes:
     """Create a JPEG stored landscape but tagged EXIF orientation 6 (upright).
 
@@ -190,3 +198,33 @@ class TestImageToPdf:
         result = _image_to_pdf(buf.getvalue())
         reader = PdfReader(BytesIO(result))
         assert len(reader.pages) == 1
+
+    def test_camera_resolution_photo_is_downscaled_to_print_size(self):
+        # A 4032x3024 source embedded 1:1 previously produced a PDF tens of MB in size
+        # for a single receipt — over common email attachment limits — even though every
+        # viewer displays it no larger than an A4 page. The embedded image must shrink to
+        # roughly what the print DPI needs, not carry the source resolution through.
+        photo = _make_camera_resolution_photo()
+        result = _image_to_pdf(photo)
+        reader = PdfReader(BytesIO(result))
+        embedded = next(iter(reader.pages[0].images))
+        embedded_image = Image.open(BytesIO(embedded.data))
+        assert max(embedded_image.size) < 2000
+
+    def test_camera_resolution_photo_produces_a_small_pdf(self):
+        photo = _make_camera_resolution_photo()
+        result = _image_to_pdf(photo)
+        # Well under the multi-megabyte size the unscaled/lossless embedding produced;
+        # generous enough to not be flaky across encoder versions.
+        assert len(result) < 500_000
+
+    def test_small_image_is_not_upscaled(self):
+        # An image already smaller than the print target must come through unchanged in
+        # size — the fix downscales oversized images, it must never enlarge small ones.
+        jpeg = _make_jpeg()  # 200x300
+        source = Image.open(BytesIO(jpeg))
+        result = _image_to_pdf(jpeg)
+        reader = PdfReader(BytesIO(result))
+        embedded = next(iter(reader.pages[0].images))
+        embedded_image = Image.open(BytesIO(embedded.data))
+        assert embedded_image.size == source.size

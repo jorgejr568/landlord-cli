@@ -13,6 +13,14 @@ from rentivo.observability import traced
 
 logger = structlog.get_logger(__name__)
 
+# The page places every receipt image at this print resolution. Phone photos commonly
+# arrive at 3000-4000px on a side; embedded at native size (and losslessly, see below)
+# a single receipt has been observed to balloon an otherwise few-KB invoice past 25MB —
+# over common email attachment limits — for no visible gain once PDF viewers scale it
+# down to fit the page anyway.
+_RECEIPT_IMAGE_DPI = 200
+_MM_PER_INCH = 25.4
+
 
 def _image_to_pdf(image_bytes: bytes) -> bytes:
     """Convert an image (JPEG/PNG) to a single-page PDF respecting aspect ratio."""
@@ -52,12 +60,26 @@ def _image_to_pdf(image_bytes: bytes) -> bytes:
     x = margin + (max_w - img_w) / 2
     y = margin + (max_h - img_h) / 2
 
+    # Downscale to what the printed size actually needs before encoding — embedding
+    # source-resolution pixel data here only inflates the PDF, since every viewer
+    # renders the image at the (mm) size set on `pdf.image` below regardless of how
+    # many pixels it carries.
+    target_w_px = max(1, round(img_w / _MM_PER_INCH * _RECEIPT_IMAGE_DPI))
+    target_h_px = max(1, round(img_h / _MM_PER_INCH * _RECEIPT_IMAGE_DPI))
+    if width_px > target_w_px or height_px > target_h_px:
+        img = img.copy()
+        img.thumbnail((target_w_px, target_h_px), Image.LANCZOS)
+
     pdf = FPDF(orientation=orientation, unit="mm", format="A4")
     pdf.add_page()
     pdf.set_auto_page_break(auto=False)
 
     img_buf = BytesIO()
-    img.save(img_buf, format="PNG")
+    # JPEG over PNG: this is photographic content (receipts/photos, not line art), and
+    # `img` is already RGB-only (alpha was stripped above) so lossy encoding costs
+    # nothing PDF viewers show at print size while cutting the stream by 1-2 orders of
+    # magnitude versus lossless PNG.
+    img.save(img_buf, format="JPEG", quality=85, optimize=True)
     img_buf.seek(0)
 
     pdf.image(img_buf, x=x, y=y, w=img_w, h=img_h)
