@@ -48,6 +48,9 @@ services:
       dockerfile: frontend/Dockerfile
       target: builder
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "8080"]
+    healthcheck:
+      # Vite binds IPv4 only; busybox wget resolves localhost to ::1 first.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
     read_only: false
     volumes:
       - ./frontend:/app
