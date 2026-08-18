@@ -34,6 +34,7 @@ from rentivo.models.organization import Organization, OrganizationMember, OrgRol
 from rentivo.services.audit_serializers import serialize_invite, serialize_organization
 from rentivo.services.billing_stats import BillingStats
 from rentivo.services.container import RequestServices
+from rentivo.services.organization_service import OrganizationHasBillingsError
 from rentivo.settings import settings
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -293,7 +294,10 @@ async def delete_organization(
 ) -> Response:
     access = _admin_access(principal, services, organization_uuid)
     previous_state = serialize_organization(access.organization)
-    services.organization.delete_organization(access.organization.id)
+    try:
+        services.organization.delete_organization(access.organization.id)
+    except OrganizationHasBillingsError as exc:
+        raise ProblemException.conflict("organization_has_billings", str(exc)) from None
     services.audit.safe_log_for(
         principal.actor,
         AuditEventType.ORGANIZATION_DELETE,

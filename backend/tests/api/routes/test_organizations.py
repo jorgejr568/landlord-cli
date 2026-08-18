@@ -21,6 +21,7 @@ from rentivo.models.invite import Invite
 from rentivo.models.organization import Organization, OrganizationMember
 from rentivo.models.user import User
 from rentivo.services.billing_stats import BillingStats
+from rentivo.services.organization_service import OrganizationHasBillingsError
 from rentivo.settings import settings
 
 NOW = datetime(2026, 7, 18, 12, tzinfo=UTC)
@@ -182,6 +183,7 @@ class FakeOrganizationService:
         self.created_names: list[tuple[str, int]] = []
         self.updated: list[Organization] = []
         self.deleted_ids: list[int] = []
+        self.delete_error: ValueError | None = None
         self.role_updates: list[tuple[int, int, str]] = []
         self.removals: list[tuple[int, int]] = []
         self.remove_attempts: list[tuple[int, int, str | None]] = []
@@ -249,6 +251,8 @@ class FakeOrganizationService:
         return organization
 
     def delete_organization(self, org_id: int) -> None:
+        if self.delete_error is not None:
+            raise self.delete_error
         self.deleted_ids.append(org_id)
 
     def update_member_role(self, org_id: int, user_id: int, role: str) -> None:
@@ -928,6 +932,24 @@ def test_delete_organization_audits_before_returning_no_content(
     assert response.status_code == 204
     assert organization_harness.organization.deleted_ids == [ORGANIZATION.id]
     assert organization_harness.audit.calls[-1][0][1] == "organization.delete"
+
+
+def test_delete_organization_with_linked_billings_maps_to_conflict(
+    organization_harness: OrganizationHarness,
+) -> None:
+    organization_harness.organization.delete_error = OrganizationHasBillingsError(
+        "Transfira ou exclua as cobranças vinculadas antes de excluir a organização."
+    )
+
+    response = organization_harness.client.delete(
+        f"/api/v1/organizations/{ORGANIZATION.uuid}",
+        headers=login_headers(csrf=True),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "organization_has_billings"
+    assert organization_harness.organization.deleted_ids == []
+    assert organization_harness.audit.calls == []
 
 
 def test_update_member_role_audits_and_queues_notification(organization_harness: OrganizationHarness) -> None:

@@ -3,13 +3,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from rentivo.models.organization import Organization, OrganizationMember
-from rentivo.services.organization_service import OrganizationService
+from rentivo.services.organization_service import OrganizationHasBillingsError, OrganizationService
 
 
 class TestOrganizationService:
     def setup_method(self):
         self.mock_repo = MagicMock()
-        self.service = OrganizationService(self.mock_repo)
+        self.mock_billings = MagicMock()
+        self.mock_billings.has_billings_for_organization.return_value = False
+        self.service = OrganizationService(self.mock_repo, self.mock_billings)
 
     def test_create_organization(self):
         self.mock_repo.create_with_admin.return_value = Organization(id=1, name="Test Org", created_by=5)
@@ -64,7 +66,16 @@ class TestOrganizationService:
 
     def test_delete_organization(self):
         self.service.delete_organization(1)
+        self.mock_billings.has_billings_for_organization.assert_called_once_with(1)
         self.mock_repo.delete.assert_called_once_with(1)
+
+    def test_delete_organization_rejects_when_billings_are_still_linked(self):
+        self.mock_billings.has_billings_for_organization.return_value = True
+
+        with pytest.raises(OrganizationHasBillingsError, match="cobranças vinculadas"):
+            self.service.delete_organization(1)
+
+        self.mock_repo.delete.assert_not_called()
 
     def test_get_member(self):
         self.mock_repo.get_member.return_value = OrganizationMember(user_id=1, role="admin")
