@@ -9,6 +9,7 @@ from rentivo.jobs.base import JobContext
 from rentivo.jobs.handlers.communication import _resolve_sender_name, handle_communication_send
 from rentivo.jobs.payloads import CommunicationSendPayload
 from rentivo.models.billing import Billing
+from rentivo.repositories.sqlalchemy.billing import SQLAlchemyBillingRepository
 from rentivo.repositories.sqlalchemy.organization import SQLAlchemyOrganizationRepository
 from rentivo.repositories.sqlalchemy.user import SQLAlchemyUserRepository
 from tests.conftest import SCHEMA_DDL
@@ -39,9 +40,9 @@ def _billing(owner_type, owner_id):
 def test_org_owned_uses_org_name(conn):
     from rentivo.services.organization_service import OrganizationService
 
-    org = OrganizationService(SQLAlchemyOrganizationRepository(conn, Base64Backend())).create_organization(
-        "Imobiliária Aurora", created_by=1
-    )
+    org = OrganizationService(
+        SQLAlchemyOrganizationRepository(conn, Base64Backend()), SQLAlchemyBillingRepository(conn, Base64Backend())
+    ).create_organization("Imobiliária Aurora", created_by=1)
     assert _resolve_sender_name(conn, Base64Backend(), _billing("organization", org.id)) == "Imobiliária Aurora"
 
 
@@ -70,9 +71,9 @@ def test_handler_threads_org_name_into_sent_email(conn, monkeypatch):
     from rentivo.repositories.sqlalchemy.communication import SQLAlchemyCommunicationRepository
     from rentivo.services.organization_service import OrganizationService
 
-    org = OrganizationService(SQLAlchemyOrganizationRepository(conn, Base64Backend())).create_organization(
-        "Imobiliária Aurora", created_by=1
-    )
+    org = OrganizationService(
+        SQLAlchemyOrganizationRepository(conn, Base64Backend()), SQLAlchemyBillingRepository(conn, Base64Backend())
+    ).create_organization("Imobiliária Aurora", created_by=1)
     conn.execute(
         text(
             "INSERT INTO billings (id, uuid, name, description, pix_key, pix_merchant_name, pix_merchant_city, "
@@ -125,9 +126,9 @@ def _seed_org_comm(conn):
     from rentivo.repositories.sqlalchemy.communication import SQLAlchemyCommunicationRepository
     from rentivo.services.organization_service import OrganizationService
 
-    org = OrganizationService(SQLAlchemyOrganizationRepository(conn, Base64Backend())).create_organization(
-        "Imobiliária Aurora", created_by=1
-    )
+    org = OrganizationService(
+        SQLAlchemyOrganizationRepository(conn, Base64Backend()), SQLAlchemyBillingRepository(conn, Base64Backend())
+    ).create_organization("Imobiliária Aurora", created_by=1)
     conn.execute(
         text(
             "INSERT INTO billings (id, uuid, name, description, pix_key, pix_merchant_name, pix_merchant_city, "

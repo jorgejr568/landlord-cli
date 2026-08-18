@@ -76,7 +76,7 @@ import Testing
     _ = try await store.listBillings()
     Issue.record("Expected the failing detail request to throw")
   } catch let error as LiveAPIError {
-    guard case .server(_, let statusCode) = error else {
+    guard case .server(_, let statusCode, _) = error else {
       Issue.record("Expected .server, got \(error)")
       return
     }

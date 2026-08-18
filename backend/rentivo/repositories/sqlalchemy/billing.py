@@ -372,6 +372,17 @@ class SQLAlchemyBillingRepository(BillingRepository):
         )
         self.conn.commit()
 
+    @traced("billing_repo.has_billings_for_organization")
+    def has_billings_for_organization(self, organization_id: int) -> bool:
+        row = self.conn.execute(
+            text(
+                "SELECT 1 FROM billings WHERE owner_type = 'organization' "
+                "AND owner_id = :organization_id AND deleted_at IS NULL LIMIT 1"
+            ),
+            {"organization_id": organization_id},
+        ).first()
+        return row is not None
+
     @traced("billing_repo.transfer_owner")
     def transfer_owner(self, billing_id: int, owner_type: str, owner_id: int) -> None:
         self.conn.execute(

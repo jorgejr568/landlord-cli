@@ -1,6 +1,19 @@
 import SwiftUI
 import UIKit
 
+enum SecurityViewRules {
+  /// The one problem `code` a user pending MFA enrollment can still resolve from this screen: the
+  /// backend answers every OTHER `GET /api/v1/security` read with the same `mfa_setup_required` 403
+  /// while still allowing the TOTP *registration* routes (`totp/setup`, `totp/confirm`). Without
+  /// recognizing this exact code, the summary read's 403 reads as a generic failure and strands the
+  /// user on a dead end that tells them to do the one thing the screen won't let them do.
+  static let mfaSetupRequiredCode = "mfa_setup_required"
+
+  static func isMFASetupRequiredFailure(problemCode: String?) -> Bool {
+    problemCode == mfaSetupRequiredCode
+  }
+}
+
 struct SecurityView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<SecuritySummary> = .idle
@@ -12,6 +25,10 @@ struct SecurityView: View {
   @State private var showingChangePassword = false
   @State private var password = ""
   @State private var passkeyPendingDelete: Passkey?
+  /// Set instead of `state = .failed(...)` when the summary read fails specifically with
+  /// `mfa_setup_required`: that failure has a real next step (enroll TOTP), unlike every other
+  /// failure `PageStateView`'s generic retry screen handles.
+  @State private var mfaSetupRequired = false
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -21,83 +38,93 @@ struct SecurityView: View {
   }
 
   var body: some View {
-    PageStateView(state: state) { summary in
-      List {
-        if summary.setupRequired {
-          Section {
-            Label(
-              "Sua organização exige autenticação multifator. Configure o aplicativo autenticador ou uma chave de acesso para continuar.",
-              systemImage: "exclamationmark.shield.fill"
-            )
-            .foregroundStyle(RentivoColors.coral)
-            .accessibilityIdentifier("security.mfa.required")
-          }
-        }
-        Section("Senha") {
-          Button {
-            showingChangePassword = true
-          } label: {
-            Label("Alterar senha", systemImage: "key.fill")
-          }
-          .accessibilityIdentifier("security.password.change")
-        }
-        Section("Autenticação em duas etapas") {
-          LabeledContent("Aplicativo autenticador", value: summary.totpEnabled ? "Ativado" : "Desativado")
-          if !isDemoViewerLocked {
-            if summary.totpEnabled {
-              Button("Desativar", role: .destructive) { showingDisableTOTP = true }
+    Group {
+      if mfaSetupRequired {
+        MFASetupOnlyView(
+          enrollment: $enrollment,
+          beginTOTP: { await beginTOTP() },
+          confirmTOTP: { code in await confirmTOTP(code: code) }
+        )
+      } else {
+        PageStateView(state: state) { summary in
+          List {
+            if summary.setupRequired {
+              Section {
+                Label(
+                  "Sua organização exige autenticação multifator. Configure o aplicativo autenticador ou uma chave de acesso para continuar.",
+                  systemImage: "exclamationmark.shield.fill"
+                )
+                .foregroundStyle(RentivoColors.coral)
+                .accessibilityIdentifier("security.mfa.required")
+              }
+            }
+            Section("Senha") {
               Button {
-                Task { await regenerateCodes() }
+                showingChangePassword = true
               } label: {
-                if isRegeneratingCodes {
-                  HStack(spacing: RentivoSpacing.small) {
-                    ProgressView().controlSize(.small)
-                    Text("Gerando…")
+                Label("Alterar senha", systemImage: "key.fill")
+              }
+              .accessibilityIdentifier("security.password.change")
+            }
+            Section("Autenticação em duas etapas") {
+              LabeledContent("Aplicativo autenticador", value: summary.totpEnabled ? "Ativado" : "Desativado")
+              if !isDemoViewerLocked {
+                if summary.totpEnabled {
+                  Button("Desativar", role: .destructive) { showingDisableTOTP = true }
+                  Button {
+                    Task { await regenerateCodes() }
+                  } label: {
+                    if isRegeneratingCodes {
+                      HStack(spacing: RentivoSpacing.small) {
+                        ProgressView().controlSize(.small)
+                        Text("Gerando…")
+                      }
+                    } else {
+                      Text("Gerar novos códigos de recuperação")
+                    }
                   }
+                  .disabled(isRegeneratingCodes)
                 } else {
-                  Text("Gerar novos códigos de recuperação")
+                  Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
                 }
               }
-              .disabled(isRegeneratingCodes)
-            } else {
-              Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
+              LabeledContent("Códigos disponíveis", value: "\(summary.recoveryCodeCount)")
             }
-          }
-          LabeledContent("Códigos disponíveis", value: "\(summary.recoveryCodeCount)")
-        }
-        Section("Chaves de acesso") {
-          if summary.passkeys.isEmpty {
-            Text("Nenhuma chave de acesso registrada ainda.")
-              .font(.footnote)
-              .foregroundStyle(RentivoColors.secondaryInk)
-          } else {
-            ForEach(summary.passkeys) { passkey in
-              VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-                Text(passkey.name).font(.headline)
-                Text("Último uso: \(passkey.lastUsedAt?.formattedPTBR(time: .shortened) ?? "nunca")")
-                  .font(.caption)
+            Section("Chaves de acesso") {
+              if summary.passkeys.isEmpty {
+                Text("Nenhuma chave de acesso registrada ainda.")
+                  .font(.footnote)
                   .foregroundStyle(RentivoColors.secondaryInk)
-                if !isDemoViewerLocked {
-                  Button("Excluir", role: .destructive) { passkeyPendingDelete = passkey }
-                    .font(.caption.weight(.semibold))
-                    .accessibilityIdentifier("security.passkey.delete")
+              } else {
+                ForEach(summary.passkeys) { passkey in
+                  VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+                    Text(passkey.name).font(.headline)
+                    Text("Último uso: \(passkey.lastUsedAt?.formattedPTBR(time: .shortened) ?? "nunca")")
+                      .font(.caption)
+                      .foregroundStyle(RentivoColors.secondaryInk)
+                    if !isDemoViewerLocked {
+                      Button("Excluir", role: .destructive) { passkeyPendingDelete = passkey }
+                        .font(.caption.weight(.semibold))
+                        .accessibilityIdentifier("security.passkey.delete")
+                    }
+                  }
                 }
+              }
+              Text("Para registrar uma nova chave de acesso, entre pelo navegador do Rentivo. Ela ficará disponível automaticamente neste aplicativo.")
+                .font(.footnote)
+                .foregroundStyle(RentivoColors.secondaryInk)
+              if summary.organizationEnforced {
+                Text("Sua organização exige que ao menos um fator de autenticação permaneça ativo.")
+                  .font(.footnote)
+                  .foregroundStyle(RentivoColors.secondaryInk)
               }
             }
           }
-          Text("Para registrar uma nova chave de acesso, entre pelo navegador do Rentivo. Ela ficará disponível automaticamente neste aplicativo.")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
-          if summary.organizationEnforced {
-            Text("Sua organização exige que ao menos um fator de autenticação permaneça ativo.")
-              .font(.footnote)
-              .foregroundStyle(RentivoColors.secondaryInk)
-          }
+          .scrollContentBackground(.hidden)
+        } retry: {
+          await load()
         }
       }
-      .scrollContentBackground(.hidden)
-    } retry: {
-      await load()
     }
     .background(RentivoColors.paper)
     .navigationTitle("Segurança")
@@ -144,8 +171,15 @@ struct SecurityView: View {
 
   private func load() async {
     state = .loading
-    do { state = .loaded(try await app.dependencies.security.securitySummary()) } catch {
-      state = .failed(DemoError(error))
+    mfaSetupRequired = false
+    do {
+      state = .loaded(try await app.dependencies.security.securitySummary())
+    } catch {
+      if SecurityViewRules.isMFASetupRequiredFailure(problemCode: (error as? LiveAPIError)?.problemCode) {
+        mfaSetupRequired = true
+      } else {
+        state = .failed(DemoError(error))
+      }
     }
   }
 
@@ -192,6 +226,39 @@ struct SecurityView: View {
       try await app.dependencies.security.deletePasskey(id: passkey.id)
       await load()
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  }
+}
+
+/// Shown instead of the normal Segurança screen when the summary read fails with
+/// `mfa_setup_required`: every other read this screen would need (passkeys, change-password) is
+/// blocked by the same policy, so the only way forward is finishing TOTP enrollment. Passkey
+/// *registration* is web-only in this app already (see the footnote in the normal screen), so TOTP
+/// is the one setup path reachable from here.
+private struct MFASetupOnlyView: View {
+  @Binding var enrollment: TOTPEnrollment?
+  let beginTOTP: () async -> Void
+  let confirmTOTP: (String) async -> String?
+
+  var body: some View {
+    ContentUnavailableView {
+      Label("Configuração obrigatória", systemImage: "exclamationmark.shield.fill")
+    } description: {
+      Text(
+        "Sua organização exige autenticação em duas etapas. Configure o aplicativo autenticador para continuar usando o Rentivo."
+      )
+    } actions: {
+      Button("Configurar aplicativo autenticador") { Task { await beginTOTP() } }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("security.mfa.setup-required.configure")
+    }
+    .accessibilityIdentifier("security.mfa.setup-required")
+    .sheet(isPresented: Binding(get: { enrollment != nil }, set: { if !$0 { enrollment = nil } })) {
+      if let enrollment {
+        TOTPEnrollmentView(enrollment: enrollment) { code in
+          await confirmTOTP(code)
+        }
+      }
+    }
   }
 }
 

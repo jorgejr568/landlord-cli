@@ -14,21 +14,30 @@ enum LiveLoginOutcome: Sendable, Equatable {
 }
 
 public enum LiveAPIError: LocalizedError, Sendable, Equatable {
-  case server(message: String, statusCode: Int? = nil)
+  /// `code` is the RFC 7807 problem document's machine-readable `code` field, when the server sent
+  /// one. `message`/`statusCode` are shared by every unrelated failure, so a caller that needs to
+  /// recognize one *specific* server policy (e.g. `mfa_setup_required`) has to branch on this
+  /// instead — `detail` is display copy, not a stable identifier.
+  case server(message: String, statusCode: Int? = nil, code: String? = nil)
   case invalidResponse
   case sessionExpired
 
   public var errorDescription: String? {
     switch self {
-    case .server(let message, _): message
+    case .server(let message, _, _): message
     case .invalidResponse: "Não foi possível interpretar a resposta do Rentivo."
     case .sessionExpired: "Sua sessão expirou. Entre novamente para continuar."
     }
   }
 
   public var statusCode: Int? {
-    guard case let .server(_, statusCode) = self else { return nil }
+    guard case let .server(_, statusCode, _) = self else { return nil }
     return statusCode
+  }
+
+  public var problemCode: String? {
+    guard case let .server(_, _, code) = self else { return nil }
+    return code
   }
 }
 
@@ -57,6 +66,52 @@ extension Notification.Name {
 // widens the module's API surface by exactly the type name and that one address.
 public actor LiveAPIClient {
   public static let productionURL = URL(string: "https://rentivo.com.br")!
+
+  #if DEBUG
+    /// Launch environment variable read by `baseURL`, e.g.
+    /// `SIMCTL_CHILD_RENTIVO_API_BASE_URL=http://localhost:8080 xcrun simctl launch ...`.
+    /// See the "Local development and mock mode" section of `docs/mobile.md`.
+    static let baseURLEnvironmentKey = "RENTIVO_API_BASE_URL"
+    /// `UserDefaults` key read by `baseURL`, for a value that has to survive across launches, e.g.
+    /// `xcrun simctl spawn <udid> defaults write br.com.rentivo.ios RentivoAPIBaseURL <url>`.
+    static let baseURLDefaultsKey = "RentivoAPIBaseURL"
+
+    /// The address API requests are built from. In DEBUG builds a simulator can be pointed at a
+    /// local backend without editing source; everything else that reads `productionURL` — the
+    /// "Sobre e suporte" links, the forgot-password link — keeps pointing at the real site, because
+    /// only the request builders below read this.
+    ///
+    /// Resolved once per process: the override describes where the process was launched, so
+    /// re-reading it mid-run would only let some requests land on a different backend than others.
+    static let baseURL = resolveBaseURL(
+      environmentValue: ProcessInfo.processInfo.environment[baseURLEnvironmentKey],
+      defaultsValue: UserDefaults.standard.string(forKey: baseURLDefaultsKey)
+    )
+
+    /// Picks the first usable override, environment before `UserDefaults`, and falls back to
+    /// `productionURL` when neither is usable. A candidate counts as usable only if it parses into
+    /// an absolute URL with both a scheme and a host — `URL(string:)` accepts plenty of strings
+    /// that would silently produce a relative request path, and a typo must not quietly retarget
+    /// the app at nothing.
+    ///
+    /// Takes both values as parameters instead of reading the process state itself so it stays a
+    /// pure function the tests can drive.
+    static func resolveBaseURL(environmentValue: String?, defaultsValue: String?) -> URL {
+      for candidate in [environmentValue, defaultsValue] {
+        guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty,
+          let url = URL(string: trimmed),
+          url.scheme != nil,
+          let host = url.host(), !host.isEmpty
+        else { continue }
+        return url
+      }
+      return productionURL
+    }
+  #else
+    /// Release builds have no override to resolve: the constant is the production address.
+    static let baseURL = productionURL
+  #endif
 
   private let session: URLSession
   private let credentials: any CredentialStore
@@ -259,7 +314,7 @@ public actor LiveAPIClient {
     guard let accessToken else {
       throw LiveAPIError.sessionExpired
     }
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -281,7 +336,8 @@ public actor LiveAPIClient {
     guard (200..<300).contains(http.statusCode) else {
       let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode,
+        code: problem?.code
       )
     }
     return data
@@ -341,7 +397,7 @@ public actor LiveAPIClient {
     guard let accessToken else {
       throw LiveAPIError.sessionExpired
     }
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue(mediaType, forHTTPHeaderField: "Accept")
     // `download(for:)` streams the body straight to a file instead of accumulating it in memory,
@@ -432,7 +488,7 @@ public actor LiveAPIClient {
     body: Body?,
     token: String?
   ) async throws -> (Data, Int) {
-    var request = URLRequest(url: Self.productionURL.appending(path: path))
+    var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     if let token {
@@ -452,7 +508,8 @@ public actor LiveAPIClient {
     guard (200..<300).contains(http.statusCode) else {
       let problem = try? WireJSON.decoder.decode(ProblemResponse.self, from: data)
       throw LiveAPIError.server(
-        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode
+        message: problem?.message ?? "Não foi possível concluir a solicitação.", statusCode: http.statusCode,
+        code: problem?.code
       )
     }
     return (data, http.statusCode)
@@ -633,6 +690,11 @@ private struct ProfileResponse: Decodable {
 /// `backend/rentivo/api/errors.py`). Only the two human-readable halves are decoded.
 private struct ProblemResponse: Decodable {
   let detail: String?
+  /// The problem's stable machine-readable identifier (e.g. `mfa_setup_required`) — the one part of
+  /// the envelope safe to branch application logic on. `detail`/`title` are display copy that can
+  /// change wording without changing meaning, and `status` is shared by every unrelated failure at
+  /// the same HTTP code.
+  let code: String?
   /// Per-field PT-BR copy, keyed by the request location that failed. Schema-origin keys come from
   /// FastAPI's `loc` joined with dots and are prefixed with the request part
   /// (`body.items.0.description`); route-origin ones (`ProblemException.invalid_field`) are the

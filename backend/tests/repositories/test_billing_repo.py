@@ -243,6 +243,28 @@ class TestBillingRepoCRUD:
         assert transferred is not None
         assert (transferred.owner_type, transferred.owner_id) == ("organization", 31)
 
+    def test_has_billings_for_organization_is_false_with_none_owned(
+        self, billing_repo: SQLAlchemyBillingRepository, sample_billing
+    ):
+        billing_repo.create(sample_billing(owner_type="user", owner_id=7))
+
+        assert billing_repo.has_billings_for_organization(31) is False
+
+    def test_has_billings_for_organization_is_true_once_one_is_owned(
+        self, billing_repo: SQLAlchemyBillingRepository, sample_billing
+    ):
+        billing_repo.create(sample_billing(owner_type="organization", owner_id=31))
+
+        assert billing_repo.has_billings_for_organization(31) is True
+
+    def test_has_billings_for_organization_ignores_soft_deleted_billings(
+        self, billing_repo: SQLAlchemyBillingRepository, sample_billing
+    ):
+        created = billing_repo.create(sample_billing(owner_type="organization", owner_id=31))
+        billing_repo.delete(created.id)
+
+        assert billing_repo.has_billings_for_organization(31) is False
+
 
 class TestBillingRepoEdgeCases:
     def test_update_aggregate_rejects_unsaved_billing(self, billing_repo: SQLAlchemyBillingRepository):

@@ -5,14 +5,19 @@ import structlog
 from rentivo.models.organization import Organization, OrganizationMember
 from rentivo.observability import traced
 from rentivo.pix import validate_pix_key
-from rentivo.repositories.base import OrganizationRepository
+from rentivo.repositories.base import BillingRepository, OrganizationRepository
 
 logger = structlog.get_logger(__name__)
 
 
+class OrganizationHasBillingsError(ValueError):
+    """Organization still owns at least one billing; deleting it would orphan that data."""
+
+
 class OrganizationService:
-    def __init__(self, repo: OrganizationRepository) -> None:
+    def __init__(self, repo: OrganizationRepository, billings: BillingRepository) -> None:
         self.repo = repo
+        self.billings = billings
 
     @traced("organization.create_organization")
     def create_organization(
@@ -69,6 +74,10 @@ class OrganizationService:
 
     @traced("organization.delete_organization")
     def delete_organization(self, org_id: int) -> None:
+        if self.billings.has_billings_for_organization(org_id):
+            raise OrganizationHasBillingsError(
+                "Transfira ou exclua as cobranças vinculadas antes de excluir a organização."
+            )
         self.repo.delete(org_id)
         logger.info("organization_deleted", org_id=org_id)
 

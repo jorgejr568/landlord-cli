@@ -160,7 +160,10 @@ class RequestServices:
 
     @cached_property
     def organization(self) -> OrganizationService:
-        return OrganizationService(SQLAlchemyOrganizationRepository(self._conn, self._encryption))
+        return OrganizationService(
+            SQLAlchemyOrganizationRepository(self._conn, self._encryption),
+            SQLAlchemyBillingRepository(self._conn, self._encryption),
+        )
 
     @cached_property
     def theme(self) -> ThemeService:

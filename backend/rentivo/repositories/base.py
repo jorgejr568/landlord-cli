@@ -79,6 +79,11 @@ class BillingRepository(ABC):
     def delete(self, billing_id: int) -> None: ...
 
     @abstractmethod
+    def has_billings_for_organization(self, organization_id: int) -> bool:
+        """Whether any live billing is currently owned by this organization."""
+        ...
+
+    @abstractmethod
     def transfer_owner(self, billing_id: int, owner_type: str, owner_id: int) -> None: ...
 
     @abstractmethod

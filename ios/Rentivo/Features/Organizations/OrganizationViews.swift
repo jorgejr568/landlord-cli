@@ -6,6 +6,23 @@ private struct OrganizationListItem: Identifiable, Sendable {
   var id: OrganizationID { organization.id }
 }
 
+enum OrganizationListRules {
+  /// The "convites pendentes" banner lives inside the loaded-content closure, so routing an
+  /// invitee with no organizations to the empty state would strand them: accepting a first
+  /// invitation is the one action they can take, and it would be unreachable.
+  static func showsEmptyState(organizationCount: Int, pendingInvitationCount: Int) -> Bool {
+    organizationCount == 0 && pendingInvitationCount == 0
+  }
+
+  /// Shown in place of the organization cards when the list is empty but invitations are waiting,
+  /// so the screen reads as a next step rather than as a failed load.
+  static func emptyListHint(canCreateOrganization: Bool) -> String {
+    canCreateOrganization
+      ? "Aceite um convite pendente para entrar em uma organização, ou crie a sua para começar do zero."
+      : "Aceite um convite pendente para entrar em uma organização."
+  }
+}
+
 struct OrganizationListView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<[OrganizationListItem]> = .idle
@@ -53,6 +70,15 @@ struct OrganizationListView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("organization.invitations.open")
+          }
+          if organizations.isEmpty {
+            RentivoCard {
+              Text(OrganizationListRules.emptyListHint(canCreateOrganization: canCreateOrganization))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityIdentifier("organization.list.empty-hint")
           }
           ForEach(organizations) { item in
             NavigationLink {
@@ -114,7 +140,11 @@ struct OrganizationListView: View {
         )
       }
       pendingCount = try await app.dependencies.invitations.listPendingInvitations().count
-      state = values.isEmpty ? .empty : .loaded(values)
+      state =
+        OrganizationListRules.showsEmptyState(
+          organizationCount: values.count,
+          pendingInvitationCount: pendingCount
+        ) ? .empty : .loaded(values)
     } catch {
       switch state {
       case .loaded, .empty:

@@ -438,7 +438,7 @@ def main() -> None:
     billing_service = BillingService(billing_repo)
     pix_service = PixService(user_repo, org_repo)
     bill_service = BillService(bill_repo, storage, receipt_repo, pix_service=pix_service)
-    org_service = OrganizationService(org_repo)
+    org_service = OrganizationService(org_repo, billing_repo)
 
     # --- Seed ---
     users = _create_users(user_service)
