@@ -284,7 +284,7 @@ async def update_organization(
 @router.delete(
     "/{organization_uuid}",
     status_code=204,
-    responses={404: {"model": Problem}},
+    responses={404: {"model": Problem}, 409: {"model": Problem}},
 )
 async def delete_organization(
     organization_uuid: str = Path(min_length=1),
