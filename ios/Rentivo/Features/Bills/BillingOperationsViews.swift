@@ -1,3 +1,4 @@
+import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -376,18 +377,23 @@ struct AttachmentListView: View {
       List {
         Section {
           ForEach(attachments) { attachment in
+            let presentation = attachment.documentPresentation
             HStack {
               Label {
-                VStack(alignment: .leading) {
-                  Text(attachment.name).font(.headline)
+                VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
+                  Text(presentation.displayName).font(.headline)
                   Text(
-                    ByteCountFormatter.string(
-                      fromByteCount: Int64(attachment.byteCount), countStyle: .file)
+                    DocumentPresentation.metadataLine(
+                      byteCount: attachment.byteCount, createdAt: attachment.createdAt)
                   )
                   .font(.caption)
+                  .foregroundStyle(RentivoColors.secondaryInk)
                 }
               } icon: {
-                Image(systemName: "doc.fill")
+                let symbol = DocumentPresentation.symbolName(
+                  mediaType: attachment.mediaType, filename: attachment.filename)
+                Image(systemName: symbol)
+                  .accessibilityIdentifier("attachment.type.\(symbol)")
               }
               Spacer()
               // A single-action menu behind an unlabeled "..." icon added an extra tap for no
@@ -489,7 +495,9 @@ struct AttachmentListView: View {
   private func download(_ attachment: Attachment) async {
     do {
       downloadedFile = try await app.dependencies.downloads.downloadAttachment(
-        billingID: billingID, attachmentID: attachment.id
+        billingID: billingID,
+        attachmentID: attachment.id,
+        presentation: attachment.documentPresentation
       )
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
@@ -501,23 +509,67 @@ struct DownloadShareView: View {
 
   var body: some View {
     NavigationStack {
-      VStack(spacing: RentivoSpacing.large) {
-        Image(systemName: "doc.text.fill")
-          .font(.system(size: 64))
-          .foregroundStyle(RentivoColors.blue)
-        Text(file.filename).font(RentivoTypography.title)
-        Text("Arquivo baixado do Rentivo.").foregroundStyle(RentivoColors.secondaryInk)
-        ShareLink(item: file.fileURL) {
-          Label("Compartilhar ou salvar arquivo", systemImage: "square.and.arrow.up")
+      Group {
+        if canPreview {
+          QuickLookPreview(file: file)
+            .accessibilityIdentifier("document.preview.quicklook")
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(file.displayName)
+        } else {
+          VStack(spacing: RentivoSpacing.medium) {
+            Image(
+              systemName: DocumentPresentation.symbolName(
+                mediaType: file.mediaType, filename: file.filename)
+            )
+            .font(.system(size: 52))
+            .accessibilityHidden(true)
+            Text(file.displayName)
+              .font(RentivoTypography.title)
+              .multilineTextAlignment(.center)
+            Text("Não foi possível exibir a prévia deste arquivo.")
+              .foregroundStyle(RentivoColors.secondaryInk)
+              .multilineTextAlignment(.center)
+          }
+          .padding(RentivoSpacing.page)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
-          .font(.footnote)
-        Spacer()
       }
-      .padding(RentivoSpacing.page)
+      .background(RentivoColors.paper.ignoresSafeArea())
       .navigationTitle("Prévia")
-      .toolbar { Button("Concluir") { dismiss() } }
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("Fechar") { dismiss() }
+        }
+        ToolbarItem(placement: .principal) {
+          VStack(spacing: 0) {
+            Text("Prévia")
+              .font(.headline)
+            Text(file.displayName)
+              .font(.caption)
+              .foregroundStyle(RentivoColors.secondaryInk)
+              .lineLimit(1)
+              .accessibilityLabel(file.displayName)
+          }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          ShareLink(item: file.fileURL) {
+            Image(systemName: "square.and.arrow.up")
+          }
+          .accessibilityLabel("Compartilhar ou salvar arquivo")
+          .disabled(!fileExists)
+        }
+      }
+      .tint(RentivoColors.emerald)
     }
+  }
+
+  private var fileExists: Bool {
+    FileManager.default.fileExists(atPath: file.fileURL.path)
+  }
+
+  private var canPreview: Bool {
+    fileExists && QLPreviewController.canPreview(file.fileURL as NSURL)
   }
 }
 
@@ -733,7 +785,9 @@ struct CommunicationComposerView: View {
   private var reviewStep: some View {
     RentivoWizardSection("Prévia") {
       RentivoWizardReviewRow(label: "Canal", value: commType.label)
-      RentivoWizardReviewRow(label: "Destinatários", value: "\(selectedRecipients.count)")
+      RentivoWizardReviewRow(
+        label: "Destinatários",
+        value: BrazilianLocaleFormatting.integer(selectedRecipients.count))
       RentivoWizardReviewRow(label: "Assunto", value: CommunicationContent.normalizedSubject(subject))
       RentivoWizardReviewRow(label: "Anexo", value: attachmentDescription)
       if bill.isRenderingPDF {
@@ -931,7 +985,7 @@ struct ExportSimulationView: View {
     do {
       try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
       dismiss()
-      app.showNotice("Exportação \(format.uppercased()) enfileirada.")
+      app.showNotice("Exportação solicitada. O arquivo será enviado para seu e-mail.")
     } catch { exportErrorMessage = DemoError(error).message }
   }
 }

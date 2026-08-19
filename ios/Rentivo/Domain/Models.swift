@@ -109,13 +109,8 @@ public struct DateOnly: Hashable, Codable, Sendable, Comparable {
     String(format: "%04d-%02d-%02d", year, month, day)
   }
 
-  /// PT-BR display representation, e.g. "10/08/2026". The dd/MM/yyyy
-  /// ordering is the Brazilian convention regardless of the device's current
-  /// locale, so this is built directly from the stored components rather
-  /// than through a cached `DateFormatter` (a non-`Sendable` class that would
-  /// be unsafe to share as static state on a `Sendable` type).
   public var displayFormatted: String {
-    String(format: "%02d/%02d/%04d", day, month, year)
+    BrazilianLocaleFormatting.calendarDate(self)
   }
 
   public static func < (lhs: DateOnly, rhs: DateOnly) -> Bool {
@@ -151,15 +146,26 @@ public struct ReferenceMonth: Hashable, Codable, Sendable, Comparable {
   }
 
   public var label: String {
-    let monthNames = [
-      "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-      "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-    ]
-    return "\(monthNames[month - 1]) de \(year)"
+    BrazilianLocaleFormatting.referenceMonth(self)
   }
 
   /// PT-BR display representation, e.g. "agosto de 2026".
   public var displayFormatted: String { label }
+
+  /// Standalone heading/card representation, e.g. "Agosto de 2026".
+  public var standaloneDisplayFormatted: String {
+    BrazilianLocaleFormatting.standaloneReferenceMonth(self)
+  }
+
+  /// Standalone picker representation, e.g. "Agosto".
+  public var standaloneMonthName: String {
+    BrazilianLocaleFormatting.monthName(month, standalone: true)
+  }
+
+  /// Filename/document segment, e.g. "agosto 2026".
+  public var documentDisplayFormatted: String {
+    BrazilianLocaleFormatting.documentReferenceMonth(self)
+  }
 
   public static func < (lhs: ReferenceMonth, rhs: ReferenceMonth) -> Bool {
     (lhs.year, lhs.month) < (rhs.year, rhs.month)

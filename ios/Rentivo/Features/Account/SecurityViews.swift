@@ -569,15 +569,3 @@ private struct TOTPEnrollmentView: View {
     }
   }
 }
-
-extension Date {
-  /// Formats this date pinned to the pt-BR locale, so PT-BR sentences never leak a
-  /// device-locale date string (e.g. "Jul 23, 2026" showing up on an en-US device
-  /// inside otherwise-Portuguese copy).
-  func formattedPTBR(
-    date dateStyle: Date.FormatStyle.DateStyle = .abbreviated,
-    time timeStyle: Date.FormatStyle.TimeStyle = .omitted
-  ) -> String {
-    formatted(Date.FormatStyle(date: dateStyle, time: timeStyle, locale: Locale(identifier: "pt_BR")))
-  }
-}

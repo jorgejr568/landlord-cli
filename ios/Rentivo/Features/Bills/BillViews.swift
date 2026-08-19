@@ -164,7 +164,11 @@ struct BillFormView: View {
           }
           .pickerStyle(.menu)
           .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
-          Stepper("Ano: \(year)", value: $year, in: 2024...2035)
+          Stepper(
+            "Ano: \(BrazilianLocaleFormatting.year(year))",
+            value: $year,
+            in: 2024...2035
+          )
             .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
           if bill != nil {
             Text("A competência não pode ser alterada depois que a fatura é criada.")
@@ -239,12 +243,15 @@ struct BillFormView: View {
   private var reviewStep: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.section) {
       RentivoWizardSection("Resumo") {
-        RentivoWizardReviewRow(label: "Competência", value: ReferenceMonth(year: year, month: month).label)
+        RentivoWizardReviewRow(
+          label: "Competência",
+          value: ReferenceMonth(year: year, month: month).displayFormatted)
         RentivoWizardReviewRow(
           label: "Vencimento",
           value: hasDueDate ? DateOnly(from: dueDate).displayFormatted : "Não definido"
         )
-        RentivoWizardReviewRow(label: "Itens", value: "\(lines.count)")
+        RentivoWizardReviewRow(
+          label: "Itens", value: BrazilianLocaleFormatting.integer(lines.count))
         RentivoWizardReviewRow(label: "Total", value: total.formatted())
         if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           RentivoWizardReviewRow(label: "Observações", value: notes)
@@ -422,9 +429,7 @@ struct BillFormView: View {
   }
 
   private func monthName(_ month: Int) -> String {
-    ReferenceMonth(year: year, month: month).label.components(separatedBy: " de ").first?
-      .capitalized
-      ?? "Mês"
+    ReferenceMonth(year: year, month: month).standaloneMonthName
   }
 }
 
@@ -515,7 +520,7 @@ struct BillDetailView: View {
                 Text(billing?.name ?? "Cobrança")
                   .font(.subheadline.weight(.semibold))
                   .foregroundStyle(RentivoColors.secondaryInk)
-                Text(bill.referenceMonth.label.capitalized)
+                Text(bill.referenceMonth.standaloneDisplayFormatted)
                   .font(RentivoTypography.title)
               }
               Spacer()
@@ -547,7 +552,7 @@ struct BillDetailView: View {
           SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
           renderStatus(bill)
           Button {
-            Task { await downloadInvoice() }
+            Task { await downloadInvoice(bill) }
           } label: {
             Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
           }
@@ -559,7 +564,7 @@ struct BillDetailView: View {
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(!bill.capabilities.canRegenerate || isRegenerating)
             if bill.capabilities.canOpenRecibo {
-              Button("Abrir recibo") { Task { await downloadRecibo() } }
+              Button("Abrir recibo") { Task { await downloadRecibo(bill) } }
                 .disabled(bill.isRenderingPDF)
             }
           }
@@ -573,6 +578,7 @@ struct BillDetailView: View {
 
         ReceiptManagerView(
           billingID: billingID,
+          billingName: billing?.name ?? "Cobrança",
           bill: bill,
           capabilities: bill.capabilities
         ) { await refreshAll() }
@@ -808,13 +814,23 @@ struct BillDetailView: View {
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 
-  private func downloadInvoice() async {
-    do { downloadedFile = try await app.dependencies.downloads.downloadInvoice(billingID: billingID, billID: billID) }
+  private func downloadInvoice(_ bill: Bill) async {
+    let presentation = DocumentPresentation.invoice(
+      billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
+    do {
+      downloadedFile = try await app.dependencies.downloads.downloadInvoice(
+        billingID: billingID, billID: billID, presentation: presentation)
+    }
     catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 
-  private func downloadRecibo() async {
-    do { downloadedFile = try await app.dependencies.downloads.downloadRecibo(billingID: billingID, billID: billID) }
+  private func downloadRecibo(_ bill: Bill) async {
+    let presentation = DocumentPresentation.generatedReceipt(
+      billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
+    do {
+      downloadedFile = try await app.dependencies.downloads.downloadRecibo(
+        billingID: billingID, billID: billID, presentation: presentation)
+    }
     catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }
 }
@@ -822,6 +838,7 @@ struct BillDetailView: View {
 private struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
+  let billingName: String
   let bill: Bill
   let capabilities: BillCapabilities
   let onMutation: () async -> Void
@@ -852,15 +869,26 @@ private struct ReceiptManagerView: View {
         RentivoCard {
           VStack(spacing: RentivoSpacing.medium) {
             ForEach(bill.receipts) { receipt in
+              let presentation = DocumentPresentation.uploadedReceipt(
+                filename: receipt.name,
+                billingName: billingName,
+                referenceMonth: bill.referenceMonth,
+                mediaType: receipt.mediaType
+              )
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-                  Label(receipt.name, systemImage: "doc.fill")
+                  Label(
+                    presentation.displayName,
+                    systemImage: DocumentPresentation.symbolName(
+                      mediaType: receipt.mediaType, filename: receipt.name)
+                  )
                     .font(.subheadline)
-                  if receipt.byteCount > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(receipt.byteCount), countStyle: .file))
-                      .font(.caption)
-                      .foregroundStyle(RentivoColors.secondaryInk)
-                  }
+                  Text(
+                    DocumentPresentation.metadataLine(
+                      byteCount: receipt.byteCount, createdAt: receipt.createdAt)
+                  )
+                  .font(.caption)
+                  .foregroundStyle(RentivoColors.secondaryInk)
                 }
                 Spacer()
                 Menu {
@@ -872,7 +900,7 @@ private struct ReceiptManagerView: View {
                 } label: {
                   Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Mais opções para \(receipt.name)")
+                .accessibilityLabel("Mais opções para \(presentation.displayName)")
               }
             }
             // Drag-to-reorder (`.onMove`) would need these rows hosted in a `List`, but this
@@ -1053,7 +1081,15 @@ private struct ReceiptManagerView: View {
   private func download(_ receipt: Receipt) async {
     do {
       downloadedFile = try await app.dependencies.downloads.downloadReceipt(
-        billingID: billingID, billID: bill.id, receiptID: receipt.id
+        billingID: billingID,
+        billID: bill.id,
+        receiptID: receipt.id,
+        presentation: DocumentPresentation.uploadedReceipt(
+          filename: receipt.name,
+          billingName: billingName,
+          referenceMonth: bill.referenceMonth,
+          mediaType: receipt.mediaType
+        )
       )
     } catch { app.showNotice(DemoError(error).message, kind: .warning) }
   }

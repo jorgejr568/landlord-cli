@@ -38,7 +38,7 @@ public struct Money: Hashable, Codable, Sendable, Comparable {
   /// The app's default presentation locale. It is also the default argument of `formatted(locale:)`
   /// so the common path compares this very value against itself instead of building a `Locale` per
   /// call just to find out it is the cached one.
-  public static let brazilianLocale = Locale(identifier: "pt_BR")
+  public static let brazilianLocale = BrazilianLocaleFormatting.locale
 
   /// Presentation for the default pt-BR/BRL path, shared by every rendered amount.
   /// `Decimal.FormatStyle.Currency` is a `Sendable` value type, so it can be held as

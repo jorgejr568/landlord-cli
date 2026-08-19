@@ -40,10 +40,7 @@ struct CurrencyCentavosField: View {
       .accessibilityFocused($textFieldIsAccessibilityFocused)
       .accessibilityLabel(label)
       .onChange(of: text) { _, newValue in
-        let digits = newValue.filter(\.isNumber)
-        let parsed = digits.isEmpty
-          ? 0
-          : min(Int(digits) ?? Money.maximumPersistedCentavos, Money.maximumPersistedCentavos)
+        let parsed = MoneyInputRules.centavos(from: newValue)
         if parsed != centavos {
           centavos = parsed
         }

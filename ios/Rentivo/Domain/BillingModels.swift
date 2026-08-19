@@ -523,15 +523,35 @@ public struct Receipt: Identifiable, Hashable, Codable, Sendable {
 public struct Attachment: Identifiable, Hashable, Codable, Sendable {
   public let id: AttachmentID
   public var name: String
+  public var filename: String
   public var mediaType: String
   public var byteCount: Int
+  public var sortOrder: Int
+  public var createdAt: Date?
 
-  public init(id: AttachmentID, name: String, mediaType: String, byteCount: Int) {
+  public init(
+    id: AttachmentID,
+    name: String,
+    filename: String = "",
+    mediaType: String,
+    byteCount: Int,
+    sortOrder: Int = 0,
+    createdAt: Date? = nil
+  ) {
     self.id = id
     self.name = name
+    self.filename = filename
     self.mediaType = mediaType
     self.byteCount = byteCount
+    self.sortOrder = sortOrder
+    self.createdAt = createdAt
   }
+
+  public var documentPresentation: DocumentPresentation {
+    DocumentPresentation.attachment(name: name, filename: filename, mediaType: mediaType)
+  }
+
+  public var displayName: String { documentPresentation.displayName }
 }
 
 /// The queued export currently contains the billing's bill rows only. Keep the client copy and

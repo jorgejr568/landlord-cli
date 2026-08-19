@@ -88,6 +88,8 @@ import Testing
 @Test func moneyInputRulesCapPastedAmountsInsteadOfResettingOverflowToZero() {
   #expect(MoneyInputRules.centavos(from: "R$ 2.450,00") == 245_000)
   #expect(MoneyInputRules.centavos(from: "000000123") == 123)
+  #expect(MoneyInputRules.centavos(from: "sem valor") == 0)
+  #expect(MoneyInputRules.centavos(from: "٣٥٠") == 0)
   #expect(MoneyInputRules.centavos(from: "2.147.483.647") == 2_147_483_647)
   #expect(MoneyInputRules.centavos(from: "999999999999999999999") == 2_147_483_647)
 }

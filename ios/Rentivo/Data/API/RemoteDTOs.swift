@@ -181,12 +181,15 @@ struct RemoteReceipt: Decodable {
 }
 struct RemoteAttachmentList: Decodable { let items: [RemoteAttachment] }
 struct RemoteAttachment: Decodable {
-  let uuid, name, contentType: String
-  let fileSize: Int
+  let uuid, name, filename, contentType: String
+  let fileSize, sortOrder: Int
+  let createdAt: String?
   enum CodingKeys: String, CodingKey {
-    case uuid, name
+    case uuid, name, filename
     case contentType = "content_type"
     case fileSize = "file_size"
+    case sortOrder = "sort_order"
+    case createdAt = "created_at"
   }
 }
 struct RemoteAPIKeyList: Decodable { let items: [RemoteAPIKey] }

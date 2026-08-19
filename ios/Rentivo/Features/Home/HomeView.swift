@@ -239,7 +239,7 @@ private struct HomeContent: View {
                 VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
                   Text(data.billingNames[bill.billingID] ?? "Cobrança")
                     .font(RentivoTypography.cardTitle)
-                  Text(bill.referenceMonth.label.capitalized)
+                  Text(bill.referenceMonth.standaloneDisplayFormatted)
                     .font(.subheadline)
                     .foregroundStyle(RentivoColors.secondaryInk)
                 }
@@ -331,7 +331,7 @@ private struct CollectionCard: View {
         Text("Taxa de recebimento")
           .font(.caption.weight(.semibold))
           .foregroundStyle(RentivoColors.secondaryInk)
-        Text("\(percent)%")
+        Text("\(BrazilianLocaleFormatting.integer(percent))%")
           .font(.system(.title3, design: .monospaced, weight: .bold))
           .foregroundStyle(RentivoColors.ink)
       }

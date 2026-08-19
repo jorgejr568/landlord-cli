@@ -203,7 +203,7 @@ struct BillingDetailView: View {
             RentivoCard {
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-                  Text(bill.referenceMonth.displayFormatted.capitalized)
+                  Text(bill.referenceMonth.standaloneDisplayFormatted)
                     .font(.headline)
                   StatusBadge(status: bill.status)
                 }

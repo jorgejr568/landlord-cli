@@ -14,11 +14,8 @@ import XCTest
 //   trigger `login.error`) is not reproducible without adding a test-only failure
 //   hook to `AppModel`/`MockRentivoStore`/`RentivoApp.swift`, which is out of
 //   scope for a test-only fix. Dropped.
-// - Every `FileDownloadRepository` method on `MockRentivoStore` (invoice,
-//   recibo, receipt, attachment downloads) unconditionally throws
-//   `DemoError.operationFailed` — the mock store never produces a real file.
-//   Any flow that taps a "download"/"open PDF" action in mock mode ends in
-//   the demonstration failure notice, never a document preview sheet.
+// - File downloads use deterministic local fixtures, allowing the mock journey
+//   to exercise the same preview sheet as the live repository.
 @MainActor
 final class RentivoUITests: XCTestCase {
   override func setUpWithError() throws {
@@ -97,17 +94,15 @@ final class RentivoUITests: XCTestCase {
     transition("sent", in: app)
     transition("paid", in: app)
 
-    // "Abrir recibo" only appears once the bill is paid. The mock store's
-    // download stub always fails (see file-level comment above), so this
-    // verifies the recoverable failure notice rather than a document preview.
+    // "Abrir recibo" only appears once the bill is paid. The mock store returns
+    // a deterministic PDF so the customer-facing preview path remains covered.
     let openReceipt = app.buttons["Abrir recibo"]
     scrollTo(openReceipt, in: app)
     openReceipt.tap()
-    XCTAssertTrue(
-      app.staticTexts["Não foi possível concluir esta ação de demonstração."]
-        .waitForExistence(timeout: 3)
-    )
-    app.buttons["Fechar aviso"].tap()
+    XCTAssertTrue(app.navigationBars["Prévia"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["Compartilhar ou salvar arquivo"].exists)
+    app.buttons["Fechar"].tap()
+    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     let theme = app.buttons["billing.theme"]

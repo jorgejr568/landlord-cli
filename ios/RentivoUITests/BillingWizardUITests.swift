@@ -28,9 +28,33 @@ final class BillingWizardUITests: XCTestCase {
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 2))
   }
 
+  func testRecurringItemUsesSharedBrazilianCurrencyInput() throws {
+    let app = launchAndSignIn()
+    app.tabBars.buttons["Cobranças"].tap()
+    app.buttons["billing.create"].tap()
+
+    let name = app.textFields["Nome"]
+    XCTAssertTrue(name.waitForExistence(timeout: 2))
+    name.tap()
+    name.typeText("Apartamento 202")
+    app.buttons["wizard.continue"].tap()
+
+    app.buttons["billing.form.items.add"].tap()
+    let description = app.textFields["billing.form.item.0.description"]
+    description.tap()
+    description.typeText("Aluguel")
+    let amount = app.textFields["billing.form.item.0.amount"]
+    amount.tap()
+    amount.typeText("350")
+
+    XCTAssertTrue(waitForValue(of: amount, containing: "R$ 3,50"))
+  }
+
   private func launchAndSignIn() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing"]
+    app.launchArguments = [
+      "--ui-testing", "-AppleLanguages", "(pt-BR)", "-AppleLocale", "pt_BR",
+    ]
     app.launch()
 
     let email = app.textFields["login.email"]
@@ -44,8 +68,9 @@ final class BillingWizardUITests: XCTestCase {
 
     let savePasswordSheet = app.sheets.firstMatch
     if savePasswordSheet.waitForExistence(timeout: 5) {
-      savePasswordSheet.buttons.element(boundBy: 0).tap()
-      XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
+      let dismissSavePassword = savePasswordSheet.buttons.element(boundBy: 0)
+      dismissSavePassword.tap()
+      XCTAssertTrue(dismissSavePassword.waitForNonExistence(timeout: 5))
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
@@ -56,6 +81,14 @@ final class BillingWizardUITests: XCTestCase {
       predicate: NSPredicate(format: "isEnabled == true"),
       object: element
     )
+    return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  private func waitForValue(
+    of element: XCUIElement, containing substring: String, timeout: TimeInterval = 3
+  ) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value CONTAINS %@", substring), object: element)
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }
 

@@ -75,7 +75,11 @@ private struct SamplePlainError: Error {}
 }
 
 @Test func referenceMonthDisplayFormattedMatchesPortugueseLabel() {
-  #expect(ReferenceMonth(year: 2026, month: 8).displayFormatted == "agosto de 2026")
+  let month = ReferenceMonth(year: 2026, month: 8)
+  #expect(month.displayFormatted == "agosto de 2026")
+  #expect(month.standaloneDisplayFormatted == "Agosto de 2026")
+  #expect(month.standaloneMonthName == "Agosto")
+  #expect(month.documentDisplayFormatted == "agosto 2026")
 }
 
 @Test func communicationTypeRawValuesMatchTheAPIContract() {
