@@ -145,6 +145,7 @@ struct MobileAuthClientTests {
 
     #expect(error?.errorDescription == "Muitas tentativas. Aguarde um momento antes de tentar novamente.")
     #expect(error?.statusCode == 429)
+    #expect(error?.problemCode == "login_rate_limited")
   }
 
   // MARK: Signup
@@ -171,6 +172,7 @@ struct MobileAuthClientTests {
     }
     #expect(error?.errorDescription == "Este e-mail já está cadastrado.")
     #expect(error?.statusCode == 400)
+    #expect(error?.problemCode == "email_already_registered")
   }
 
   // MARK: MFA code verification
@@ -221,6 +223,40 @@ struct MobileAuthClientTests {
     }
     #expect(error?.errorDescription == "Código de verificação inválido.")
     #expect(error?.statusCode == 401)
+    #expect(error?.problemCode == "invalid_mfa_code")
+  }
+
+  @Test func verifyTotpPreservesExpiredChallengeCodeAndStatusForPresentation() async throws {
+    MobileAuthStubURLProtocol.reset()
+    MobileAuthStubURLProtocol.routes["/api/v1/auth/mfa/totp/verify"] = .init(
+      statusCode: 401,
+      body: #"{"type":"about:blank","title":"Não autorizado","status":401,"code":"invalid_or_expired_challenge","detail":"Desafio de autenticação inválido ou expirado.","request_id":"r5"}"#
+    )
+    let client = LiveAPIClient(session: stubbedSession(), credentials: MemoryCredentialStore())
+
+    let error = await #expect(throws: LiveAPIError.self) {
+      _ = try await client.verifyTotp(challenge: challenge, code: "123456")
+    }
+
+    #expect(error?.problemCode == "invalid_or_expired_challenge")
+    #expect(error?.statusCode == 401)
+    #expect(error?.errorDescription == "Desafio de autenticação inválido ou expirado.")
+  }
+
+  @Test func verifyTotpPreservesMFARateLimitCodeAndStatusForPresentation() async throws {
+    MobileAuthStubURLProtocol.reset()
+    MobileAuthStubURLProtocol.routes["/api/v1/auth/mfa/totp/verify"] = .init(
+      statusCode: 429,
+      body: #"{"type":"about:blank","title":"Muitas tentativas","status":429,"code":"mfa_rate_limited","detail":"Muitas tentativas.","request_id":"r6"}"#
+    )
+    let client = LiveAPIClient(session: stubbedSession(), credentials: MemoryCredentialStore())
+
+    let error = await #expect(throws: LiveAPIError.self) {
+      _ = try await client.verifyTotp(challenge: challenge, code: "123456")
+    }
+
+    #expect(error?.problemCode == "mfa_rate_limited")
+    #expect(error?.statusCode == 429)
   }
 
   // MARK: Passkey assertion

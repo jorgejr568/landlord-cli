@@ -7,6 +7,8 @@ import SwiftUI
 /// against both `paper` and `surface`, AND against their own 14%-opacity tint (the pattern
 /// `StatusBadge` uses).
 enum RentivoColors {
+  // Keep RentivoLaunchBackground.colorset at these exact sRGB values. The static launch screen
+  // renders before SwiftUI can read this runtime token.
   static let paper = Color(red: 0.97, green: 0.95, blue: 0.90)
   static let surface = Color(red: 1.00, green: 0.99, blue: 0.96)
   static let ink = Color(red: 0.12, green: 0.12, blue: 0.18)
@@ -18,6 +20,13 @@ enum RentivoColors {
   static let coral = Color(red: 0.681, green: 0.254, blue: 0.205)
   static let blue = Color(red: 0.16, green: 0.395, blue: 0.714)
   static let lilac = Color(red: 0.446, green: 0.346, blue: 0.655)
+
+  // Semantic aliases keep component intent independent from the underlying palette.
+  static let primaryAction = emerald
+  static let link = emerald
+  static let disabledControlFill = paper
+  static let disabledControlForeground = secondaryInk
+  static let error = coral
 }
 
 enum RentivoSpacing {
@@ -35,6 +44,7 @@ enum RentivoTypography {
   static let cardTitle = Font.system(.headline, design: .rounded, weight: .bold)
   static let metadata = Font.system(.caption, design: .rounded, weight: .semibold)
   static let money = Font.system(.title3, design: .monospaced, weight: .bold)
+  static let code = Font.system(.title2, design: .monospaced, weight: .bold)
 }
 
 extension View {

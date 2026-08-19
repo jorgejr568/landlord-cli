@@ -7,8 +7,7 @@ struct RootView: View {
     Group {
       switch app.session {
       case .restoring:
-        ProgressView("Restaurando sessão…")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        SessionRestorationView()
       case .anonymous:
         AuthenticationView()
       case .authenticated:
@@ -27,6 +26,28 @@ struct RootView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
       }
     }
+  }
+}
+
+private struct SessionRestorationView: View {
+  var body: some View {
+    ZStack {
+      RentivoColors.paper.ignoresSafeArea()
+      VStack(spacing: RentivoSpacing.large) {
+        BrandMark()
+          .accessibilityHidden(true)
+        ProgressView()
+          .tint(RentivoColors.emerald)
+          .accessibilityHidden(true)
+        Text("Restaurando sua sessão…")
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(RentivoColors.secondaryInk)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .multilineTextAlignment(.center)
+      .padding(RentivoSpacing.page)
+    }
+    .accessibilityIdentifier("session.restore")
   }
 }
 

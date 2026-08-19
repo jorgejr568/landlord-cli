@@ -15,4 +15,30 @@ import Testing
     #expect(!SecurityViewRules.isMFASetupRequiredFailure(problemCode: "permission_denied"))
     #expect(!SecurityViewRules.isMFASetupRequiredFailure(problemCode: nil))
   }
+
+  @Test func invalidAuthenticatorEnrollmentCodeUsesFriendlyCopy() {
+    let error = LiveAPIError.server(
+      message: "Código TOTP inválido",
+      statusCode: 400,
+      code: "invalid_totp_code"
+    )
+
+    #expect(
+      SecurityViewRules.authenticatorEnrollmentErrorMessage(for: error)
+        == "Esse código não funcionou. Confira os 6 dígitos no aplicativo autenticador e tente novamente."
+    )
+  }
+
+  @Test func unknownAuthenticatorEnrollmentFailureUsesContextualFallback() {
+    let error = LiveAPIError.server(
+      message: "Internal detail that must not be displayed",
+      statusCode: 500,
+      code: "unexpected"
+    )
+
+    #expect(
+      SecurityViewRules.authenticatorEnrollmentErrorMessage(for: error)
+        == "Não foi possível confirmar o código. Tente novamente."
+    )
+  }
 #endif

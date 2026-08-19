@@ -12,6 +12,10 @@ enum SecurityViewRules {
   static func isMFASetupRequiredFailure(problemCode: String?) -> Bool {
     problemCode == mfaSetupRequiredCode
   }
+
+  static func authenticatorEnrollmentErrorMessage(for error: Error) -> String {
+    AuthFeedback.presentation(for: error, context: .totpEnrollment).message
+  }
 }
 
 struct SecurityView: View {
@@ -199,7 +203,7 @@ struct SecurityView: View {
       await load()
       showingRecoveryCodes = true
       return nil
-    } catch { return DemoError(error).message }
+    } catch { return SecurityViewRules.authenticatorEnrollmentErrorMessage(for: error) }
   }
 
   private func disableTOTP() async {
@@ -303,7 +307,8 @@ private struct ChangePasswordView: View {
               isFocused: focusBinding(.current),
               isAccessibilityFocused: accessibilityFocusBinding(.current),
               textContentType: .password,
-              accessibilityIdentifier: "password.form.current"
+              accessibilityIdentifier: "password.form.current",
+              visibilityAccessibilityName: "senha atual"
             )
             .submitLabel(.next)
             .onSubmit { scheduleFocus(.new) }
@@ -316,7 +321,8 @@ private struct ChangePasswordView: View {
               isFocused: focusBinding(.new),
               isAccessibilityFocused: accessibilityFocusBinding(.new),
               textContentType: .newPassword,
-              accessibilityIdentifier: "password.form.new"
+              accessibilityIdentifier: "password.form.new",
+              visibilityAccessibilityName: "nova senha"
             )
             .submitLabel(.next)
             .onSubmit { scheduleFocus(.confirmation) }
@@ -329,7 +335,8 @@ private struct ChangePasswordView: View {
               isFocused: focusBinding(.confirmation),
               isAccessibilityFocused: accessibilityFocusBinding(.confirmation),
               textContentType: .newPassword,
-              accessibilityIdentifier: "password.form.confirmation"
+              accessibilityIdentifier: "password.form.confirmation",
+              visibilityAccessibilityName: "confirmação da nova senha"
             )
             .submitLabel(.done)
             .onSubmit(save)
@@ -430,13 +437,10 @@ private struct ChangePasswordView: View {
 
   private var actionBar: some View {
     Button(action: save) {
-      HStack(spacing: RentivoSpacing.small) {
-        if isSaving { ProgressView().tint(.white) }
-        Text("Alterar senha")
-      }
+      Text("Alterar senha")
       .frame(maxWidth: .infinity)
     }
-    .buttonStyle(RentivoButtonStyle())
+    .buttonStyle(RentivoButtonStyle(isBusy: isSaving))
     .disabled(isSaving)
     .accessibilityIdentifier("password.form.submit")
     .padding(.horizontal, RentivoSpacing.page)
@@ -542,7 +546,7 @@ private struct TOTPEnrollmentView: View {
           .keyboardType(.numberPad)
           .textContentType(.oneTimeCode)
           .onChange(of: code) { _, value in
-            code = String(value.filter(\.isNumber).prefix(6))
+            code = TOTPCodeRules.normalize(value)
           }
         if let errorMessage {
           Label(errorMessage, systemImage: "exclamationmark.circle.fill")
@@ -551,15 +555,9 @@ private struct TOTPEnrollmentView: View {
             .accessibilityIdentifier("security.totp.error")
         }
         Button(action: confirm) {
-          HStack(spacing: RentivoSpacing.small) {
-            if isConfirming {
-              ProgressView()
-                .tint(.white)
-            }
-            Text("Confirmar")
-          }
+          Text("Confirmar")
         }
-        .buttonStyle(RentivoButtonStyle())
+        .buttonStyle(RentivoButtonStyle(isBusy: isConfirming))
         .disabled(isConfirming || code.count != 6)
         Spacer()
       }

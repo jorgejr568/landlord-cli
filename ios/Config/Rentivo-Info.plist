@@ -40,7 +40,14 @@
   <key>UIUserInterfaceStyle</key>
   <string>Light</string>
   <key>UILaunchScreen</key>
-  <dict/>
+  <dict>
+    <key>UIColorName</key>
+    <string>RentivoLaunchBackground</string>
+    <key>UIImageName</key>
+    <string>RentivoLaunchLogo</string>
+    <key>UIImageRespectsSafeAreaInsets</key>
+    <true/>
+  </dict>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key>

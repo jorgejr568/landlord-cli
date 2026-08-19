@@ -174,20 +174,14 @@ struct RentivoFormWizard<Step: Hashable, Content: View>: View {
       }
 
       Button(action: advanceOrCommit) {
-        HStack(spacing: RentivoSpacing.small) {
-          if isBusy {
-            ProgressView()
-              .tint(.white)
-          }
-          Text(
-            RentivoWizardNavigationPolicy.primaryTitle(
-              isLast: isLast,
-              finalActionTitle: finalActionTitle
-            )
+        Text(
+          RentivoWizardNavigationPolicy.primaryTitle(
+            isLast: isLast,
+            finalActionTitle: finalActionTitle
           )
-        }
+        )
       }
-      .buttonStyle(RentivoButtonStyle())
+      .buttonStyle(RentivoButtonStyle(isBusy: isBusy))
       .disabled(isBusy || !isPrimaryEnabled)
       .accessibilityIdentifier(isLast ? "wizard.commit" : "wizard.continue")
     }

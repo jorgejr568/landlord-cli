@@ -13,6 +13,7 @@ struct RentivoFormField<Control: View>: View {
   let hint: String?
   let state: RentivoFormFieldState
   let isFocused: Bool
+  let errorAccessibilityIdentifier: String?
   private let control: Control
 
   init(
@@ -20,12 +21,14 @@ struct RentivoFormField<Control: View>: View {
     hint: String? = nil,
     state: RentivoFormFieldState = .normal,
     isFocused: Bool = false,
+    errorAccessibilityIdentifier: String? = nil,
     @ViewBuilder control: () -> Control
   ) {
     self.label = label
     self.hint = hint
     self.state = state
     self.isFocused = isFocused
+    self.errorAccessibilityIdentifier = errorAccessibilityIdentifier
     self.control = control()
   }
 
@@ -60,9 +63,10 @@ struct RentivoFormField<Control: View>: View {
       if case .invalid(let message) = state {
         Label(message, systemImage: "exclamationmark.circle.fill")
           .font(.footnote)
-          .foregroundStyle(RentivoColors.coral)
+          .foregroundStyle(RentivoColors.error)
           .fixedSize(horizontal: false, vertical: true)
           .accessibilityLabel("Inválido. \(message)")
+          .accessibilityIdentifier(errorAccessibilityIdentifier ?? "")
       } else if let hint {
         Text(hint)
           .font(.footnote)
@@ -75,7 +79,7 @@ struct RentivoFormField<Control: View>: View {
   private var borderColor: Color {
     switch state {
     case .focused: RentivoColors.emerald
-    case .invalid: RentivoColors.coral
+    case .invalid: RentivoColors.error
     case .normal, .disabled: RentivoColors.ink
     }
   }
@@ -174,13 +178,17 @@ struct RentivoSecureFormField: View {
   let label: String
   @Binding var text: String
   @Binding var isRevealed: Bool
+  let prompt: String?
   let errorMessage: String?
   let isFocused: Binding<Bool>?
   let isAccessibilityFocused: Binding<Bool>?
   let textContentType: UITextContentType
   let accessibilityIdentifier: String
+  let visibilityAccessibilityName: String
+  let errorAccessibilityIdentifier: String?
 
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.scenePhase) private var scenePhase
   @FocusState private var controlIsFocused: Bool
   @AccessibilityFocusState private var controlIsAccessibilityFocused: Bool
 
@@ -188,33 +196,46 @@ struct RentivoSecureFormField: View {
     label: String,
     text: Binding<String>,
     isRevealed: Binding<Bool>,
+    prompt: String? = nil,
     errorMessage: String? = nil,
     isFocused: Binding<Bool>? = nil,
     isAccessibilityFocused: Binding<Bool>? = nil,
     textContentType: UITextContentType,
-    accessibilityIdentifier: String
+    accessibilityIdentifier: String,
+    visibilityAccessibilityName: String,
+    errorAccessibilityIdentifier: String? = nil
   ) {
     self.label = label
     _text = text
     _isRevealed = isRevealed
+    self.prompt = prompt
     self.errorMessage = errorMessage
     self.isFocused = isFocused
     self.isAccessibilityFocused = isAccessibilityFocused
     self.textContentType = textContentType
     self.accessibilityIdentifier = accessibilityIdentifier
+    self.visibilityAccessibilityName = visibilityAccessibilityName
+    self.errorAccessibilityIdentifier = errorAccessibilityIdentifier
   }
 
   var body: some View {
-    RentivoFormField(label: label, state: state, isFocused: controlIsFocused) {
+    RentivoFormField(
+      label: label,
+      state: state,
+      isFocused: controlIsFocused,
+      errorAccessibilityIdentifier: errorAccessibilityIdentifier
+    ) {
       HStack(spacing: RentivoSpacing.small) {
         Group {
           if isRevealed {
-            TextField("", text: $text)
+            TextField("", text: $text, prompt: prompt.map(Text.init))
           } else {
-            SecureField("", text: $text)
+            SecureField("", text: $text, prompt: prompt.map(Text.init))
           }
         }
         .textContentType(textContentType)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .focused($controlIsFocused)
         .accessibilityFocused($controlIsAccessibilityFocused)
         .accessibilityLabel(label)
@@ -228,13 +249,16 @@ struct RentivoSecureFormField: View {
             Task { @MainActor in controlIsFocused = true }
           }
         } label: {
-          Image(systemName: isRevealed ? "eye.slash.fill" : "eye.fill")
+          Image(systemName: isRevealed ? "eye.slash" : "eye")
             .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(revealLabel)
+        .accessibilityHint(
+          isRevealed ? "Oculta o conteúdo deste campo." : "Exibe o conteúdo deste campo."
+        )
         .accessibilityAddTraits(isRevealed ? .isSelected : [])
-        .accessibilityIdentifier("\(accessibilityIdentifier).reveal")
+        .accessibilityIdentifier("\(accessibilityIdentifier).visibility")
       }
     }
     .onChange(of: controlIsFocused) { _, value in
@@ -251,6 +275,10 @@ struct RentivoSecureFormField: View {
     .onChange(of: isAccessibilityFocused?.wrappedValue ?? false) { _, value in
       if controlIsAccessibilityFocused != value { controlIsAccessibilityFocused = value }
     }
+    .onChange(of: scenePhase) { _, phase in
+      if phase != .active { isRevealed = false }
+    }
+    .onDisappear { isRevealed = false }
   }
 
   private var state: RentivoFormFieldState {
@@ -261,12 +289,7 @@ struct RentivoSecureFormField: View {
 
   private var revealLabel: String {
     let action = isRevealed ? "Ocultar" : "Mostrar"
-    switch label {
-    case "Senha atual": return "\(action) senha atual"
-    case "Nova senha": return "\(action) nova senha"
-    case "Confirmar nova senha": return "\(action) confirmação da senha"
-    default: return "\(action) \(label.lowercased())"
-    }
+    return "\(action) \(visibilityAccessibilityName)"
   }
 }
 
@@ -321,7 +344,14 @@ private struct RentivoFormFieldPreviewContainer: View {
           isFocused: true
         ) { TextField("", text: $text) }
         RentivoTextFormField(label: "Multiline", text: $text, axis: .vertical, accessibilityIdentifier: "preview.multiline")
-        RentivoSecureFormField(label: "Senha atual", text: $password, isRevealed: $revealed, textContentType: .password, accessibilityIdentifier: "preview.secure")
+        RentivoSecureFormField(
+          label: "Senha atual",
+          text: $password,
+          isRevealed: $revealed,
+          textContentType: .password,
+          accessibilityIdentifier: "preview.secure",
+          visibilityAccessibilityName: "senha atual"
+        )
         RentivoTextFormField(label: "Desabilitado", text: $text, accessibilityIdentifier: "preview.disabled").disabled(true)
       }
       .padding()

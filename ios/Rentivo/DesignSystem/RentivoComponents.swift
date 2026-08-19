@@ -24,7 +24,8 @@ struct RentivoCard<Content: View>: View {
 }
 
 struct RentivoButtonStyle: ButtonStyle {
-  var color = RentivoColors.emerald
+  var color = RentivoColors.primaryAction
+  var isBusy = false
   @Environment(\.isEnabled) private var isEnabled
 
   /// Buttons render as a solid, saturated fill with a white label. The style is used only with
@@ -32,29 +33,72 @@ struct RentivoButtonStyle: ButtonStyle {
   /// >=4.5:1; `color` is a mutable var, so passing a light token such as `paper` or `surface`
   /// here would break that contrast — nothing in this type enforces it.
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .tint(.white)
+      }
+      configuration.label
+    }
       .font(.headline.weight(.bold))
-      .foregroundStyle(Color.white)
+      .foregroundStyle(isUnavailable ? RentivoColors.disabledControlForeground : Color.white)
       .frame(maxWidth: .infinity, minHeight: 48)
       .padding(.horizontal, RentivoSpacing.medium)
-      .background(configuration.isPressed ? color.opacity(0.75) : color)
+      .background(backgroundColor(configuration: configuration))
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(RentivoColors.ink, lineWidth: 2)
+          .stroke(
+            isUnavailable ? RentivoColors.disabledControlForeground : RentivoColors.ink,
+            lineWidth: 2
+          )
       }
       .shadow(
-        color: configuration.isPressed ? .clear : RentivoColors.ink,
+        color: removesShadow(configuration: configuration) ? .clear : RentivoColors.ink,
         radius: 0,
         x: 3,
         y: 3
       )
-      .offset(x: configuration.isPressed ? 3 : 0, y: configuration.isPressed ? 3 : 0)
+      .offset(
+        x: isInteractivePress(configuration: configuration) ? 3 : 0,
+        y: isInteractivePress(configuration: configuration) ? 3 : 0
+      )
       .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-      // Match the system's disabled affordance: plain-style siblings (e.g. "Abrir recibo") dim
-      // automatically, but a custom ButtonStyle must read `isEnabled` itself.
-      .opacity(isEnabled ? 1 : 0.45)
-      .saturation(isEnabled ? 1 : 0.6)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
+  }
+
+  private func removesShadow(configuration: Configuration) -> Bool {
+    isUnavailable || isInteractivePress(configuration: configuration)
+  }
+
+  private func backgroundColor(configuration: Configuration) -> Color {
+    if isUnavailable { return RentivoColors.disabledControlFill }
+    return isInteractivePress(configuration: configuration) ? color.opacity(0.75) : color
+  }
+}
+
+private struct RentivoInlineLinkModifier: ViewModifier {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func body(content: Content) -> some View {
+    content
+      .font(.footnote.weight(.bold))
+      .foregroundStyle(isEnabled ? RentivoColors.link : RentivoColors.disabledControlForeground)
+      .underline()
+      .frame(minHeight: 44)
+      .contentShape(Rectangle())
+  }
+}
+
+extension View {
+  func rentivoInlineLink() -> some View {
+    modifier(RentivoInlineLinkModifier())
   }
 }
 
@@ -299,12 +343,24 @@ struct NoticeBanner: View {
   .rentivoPage()
 }
 
-#Preview("RentivoButtonStyle") {
-  VStack(spacing: RentivoSpacing.medium) {
-    Button("Salvar cobrança") {}
-      .buttonStyle(RentivoButtonStyle())
-    Button("Ver detalhes") {}
-      .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+#Preview("RentivoButtonStyle states") {
+  VStack(spacing: RentivoSpacing.large) {
+    ForEach([RentivoColors.paper, RentivoColors.surface], id: \.self) { background in
+      VStack(spacing: RentivoSpacing.medium) {
+        Button("Ação disponível") {}
+          .buttonStyle(RentivoButtonStyle())
+        Button("Ação indisponível") {}
+          .buttonStyle(RentivoButtonStyle())
+          .disabled(true)
+        Button("Ação em andamento") {}
+          .buttonStyle(RentivoButtonStyle(isBusy: true))
+          .disabled(true)
+        Button("Ação azul") {}
+          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+      }
+      .padding()
+      .background(background)
+    }
   }
   .padding()
   .rentivoPage()
