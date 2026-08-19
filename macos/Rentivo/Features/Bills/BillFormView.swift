@@ -113,7 +113,9 @@ struct BillFormView: View {
           ForEach(1...12, id: \.self) { Text(BillReferenceMonthNames.label(year: year, month: $0)).tag($0) }
         }
         .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
-        Stepper("Ano: \(year)", value: $year, in: 2024...2035)
+        Stepper(value: $year, in: 2024...2035) {
+          Text(verbatim: "Ano: \(BrazilianLocaleFormatting.year(year))")
+        }
           .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
         if bill != nil {
           Text("A competência não pode ser alterada depois que a fatura é criada.")

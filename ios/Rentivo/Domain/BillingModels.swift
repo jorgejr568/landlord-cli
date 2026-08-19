@@ -372,7 +372,7 @@ public struct BillingDraft: Hashable, Sendable {
         issues.append(
           ValidationIssue(
             field: .pix,
-            message: "Esta chave não corresponde ao tipo selecionado."
+            message: "Informe uma chave PIX válida."
           )
         )
       }

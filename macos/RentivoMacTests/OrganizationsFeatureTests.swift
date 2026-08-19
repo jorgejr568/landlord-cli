@@ -59,6 +59,23 @@ struct OrganizationFormValidationTests {
       ) == "O nome do recebedor deve ter até 25 caracteres."
     )
   }
+
+  @Test("an untouched unclassified legacy key survives an organization rename")
+  func untouchedLegacyKeyIsPreserved() throws {
+    let editor = MacOSPixKeyEditor(persistedKey: "chave-legada")
+
+    let result = OrganizationFormValidation.pixResult(
+      editor: editor, merchantName: " LOCADOR ", city: " RECIFE "
+    )
+
+    guard case .custom(let configuration) = result else {
+      Issue.record("Expected the untouched persisted PIX configuration to remain custom")
+      return
+    }
+    #expect(configuration.key == "chave-legada")
+    #expect(configuration.merchantName == "LOCADOR")
+    #expect(configuration.merchantCity == "RECIFE")
+  }
 }
 
 @Suite("macOS organization billing index")

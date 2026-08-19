@@ -144,6 +144,34 @@ struct BillingPixOverrideTests {
     #expect(configuration.merchantCity == "SAO PAULO")
     #expect(configuration.isComplete)
   }
+
+  @Test("an untouched unclassified legacy key does not block unrelated billing edits")
+  func untouchedLegacyKeyIsPreserved() throws {
+    let editor = MacOSPixKeyEditor(persistedKey: "chave-legada")
+
+    let resolution = BillingPixOverride.resolve(
+      editor: editor, merchantName: " Ana Souza ", merchantCity: " SAO PAULO "
+    )
+
+    let configuration = try #require(resolution.configuration)
+    #expect(resolution.message == nil)
+    #expect(configuration.key == "chave-legada")
+    #expect(configuration.merchantName == "Ana Souza")
+    #expect(configuration.merchantCity == "SAO PAULO")
+  }
+
+  @Test("editing an unclassified legacy key turns typed validation back on")
+  func editingLegacyKeyReenablesTypedValidation() {
+    var editor = MacOSPixKeyEditor(persistedKey: "chave-legada")
+
+    editor.updateKey("outra-chave-legada")
+    let resolution = BillingPixOverride.resolve(
+      editor: editor, merchantName: "Ana Souza", merchantCity: "SAO PAULO"
+    )
+
+    #expect(resolution.configuration == nil)
+    #expect(resolution.message == PixKeyType.random.invalidMessage)
+  }
 }
 
 @Suite("Cobrança form editable rows")

@@ -65,6 +65,38 @@ import Testing
   )
 }
 
+@Test func untypedPIXValidationDoesNotReferToASelector() {
+  let expectedMessage = "Informe uma chave PIX válida."
+  #expect(
+    PixFormRules.result(
+      key: "chave-legada", merchantName: "Locador", merchantCity: "RECIFE"
+    ) == .invalid(expectedMessage)
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "chave-legada", merchantName: "Locador", city: "RECIFE"
+    ) == expectedMessage
+  )
+
+  let item = BillingItem(
+    id: BillingItemID(rawValue: "item-1"),
+    description: "Aluguel",
+    amount: Money(centavos: 100_000),
+    type: .fixed,
+    sortOrder: 0
+  )
+  let draft = BillingDraft(
+    name: "Apartamento",
+    description: "",
+    owner: .user(id: 7, name: "Pessoal"),
+    items: [item],
+    pixOverride: PixConfiguration(
+      key: "chave-legada", merchantName: "Locador", merchantCity: "RECIFE"
+    )
+  )
+  #expect(draft.validate().first { $0.field == .pix }?.message == expectedMessage)
+}
+
 @Test func communicationFormRulesCountUserPerceivedCharacters() {
   for content in [
     String(repeating: "a", count: 4_096),

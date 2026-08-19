@@ -20,6 +20,12 @@ enum OrganizationFormValidation {
       key: key, merchantName: merchantName, city: city
     )
   }
+
+  static func pixResult(
+    editor: MacOSPixKeyEditor, merchantName: String, city: String
+  ) -> PixFormResult {
+    editor.result(merchantName: merchantName, merchantCity: city)
+  }
 }
 
 /// Indexes an account's cobranças by the workspace that owns them.
@@ -244,7 +250,7 @@ struct OrganizationFormView: View {
   let organization: Organization?
   let onSaved: () async -> Void
   @State private var name: String
-  @State private var pixKey: String
+  @State private var pixEditor: MacOSPixKeyEditor
   @State private var merchantName: String
   @State private var city: String
   @State private var usesCustomPix: Bool
@@ -258,16 +264,16 @@ struct OrganizationFormView: View {
     self.organization = organization
     self.onSaved = onSaved
     let name = organization?.name ?? ""
-    let pixKey = organization?.pix?.key ?? ""
+    let pixEditor = MacOSPixKeyEditor(persistedKey: organization?.pix?.key ?? "")
     let merchantName = organization?.pix?.merchantName ?? ""
     let city = organization?.pix?.merchantCity ?? ""
     let usesCustomPix = organization?.pix != nil
     initialDraftState = NativeOrganizationDraftState(
-      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      name: name, pixKey: pixEditor.key, merchantName: merchantName, city: city,
       usesCustomPix: usesCustomPix
     )
     _name = State(initialValue: name)
-    _pixKey = State(initialValue: pixKey)
+    _pixEditor = State(initialValue: pixEditor)
     _merchantName = State(initialValue: merchantName)
     _city = State(initialValue: city)
     _usesCustomPix = State(initialValue: usesCustomPix)
@@ -284,7 +290,15 @@ struct OrganizationFormView: View {
       RentivoSection("PIX") {
         Toggle("Usar PIX da organização", isOn: $usesCustomPix)
         if usesCustomPix {
-          TextField("Chave", text: $pixKey)
+          Picker("Tipo de chave", selection: pixKeyTypeBinding) {
+            ForEach(PixKeyType.allCases, id: \.self) { type in
+              Text(type.label).tag(type)
+            }
+          }
+          .accessibilityIdentifier("organization.form.pix.key-type")
+          TextField("Chave", text: pixKeyBinding)
+            .autocorrectionDisabled()
+            .accessibilityIdentifier("organization.form.pix.key")
           TextField("Nome do recebedor", text: $merchantName)
           TextField("Cidade", text: $city)
         } else {
@@ -335,7 +349,7 @@ struct OrganizationFormView: View {
 
   private var hasUnsavedChanges: Bool {
     NativeOrganizationDraftState(
-      name: name, pixKey: pixKey, merchantName: merchantName, city: city,
+      name: name, pixKey: pixEditor.key, merchantName: merchantName, city: city,
       usesCustomPix: usesCustomPix
     ).hasChanges(from: initialDraftState)
   }
@@ -345,7 +359,9 @@ struct OrganizationFormView: View {
     // two organizations.
     guard !saving else { return }
     let result = usesCustomPix
-      ? PixFormRules.result(key: pixKey, merchantName: merchantName, merchantCity: city)
+      ? OrganizationFormValidation.pixResult(
+        editor: pixEditor, merchantName: merchantName, city: city
+      )
       : .inherit
     let pix: PixConfiguration?
     switch result {
@@ -363,7 +379,7 @@ struct OrganizationFormView: View {
     let draft = OrganizationDraft(
       name: name.trimmingCharacters(in: .whitespacesAndNewlines), pix: pix
     )
-    guard draft.isValid else {
+    guard OrganizationDraft.nameValidationMessage(draft.name) == nil else {
       submitFailureMessage = OrganizationDraft.nameValidationMessage(name)
       return
     }
@@ -387,6 +403,20 @@ struct OrganizationFormView: View {
       // Salvar doing nothing at all. Keep it inline, where the user is looking.
       submitFailureMessage = DemoError(error).message
     }
+  }
+
+  private var pixKeyBinding: Binding<String> {
+    Binding(
+      get: { pixEditor.key },
+      set: { pixEditor.updateKey($0) }
+    )
+  }
+
+  private var pixKeyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { pixEditor.keyType },
+      set: { pixEditor.selectType($0) }
+    )
   }
 }
 

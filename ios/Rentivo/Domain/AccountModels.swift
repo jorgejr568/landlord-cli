@@ -177,7 +177,7 @@ public struct OrganizationDraft: Hashable, Sendable {
     let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
     if normalizedKey.isEmpty { return nil }
     guard let type = PixKeyInput.inferType(from: normalizedKey) else {
-      return "Esta chave não corresponde ao tipo selecionado."
+      return "Informe uma chave PIX válida."
     }
     if case .invalid(let message) = PixFormRules.result(
       type: type,
