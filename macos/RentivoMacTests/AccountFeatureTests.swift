@@ -27,11 +27,12 @@ struct AccountProfilePIXTests {
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
-  @Test("an empty or complete PIX form is savable, but a partial one is not")
+  @Test("only a complete, type-confirmed PIX form is savable")
   func pixFormSavabilityMatchesTheServerContract() {
     var form = ProfilePIXForm()
-    #expect(form.isSavable)
+    #expect(form.isSavable == false)
     #expect(form.configuration == nil)
+    form.keyType = .email
     form.key = "jorge@example.com"
     #expect(form.isSavable == false)
     #expect(form.configuration == nil)

@@ -164,17 +164,17 @@ public struct OrganizationDraft: Hashable, Sendable {
     key: String, merchantName: String, city: String
   ) -> String? {
     let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
     if normalizedKey.isEmpty { return nil }
-    if normalizedName.isEmpty || normalizedCity.isEmpty {
-      return "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+    guard let type = PixKeyInput.inferType(from: normalizedKey) else {
+      return "Esta chave não corresponde ao tipo selecionado."
     }
-    if normalizedName.unicodeScalars.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
-    }
-    if normalizedCity.unicodeScalars.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
+    if case .invalid(let message) = PixFormRules.result(
+      type: type,
+      key: normalizedKey,
+      merchantName: merchantName,
+      merchantCity: city
+    ) {
+      return message
     }
     return nil
   }

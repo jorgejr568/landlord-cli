@@ -211,28 +211,42 @@ private struct ExpenseFormView: View {
       switch step {
       case .details:
         RentivoWizardSection("Detalhes") {
-          TextField("Descrição", text: $description)
+          RentivoTextFormField(
+            label: "Descrição",
+            text: $description,
+            errorMessage: selectedStep == .details ? submitErrorMessage : nil,
+            accessibilityIdentifier: "expense.form.description"
+          )
             .textInputAutocapitalization(.sentences)
             .focused($focusedField, equals: .description)
             .accessibilityFocused($accessibilityFocusedField, equals: .description)
-          Picker("Categoria", selection: $category) {
-            ForEach(ExpenseCategory.allCases, id: \.self) { category in
-              Text(category.label).tag(category)
+          RentivoFormField(label: "Categoria") {
+            Picker("", selection: $category) {
+              ForEach(ExpenseCategory.allCases, id: \.self) { category in
+                Text(category.label).tag(category)
+              }
             }
+            .labelsHidden()
+            .accessibilityLabel("Categoria")
+            .accessibilityIdentifier("expense.form.category")
           }
-          .pickerStyle(.menu)
-          validationError
         }
       case .valueAndDate:
         RentivoWizardSection("Valor e data") {
-          CurrencyCentavosField(
-            "Valor em centavos",
-            centavos: $centavos,
+          RentivoCurrencyField(
+            label: "Valor",
+            amountInCents: $centavos,
+            errorMessage: selectedStep == .valueAndDate ? submitErrorMessage : nil,
             isFocused: amountFocusBinding,
-            isAccessibilityFocused: accessibilityAmountFocusBinding
+            isAccessibilityFocused: accessibilityAmountFocusBinding,
+            accessibilityIdentifier: "expense.form.amount"
           )
-          DatePicker("Data", selection: $incurredOn, displayedComponents: .date)
-          validationError
+          RentivoFormField(label: "Data") {
+            DatePicker("", selection: $incurredOn, displayedComponents: .date)
+              .labelsHidden()
+              .accessibilityLabel("Data")
+              .accessibilityIdentifier("expense.form.date")
+          }
         }
       case .review:
         RentivoWizardSection("Resumo") {
@@ -245,6 +259,18 @@ private struct ExpenseFormView: View {
       }
     }
     .interactiveDismissDisabled(saving || isDirty)
+    .onChange(of: description) {
+      if selectedStep == .details, submitErrorMessage != nil,
+        ExpenseInput.isValidDescription(description)
+      {
+        submitErrorMessage = nil
+      }
+    }
+    .onChange(of: centavos) {
+      if selectedStep == .valueAndDate, submitErrorMessage != nil, centavos > 0 {
+        submitErrorMessage = nil
+      }
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<ExpenseWizardStep>] {
@@ -552,6 +578,7 @@ struct CommunicationComposerView: View {
   /// The composer is presented in a sheet and the global notice banner renders behind it, so the
   /// message has to stay inline.
   @State private var sendErrorMessage: String?
+  @State private var hasValidatedMessage = false
   @State private var appliedTemplateType: CommunicationType
   @FocusState private var focusedField: CommunicationComposerFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: CommunicationComposerFocus?
@@ -643,12 +670,16 @@ struct CommunicationComposerView: View {
   private var channelStep: some View {
     RentivoWizardSection("Canal") {
       if availableTypes.count > 1 {
-        Picker("Tipo", selection: $commType) {
-          ForEach(availableTypes, id: \.self) { type in
-            Text(type.label).tag(type)
+        RentivoFormField(label: "Tipo") {
+          Picker("", selection: $commType) {
+            ForEach(availableTypes, id: \.self) { type in
+              Text(type.label).tag(type)
+            }
           }
+          .labelsHidden()
+          .accessibilityLabel("Tipo")
+          .accessibilityIdentifier("comm.type")
         }
-        .pickerStyle(.segmented)
       } else if let type = availableTypes.first {
         RentivoWizardReviewRow(label: "Tipo", value: type.label)
       } else {
@@ -690,13 +721,23 @@ struct CommunicationComposerView: View {
       "Mensagem",
       subtitle: "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}."
     ) {
-      TextField("Assunto", text: $subject)
-        .accessibilityIdentifier("comm.subject")
+      RentivoTextFormField(
+        label: "Assunto",
+        text: $subject,
+        errorMessage: messageFieldError(.subject),
+        accessibilityIdentifier: "comm.subject"
+      )
         .focused($focusedField, equals: .subject)
         .accessibilityFocused($accessibilityFocusedField, equals: .subject)
-      TextField("Corpo (Markdown — HTML não é permitido)", text: $message, axis: .vertical)
+      RentivoTextFormField(
+        label: "Corpo",
+        text: $message,
+        prompt: "Markdown — HTML não é permitido",
+        axis: .vertical,
+        errorMessage: messageFieldError(.body),
+        accessibilityIdentifier: "comm.body"
+      )
         .lineLimit(5...12)
-        .accessibilityIdentifier("comm.body")
         .focused($focusedField, equals: .message)
         .accessibilityFocused($accessibilityFocusedField, equals: .message)
       Text(
@@ -704,11 +745,6 @@ struct CommunicationComposerView: View {
       )
       .font(.footnote.monospacedDigit())
       .foregroundStyle(RentivoColors.secondaryInk)
-      ForEach(formIssues, id: \.self) { issue in
-        Label(issue.message, systemImage: "exclamationmark.circle.fill")
-          .font(.footnote)
-          .foregroundStyle(RentivoColors.coral)
-      }
       inlineError
     }
   }
@@ -718,14 +754,18 @@ struct CommunicationComposerView: View {
       "Modelo",
       subtitle: "O modelo salvo preenche automaticamente as próximas comunicações."
     ) {
-      Picker("Salvar modelo", selection: $saveScope) {
-        Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
-        Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
-        if billing.capabilities.canEdit {
-          Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
+      RentivoFormField(label: "Salvar modelo") {
+        Picker("", selection: $saveScope) {
+          Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
+          Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
+          if billing.capabilities.canEdit {
+            Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
+          }
         }
+        .labelsHidden()
+        .accessibilityLabel("Salvar modelo")
+        .accessibilityIdentifier("comm.save-template")
       }
-      .pickerStyle(.menu)
       inlineError
     }
   }
@@ -770,8 +810,8 @@ struct CommunicationComposerView: View {
         return false
       }
     case .message:
+      hasValidatedMessage = true
       if let issue = formIssues.first {
-        sendErrorMessage = issue.message
         scheduleFocus(issue.field == .subject ? .subject : .message)
         return false
       }
@@ -786,6 +826,11 @@ struct CommunicationComposerView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+
+  private func messageFieldError(_ field: ValidationField) -> String? {
+    guard hasValidatedMessage else { return nil }
+    return formIssues.first(where: { $0.field == field })?.message
   }
 
   private var isDirty: Bool {
@@ -830,8 +875,16 @@ struct CommunicationComposerView: View {
       sendErrorMessage = "Selecione ao menos um destinatário."
       return
     }
-    guard formIssues.isEmpty, bill.capabilities.canCompose, availableTypes.contains(commType) else {
-      sendErrorMessage = formIssues.first?.message ?? "Esta comunicação não está disponível agora."
+    guard formIssues.isEmpty else {
+      hasValidatedMessage = true
+      selectedStep = .message
+      if let issue = formIssues.first {
+        scheduleFocus(issue.field == .subject ? .subject : .message)
+      }
+      return
+    }
+    guard bill.capabilities.canCompose, availableTypes.contains(commType) else {
+      sendErrorMessage = "Esta comunicação não está disponível agora."
       return
     }
     let normalizedSubject = CommunicationContent.normalizedSubject(subject)

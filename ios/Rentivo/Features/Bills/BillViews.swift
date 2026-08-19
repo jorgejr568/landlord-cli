@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-private struct EditableBillLine: Identifiable {
+private struct EditableBillLine: Identifiable, Equatable {
   let id: BillLineItemID
   var description: String
   var centavos: Int
@@ -101,6 +101,7 @@ struct BillFormView: View {
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
+  @State private var hasValidatedItems = false
   @State private var saving = false
   @FocusState private var focusedField: BillFormFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: BillFormFocus?
@@ -159,12 +160,21 @@ struct BillFormView: View {
       switch step {
       case .competence:
         RentivoWizardSection("Competência") {
-          Picker("Mês", selection: $month) {
-            ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+          RentivoFormField(label: "Mês") {
+            Picker("", selection: $month) {
+              ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+            }
+            .labelsHidden()
+            .accessibilityLabel("Mês")
+            .accessibilityIdentifier("bill.form.month")
           }
-          .pickerStyle(.menu)
           .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
-          Stepper("Ano: \(year)", value: $year, in: 2024...2035)
+          RentivoFormField(label: "Ano") {
+            Stepper(value: $year, in: 2024...2035) { Text("\(year)") }
+              .accessibilityLabel("Ano")
+              .accessibilityValue("\(year)")
+              .accessibilityIdentifier("bill.form.year")
+          }
             .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
           if bill != nil {
             Text("A competência não pode ser alterada depois que a fatura é criada.")
@@ -181,15 +191,25 @@ struct BillFormView: View {
           Toggle("Definir vencimento", isOn: $hasDueDate)
             .accessibilityIdentifier("bill.form.hasDueDate")
           if hasDueDate {
-            DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
-              .accessibilityIdentifier("bill.form.dueDate")
+            RentivoFormField(label: "Data de vencimento") {
+              DatePicker("", selection: dueDateBinding, displayedComponents: .date)
+                .labelsHidden()
+                .accessibilityLabel("Data de vencimento")
+                .accessibilityIdentifier("bill.form.dueDate")
+            }
           }
         }
       case .items:
         itemsStep
       case .notes:
         RentivoWizardSection("Observações", subtitle: "Opcional") {
-          TextField("Mensagem opcional", text: $notes, axis: .vertical)
+          RentivoTextFormField(
+            label: "Observações",
+            text: $notes,
+            prompt: "Mensagem opcional",
+            axis: .vertical,
+            accessibilityIdentifier: "bill.form.notes"
+          )
             .lineLimit(3...6)
         }
       case .review:
@@ -197,6 +217,9 @@ struct BillFormView: View {
       }
     }
     .interactiveDismissDisabled(saving || isDirty)
+    .onChange(of: draft) {
+      if hasValidatedItems { issues = draft.validate() }
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<BillWizardStep>] {
@@ -230,7 +253,7 @@ struct BillFormView: View {
           }
         }
       }
-      if !issues.isEmpty {
+      if !aggregateIssues.isEmpty {
         validationIssues
       }
     }
@@ -250,7 +273,7 @@ struct BillFormView: View {
           RentivoWizardReviewRow(label: "Observações", value: notes)
         }
       }
-      if !issues.isEmpty || submitErrorMessage != nil {
+      if !aggregateIssues.isEmpty || submitErrorMessage != nil {
         validationIssues
       }
     }
@@ -258,7 +281,7 @@ struct BillFormView: View {
 
   private var validationIssues: some View {
     RentivoWizardSection("Revise a fatura") {
-      ForEach(issues, id: \.self) { issue in
+      ForEach(aggregateIssues, id: \.self) { issue in
         Label(issue.message, systemImage: "exclamationmark.circle.fill")
           .foregroundStyle(RentivoColors.coral)
       }
@@ -306,18 +329,25 @@ struct BillFormView: View {
       if bill == nil, lines[index].kind != .extra {
         LabeledContent("Descrição", value: lines[index].description)
       } else {
-        TextField("Descrição", text: $lines[index].description)
+        RentivoTextFormField(
+          label: "Descrição",
+          text: $lines[index].description,
+          errorMessage: lineDescriptionError(at: index),
+          accessibilityIdentifier: "bill.form.line.\(lines[index].id.rawValue).description"
+        )
           .focused($focusedField, equals: .lineDescription(lines[index].id))
           .accessibilityFocused($accessibilityFocusedField, equals: .lineDescription(lines[index].id))
       }
       if bill == nil, lines[index].kind == .fixed {
         LabeledContent("Valor", value: Money(centavos: lines[index].centavos).formatted())
       } else {
-        CurrencyCentavosField(
-          "Valor em centavos",
-          centavos: $lines[index].centavos,
+        RentivoCurrencyField(
+          label: "Valor",
+          amountInCents: $lines[index].centavos,
+          errorMessage: lineAmountError(at: index),
           isFocused: amountFocusBinding(for: lines[index].id),
-          isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id)
+          isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id),
+          accessibilityIdentifier: "bill.form.line.\(lines[index].id.rawValue).amount"
         )
       }
       if canRemove {
@@ -336,6 +366,7 @@ struct BillFormView: View {
   private func validateAndAdvance() -> Bool {
     submitErrorMessage = nil
     guard selectedStep == .items else { return true }
+    hasValidatedItems = true
     issues = draft.validate()
     focusFirstInvalidLine()
     return issues.isEmpty
@@ -347,6 +378,30 @@ struct BillFormView: View {
   private func focusFirstInvalidLine() {
     guard let target = billFormFocusTarget(issues: issues, lines: lines.map(\.domain)) else { return }
     scheduleFocus(target)
+  }
+
+  private var aggregateIssues: [ValidationIssue] {
+    issues.filter { $0.field == .items }
+  }
+
+  private func lineDescriptionError(at index: Int) -> String? {
+    guard lines.indices.contains(index),
+      let issue = issues.first(where: { $0.field == .itemDescription })
+    else { return nil }
+    let firstInvalidIndex = lines.firstIndex { line in
+      let value = line.description.trimmingCharacters(in: .whitespacesAndNewlines)
+      return value.isEmpty || value.unicodeScalars.count > 255
+    }
+    return firstInvalidIndex == index ? issue.message : nil
+  }
+
+  private func lineAmountError(at index: Int) -> String? {
+    guard lines.indices.contains(index),
+      let issue = issues.first(where: { $0.field == .itemAmount }),
+      billFormFocusTarget(issues: [issue], lines: lines.map(\.domain))
+        == .lineAmount(lines[index].id)
+    else { return nil }
+    return issue.message
   }
 
   private func amountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
@@ -400,7 +455,12 @@ struct BillFormView: View {
     guard !saving else { return }
     submitErrorMessage = nil
     issues = draft.validate()
-    guard issues.isEmpty else { return }
+    guard issues.isEmpty else {
+      hasValidatedItems = true
+      selectedStep = .items
+      Task { @MainActor in focusFirstInvalidLine() }
+      return
+    }
     saving = true
     defer { saving = false }
     do {

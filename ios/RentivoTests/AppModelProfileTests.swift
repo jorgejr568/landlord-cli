@@ -17,10 +17,11 @@ import Testing
   #expect(form.configuration == savedPIX)
 }
 
-@Test func profilePIXFormAllowsClearingOrSavingACompleteConfiguration() {
+@Test func profilePIXFormRequiresACompleteConfigurationToSave() {
   var form = ProfilePIXForm()
-  #expect(form.isSavable)
+  #expect(!form.isSavable)
 
+  form.keyType = .email
   form.key = "ana@example.com"
   #expect(!form.isSavable)
   form.merchantName = "ANA"
@@ -33,4 +34,20 @@ import Testing
   form.merchantName = "ANA"
   form.merchantCity = String(repeating: "C", count: 16)
   #expect(!form.isSavable)
+}
+
+@Test func profilePIXFormPreservesAnUnclassifiedLegacyKeyWithoutMakingItSavable() {
+  let profile = UserProfile(
+    id: 7,
+    email: "ana@example.com",
+    pix: PixConfiguration(key: "chave-legada", merchantName: "ANA", merchantCity: "RECIFE")
+  )
+
+  let form = ProfilePIXForm(profile: profile)
+
+  #expect(form.keyType == .random)
+  #expect(form.key == "chave-legada")
+  #expect(form.preservesUnclassifiedLegacyKey)
+  #expect(!form.isSavable)
+  #expect(form.validationMessage == "Esta chave não corresponde ao tipo selecionado.")
 }

@@ -287,9 +287,11 @@ that inherit PIX (see [D1](#d1-create-a-billing)).
    (all three open the system browser). Bottom: destructive **"Sair"** and **"Excluir
    conta"**.
 2. Tap **"Dados e PIX"**. Full-screen wizard, title "Dados e PIX", "Etapa 1 de 3",
-   **"Chave"** — card "Chave PIX pessoal" ("Deixe a chave e os dados do recebedor vazios
-   para remover a configuração atual."), one field **Chave PIX**.
-3. Type a PIX key (e.g. your email, `qa.primary@example.com`). Tap **"Continuar"**.
+   **"Chave"** — card "Chave PIX pessoal" ("Escolha o tipo e informe a chave usada para
+   receber pagamentos."), with **Tipo de chave** and **Chave PIX** fields.
+3. Select **E-mail**, type `qa.primary@example.com`, and tap **"Continuar"**. Repeat the
+   mask/validation check with CPF, CNPJ, Telefone and Aleatória; changing type with a
+   non-empty key must show **"Alterar tipo de chave?"** before clearing it.
 4. Step 2/3, **"Recebedor"** — card "Dados do recebedor" ("Estes dados acompanham a chave
    nas cobranças pessoais.") with **Nome do recebedor** and **Cidade** fields, and a
    second card **"Herança"**: "↝ Cobranças pessoais sem PIX próprio herdam esta
@@ -297,18 +299,17 @@ that inherit PIX (see [D1](#d1-create-a-billing)).
 5. Fill both fields (e.g. `QA Primary` / `Sao Paulo` — note the city field force-uppercases
    as you type, e.g. "São PAULO", which is expected EMV/PIX formatting, not a bug). Tap
    **"Continuar"**.
-6. Step 3/3, **"Revisão"** — card **"Conta"** (E-mail, Ambiente: "Rentivo"), card **"PIX
-   pessoal"** (Chave masked as `••••{last 4 chars}`, Recebedor, Cidade). Commit button
-   reads **"Salvar PIX"** (reads **"Limpar PIX"** instead if every field is empty — see
-   Alternate C1a).
+6. Step 3/3, **"Revisão"** — card **"Conta"** (E-mail only; there is no Ambiente row),
+   card **"PIX pessoal"** (Tipo da chave, masked Chave, Recebedor, Cidade). Tap **"Mostrar
+   chave"** to inspect the normalized key, then **"Ocultar chave"**. Going back and
+   returning to review must hide it again. The commit button reads **"Salvar PIX"**.
 7. Tap **"Salvar PIX"**. `POST /api/v1/security/pix` returns `200`; wizard dismisses,
    banner "PIX pessoal atualizado."
 
-**Alternate C1a — clear PIX.** Leave the Chave field empty from a previously-configured
-account (open the wizard, clear the field, continue through with both later fields also
-empty). The review step's commit button relabels to **"Limpar PIX"**; tapping it sends the
-same endpoint with empty values and shows banner "PIX pessoal removido." — any billing
-that was inheriting this PIX reverts to "PIX pendente".
+**Alternate C1a — remove PIX.** On a previously configured account, tap the destructive
+**"Remover chave"** action on step 1. Confirm **"Remover chave PIX?"** / **"Remover
+chave"**. Removal is sent immediately and shows "PIX pessoal removido." An empty form is
+never treated as removal. The action is absent with no persisted key and in viewer mode.
 
 **Alternate C1b — load failure.** If the initial summary fetch fails (e.g. backend
 unreachable), the Chave step shows an inline error and a **"Tentar novamente"** button
@@ -358,21 +359,18 @@ button reads **"Concluir"**, just dismissing without saving.
 **Given** authenticated.
 
 1. Tap **Conta → Segurança → "Alterar senha"** (`security.password.change`). Full-screen
-   wizard, title "Alterar senha", "Etapa 1 de 3", **"Senha atual"** — one `SecureField`.
-2. Type the current password. Tap **"Continuar"**.
-3. Step 2/3, **"Nova senha"** — **Nova senha** and **Confirmar nova senha** fields.
-4. Type a new password in both (matching). Tap **"Continuar"**.
-5. Step 3/3, **"Revisão"** — a single note: "Sua senha atual e a nova senha foram
-   preenchidas. Por segurança, os valores não são exibidos nesta revisão." Commit button
-   **"Alterar senha"**.
-6. Tap it. `POST /api/v1/security/change-password` returns `204`; banner "Senha alterada
+   screen, title "Alterar senha", with **Senha atual**, **Nova senha** and **Confirmar nova
+   senha** visible together. There is no Etapa label, progress segment, Voltar or Continuar.
+2. Toggle each independent reveal button and confirm its text and focus are preserved.
+3. Type the current password and the same new password in both new-password fields.
+4. Tap the sole fixed CTA **"Alterar senha"**. `POST /api/v1/security/change-password`
+   returns `204`; banner "Senha alterada
    com sucesso." Sign out and back in with the new password to confirm it took effect (see
    [A5](#a5-sign-out)/[A3](#a3-sign-in--success)).
 
 **Alternate C3a — wrong current password / mismatch.** An incorrect current password
-surfaces the server's rejection in an inline error on the review step (section "Não foi
-possível alterar"); mismatched new-password fields keep you on step 2 with "As senhas não
-coincidem." instead of advancing.
+surfaces the server's rejection inline under **"Não foi possível alterar"**; empty or
+mismatched fields show their own message and focus the first invalid field.
 
 ### C4. Two-factor (TOTP) setup
 
@@ -424,22 +422,22 @@ for how to reproduce this from the organization side.
    "Crie uma chave de API para conectar integrações externas com escopos e acessos
    controlados." + action **"Criar chave"**; otherwise use the toolbar **"+"**
    (`api-key.create`).
-2. Full-screen wizard, "Etapa 1 de 5", **"Identificação"** — one **Nome** field.
+2. Full-screen wizard, "Etapa 1 de 4", **"Identificação"** — one **Nome** field.
 3. Type a name (e.g. `Sim test key`). Tap **"Continuar"**.
-4. Step 2/5, **"Escopos"** — a toggle per available scope (loads async; a **"Nenhum escopo
+4. Step 2/4, **"Escopos e validade"** — **"Escopos seguros"** contains a toggle per
+   available scope (loads async; a **"Nenhum escopo
    de integração está disponível."** message + retry appears if the fetch fails or returns
-   empty). Turn on at least one, e.g. **"Ler cobranças"**.
-5. Step 3/5, **"Acessos"** — a toggle per workspace (Pessoal + each organization you belong
+   empty). Turn on at least one, e.g. **"Ler cobranças"**. The **"Validade da chave"**
+   section below contains the **"Expira em"** date picker; editing shows it read-only.
+5. Step 3/4, **"Acessos"** — a toggle per workspace (Pessoal + each organization you belong
    to). Turn on **Pessoal**.
-6. Step 4/5, **"Expiração"** — a date picker **"Expira em"** (defaults ~90 days out;
-   editing an existing key shows this read-only instead, since expiration can't change).
-7. Step 5/5, **"Revisão"** — Nome, Escopos (count), Acessos (count), Expira em. Commit
+6. Step 4/4, **"Revisão"** — Nome, Escopos (count), Acessos (count), Expira em. Commit
    **"Criar chave"**.
-8. Tap it. `POST /api/v1/api-keys` returns `201`; a **Segredo da chave** sheet appears:
+7. Tap it. `POST /api/v1/api-keys` returns `201`; a **Segredo da chave** sheet appears:
    "Copie agora — Este segredo não será exibido novamente.", the secret (monospaced,
    selectable), **"Copiar segredo"**, Share button, **"Já copiei"** to dismiss — this is
    the only time the app ever shows the full secret.
-9. Back on the list, the new key's card shows its name, a `hint` (partial secret, e.g.
+8. Back on the list, the new key's card shows its name, a `hint` (partial secret, e.g.
    `rntv-v1-abcd••••ef`), the chosen scopes, dates, and access count, plus **"Editar"** /
    **"Revogar"** buttons.
 
@@ -449,8 +447,8 @@ imediatamente. Esta ação não pode ser desfeita." Buttons **"Revogar chave"** 
 / **"Cancelar"**. Confirming calls `DELETE /api/v1/api-keys/{id}` (`204`); banner "Chave
 revogada." and the card shows a "Revogada" badge, both action buttons gone.
 
-**Alternate C5b — edit.** Tap **"Editar"** on a key. Same wizard, minus the expiration
-step's editable date (read-only instead); scopes/access can change. Commit label "Salvar
+**Alternate C5b — edit.** Tap **"Editar"** on a key. Same four-step wizard; expiration is
+read-only in step 2, while scopes/access can change. Commit label "Salvar
 chave"; `PATCH /api/v1/api-keys/{id}`.
 
 ### C6. Account deletion
@@ -530,9 +528,9 @@ below the card, e.g. "Informe o nome da cobrança." or "Adicione ao menos um ite
 recorrente." — fix the field(s) named and retry.
 
 **Alternate D1b — custom PIX.** At step 3, toggle **"Usar PIX personalizado"** on. Three
-fields appear: **Chave PIX própria**, **Nome do recebedor**, **Cidade do recebedor**
-(limits: 25 / 15 characters respectively — exceeding them surfaces "O recebedor PIX aceita
-25 caracteres no nome e 15 na cidade." in the validation panel). A billing with its own
+fields plus the selector appear: **Tipo de chave**, **Chave PIX própria**, **Nome do
+recebedor**, **Cidade do recebedor**. Masks and messages match C1, and the review includes
+the type plus a masked/revealable key. A billing with its own
 complete PIX shows "PIX próprio" everywhere instead of "PIX pendente"/"PIX herdado", and
 can generate bills immediately regardless of the owner's personal PIX state.
 
@@ -889,8 +887,8 @@ rows depending on your permissions: **"Despesas"**, **"Arquivos"**, **"Exportar 
 2. Tap toolbar **"Adicionar"**. Full-screen wizard, "Etapa 1 de 3", **"Detalhes"** — a
    **Descrição** field and a **Categoria** menu (**IPTU**, **Condomínio**, **Manutenção**,
    **Seguro**, **Outros**). Fill both, tap **"Continuar"**.
-3. Step 2/3, **"Valor e data"** — a currency field and a **Data** picker. Fill, tap
-   **"Continuar"**.
+3. Step 2/3, **"Valor e data"** — **Valor** and **Data** fields. Type `1000` and confirm
+   the value displays **R$ 10,00** while editing, then tap **"Continuar"**.
 4. Step 3/3, **"Revisar despesa"** — card **"Resumo"**: Descrição, Categoria, Valor, Data.
    Commit **"Salvar despesa"**.
 5. Tap it. `POST .../expenses` returns `201`; wizard dismisses, new row appears in the
@@ -977,8 +975,8 @@ invitations.
    **"1 membro"**, **"0 cobranças"**, **"MFA opcional"**.
 
 **Alternate H1a — organization PIX.** At step 2, toggling **"Usar PIX da organização"** on
-reveals the same three PIX fields as the billing wizard (Chave/Nome do recebedor/Cidade),
-same validation rules.
+reveals the same four PIX fields as the billing wizard (Tipo de chave/Chave/Nome do
+recebedor/Cidade), with the same masks, validation and masked/revealable review.
 
 ### H2. Organization detail
 

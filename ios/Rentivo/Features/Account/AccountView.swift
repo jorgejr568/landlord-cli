@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct AccountView: View {
   @Environment(AppModel.self) private var app
@@ -209,12 +210,18 @@ struct ProfilePixView: View {
   @State private var form = ProfilePIXForm()
   @State private var loadedForm: ProfilePIXForm?
   @State private var step: Step = .key
-  @State private var validationMessage: String?
+  @State private var keyValidationMessage: String?
+  @State private var merchantNameValidationMessage: String?
+  @State private var cityValidationMessage: String?
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var profileLoaded = false
   @State private var profileLoadErrorMessage: String?
   @State private var draftRevision = 0
+  @State private var isKeyRevealed = false
+  @State private var pendingKeyType: PixKeyType?
+  @State private var confirmingKeyTypeChange = false
+  @State private var confirmingRemoval = false
   @FocusState private var focusedField: Field?
   @AccessibilityFocusState private var accessibilityFocusedField: Field?
 
@@ -243,6 +250,27 @@ struct ProfilePixView: View {
     .interactiveDismissDisabled(isDirty || saving)
     .task { await loadProfile() }
     .onChange(of: form) { draftRevision &+= 1 }
+    .onChange(of: step) { _, _ in isKeyRevealed = false }
+    .confirmationDialog(
+      "Alterar tipo de chave?",
+      isPresented: $confirmingKeyTypeChange,
+      titleVisibility: .visible
+    ) {
+      Button("Alterar e apagar", role: .destructive) { applyPendingKeyType() }
+      Button("Cancelar", role: .cancel) { pendingKeyType = nil }
+    } message: {
+      Text("A chave digitada será apagada para evitar que seja interpretada no formato errado.")
+    }
+    .confirmationDialog(
+      "Remover chave PIX?",
+      isPresented: $confirmingRemoval,
+      titleVisibility: .visible
+    ) {
+      Button("Remover chave", role: .destructive) { Task { await removePix() } }
+      Button("Cancelar", role: .cancel) {}
+    } message: {
+      Text("As cobranças pessoais que herdam esta configuração ficarão sem PIX até que outra chave seja cadastrada.")
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
@@ -260,7 +288,7 @@ struct ProfilePixView: View {
   private var finalActionTitle: String {
     guard profileLoaded else { return "Carregando perfil…" }
     if isDemoViewerLocked { return "Concluir" }
-    return form.configuration == nil ? "Limpar PIX" : "Salvar PIX"
+    return "Salvar PIX"
   }
 
   @ViewBuilder
@@ -269,14 +297,39 @@ struct ProfilePixView: View {
     case .key:
       RentivoWizardSection(
         "Chave PIX pessoal",
-        subtitle: "Deixe a chave e os dados do recebedor vazios para remover a configuração atual."
+        subtitle: "Escolha o tipo e informe a chave usada para receber pagamentos."
       ) {
-        TextField("Chave PIX", text: $form.key)
+        RentivoFormField(
+          label: "Tipo de chave",
+          state: isDemoViewerLocked || !profileLoaded ? .disabled : .normal
+        ) {
+          Picker("", selection: keyTypeBinding) {
+            ForEach(PixKeyType.allCases, id: \.self) { type in
+              Text(type.label).tag(type)
+            }
+          }
+          .labelsHidden()
+          .accessibilityLabel("Tipo de chave")
+          .accessibilityIdentifier("profile.pix.key-type")
+        }
+        .disabled(isDemoViewerLocked || !profileLoaded)
+        RentivoTextFormField(
+          label: "Chave PIX",
+          text: keyBinding,
+          hint: form.keyType.hint,
+          errorMessage: keyValidationMessage,
+          isFocused: focusBinding(.key),
+          isAccessibilityFocused: accessibilityFocusBinding(.key),
+          accessibilityIdentifier: "profile.pix.key"
+        )
+          .keyboardType(pixKeyboardType)
           .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
           .disabled(isDemoViewerLocked || !profileLoaded)
-          .focused($focusedField, equals: .key)
-          .accessibilityFocused($accessibilityFocusedField, equals: .key)
-          .accessibilityIdentifier("profile.pix.key")
+        if let submitErrorMessage {
+          errorLabel(submitErrorMessage)
+            .accessibilityIdentifier("profile.pix.error")
+        }
         if isDemoViewerLocked { readOnlyNotice }
         if let profileLoadErrorMessage {
           errorLabel(profileLoadErrorMessage)
@@ -284,23 +337,42 @@ struct ProfilePixView: View {
             .accessibilityIdentifier("profile.pix.retry")
         }
       }
+      if hasPersistedPix, !isDemoViewerLocked, profileLoaded, !saving {
+        Button("Remover chave", role: .destructive) { confirmingRemoval = true }
+          .buttonStyle(.bordered)
+          .frame(minHeight: 44)
+          .accessibilityIdentifier("profile.pix.remove")
+      }
     case .recipient:
       RentivoWizardSection(
         "Dados do recebedor",
         subtitle: "Estes dados acompanham a chave nas cobranças pessoais."
       ) {
-        TextField("Nome do recebedor", text: $form.merchantName)
+        RentivoTextFormField(
+          label: "Nome do recebedor",
+          text: $form.merchantName,
+          errorMessage: merchantNameValidationMessage,
+          isFocused: focusBinding(.merchantName),
+          isAccessibilityFocused: accessibilityFocusBinding(.merchantName),
+          accessibilityIdentifier: "profile.pix.merchant-name"
+        )
           .disabled(isDemoViewerLocked || !profileLoaded)
-          .focused($focusedField, equals: .merchantName)
-          .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
-          .accessibilityIdentifier("profile.pix.merchant-name")
-        TextField("Cidade", text: $form.merchantCity)
+          .onChange(of: form.merchantName) {
+            if merchantNameValidationMessage != nil { validateRecipientFields() }
+          }
+        RentivoTextFormField(
+          label: "Cidade",
+          text: $form.merchantCity,
+          errorMessage: cityValidationMessage,
+          isFocused: focusBinding(.city),
+          isAccessibilityFocused: accessibilityFocusBinding(.city),
+          accessibilityIdentifier: "profile.pix.city"
+        )
           .textInputAutocapitalization(.characters)
           .disabled(isDemoViewerLocked || !profileLoaded)
-          .focused($focusedField, equals: .city)
-          .accessibilityFocused($accessibilityFocusedField, equals: .city)
-          .accessibilityIdentifier("profile.pix.city")
-        if let validationMessage { errorLabel(validationMessage) }
+          .onChange(of: form.merchantCity) {
+            if cityValidationMessage != nil { validateRecipientFields() }
+          }
       }
       RentivoWizardSection("Herança") {
         Label(
@@ -312,12 +384,13 @@ struct ProfilePixView: View {
     case .review:
       RentivoWizardSection("Conta") {
         RentivoWizardReviewRow(label: "E-mail", value: app.currentUser.email)
-        RentivoWizardReviewRow(
-          label: "Ambiente", value: app.usesLiveAPI ? "Rentivo" : "Demonstração local"
-        )
       }
       RentivoWizardSection("PIX pessoal") {
-        RentivoWizardReviewRow(label: "Chave", value: maskedKey)
+        RentivoPixKeyReview(
+          input: pixKeyInput,
+          isRevealed: $isKeyRevealed,
+          accessibilityIdentifier: "profile.pix.review.reveal"
+        )
         RentivoWizardReviewRow(
           label: "Recebedor",
           value: form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -345,11 +418,12 @@ struct ProfilePixView: View {
       .foregroundStyle(RentivoColors.secondaryInk)
   }
 
-  private var maskedKey: String {
-    let key = form.key.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !key.isEmpty else { return "Sem chave configurada" }
-    guard key.count > 4 else { return key }
-    return "••••\(key.suffix(4))"
+  private var pixKeyInput: PixKeyInput {
+    PixKeyInput(
+      type: form.keyType,
+      value: form.key,
+      preservesUnclassifiedLegacyValue: form.preservesUnclassifiedLegacyKey
+    )
   }
 
   private func errorLabel(_ message: String) -> some View {
@@ -361,20 +435,25 @@ struct ProfilePixView: View {
 
   private func validateCurrentStep() -> Bool {
     submitErrorMessage = nil
-    guard step == .recipient else { return true }
-    guard form.isSavable else {
-      validationMessage = profilePIXValidationMessage
-      routeToFirstInvalidField()
-      return false
+    if isDemoViewerLocked { return true }
+    switch step {
+    case .key:
+      keyValidationMessage = pixKeyInput.validationMessage
+      if keyValidationMessage != nil { scheduleFocus(.key) }
+      return keyValidationMessage == nil
+    case .recipient:
+      validateRecipientFields()
+      if merchantNameValidationMessage != nil { scheduleFocus(.merchantName); return false }
+      if cityValidationMessage != nil { scheduleFocus(.city); return false }
+      return true
+    case .review:
+      return true
     }
-    validationMessage = nil
-    return true
   }
 
   private func routeToFirstInvalidField() {
-    let key = form.key.trimmingCharacters(in: .whitespacesAndNewlines)
     let name = form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    if key.isEmpty {
+    if pixKeyInput.validationMessage != nil {
       step = .key
       scheduleFocus(.key)
     } else if name.isEmpty || name.unicodeScalars.count > 25 {
@@ -384,10 +463,6 @@ struct ProfilePixView: View {
       step = .recipient
       scheduleFocus(.city)
     }
-  }
-
-  private var profilePIXValidationMessage: String {
-    form.validationMessage ?? "Revise os dados do PIX."
   }
 
   private func commit() {
@@ -431,7 +506,8 @@ struct ProfilePixView: View {
   private func save() async {
     guard !saving else { return }
     guard form.isSavable else {
-      validationMessage = profilePIXValidationMessage
+      keyValidationMessage = pixKeyInput.validationMessage
+      validateRecipientFields()
       routeToFirstInvalidField()
       return
     }
@@ -441,8 +517,100 @@ struct ProfilePixView: View {
     do {
       form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
       loadedForm = form
-      app.showNotice(form.configuration == nil ? "PIX pessoal removido." : "PIX pessoal atualizado.")
+      app.showNotice("PIX pessoal atualizado.")
       dismiss()
     } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private var hasPersistedPix: Bool {
+    !(loadedForm?.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+  }
+
+  private var keyBinding: Binding<String> {
+    Binding(
+      get: { form.key },
+      set: {
+        form.key = PixKeyInput.formatted($0, as: form.keyType)
+        form.preservesUnclassifiedLegacyKey = false
+        if keyValidationMessage != nil { keyValidationMessage = pixKeyInput.validationMessage }
+      }
+    )
+  }
+
+  private var keyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { form.keyType },
+      set: { newType in
+        guard newType != form.keyType else { return }
+        if pixKeyInput.requiresConfirmation(to: newType) {
+          pendingKeyType = newType
+          confirmingKeyTypeChange = true
+        } else {
+          form.keyType = newType
+          form.preservesUnclassifiedLegacyKey = false
+        }
+      }
+    )
+  }
+
+  private var pixKeyboardType: UIKeyboardType {
+    switch form.keyType {
+    case .cpf, .cnpj: .numberPad
+    case .email: .emailAddress
+    case .phone: .phonePad
+    case .random: .asciiCapable
+    }
+  }
+
+  private func applyPendingKeyType() {
+    guard let pendingKeyType else { return }
+    form.keyType = pendingKeyType
+    form.key = ""
+    form.preservesUnclassifiedLegacyKey = false
+    self.pendingKeyType = nil
+    scheduleFocus(.key)
+  }
+
+  private func validateRecipientFields() {
+    let name = form.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let city = form.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    merchantNameValidationMessage = name.isEmpty
+      ? "Informe o nome do recebedor."
+      : (name.unicodeScalars.count > 25
+        ? "O nome do recebedor deve ter até 25 caracteres." : nil)
+    cityValidationMessage = city.isEmpty
+      ? "Informe a cidade do recebedor."
+      : (city.unicodeScalars.count > 15
+        ? "A cidade do recebedor deve ter até 15 caracteres." : nil)
+  }
+
+  private func removePix() async {
+    guard !saving, hasPersistedPix else { return }
+    submitErrorMessage = nil
+    saving = true
+    defer { saving = false }
+    do {
+      form = ProfilePIXForm(profile: try await app.updateProfilePIX(nil))
+      loadedForm = form
+      app.showNotice("PIX pessoal removido.")
+      dismiss()
+    } catch { submitErrorMessage = DemoError(error).message }
+  }
+
+  private func focusBinding(_ field: Field) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == field },
+      set: { focusedField = $0 ? field : (focusedField == field ? nil : focusedField) }
+    )
+  }
+
+  private func accessibilityFocusBinding(_ field: Field) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == field },
+      set: {
+        accessibilityFocusedField = $0
+          ? field : (accessibilityFocusedField == field ? nil : accessibilityFocusedField)
+      }
+    )
   }
 }

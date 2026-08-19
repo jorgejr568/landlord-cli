@@ -1,6 +1,7 @@
 import SwiftUI
+import UIKit
 
-private struct EditableBillingItem: Identifiable {
+private struct EditableBillingItem: Identifiable, Equatable {
   let id: BillingItemID
   var description: String
   var centavos: Int
@@ -31,7 +32,7 @@ private struct EditableBillingItem: Identifiable {
   }
 }
 
-private struct EditableRecipient: Identifiable {
+private struct EditableRecipient: Identifiable, Equatable {
   let id: RecipientID
   var name: String
   var email: String
@@ -143,7 +144,7 @@ enum BillingWizardReordering {
 }
 
 struct BillingFormView: View {
-  private enum Step: CaseIterable {
+  private enum Step: CaseIterable, Hashable {
     case essentials
     case items
     case pix
@@ -185,7 +186,9 @@ struct BillingFormView: View {
   @State private var billingDescription: String
   @State private var ownerID: WorkspaceID
   @State private var items: [EditableBillingItem]
+  @State private var pixKeyType: PixKeyType
   @State private var pixKey: String
+  @State private var preservesUnclassifiedLegacyPixKey: Bool
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var usesCustomPix: Bool
@@ -193,6 +196,7 @@ struct BillingFormView: View {
   @State private var replyTo: [EditableRecipient]
   @State private var step: Step = .essentials
   @State private var validationIssues: [ValidationIssue] = []
+  @State private var validatedSteps: Set<Step> = []
   @State private var pixRecipientRequiredMessage: String?
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
   /// global notice banner because this form is presented in a sheet, and the banner renders
@@ -204,6 +208,9 @@ struct BillingFormView: View {
   @FocusState private var focusedField: FocusedField?
   @AccessibilityFocusState private var accessibilityFocusedField: FocusedField?
   @State private var organizationLoadError: String?
+  @State private var pendingPixKeyType: PixKeyType?
+  @State private var confirmingPixKeyTypeChange = false
+  @State private var isPixKeyRevealed = false
 
   init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
     self.billing = billing
@@ -212,7 +219,12 @@ struct BillingFormView: View {
     _billingDescription = State(initialValue: billing?.description ?? "")
     _ownerID = State(initialValue: billing?.owner.id ?? .personal)
     _items = State(initialValue: billing?.items.map(EditableBillingItem.init) ?? [])
-    _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
+    let pixInput = PixKeyInput(persistedKey: billing?.pixOverride?.key ?? "")
+    _pixKeyType = State(initialValue: pixInput.type)
+    _pixKey = State(initialValue: pixInput.value)
+    _preservesUnclassifiedLegacyPixKey = State(
+      initialValue: pixInput.preservesUnclassifiedLegacyValue
+    )
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _usesCustomPix = State(initialValue: billing?.pixOverride != nil)
@@ -239,6 +251,36 @@ struct BillingFormView: View {
       guard billing == nil else { return }
       await loadOrganizations()
     }
+    .onChange(of: step) { _, _ in isPixKeyRevealed = false }
+    .onChange(of: name) { refreshValidationForCurrentStep() }
+    .onChange(of: billingDescription) { refreshValidationForCurrentStep() }
+    .onChange(of: ownerID) { refreshValidationForCurrentStep() }
+    .onChange(of: items) { refreshValidationForCurrentStep() }
+    .onChange(of: pixKeyType) { refreshValidationForCurrentStep() }
+    .onChange(of: pixKey) { refreshValidationForCurrentStep() }
+    .onChange(of: preservesUnclassifiedLegacyPixKey) { refreshValidationForCurrentStep() }
+    .onChange(of: pixMerchantName) { refreshValidationForCurrentStep() }
+    .onChange(of: pixMerchantCity) { refreshValidationForCurrentStep() }
+    .onChange(of: usesCustomPix) { refreshValidationForCurrentStep() }
+    .onChange(of: recipients) { refreshValidationForCurrentStep() }
+    .onChange(of: replyTo) { refreshValidationForCurrentStep() }
+    .confirmationDialog(
+      "Alterar tipo de chave?",
+      isPresented: $confirmingPixKeyTypeChange,
+      titleVisibility: .visible
+    ) {
+      Button("Alterar e apagar", role: .destructive) {
+        guard let pendingPixKeyType else { return }
+        pixKeyType = pendingPixKeyType
+        pixKey = ""
+        preservesUnclassifiedLegacyPixKey = false
+        self.pendingPixKeyType = nil
+        scheduleFocus(.pixKey)
+      }
+      Button("Cancelar", role: .cancel) { pendingPixKeyType = nil }
+    } message: {
+      Text("A chave digitada será apagada para evitar que seja interpretada no formato errado.")
+    }
   }
 
   @ViewBuilder
@@ -246,20 +288,34 @@ struct BillingFormView: View {
     switch step {
     case .essentials:
       RentivoWizardSection("Identificação", subtitle: "Defina a cobrança e seu responsável.") {
-        TextField("Nome", text: $name)
+        RentivoTextFormField(
+          label: "Nome",
+          text: $name,
+          errorMessage: issueMessage(for: .name),
+          accessibilityIdentifier: "billing.form.name"
+        )
           .focused($focusedField, equals: .name)
           .accessibilityFocused($accessibilityFocusedField, equals: .name)
-          .accessibilityIdentifier("billing.form.name")
-        TextField("Descrição", text: $billingDescription, axis: .vertical)
+        RentivoTextFormField(
+          label: "Descrição",
+          text: $billingDescription,
+          axis: .vertical,
+          errorMessage: issueMessage(for: .description),
+          accessibilityIdentifier: "billing.form.description"
+        )
           .focused($focusedField, equals: .description)
           .accessibilityFocused($accessibilityFocusedField, equals: .description)
-          .accessibilityIdentifier("billing.form.description")
           .lineLimit(2...4)
         if billing == nil {
-          Picker("Responsável", selection: $ownerID) {
-            ForEach(ownerChoices, id: \.id) { owner in
-              Text(owner.name).tag(owner.id)
+          RentivoFormField(label: "Responsável") {
+            Picker("", selection: $ownerID) {
+              ForEach(ownerChoices, id: \.id) { owner in
+                Text(owner.name).tag(owner.id)
+              }
             }
+            .labelsHidden()
+            .accessibilityLabel("Responsável")
+            .accessibilityIdentifier("billing.form.owner")
           }
         }
         validationPanel
@@ -290,28 +346,39 @@ struct BillingFormView: View {
               }
               .accessibilityIdentifier("billing.form.item.\(index).remove")
             }
-            TextField("Descrição do item", text: $item.description)
+            RentivoTextFormField(
+              label: "Descrição do item",
+              text: $item.description,
+              errorMessage: firstInvalidItemDescriptionIndex == index
+                ? issueMessage(for: .itemDescription) : nil,
+              accessibilityIdentifier: "billing.form.item.\(index).description"
+            )
               .focused($focusedField, equals: .itemDescription(index))
               .accessibilityFocused($accessibilityFocusedField, equals: .itemDescription(index))
-              .accessibilityIdentifier("billing.form.item.\(index).description")
-            Picker("Tipo", selection: $item.type) {
-              ForEach(BillingItemType.allCases, id: \.self) { type in
-                Text(type.label).tag(type)
+            RentivoFormField(label: "Tipo") {
+              Picker("", selection: $item.type) {
+                ForEach(BillingItemType.allCases, id: \.self) { type in
+                  Text(type.label).tag(type)
+                }
               }
+              .labelsHidden()
+              .pickerStyle(.segmented)
+              .accessibilityLabel("Tipo")
+              .accessibilityIdentifier("billing.form.item.\(index).type")
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("billing.form.item.\(index).type")
             .onChange(of: item.type) { _, type in
               item.centavos = type.normalizedTemplateAmount(item.centavos)
             }
             if item.type.showsTemplateAmount {
-              CurrencyCentavosField(
-                "Valor do item",
-                centavos: $item.centavos,
+              RentivoCurrencyField(
+                label: "Valor do item",
+                amountInCents: $item.centavos,
+                errorMessage: firstInvalidItemAmountIndex == index
+                  ? issueMessage(for: .itemAmount) : nil,
                 isFocused: itemAmountFocusBinding(for: index),
-                isAccessibilityFocused: itemAmountAccessibilityFocusBinding(for: index)
+                isAccessibilityFocused: itemAmountAccessibilityFocusBinding(for: index),
+                accessibilityIdentifier: "billing.form.item.\(index).amount"
               )
-                .accessibilityIdentifier("billing.form.item.\(index).amount")
             }
           }
           .padding(.vertical, RentivoSpacing.tiny)
@@ -337,20 +404,43 @@ struct BillingFormView: View {
       RentivoWizardSection("PIX", subtitle: "Escolha se esta cobrança herda o PIX do responsável.") {
         Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
         if usesCustomPix {
-          TextField("Chave PIX própria", text: $pixKey)
+          RentivoFormField(label: "Tipo de chave") {
+            Picker("", selection: pixKeyTypeBinding) {
+              ForEach(PixKeyType.allCases, id: \.self) { type in Text(type.label).tag(type) }
+            }
+            .labelsHidden()
+            .accessibilityLabel("Tipo de chave")
+            .accessibilityIdentifier("billing.form.pix.key-type")
+          }
+          RentivoTextFormField(
+            label: "Chave PIX própria",
+            text: pixKeyBinding,
+            hint: pixKeyType.hint,
+            errorMessage: pixKeyError,
+            accessibilityIdentifier: "billing.form.pix.key"
+          )
             .focused($focusedField, equals: .pixKey)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
+            .keyboardType(pixKeyboardType)
             .textInputAutocapitalization(.never)
-            .accessibilityIdentifier("billing.form.pix.key")
-          TextField("Nome do recebedor", text: $pixMerchantName)
+            .autocorrectionDisabled()
+          RentivoTextFormField(
+            label: "Nome do recebedor",
+            text: $pixMerchantName,
+            errorMessage: pixMerchantNameError,
+            accessibilityIdentifier: "billing.form.pix.merchantName"
+          )
             .focused($focusedField, equals: .pixMerchantName)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantName)
-            .accessibilityIdentifier("billing.form.pix.merchantName")
-          TextField("Cidade do recebedor", text: $pixMerchantCity)
+          RentivoTextFormField(
+            label: "Cidade do recebedor",
+            text: $pixMerchantCity,
+            errorMessage: pixMerchantCityError,
+            accessibilityIdentifier: "billing.form.pix.merchantCity"
+          )
             .focused($focusedField, equals: .pixMerchantCity)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
             .textInputAutocapitalization(.characters)
-            .accessibilityIdentifier("billing.form.pix.merchantCity")
         } else {
           Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
             .foregroundStyle(RentivoColors.secondaryInk)
@@ -381,17 +471,25 @@ struct BillingFormView: View {
                 }
                 .accessibilityIdentifier("billing.form.recipient.\(index).remove")
               }
-              TextField("Nome do destinatário", text: $recipient.name)
+              RentivoTextFormField(
+                label: "Nome do destinatário",
+                text: $recipient.name,
+                errorMessage: contactError(in: recipients, index: index, part: .name),
+                accessibilityIdentifier: "billing.form.recipient.\(index).name"
+              )
                 .focused($focusedField, equals: .recipientName(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .recipientName(index))
-                .accessibilityIdentifier("billing.form.recipient.\(index).name")
-              TextField("E-mail do destinatário", text: $recipient.email)
+              RentivoTextFormField(
+                label: "E-mail do destinatário",
+                text: $recipient.email,
+                errorMessage: contactError(in: recipients, index: index, part: .email),
+                accessibilityIdentifier: "billing.form.recipient.\(index).email"
+              )
                 .focused($focusedField, equals: .recipientEmail(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .recipientEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .accessibilityIdentifier("billing.form.recipient.\(index).email")
             }
             .padding(.vertical, RentivoSpacing.tiny)
           }
@@ -424,17 +522,25 @@ struct BillingFormView: View {
                 }
                 .accessibilityIdentifier("billing.form.reply-to.\(index).remove")
               }
-              TextField("Nome para resposta", text: $contact.name)
+              RentivoTextFormField(
+                label: "Nome para resposta",
+                text: $contact.name,
+                errorMessage: contactError(in: replyTo, index: index, part: .name),
+                accessibilityIdentifier: "billing.form.reply-to.\(index).name"
+              )
                 .focused($focusedField, equals: .replyToName(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .replyToName(index))
-                .accessibilityIdentifier("billing.form.reply-to.\(index).name")
-              TextField("E-mail para resposta", text: $contact.email)
+              RentivoTextFormField(
+                label: "E-mail para resposta",
+                text: $contact.email,
+                errorMessage: contactError(in: replyTo, index: index, part: .email),
+                accessibilityIdentifier: "billing.form.reply-to.\(index).email"
+              )
                 .focused($focusedField, equals: .replyToEmail(index))
                 .accessibilityFocused($accessibilityFocusedField, equals: .replyToEmail(index))
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .accessibilityIdentifier("billing.form.reply-to.\(index).email")
             }
             .padding(.vertical, RentivoSpacing.tiny)
           }
@@ -468,21 +574,37 @@ struct BillingFormView: View {
         )
         validationPanel
       }
+      if usesCustomPix {
+        RentivoWizardSection("PIX próprio") {
+          RentivoPixKeyReview(
+            input: currentPixKeyInput,
+            isRevealed: $isPixKeyRevealed,
+            accessibilityIdentifier: "billing.form.pix.review.reveal"
+          )
+          RentivoWizardReviewRow(
+            label: "Recebedor",
+            value: pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+          RentivoWizardReviewRow(
+            label: "Cidade",
+            value: pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+          )
+        }
+      }
     }
   }
 
   @ViewBuilder
   private var validationPanel: some View {
-    if !validationIssues.isEmpty || pixRecipientRequiredMessage != nil
+    if !aggregateValidationIssues.isEmpty
       || submitErrorMessage != nil || organizationLoadError != nil
     {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Text("Revise os campos")
           .font(.subheadline.weight(.semibold))
-        ForEach(validationIssues, id: \.self) { issue in
+        ForEach(aggregateValidationIssues, id: \.self) { issue in
           validationMessage(issue.message)
         }
-        if let pixRecipientRequiredMessage { validationMessage(pixRecipientRequiredMessage) }
         if let submitErrorMessage { validationMessage(submitErrorMessage) }
         if let organizationLoadError {
           validationMessage(organizationLoadError)
@@ -577,6 +699,7 @@ struct BillingFormView: View {
 
   private func validateCurrentStep() -> Bool {
     submitErrorMessage = nil
+    validatedSteps.insert(step)
     switch step {
     case .essentials: return validateEssentials()
     case .items: return validateItems()
@@ -616,6 +739,34 @@ struct BillingFormView: View {
     return validationIssues.isEmpty
   }
 
+  private func refreshValidationForCurrentStep() {
+    guard validatedSteps.contains(step) else { return }
+    let fields: Set<ValidationField>
+    switch step {
+    case .essentials: fields = [.name, .description]
+    case .items: fields = [.items, .itemDescription, .itemAmount]
+    case .pix:
+      fields = [.pix]
+      pixRecipientRequiredMessage = pixRecipientRequiredMessageForCurrentFields
+    case .communication: fields = [.recipient, .replyTo]
+    case .review: return
+    }
+    validationIssues = currentDraft()?.validate().filter { fields.contains($0.field) } ?? []
+  }
+
+  private var aggregateValidationIssues: [ValidationIssue] {
+    validationIssues.filter { issue in
+      switch issue.field {
+      case .items:
+        true
+      case .recipient, .replyTo:
+        issue.message.localizedCaseInsensitiveContains("repetid")
+      default:
+        false
+      }
+    }
+  }
+
   private func focusFirstInvalidControl() {
     switch step {
     case .essentials:
@@ -653,6 +804,10 @@ struct BillingFormView: View {
   }
 
   private func focusPIXField() {
+    if currentPixKeyInput.validationMessage != nil {
+      scheduleFocus(.pixKey)
+      return
+    }
     switch BillingWizardFocusRules.pixTarget(
       key: pixKey,
       merchantName: pixMerchantName,
@@ -736,13 +891,117 @@ struct BillingFormView: View {
   private var currentPixResult: PixFormResult {
     usesCustomPix
       ? PixFormRules.result(
-        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity)
+        type: pixKeyType,
+        key: pixKey,
+        merchantName: pixMerchantName,
+        merchantCity: pixMerchantCity,
+        preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyPixKey
+      )
       : .inherit
   }
 
   private var currentPixOverride: PixConfiguration? {
     guard case .custom(let configuration) = currentPixResult else { return nil }
     return configuration
+  }
+
+  private var pixKeyBinding: Binding<String> {
+    Binding(
+      get: { pixKey },
+      set: {
+        pixKey = PixKeyInput.formatted($0, as: pixKeyType)
+        preservesUnclassifiedLegacyPixKey = false
+      }
+    )
+  }
+
+  private var pixKeyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { pixKeyType },
+      set: { newType in
+        guard newType != pixKeyType else { return }
+        if currentPixKeyInput.requiresConfirmation(to: newType) {
+          pendingPixKeyType = newType
+          confirmingPixKeyTypeChange = true
+        } else {
+          pixKeyType = newType
+          preservesUnclassifiedLegacyPixKey = false
+        }
+      }
+    )
+  }
+
+  private var pixKeyboardType: UIKeyboardType {
+    switch pixKeyType {
+    case .cpf, .cnpj: .numberPad
+    case .email: .emailAddress
+    case .phone: .phonePad
+    case .random: .asciiCapable
+    }
+  }
+
+  private var pixKeyError: String? {
+    guard validationIssues.contains(where: { $0.field == .pix })
+      || pixRecipientRequiredMessage != nil else { return nil }
+    return currentPixKeyInput.validationMessage
+  }
+
+  private var currentPixKeyInput: PixKeyInput {
+    PixKeyInput(
+      type: pixKeyType,
+      value: pixKey,
+      preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyPixKey
+    )
+  }
+
+  private var pixMerchantNameError: String? {
+    guard pixKeyError == nil, validationIssues.contains(where: { $0.field == .pix })
+      || pixRecipientRequiredMessage != nil else { return nil }
+    let value = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if value.isEmpty { return "Informe o nome do recebedor." }
+    if value.unicodeScalars.count > 25 {
+      return "O nome do recebedor deve ter até 25 caracteres."
+    }
+    return nil
+  }
+
+  private var pixMerchantCityError: String? {
+    guard pixKeyError == nil, pixMerchantNameError == nil,
+      validationIssues.contains(where: { $0.field == .pix }) || pixRecipientRequiredMessage != nil
+    else { return nil }
+    let value = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
+    if value.isEmpty { return "Informe a cidade do recebedor." }
+    if value.unicodeScalars.count > 15 {
+      return "A cidade do recebedor deve ter até 15 caracteres."
+    }
+    return nil
+  }
+
+  private func issueMessage(for field: ValidationField) -> String? {
+    validationIssues.first(where: { $0.field == field })?.message
+  }
+
+  private enum ContactPart: Equatable { case name, email }
+
+  private func contactError(
+    in contacts: [EditableRecipient], index: Int, part: ContactPart
+  ) -> String? {
+    guard contacts.indices.contains(index), firstInvalidContactIndex(in: contacts) == index else {
+      return nil
+    }
+    let contact = contacts[index]
+    let normalizedName = contact.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if part == .name,
+      normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255
+    {
+      return "Informe um nome válido."
+    }
+    if part == .email,
+      !EmailAddress.isValid(contact.email.trimmingCharacters(in: .whitespacesAndNewlines))
+    {
+      return "Informe um e-mail válido."
+    }
+    return nil
   }
 
   private func save() async {
@@ -785,7 +1044,10 @@ struct BillingFormView: View {
       replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
-    guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }
+    guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else {
+      routeToFirstInvalidField()
+      return
+    }
     saving = true
     defer { saving = false }
     do {
@@ -799,6 +1061,36 @@ struct BillingFormView: View {
       dismiss()
     } catch {
       submitErrorMessage = DemoError(error).message
+    }
+  }
+
+  private func routeToFirstInvalidField() {
+    if pixRecipientRequiredMessage != nil || validationIssues.contains(where: { $0.field == .pix }) {
+      step = .pix
+      validatedSteps.insert(.pix)
+      focusPIXField()
+      return
+    }
+    guard let issue = validationIssues.first else { return }
+    switch issue.field {
+    case .name, .description:
+      step = .essentials
+      validatedSteps.insert(.essentials)
+      scheduleFocus(issue.field == .name ? .name : .description)
+    case .items, .itemDescription, .itemAmount:
+      step = .items
+      validatedSteps.insert(.items)
+      Task { @MainActor in focusFirstInvalidControl() }
+    case .recipient, .replyTo:
+      step = .communication
+      validatedSteps.insert(.communication)
+      Task { @MainActor in focusFirstInvalidControl() }
+    case .pix:
+      step = .pix
+      validatedSteps.insert(.pix)
+      focusPIXField()
+    case .subject, .body:
+      break
     }
   }
 

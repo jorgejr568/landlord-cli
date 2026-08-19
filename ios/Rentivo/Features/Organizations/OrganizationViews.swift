@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private struct OrganizationListItem: Identifiable, Sendable {
   let organization: Organization
@@ -223,7 +224,9 @@ struct OrganizationFormView: View {
   let organization: Organization?
   let onSaved: () async -> Void
   @State private var name: String
+  @State private var pixKeyType: PixKeyType
   @State private var pixKey: String
+  @State private var preservesUnclassifiedLegacyPixKey: Bool
   @State private var merchantName: String
   @State private var city: String
   @State private var usesCustomPix: Bool
@@ -232,6 +235,9 @@ struct OrganizationFormView: View {
   @State private var submitErrorMessage: String?
   @State private var saving = false
   @State private var step: Step = .organization
+  @State private var pendingPixKeyType: PixKeyType?
+  @State private var confirmingPixKeyTypeChange = false
+  @State private var isPixKeyRevealed = false
   @FocusState private var focusedField: Field?
   @AccessibilityFocusState private var accessibilityFocusedField: Field?
   private let initialDraftState: NativeOrganizationDraftState
@@ -240,7 +246,8 @@ struct OrganizationFormView: View {
     self.organization = organization
     self.onSaved = onSaved
     let name = organization?.name ?? ""
-    let pixKey = organization?.pix?.key ?? ""
+    let pixInput = PixKeyInput(persistedKey: organization?.pix?.key ?? "")
+    let pixKey = pixInput.value
     let merchantName = organization?.pix?.merchantName ?? ""
     let city = organization?.pix?.merchantCity ?? ""
     let usesCustomPix = organization?.pix != nil
@@ -249,7 +256,11 @@ struct OrganizationFormView: View {
       usesCustomPix: usesCustomPix
     )
     _name = State(initialValue: name)
+    _pixKeyType = State(initialValue: pixInput.type)
     _pixKey = State(initialValue: pixKey)
+    _preservesUnclassifiedLegacyPixKey = State(
+      initialValue: pixInput.preservesUnclassifiedLegacyValue
+    )
     _merchantName = State(initialValue: merchantName)
     _city = State(initialValue: city)
     _usesCustomPix = State(initialValue: usesCustomPix)
@@ -268,6 +279,24 @@ struct OrganizationFormView: View {
       stepContent(selectedStep)
     }
     .interactiveDismissDisabled(hasUnsavedChanges || saving)
+    .onChange(of: step) { _, _ in isPixKeyRevealed = false }
+    .confirmationDialog(
+      "Alterar tipo de chave?",
+      isPresented: $confirmingPixKeyTypeChange,
+      titleVisibility: .visible
+    ) {
+      Button("Alterar e apagar", role: .destructive) {
+        guard let pendingPixKeyType else { return }
+        pixKeyType = pendingPixKeyType
+        pixKey = ""
+        preservesUnclassifiedLegacyPixKey = false
+        self.pendingPixKeyType = nil
+        scheduleFocus(.pixKey)
+      }
+      Button("Cancelar", role: .cancel) { pendingPixKeyType = nil }
+    } message: {
+      Text("A chave digitada será apagada para evitar que seja interpretada no formato errado.")
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
@@ -298,13 +327,19 @@ struct OrganizationFormView: View {
           ? "Dê um nome claro para o espaço compartilhado."
           : "Atualize o nome exibido para membros e cobranças."
       ) {
-        TextField("Nome", text: $name)
+        RentivoTextFormField(
+          label: "Nome",
+          text: $name,
+          errorMessage: nameValidationMessage,
+          accessibilityIdentifier: "organization.form.name"
+        )
           .focused($focusedField, equals: .name)
           .accessibilityFocused($accessibilityFocusedField, equals: .name)
-          .accessibilityIdentifier("organization.form.name")
-        if let nameValidationMessage {
-          validationLabel(nameValidationMessage)
-        }
+          .onChange(of: name) {
+            if nameValidationMessage != nil {
+              nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
+            }
+          }
       }
     case .pix:
       RentivoWizardSection(
@@ -314,27 +349,47 @@ struct OrganizationFormView: View {
         Toggle("Usar PIX da organização", isOn: $usesCustomPix)
           .accessibilityIdentifier("organization.form.pix.enabled")
         if usesCustomPix {
-          TextField("Chave", text: $pixKey)
+          RentivoFormField(label: "Tipo de chave") {
+            Picker("", selection: pixKeyTypeBinding) {
+              ForEach(PixKeyType.allCases, id: \.self) { type in Text(type.label).tag(type) }
+            }
+            .labelsHidden()
+            .accessibilityLabel("Tipo de chave")
+            .accessibilityIdentifier("organization.form.pix.key-type")
+          }
+          RentivoTextFormField(
+            label: "Chave",
+            text: pixKeyBinding,
+            hint: pixKeyType.hint,
+            errorMessage: pixKeyError,
+            accessibilityIdentifier: "organization.form.pix.key"
+          )
             .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(pixKeyboardType)
             .focused($focusedField, equals: .pixKey)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixKey)
-            .accessibilityIdentifier("organization.form.pix.key")
-          TextField("Nome do recebedor", text: $merchantName)
+          RentivoTextFormField(
+            label: "Nome do recebedor",
+            text: $merchantName,
+            errorMessage: pixMerchantNameError,
+            accessibilityIdentifier: "organization.form.pix.merchant-name"
+          )
             .focused($focusedField, equals: .merchantName)
             .accessibilityFocused($accessibilityFocusedField, equals: .merchantName)
-            .accessibilityIdentifier("organization.form.pix.merchant-name")
-          TextField("Cidade", text: $city)
+          RentivoTextFormField(
+            label: "Cidade",
+            text: $city,
+            errorMessage: pixCityError,
+            accessibilityIdentifier: "organization.form.pix.city"
+          )
             .textInputAutocapitalization(.characters)
             .focused($focusedField, equals: .city)
             .accessibilityFocused($accessibilityFocusedField, equals: .city)
-            .accessibilityIdentifier("organization.form.pix.city")
         } else {
           Text("Sem PIX próprio. Cobranças podem usar o PIX pessoal do responsável.")
             .font(.footnote)
             .foregroundStyle(RentivoColors.secondaryInk)
-        }
-        if let pixValidationMessage {
-          validationLabel(pixValidationMessage)
         }
       }
     case .review:
@@ -347,6 +402,11 @@ struct OrganizationFormView: View {
       RentivoWizardSection("PIX") {
         RentivoWizardReviewRow(label: "Configuração", value: pixSummary)
         if usesCustomPix {
+          RentivoPixKeyReview(
+            input: currentPixKeyInput,
+            isRevealed: $isPixKeyRevealed,
+            accessibilityIdentifier: "organization.form.pix.review.reveal"
+          )
           RentivoWizardReviewRow(
             label: "Recebedor",
             value: merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -388,9 +448,11 @@ struct OrganizationFormView: View {
         return true
       }
       if case .invalid(let message) = PixFormRules.result(
+        type: pixKeyType,
         key: pixKey,
         merchantName: merchantName,
-        merchantCity: city
+        merchantCity: city,
+        preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyPixKey
       ) {
         pixValidationMessage = message
       } else {
@@ -404,10 +466,11 @@ struct OrganizationFormView: View {
   }
 
   private var firstInvalidPixField: Field {
-    let normalizedKey = pixKey.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
-    if normalizedKey.isEmpty { return .pixKey }
+    if currentPixKeyInput.validationMessage != nil {
+      return .pixKey
+    }
     if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 25 { return .merchantName }
     if normalizedCity.isEmpty || normalizedCity.unicodeScalars.count > 15 { return .city }
     return .pixKey
@@ -417,7 +480,13 @@ struct OrganizationFormView: View {
     guard !saving else { return }
     submitErrorMessage = nil
     let result = usesCustomPix
-      ? PixFormRules.result(key: pixKey, merchantName: merchantName, merchantCity: city)
+      ? PixFormRules.result(
+        type: pixKeyType,
+        key: pixKey,
+        merchantName: merchantName,
+        merchantCity: city,
+        preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyPixKey
+      )
       : .inherit
     let pix: PixConfiguration?
     switch result {
@@ -468,6 +537,76 @@ struct OrganizationFormView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+
+  private var pixKeyBinding: Binding<String> {
+    Binding(
+      get: { pixKey },
+      set: {
+        pixKey = PixKeyInput.formatted($0, as: pixKeyType)
+        preservesUnclassifiedLegacyPixKey = false
+      }
+    )
+  }
+
+  private var pixKeyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { pixKeyType },
+      set: { newType in
+        guard newType != pixKeyType else { return }
+        if currentPixKeyInput.requiresConfirmation(to: newType) {
+          pendingPixKeyType = newType
+          confirmingPixKeyTypeChange = true
+        } else {
+          pixKeyType = newType
+          preservesUnclassifiedLegacyPixKey = false
+        }
+      }
+    )
+  }
+
+  private var pixKeyboardType: UIKeyboardType {
+    switch pixKeyType {
+    case .cpf, .cnpj: .numberPad
+    case .email: .emailAddress
+    case .phone: .phonePad
+    case .random: .asciiCapable
+    }
+  }
+
+  private var pixKeyError: String? {
+    guard pixValidationMessage != nil else { return nil }
+    return currentPixKeyInput.validationMessage
+  }
+
+  private var currentPixKeyInput: PixKeyInput {
+    PixKeyInput(
+      type: pixKeyType,
+      value: pixKey,
+      preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyPixKey
+    )
+  }
+
+  private var pixMerchantNameError: String? {
+    guard pixValidationMessage != nil, pixKeyError == nil else { return nil }
+    let value = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if value.isEmpty { return "Informe o nome do recebedor." }
+    if value.unicodeScalars.count > 25 {
+      return "O nome do recebedor deve ter até 25 caracteres."
+    }
+    return nil
+  }
+
+  private var pixCityError: String? {
+    guard pixValidationMessage != nil, pixKeyError == nil, pixMerchantNameError == nil else {
+      return nil
+    }
+    let value = city.trimmingCharacters(in: .whitespacesAndNewlines)
+    if value.isEmpty { return "Informe a cidade do recebedor." }
+    if value.unicodeScalars.count > 15 {
+      return "A cidade do recebedor deve ter até 15 caracteres."
+    }
+    return nil
   }
 }
 

@@ -39,3 +39,13 @@ import Testing
   #expect(Money(centavos: -1) < .zero)
   #expect(Money.zero < Money(centavos: 1))
 }
+
+@Test func moneyInputTreatsEveryDigitAsCentavosWithoutFloatingPoint() {
+  #expect(MoneyInputRules.centavos(from: "1") == 1)
+  #expect(MoneyInputRules.centavos(from: "12") == 12)
+  #expect(MoneyInputRules.centavos(from: "120000") == 120_000)
+  #expect(MoneyInputRules.centavos(from: "R$ 1.200,00") == 120_000)
+  #expect(MoneyInputRules.centavos(from: "R$ 0,1") == 1)
+  #expect(MoneyInputRules.centavos(from: "") == 0)
+  #expect(Money(centavos: 120_000).formatted() == "R$\u{00A0}1.200,00")
+}

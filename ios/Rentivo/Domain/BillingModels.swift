@@ -357,17 +357,25 @@ public struct BillingDraft: Hashable, Sendable {
         )
       )
     }
-    if let pixOverride,
-      (pixOverride.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count
-        > 25
-        || pixOverride.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
-          .count > 15)
-    {
-      issues.append(
-        ValidationIssue(
-          field: .pix, message: "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade."
+    if let pixOverride {
+      let normalizedKey = pixOverride.key.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let keyType = PixKeyInput.inferType(from: normalizedKey) {
+        if case .invalid(let message) = PixFormRules.result(
+          type: keyType,
+          key: normalizedKey,
+          merchantName: pixOverride.merchantName,
+          merchantCity: pixOverride.merchantCity
+        ) {
+          issues.append(ValidationIssue(field: .pix, message: message))
+        }
+      } else {
+        issues.append(
+          ValidationIssue(
+            field: .pix,
+            message: "Esta chave não corresponde ao tipo selecionado."
+          )
         )
-      )
+      }
     }
     if recipients.contains(where: {
       let normalizedName = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)

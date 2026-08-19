@@ -187,7 +187,6 @@ private struct APIKeyFormView: View {
     case identification
     case scopes
     case access
-    case expiration
     case review
   }
 
@@ -255,14 +254,30 @@ private struct APIKeyFormView: View {
     }
     .interactiveDismissDisabled(isDirty || saving)
     .task { await loadOptions() }
+    .onChange(of: name) {
+      if step == .identification, validationMessage != nil,
+        APIKeyValidation.isValidName(name)
+      {
+        validationMessage = nil
+      }
+    }
+    .onChange(of: scopes) {
+      if step == .scopes, validationMessage != nil, !scopes.isEmpty {
+        validationMessage = nil
+      }
+    }
+    .onChange(of: grantIDs) {
+      if step == .access, validationMessage != nil, !grantIDs.isEmpty {
+        validationMessage = nil
+      }
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
     [
       .init(id: .identification, title: "Identificação"),
-      .init(id: .scopes, title: "Escopos"),
+      .init(id: .scopes, title: "Escopos e validade"),
       .init(id: .access, title: "Acessos"),
-      .init(id: .expiration, title: "Expiração"),
       .init(id: .review, title: "Revisão"),
     ]
   }
@@ -279,11 +294,14 @@ private struct APIKeyFormView: View {
         "Identifique a integração",
         subtitle: "Use um nome que deixe claro onde esta chave será usada."
       ) {
-        TextField("Nome", text: $name)
-          .focused($focusedField, equals: .name)
-          .accessibilityFocused($accessibilityFocusedField, equals: .name)
-          .accessibilityIdentifier("api-key.form.name")
-        if let validationMessage { errorLabel(validationMessage) }
+        RentivoTextFormField(
+          label: "Nome",
+          text: $name,
+          errorMessage: validationMessage,
+          isFocused: focusBinding(.name),
+          isAccessibilityFocused: accessibilityFocusBinding(.name),
+          accessibilityIdentifier: "api-key.form.name"
+        )
       }
     case .scopes:
       RentivoWizardSection(
@@ -304,6 +322,34 @@ private struct APIKeyFormView: View {
         if let key, key.unsupportedScopeCount > 0 {
           Text("Alguns escopos desta chave exigem uma versão mais nova do app e serão preservados.")
             .foregroundStyle(RentivoColors.secondaryInk)
+        }
+      }
+      RentivoWizardSection(
+        "Validade da chave",
+        subtitle: key == nil
+          ? "A chave deixa de funcionar automaticamente depois desta data."
+          : "A validade de uma chave existente não pode ser alterada."
+      ) {
+        if key == nil, let options = options.value {
+          RentivoFormField(
+            label: "Expira em"
+          ) {
+            DatePicker(
+              "",
+              selection: expiresAtBinding,
+              in: Date().addingTimeInterval(60)...options.maximumExpiration(),
+              displayedComponents: .date
+            )
+            .labelsHidden()
+            .focused($focusedField, equals: .expiration)
+            .accessibilityFocused($accessibilityFocusedField, equals: .expiration)
+            .accessibilityLabel("Expira em")
+            .accessibilityIdentifier("api-key.form.expiration")
+          }
+        } else if let key {
+          RentivoWizardReviewRow(label: "Expira em", value: key.expiresAt.formattedPTBR())
+        } else {
+          optionsStateView(loadingMessage: "Carregando validade…")
         }
       }
     case .access:
@@ -339,30 +385,6 @@ private struct APIKeyFormView: View {
           Text("Alguns acessos protegidos não podem ser editados neste dispositivo e serão preservados.")
             .foregroundStyle(RentivoColors.secondaryInk)
         }
-      }
-    case .expiration:
-      RentivoWizardSection(
-        "Validade da chave",
-        subtitle: key == nil
-          ? "A chave deixa de funcionar automaticamente depois desta data."
-          : "A validade de uma chave existente não pode ser alterada."
-      ) {
-        if key == nil, let options = options.value {
-          DatePicker(
-            "Expira em",
-            selection: expiresAtBinding,
-            in: Date().addingTimeInterval(60)...options.maximumExpiration(),
-            displayedComponents: .date
-          )
-          .focused($focusedField, equals: .expiration)
-          .accessibilityFocused($accessibilityFocusedField, equals: .expiration)
-          .accessibilityIdentifier("api-key.form.expiration")
-        } else if let key {
-          RentivoWizardReviewRow(label: "Expira em", value: key.expiresAt.formattedPTBR())
-        } else {
-          optionsStateView(loadingMessage: "Carregando validade…")
-        }
-        if let validationMessage { errorLabel(validationMessage) }
       }
     case .review:
       RentivoWizardSection("Chave de integração") {
@@ -446,6 +468,8 @@ private struct APIKeyFormView: View {
         if let scope = options.value?.scopes.first { scheduleFocus(.scope(scope)) }
         return false
       }
+      // The DatePicker range is derived from the loaded options, so an editable date cannot
+      // leave the server-supported interval.
     case .access:
       guard options.value != nil else {
         validationMessage = "Aguarde o carregamento dos acessos antes de continuar."
@@ -457,12 +481,6 @@ private struct APIKeyFormView: View {
         if let resourceID = options.value?.personalWorkspace.resourceID {
           scheduleFocus(.access(resourceID))
         }
-        return false
-      }
-    case .expiration:
-      guard options.value != nil else {
-        validationMessage = "Aguarde o carregamento da validade antes de continuar."
-        scheduleFocus(.optionsRetry)
         return false
       }
     case .review:
@@ -557,6 +575,23 @@ private struct APIKeyFormView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+
+  private func focusBinding(_ field: Field) -> Binding<Bool> {
+    Binding(
+      get: { focusedField == field },
+      set: { focusedField = $0 ? field : (focusedField == field ? nil : focusedField) }
+    )
+  }
+
+  private func accessibilityFocusBinding(_ field: Field) -> Binding<Bool> {
+    Binding(
+      get: { accessibilityFocusedField == field },
+      set: {
+        accessibilityFocusedField = $0
+          ? field : (accessibilityFocusedField == field ? nil : accessibilityFocusedField)
+      }
+    )
   }
 
   private func save() async {

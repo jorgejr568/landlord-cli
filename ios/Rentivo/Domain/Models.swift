@@ -216,18 +216,29 @@ public struct UserProfile: Hashable, Codable, Sendable {
 }
 
 public struct ProfilePIXForm: Equatable, Sendable {
+  public var keyType: PixKeyType
   public var key: String
   public var merchantName: String
   public var merchantCity: String
+  public var preservesUnclassifiedLegacyKey: Bool
 
   public init(profile: UserProfile? = nil) {
-    key = profile?.pix?.key ?? ""
+    let keyInput = PixKeyInput(persistedKey: profile?.pix?.key ?? "")
+    keyType = keyInput.type
+    key = keyInput.value
     merchantName = profile?.pix?.merchantName ?? ""
     merchantCity = profile?.pix?.merchantCity ?? ""
+    preservesUnclassifiedLegacyKey = keyInput.preservesUnclassifiedLegacyValue
   }
 
   public var validationResult: PixFormResult {
-    PixFormRules.result(key: key, merchantName: merchantName, merchantCity: merchantCity)
+    PixFormRules.result(
+      type: keyType,
+      key: key,
+      merchantName: merchantName,
+      merchantCity: merchantCity,
+      preservesUnclassifiedLegacyValue: preservesUnclassifiedLegacyKey
+    )
   }
 
   public var configuration: PixConfiguration? {
@@ -241,7 +252,7 @@ public struct ProfilePIXForm: Equatable, Sendable {
   }
 
   public var isSavable: Bool {
-    validationMessage == nil
+    configuration != nil
   }
 }
 

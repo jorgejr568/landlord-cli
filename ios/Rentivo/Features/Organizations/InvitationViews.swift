@@ -223,25 +223,44 @@ struct InviteMemberView: View {
         "Quem você quer convidar?",
         subtitle: "O convite será enviado para este endereço."
       ) {
-        TextField("E-mail", text: $email)
+        RentivoTextFormField(
+          label: "E-mail",
+          text: $email,
+          errorMessage: emailValidationMessage,
+          isFocused: Binding(
+            get: { emailIsFocused },
+            set: { emailIsFocused = $0 }
+          ),
+          isAccessibilityFocused: Binding(
+            get: { emailIsAccessibilityFocused },
+            set: { emailIsAccessibilityFocused = $0 }
+          ),
+          accessibilityIdentifier: "invite.form.email"
+        )
           .keyboardType(.emailAddress)
           .textInputAutocapitalization(.never)
-          .focused($emailIsFocused)
-          .accessibilityFocused($emailIsAccessibilityFocused)
-          .accessibilityIdentifier("invite.form.email")
-        if let emailValidationMessage { errorLabel(emailValidationMessage) }
+          .autocorrectionDisabled()
+          .onChange(of: email) {
+            if emailValidationMessage != nil {
+              emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
+            }
+          }
       }
     case .permission:
       RentivoWizardSection(
         "Permissão na organização",
         subtitle: "Escolha o que esta pessoa poderá consultar e alterar."
       ) {
-        Picker("Função", selection: $role) {
-          ForEach(OrganizationRole.allCases, id: \.self) { role in
-            Text(role.label).tag(role)
+        RentivoFormField(label: "Função") {
+          Picker("", selection: $role) {
+            ForEach(OrganizationRole.allCases, id: \.self) { role in
+              Text(role.label).tag(role)
+            }
           }
+          .labelsHidden()
+          .accessibilityLabel("Função")
+          .accessibilityIdentifier("invite.form.role")
         }
-        .accessibilityIdentifier("invite.form.role")
         if organization.requiresMFA {
           Label(
             "Esta organização exige MFA. A pessoa precisará configurar um fator de autenticação ao aceitar o convite.",

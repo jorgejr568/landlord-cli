@@ -28,6 +28,43 @@ final class BillingWizardUITests: XCTestCase {
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 2))
   }
 
+  func testBillingFieldsStaySeparateAndCurrencyFormatsAsBRL() throws {
+    let app = launchAndSignIn()
+    app.tabBars.buttons["Cobranças"].tap()
+    app.buttons["billing.create"].tap()
+    let continueButton = app.buttons["wizard.continue"]
+    XCTAssertTrue(waitForEnabled(continueButton))
+
+    let name = app.textFields["billing.form.name"]
+    let description = app.textFields["billing.form.description"]
+    name.tap()
+    name.typeText("Apartamento 202")
+    description.tap()
+    description.typeText("Aluguel e encargos apartamento 202")
+
+    XCTAssertEqual(name.value as? String, "Apartamento 202")
+    XCTAssertEqual(description.value as? String, "Aluguel e encargos apartamento 202")
+    continueButton.tap()
+
+    app.buttons["billing.form.items.add"].tap()
+    let itemDescription = app.textFields["billing.form.item.0.description"]
+    itemDescription.tap()
+    itemDescription.typeText("Aluguel")
+    let amount = app.textFields["billing.form.item.0.amount"]
+    amount.tap()
+    amount.typeText("120000")
+
+    XCTAssertEqual(itemDescription.value as? String, "Aluguel")
+    XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
+
+    continueButton.tap()
+    continueButton.tap()
+    continueButton.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 5 de 5"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.staticTexts["Apartamento 202"].exists)
+    XCTAssertTrue(app.staticTexts["R$ 1.200,00"].exists)
+  }
+
   private func launchAndSignIn() -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing"]

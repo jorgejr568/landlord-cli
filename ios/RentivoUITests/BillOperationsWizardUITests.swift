@@ -41,13 +41,32 @@ final class BillOperationsWizardUITests: XCTestCase {
     description.typeText("Manutenção")
     app.buttons["wizard.continue"].tap()
 
-    let amount = app.textFields["Valor em centavos"]
+    let amount = app.textFields["expense.form.amount"]
     XCTAssertTrue(amount.waitForExistence(timeout: 2))
     amount.tap()
     amount.typeText("1000")
+    XCTAssertEqual(amount.value as? String, "R$ 10,00")
     app.buttons["wizard.continue"].tap()
 
     XCTAssertEqual(app.buttons["wizard.commit"].label, "Salvar despesa")
+  }
+
+  func testBillVariableAmountFormatsContinuouslyAsBRL() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let createBill = app.buttons["bill.create"]
+    scrollTo(createBill, in: app)
+    createBill.tap()
+
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.continue"].tap()
+
+    let amount = app.textFields.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'bill.form.line.' AND identifier ENDSWITH '.amount'")
+    ).firstMatch
+    XCTAssertTrue(amount.waitForExistence(timeout: 2))
+    amount.tap()
+    amount.typeText("120000")
+    XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
   }
 
   func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {

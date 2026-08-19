@@ -1,5 +1,15 @@
 import Testing
 
+#if canImport(RentivoCore)
+  @testable import RentivoCore
+#endif
+
+@Test func apiKeyWizardHasFourStepsInTheApprovedOrder() {
+  #expect(NativeAPIKeyWizardRules.stepTitles == [
+    "Identificação", "Escopos e validade", "Acessos", "Revisão",
+  ])
+}
+
 #if !canImport(RentivoCore)
   @testable import Rentivo
 

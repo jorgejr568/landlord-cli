@@ -47,12 +47,21 @@ import Testing
     PixFormRules.result(key: "", merchantName: "", merchantCity: "") == .inherit
   )
   #expect(
-    PixFormRules.result(key: "chave", merchantName: "", merchantCity: "São Paulo")
-      == .invalid("Preencha a chave, o nome e a cidade do recebedor para usar PIX personalizado.")
+    PixFormRules.result(
+      type: .email, key: "ana@example.com", merchantName: "", merchantCity: "São Paulo"
+    ) == .invalid("Informe o nome do recebedor.")
   )
   #expect(
-    PixFormRules.result(key: " chave ", merchantName: " Locador ", merchantCity: " SAO PAULO ")
-      == .custom(PixConfiguration(key: "chave", merchantName: "Locador", merchantCity: "SAO PAULO"))
+    PixFormRules.result(
+      type: .email,
+      key: " ANA@EXAMPLE.COM ",
+      merchantName: " Locador ",
+      merchantCity: " SAO PAULO "
+    ) == .custom(
+      PixConfiguration(
+        key: "ana@example.com", merchantName: "Locador", merchantCity: "SAO PAULO"
+      )
+    )
   )
 }
 

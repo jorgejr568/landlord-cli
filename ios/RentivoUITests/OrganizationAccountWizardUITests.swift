@@ -28,6 +28,85 @@ final class OrganizationAccountWizardUITests: XCTestCase {
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
     XCTAssertTrue(app.staticTexts["Chave"].exists)
+    XCTAssertTrue(app.buttons["profile.pix.key-type"].exists)
+    let remove = app.buttons["profile.pix.remove"]
+    XCTAssertTrue(remove.waitForExistence(timeout: 3))
+    remove.tap()
+    XCTAssertTrue(app.staticTexts["Remover chave PIX?"].waitForExistence(timeout: 2))
+    app.buttons["Cancelar"].tap()
+
+    let continueButton = app.buttons["wizard.continue"]
+    XCTAssertTrue(waitForEnabled(continueButton))
+    continueButton.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 2 de 3"].waitForExistence(timeout: 2))
+    continueButton.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 3 de 3"].waitForExistence(timeout: 2))
+    XCTAssertFalse(app.staticTexts["Ambiente"].exists)
+
+    let reveal = app.buttons["profile.pix.review.reveal"]
+    XCTAssertEqual(reveal.label, "Mostrar chave")
+    reveal.tap()
+    XCTAssertEqual(reveal.label, "Ocultar chave")
+    app.buttons["wizard.back"].tap()
+    continueButton.tap()
+    XCTAssertEqual(app.buttons["profile.pix.review.reveal"].label, "Mostrar chave")
+  }
+
+  func testChangePasswordShowsAllFieldsWithoutWizardChrome() throws {
+    let app = launchAndSignIn()
+
+    app.tabBars.buttons["Conta"].tap()
+    app.buttons["Segurança"].tap()
+    XCTAssertTrue(app.buttons["security.password.change"].waitForExistence(timeout: 3))
+    app.buttons["security.password.change"].tap()
+
+    XCTAssertFalse(app.staticTexts["Etapa 1 de 3"].exists)
+    XCTAssertTrue(app.secureTextFields["password.form.current"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.secureTextFields["password.form.new"].exists)
+    XCTAssertTrue(app.secureTextFields["password.form.confirmation"].exists)
+    XCTAssertTrue(app.buttons["password.form.submit"].exists)
+
+    app.buttons["password.form.submit"].tap()
+    XCTAssertTrue(app.staticTexts["Informe sua senha atual."].waitForExistence(timeout: 2))
+    XCTAssertTrue(waitForKeyboardFocus(on: app.secureTextFields["password.form.current"]))
+
+    app.secureTextFields["password.form.current"].typeText("segredo")
+    app.secureTextFields["password.form.new"].tap()
+    app.secureTextFields["password.form.new"].typeText("segredo-novo")
+    app.secureTextFields["password.form.confirmation"].tap()
+    app.secureTextFields["password.form.confirmation"].typeText("segredo-novo")
+
+    for identifier in ["password.form.current", "password.form.new", "password.form.confirmation"] {
+      let reveal = app.buttons["\(identifier).reveal"]
+      reveal.tap()
+      XCTAssertTrue(app.textFields[identifier].waitForExistence(timeout: 2))
+      XCTAssertFalse((app.textFields[identifier].value as? String ?? "").isEmpty)
+      reveal.tap()
+      XCTAssertTrue(app.secureTextFields[identifier].waitForExistence(timeout: 2))
+    }
+
+    app.buttons["password.form.submit"].tap()
+    XCTAssertTrue(app.staticTexts["Senha alterada com sucesso."].waitForExistence(timeout: 3))
+  }
+
+  func testAPIKeyWizardUsesFourStepsAndCombinesScopesWithExpiration() throws {
+    let app = launchAndSignIn()
+
+    app.tabBars.buttons["Conta"].tap()
+    app.buttons["Chaves de integração"].tap()
+    let create = app.buttons["api-key.create"]
+    XCTAssertTrue(create.waitForExistence(timeout: 3))
+    create.tap()
+
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 4"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Escopos e validade"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.staticTexts["Validade da chave"].exists)
+    XCTAssertTrue(app.datePickers["api-key.form.expiration"].exists)
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 3 de 4"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Etapa 4 de 4"].waitForExistence(timeout: 2))
   }
 
   func testRejectedOrganizationStepFocusesTheNameField() throws {
@@ -100,6 +179,18 @@ final class OrganizationAccountWizardUITests: XCTestCase {
         )
       ],
       timeout: 2
+    ) == .completed
+  }
+
+  private func waitForEnabled(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+    XCTWaiter.wait(
+      for: [
+        XCTNSPredicateExpectation(
+          predicate: NSPredicate(format: "isEnabled == true"),
+          object: element
+        )
+      ],
+      timeout: timeout
     ) == .completed
   }
 
