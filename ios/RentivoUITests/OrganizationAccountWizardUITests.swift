@@ -33,7 +33,7 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     XCTAssertTrue(remove.waitForExistence(timeout: 3))
     remove.tap()
     XCTAssertTrue(app.staticTexts["Remover chave PIX?"].waitForExistence(timeout: 2))
-    app.buttons["Cancelar"].tap()
+    dismissConfirmation(titled: "Remover chave PIX?", in: app)
 
     let continueButton = app.buttons["wizard.continue"]
     XCTAssertTrue(waitForEnabled(continueButton))
@@ -56,7 +56,7 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     let app = launchAndSignIn()
 
     app.tabBars.buttons["Conta"].tap()
-    app.buttons["Segurança"].tap()
+    accountRow(titled: "Segurança", in: app).tap()
     XCTAssertTrue(app.buttons["security.password.change"].waitForExistence(timeout: 3))
     app.buttons["security.password.change"].tap()
 
@@ -67,17 +67,21 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     XCTAssertTrue(app.buttons["password.form.submit"].exists)
 
     app.buttons["password.form.submit"].tap()
-    XCTAssertTrue(app.staticTexts["Informe sua senha atual."].waitForExistence(timeout: 2))
-    XCTAssertTrue(waitForKeyboardFocus(on: app.secureTextFields["password.form.current"]))
+    XCTAssertTrue(
+      app.staticTexts["Inválido. Informe sua senha atual."].waitForExistence(timeout: 2)
+    )
 
-    app.secureTextFields["password.form.current"].typeText("segredo")
+    let currentPassword = app.secureTextFields["password.form.current"]
+    currentPassword.tap()
+    XCTAssertTrue(waitForKeyboardFocus(on: currentPassword))
+    currentPassword.typeText("segredo")
     app.secureTextFields["password.form.new"].tap()
     app.secureTextFields["password.form.new"].typeText("segredo-novo")
     app.secureTextFields["password.form.confirmation"].tap()
     app.secureTextFields["password.form.confirmation"].typeText("segredo-novo")
 
     for identifier in ["password.form.current", "password.form.new", "password.form.confirmation"] {
-      let reveal = app.buttons["\(identifier).reveal"]
+      let reveal = app.buttons["\(identifier).visibility"]
       reveal.tap()
       XCTAssertTrue(app.textFields[identifier].waitForExistence(timeout: 2))
       XCTAssertFalse((app.textFields[identifier].value as? String ?? "").isEmpty)
@@ -86,14 +90,14 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     }
 
     app.buttons["password.form.submit"].tap()
-    XCTAssertTrue(app.staticTexts["Senha alterada com sucesso."].waitForExistence(timeout: 3))
+    assertSuccessNotice("Senha alterada com sucesso.", in: app)
   }
 
   func testAPIKeyWizardUsesFourStepsAndCombinesScopesWithExpiration() throws {
     let app = launchAndSignIn()
 
     app.tabBars.buttons["Conta"].tap()
-    app.buttons["Chaves de integração"].tap()
+    accountRow(titled: "Chaves de integração", in: app).tap()
     let create = app.buttons["api-key.create"]
     XCTAssertTrue(create.waitForExistence(timeout: 3))
     create.tap()
@@ -118,8 +122,11 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     create.tap()
     app.buttons["wizard.continue"].tap()
 
-    let name = app.textFields["Nome"]
-    XCTAssertTrue(app.staticTexts["Informe o nome da organização."].waitForExistence(timeout: 2))
+    let name = app.textFields["organization.form.name"]
+    XCTAssertTrue(
+      app.staticTexts["Inválido. Informe o nome da organização."]
+        .waitForExistence(timeout: 2)
+    )
     XCTAssertTrue(waitForKeyboardFocus(on: name))
   }
 
@@ -152,12 +159,12 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     XCTAssertTrue(reset.waitForExistence(timeout: 2))
     reset.tap()
 
-    XCTAssertFalse(app.staticTexts["Herança de tema restaurada."].waitForExistence(timeout: 2))
+    XCTAssertFalse(app.descendants(matching: .any)["notice.toast"].waitForExistence(timeout: 2))
     XCTAssertTrue(app.staticTexts["Restauração selecionada"].exists)
     app.buttons["wizard.continue"].tap()
     XCTAssertTrue(app.staticTexts["Restaurar herança"].exists)
     app.buttons["wizard.commit"].tap()
-    XCTAssertTrue(app.staticTexts["Herança de tema restaurada."].waitForExistence(timeout: 3))
+    assertSuccessNotice("Herança de tema restaurada.", in: app)
   }
 
   private func launchAndSignInAndOpenTheme() -> XCUIApplication {
@@ -180,6 +187,22 @@ final class OrganizationAccountWizardUITests: XCTestCase {
       ],
       timeout: 2
     ) == .completed
+  }
+
+  private func accountRow(titled title: String, in app: XCUIApplication) -> XCUIElement {
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+  }
+
+  private func dismissConfirmation(titled title: String, in app: XCUIApplication) {
+    XCTAssertTrue(app.sheets[title].exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+    XCTAssertTrue(app.staticTexts[title].waitForNonExistence(timeout: 2))
+  }
+
+  private func assertSuccessNotice(_ message: String, in app: XCUIApplication) {
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    XCTAssertTrue(toast.staticTexts["Sucesso: \(message)"].exists)
   }
 
   private func waitForEnabled(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {

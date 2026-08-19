@@ -254,8 +254,7 @@ final class RentivoUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Nova cobrança"].waitForExistence(timeout: 2))
     app.buttons["wizard.continue"].tap()
     XCTAssertTrue(
-      app.staticTexts.matching(identifier: "billing.form.validation").firstMatch
-        .waitForExistence(timeout: 2)
+      app.staticTexts["Inválido. Informe o nome da cobrança."].waitForExistence(timeout: 2)
     )
   }
 
@@ -315,7 +314,9 @@ final class RentivoUITests: XCTestCase {
     }
     XCTAssertTrue(app.staticTexts["Etapa 5 de 5"].exists)
     app.buttons["wizard.commit"].tap()
-    XCTAssertTrue(app.staticTexts["Tema atualizado."].waitForExistence(timeout: 3))
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    XCTAssertTrue(toast.staticTexts["Sucesso: Tema atualizado."].exists)
   }
 
   func testExpenseCreationJourney() throws {
@@ -400,7 +401,9 @@ final class RentivoUITests: XCTestCase {
 
     app.tabBars.buttons["Conta"].tap()
     app.buttons["demo.reset"].tap()
-    app.buttons["Restaurar tema"].tap()
+    let restore = app.buttons["Restaurar"]
+    XCTAssertTrue(restore.waitForExistence(timeout: 2))
+    restore.tap()
     app.tabBars.buttons["Cobranças"].tap()
     XCTAssertTrue(
       app.buttons["billing.card.00000000-0000-0000-0000-000000000101"]

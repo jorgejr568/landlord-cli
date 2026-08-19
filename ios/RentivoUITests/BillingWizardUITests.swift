@@ -14,7 +14,9 @@ final class BillingWizardUITests: XCTestCase {
     let continueButton = app.buttons["wizard.continue"]
     XCTAssertTrue(waitForEnabled(continueButton))
     continueButton.tap()
-    XCTAssertTrue(app.staticTexts["Informe o nome da cobrança."].exists)
+    XCTAssertTrue(
+      app.staticTexts["Inválido. Informe o nome da cobrança."].waitForExistence(timeout: 2)
+    )
   }
 
   func testBillingWizardFocusesNameWhenEssentialsAreInvalid() throws {
@@ -35,24 +37,45 @@ final class BillingWizardUITests: XCTestCase {
     let continueButton = app.buttons["wizard.continue"]
     XCTAssertTrue(waitForEnabled(continueButton))
 
-    let name = app.textFields["billing.form.name"]
-    let description = app.textFields["billing.form.description"]
-    name.tap()
-    name.typeText("Apartamento 202")
-    description.tap()
-    description.typeText("Aluguel e encargos apartamento 202")
+    // Fill the lower multiline control first, before the keyboard can cover its hit region.
+    let description = app.descendants(matching: .any)["billing.form.description"]
+    XCTAssertTrue(description.isHittable)
+    description.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.2)).tap()
+    let focusedDescription = app.descendants(matching: .any)["billing.form.description"]
+    focusedDescription.typeText("Aluguel e encargos apartamento 202")
 
-    XCTAssertEqual(name.value as? String, "Apartamento 202")
-    XCTAssertEqual(description.value as? String, "Aluguel e encargos apartamento 202")
+    let name = app.textFields["billing.form.name"]
+    XCTAssertTrue(name.isHittable)
+    name.tap()
+    XCTAssertTrue(waitForKeyboardFocus(on: name))
+    name.typeText("Apartamento 202")
+
+    XCTAssertEqual(app.textFields["billing.form.name"].value as? String, "Apartamento 202")
+    XCTAssertEqual(
+      app.descendants(matching: .any)["billing.form.description"].value as? String,
+      "Aluguel e encargos apartamento 202"
+    )
     continueButton.tap()
 
     app.buttons["billing.form.items.add"].tap()
     let itemDescription = app.textFields["billing.form.item.0.description"]
     itemDescription.tap()
     itemDescription.typeText("Aluguel")
-    let amount = app.textFields["billing.form.item.0.amount"]
+    var amount = app.textFields["billing.form.item.0.amount"]
     amount.tap()
-    amount.typeText("120000")
+    amount = app.textFields["billing.form.item.0.amount"]
+    XCTAssertTrue(waitForKeyboardFocus(on: amount))
+    for (digit, formattedValue) in [
+      ("1", "R$ 0,01"),
+      ("2", "R$ 0,12"),
+      ("0", "R$ 1,20"),
+      ("0", "R$ 12,00"),
+      ("0", "R$ 120,00"),
+      ("0", "R$ 1.200,00"),
+    ] {
+      amount.typeText(digit)
+      XCTAssertTrue(waitForValue(of: amount, containing: formattedValue))
+    }
 
     XCTAssertEqual(itemDescription.value as? String, "Aluguel")
     XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
@@ -85,7 +108,7 @@ final class BillingWizardUITests: XCTestCase {
     if savePasswordSheet.waitForExistence(timeout: 5) {
       let dismissSavePassword = savePasswordSheet.buttons.element(boundBy: 0)
       dismissSavePassword.tap()
-      XCTAssertTrue(dismissSavePassword.waitForNonExistence(timeout: 5))
+      XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
@@ -97,6 +120,12 @@ final class BillingWizardUITests: XCTestCase {
       object: element
     )
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: element)
+    return XCTWaiter().wait(for: [expectation], timeout: 2) == .completed
   }
 
   private func waitForValue(

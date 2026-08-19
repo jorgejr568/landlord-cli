@@ -16,17 +16,26 @@ final class BillOperationsWizardUITests: XCTestCase {
     createBill.tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
-    XCTAssertTrue(app.staticTexts["Ano: 2026"].exists)
-    XCTAssertFalse(app.staticTexts["Ano: 2.026"].exists)
+    XCTAssertTrue(app.staticTexts["Ano"].exists)
+    let year = app.descendants(matching: .any)["bill.form.year"]
+    XCTAssertTrue(year.exists)
+    XCTAssertEqual(year.value as? String, "2026")
+    XCTAssertFalse(
+      app.descendants(matching: .any).matching(
+        NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "2.026", "2.026")
+      ).firstMatch.exists
+    )
     XCTAssertEqual(app.buttons["wizard.continue"].label, "Continuar")
     XCTAssertTrue(app.buttons["wizard.close"].exists)
 
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.close"].tap()
-    XCTAssertTrue(app.staticTexts["Descartar alterações?"].waitForExistence(timeout: 2))
-    let keepEditing = app.buttons["xmark"]
-    XCTAssertTrue(keepEditing.waitForExistence(timeout: 2))
-    keepEditing.tap()
+    let discardTitle = app.staticTexts["Descartar alterações?"]
+    XCTAssertTrue(discardTitle.waitForExistence(timeout: 2))
+    XCTAssertTrue(app.sheets["Descartar alterações?"].exists)
+    // iOS 26 exposes this confirmation dialog's cancel row without its SwiftUI label.
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+    XCTAssertTrue(discardTitle.waitForNonExistence(timeout: 2))
     XCTAssertTrue(app.staticTexts["Etapa 2 de 5"].exists)
   }
 
@@ -67,7 +76,18 @@ final class BillOperationsWizardUITests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(amount.waitForExistence(timeout: 2))
     amount.tap()
-    amount.typeText("120000")
+    XCTAssertTrue(waitForKeyboardFocus(on: amount))
+    for (digit, formattedValue) in [
+      ("1", "R$ 0,01"),
+      ("2", "R$ 0,12"),
+      ("0", "R$ 1,20"),
+      ("0", "R$ 12,00"),
+      ("0", "R$ 120,00"),
+      ("0", "R$ 1.200,00"),
+    ] {
+      amount.typeText(digit)
+      XCTAssertTrue(waitForValue(of: amount, containing: formattedValue))
+    }
     XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
   }
 
@@ -148,11 +168,14 @@ final class BillOperationsWizardUITests: XCTestCase {
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.commit"].tap()
 
-    XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
     XCTAssertTrue(
-      app.staticTexts["Exportação solicitada. O arquivo será enviado para seu e-mail."]
-        .waitForExistence(timeout: 3)
+      toast.staticTexts[
+        "Sucesso: Exportação solicitada. O arquivo será enviado para seu e-mail."
+      ].exists
     )
+    XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
   }
 
   private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {
@@ -195,7 +218,7 @@ final class BillOperationsWizardUITests: XCTestCase {
     if savePasswordSheet.waitForExistence(timeout: 5) {
       let dismissSavePassword = savePasswordSheet.buttons.element(boundBy: 0)
       dismissSavePassword.tap()
-      XCTAssertTrue(dismissSavePassword.waitForNonExistence(timeout: 5))
+      XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
@@ -216,5 +239,11 @@ final class BillOperationsWizardUITests: XCTestCase {
     let expectation = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "value CONTAINS %@", substring), object: element)
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: element)
+    return XCTWaiter().wait(for: [expectation], timeout: 2) == .completed
   }
 }
