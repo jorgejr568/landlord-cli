@@ -17,6 +17,8 @@ import Testing
 
 @Test func moneyFormatsBrazilianCurrency() {
   #expect(Money(centavos: 245_000).formatted(locale: Locale(identifier: "pt_BR")) == "R$ 2.450,00")
+  #expect(Money(centavos: 350).formatted() == "R$\u{00A0}3,50")
+  #expect(Money(centavos: 120_000).formatted() == "R$\u{00A0}1.200,00")
 }
 
 // The separator between "R$" and the digits is a non-breaking space (U+00A0), written as an escape

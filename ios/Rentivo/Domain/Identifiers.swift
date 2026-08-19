@@ -129,13 +129,26 @@ public enum AttachmentUploadRules {
 
 public struct DownloadedFile: Hashable, Sendable {
   public let fileURL: URL
+  public let displayName: String
   public let filename: String
   public let mediaType: String
 
-  public init(fileURL: URL, filename: String, mediaType: String) {
+  public init(fileURL: URL, displayName: String, filename: String, mediaType: String) {
     self.fileURL = fileURL
+    self.displayName = displayName
     self.filename = filename
     self.mediaType = mediaType
+  }
+
+  public init(fileURL: URL, filename: String, mediaType: String) {
+    self.init(
+      fileURL: fileURL,
+      displayName: DocumentPresentation.serverFallback(
+        serverName: filename, mediaType: mediaType
+      ).displayName,
+      filename: filename,
+      mediaType: mediaType
+    )
   }
 }
 

@@ -429,10 +429,15 @@ private final class StagedBodyForbiddenURLProtocol: URLProtocol, @unchecked Send
   _ = try #require(try await client.restoreSession())
 
   let file = try await client.download(
-    path: "/api/v1/billings/b/attachments/1", filename: "comprovante", mediaType: "application/pdf"
+    path: "/api/v1/billings/b/attachments/1",
+    presentation: DocumentPresentation(
+      displayName: "Comprovante da vistoria", suggestedFilename: "comprovante.pdf"),
+    mediaType: "application/pdf"
   )
 
   #expect(file.filename == "comprovante.jpg")
+  #expect(file.displayName == "Comprovante da vistoria")
+  #expect(file.fileURL.lastPathComponent == "comprovante.jpg")
   #expect(file.mediaType == "image/jpeg")
   #expect(try Data(contentsOf: file.fileURL) == Data([0xFF, 0xD8, 0xFF]))
   #expect(file.fileURL.pathExtension == "jpg")
@@ -468,7 +473,7 @@ private final class DownloadJPEGURLProtocol: URLProtocol, @unchecked Sendable {
   override func stopLoading() {}
 }
 
-@Test func downloadPreservesAnAlreadyExtensionedFilenameRegardlessOfContentType() async throws {
+@Test func downloadPreservesTheHumanPDFNameAndFinalPathComponent() async throws {
   // Its own downloads directory: another test reaching `logout()`/`invalidateSession()` purges the
   // shared one, and Swift Testing runs these concurrently.
   let store = makeIsolatedDownloadsStore()
@@ -482,10 +487,15 @@ private final class DownloadJPEGURLProtocol: URLProtocol, @unchecked Sendable {
   _ = try #require(try await client.restoreSession())
 
   let file = try await client.download(
-    path: "/api/v1/billings/b/bills/1/invoice", filename: "fatura-julho.pdf"
+    path: "/api/v1/billings/b/bills/1/invoice",
+    presentation: DocumentPresentation(
+      displayName: "Fatura - Apartamento 202 - agosto 2026",
+      suggestedFilename: "Fatura - Apartamento 202 - agosto 2026.pdf")
   )
 
-  #expect(file.filename == "fatura-julho.pdf")
+  #expect(file.displayName == "Fatura - Apartamento 202 - agosto 2026")
+  #expect(file.filename == "Fatura - Apartamento 202 - agosto 2026.pdf")
+  #expect(file.fileURL.lastPathComponent == "Fatura - Apartamento 202 - agosto 2026.pdf")
   #expect(file.fileURL.pathExtension == "pdf")
 }
 

@@ -234,7 +234,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
   }
   public func listAttachments(billingID: BillingID) async throws -> [Attachment] {
     let response: RemoteAttachmentList = try await decode(path: "/api/v1/billings/\(billingID.rawValue)/attachments")
-    return response.items.map(attachment(from:))
+    return try response.items.map(attachment(from:))
   }
   public func addAttachment(billingID: BillingID, upload: FileUpload) async throws -> Attachment {
     let upload = try AttachmentUploadRules.validated(upload)
@@ -242,7 +242,7 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
       path: "/api/v1/billings/\(billingID.rawValue)/attachments",
       name: upload.filename, files: [(field: "file", upload: upload)]
     )
-    return attachment(from: response)
+    return try attachment(from: response)
   }
   public func deleteAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws {
     try await execute(path: "/api/v1/billings/\(billingID.rawValue)/attachments/\(attachmentID.rawValue)", method: "DELETE")
@@ -284,28 +284,37 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     guard response.queuedCount > 0 else { throw LiveAPIError.invalidResponse }
     return response.queuedCount
   }
-  public func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile {
+  public func downloadInvoice(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
     try await client.download(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/invoice",
-      filename: "fatura-\(billID.rawValue)"
+      presentation: presentation
     )
   }
-  public func downloadRecibo(billingID: BillingID, billID: BillID) async throws -> DownloadedFile {
+  public func downloadRecibo(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
     try await client.download(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/recibo",
-      filename: "recibo-\(billID.rawValue)"
+      presentation: presentation
     )
   }
-  public func downloadReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws -> DownloadedFile {
+  public func downloadReceipt(
+    billingID: BillingID, billID: BillID, receiptID: ReceiptID,
+    presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
     try await client.download(
       path: "/api/v1/billings/\(billingID.rawValue)/bills/\(billID.rawValue)/receipts/\(receiptID.rawValue)",
-      filename: "comprovante-\(receiptID.rawValue)"
+      presentation: presentation
     )
   }
-  public func downloadAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws -> DownloadedFile {
+  public func downloadAttachment(
+    billingID: BillingID, attachmentID: AttachmentID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
     try await client.download(
       path: "/api/v1/billings/\(billingID.rawValue)/attachments/\(attachmentID.rawValue)",
-      filename: "arquivo-\(attachmentID.rawValue)"
+      presentation: presentation
     )
   }
   public func requestExport(billingID: BillingID, format: String) async throws {
@@ -796,10 +805,15 @@ public final class APIRentivoStore: AuthRepository, ProfileRepository, BillingRe
     )
   }
 
-  private func attachment(from remote: RemoteAttachment) -> Attachment {
+  private func attachment(from remote: RemoteAttachment) throws -> Attachment {
     Attachment(
-      id: AttachmentID(rawValue: remote.uuid), name: remote.name,
-      mediaType: remote.contentType, byteCount: remote.fileSize
+      id: AttachmentID(rawValue: remote.uuid),
+      name: remote.name,
+      filename: remote.filename,
+      mediaType: remote.contentType,
+      byteCount: remote.fileSize,
+      sortOrder: remote.sortOrder,
+      createdAt: try remote.createdAt.map(WireDate.isoDate)
     )
   }
 

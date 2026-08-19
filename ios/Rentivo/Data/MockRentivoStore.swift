@@ -508,8 +508,11 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     let attachment = Attachment(
       id: AttachmentID(rawValue: UUID().uuidString),
       name: upload.filename,
+      filename: upload.filename,
       mediaType: upload.mediaType,
-      byteCount: upload.byteCount
+      byteCount: upload.byteCount,
+      sortOrder: snapshot.attachments[billingID, default: []].count,
+      createdAt: Date()
     )
     snapshot.attachments[billingID, default: []].append(attachment)
     recordActivity(kind: .billing, title: "Arquivo adicionado", detail: upload.filename)
@@ -602,10 +605,81 @@ public final class MockRentivoStore: AuthRepository, ProfileRepository, BillingR
     return selected.count
   }
 
-  public func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }
-  public func downloadRecibo(billingID: BillingID, billID: BillID) async throws -> DownloadedFile { throw DemoError.operationFailed }
-  public func downloadReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws -> DownloadedFile { throw DemoError.operationFailed }
-  public func downloadAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws -> DownloadedFile { throw DemoError.operationFailed }
+  public func downloadInvoice(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
+    try await prepareOperation()
+    return try mockDownload(presentation)
+  }
+
+  public func downloadRecibo(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
+    try await prepareOperation()
+    return try mockDownload(presentation)
+  }
+
+  public func downloadReceipt(
+    billingID: BillingID, billID: BillID, receiptID: ReceiptID,
+    presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
+    try await prepareOperation()
+    return try mockDownload(presentation)
+  }
+
+  public func downloadAttachment(
+    billingID: BillingID, attachmentID: AttachmentID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile {
+    try await prepareOperation()
+    return try mockDownload(presentation)
+  }
+
+  private func mockDownload(_ presentation: DocumentPresentation) throws -> DownloadedFile {
+    let filename = DocumentPresentation.sanitizedFilename(
+      DocumentPresentation.resolvedFilename(
+        presentation.suggestedFilename, mediaType: presentation.mediaType))
+    let destination = try DownloadedFileStore.shared.makeDestination(filename: filename)
+    let data: Data
+    if presentation.mediaType.lowercased().hasPrefix("image/") {
+      data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+    } else {
+      data = Self.previewPDFData()
+    }
+    do {
+      try data.write(to: destination, options: DownloadedFileStore.writingOptions)
+    } catch {
+      DownloadedFileStore.shared.removeDestination(destination)
+      throw error
+    }
+    return DownloadedFile(
+      fileURL: destination,
+      displayName: presentation.displayName,
+      filename: filename,
+      mediaType: presentation.mediaType
+    )
+  }
+
+  private static func previewPDFData() -> Data {
+    let objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 420] /Contents 4 0 R >>",
+      "<< /Length 0 >>\nstream\n\nendstream",
+    ]
+    var pdf = "%PDF-1.4\n"
+    var offsets: [Int] = []
+    for (index, object) in objects.enumerated() {
+      offsets.append(pdf.utf8.count)
+      pdf += "\(index + 1) 0 obj\n\(object)\nendobj\n"
+    }
+    let xrefOffset = pdf.utf8.count
+    pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+    for offset in offsets {
+      pdf += String(format: "%010d 00000 n \n", offset)
+    }
+    pdf += "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xrefOffset)\n%%EOF\n"
+    return Data(pdf.utf8)
+  }
   public func requestExport(billingID: BillingID, format: String) async throws {
     try await prepareOperation()
     try requireWriteAccess()

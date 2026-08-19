@@ -393,9 +393,12 @@ private struct APIKeyFormView: View {
         RentivoWizardReviewRow(
           label: "Nome", value: name.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-        RentivoWizardReviewRow(label: "Escopos", value: "\(scopes.count)")
         RentivoWizardReviewRow(
-          label: "Acessos", value: "\(grantIDs.count + (key?.unavailableGrantCount ?? 0))"
+          label: "Escopos", value: BrazilianLocaleFormatting.integer(scopes.count))
+        RentivoWizardReviewRow(
+          label: "Acessos",
+          value: BrazilianLocaleFormatting.integer(
+            grantIDs.count + (key?.unavailableGrantCount ?? 0))
         )
         RentivoWizardReviewRow(
           label: "Expira em", value: (key?.expiresAt ?? expiresAt).formattedPTBR()

@@ -67,7 +67,9 @@ final class BillingWizardUITests: XCTestCase {
 
   private func launchAndSignIn() -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing"]
+    app.launchArguments = [
+      "--ui-testing", "-AppleLanguages", "(pt-BR)", "-AppleLocale", "pt_BR",
+    ]
     app.launch()
 
     let email = app.textFields["login.email"]
@@ -81,8 +83,9 @@ final class BillingWizardUITests: XCTestCase {
 
     let savePasswordSheet = app.sheets.firstMatch
     if savePasswordSheet.waitForExistence(timeout: 5) {
-      savePasswordSheet.buttons.element(boundBy: 0).tap()
-      XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
+      let dismissSavePassword = savePasswordSheet.buttons.element(boundBy: 0)
+      dismissSavePassword.tap()
+      XCTAssertTrue(dismissSavePassword.waitForNonExistence(timeout: 5))
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
@@ -93,6 +96,14 @@ final class BillingWizardUITests: XCTestCase {
       predicate: NSPredicate(format: "isEnabled == true"),
       object: element
     )
+    return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  private func waitForValue(
+    of element: XCUIElement, containing substring: String, timeout: TimeInterval = 3
+  ) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value CONTAINS %@", substring), object: element)
     return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
   }
 

@@ -304,7 +304,7 @@ public enum MoneyInputRules {
   /// Both native clients store centavos in a 32-bit-compatible wire value. Capping significant
   /// values keeps pasted overflow from being interpreted as zero by integer conversion while
   /// preserving the backend's full signed 32-bit positive range.
-  public static let maximumCentavos = 2_147_483_647
+  public static let maximumCentavos = Money.maximumPersistedCentavos
 
   public static func centavos(from text: String) -> Int {
     let asciiDigits = text.filter { "0123456789".contains($0) }

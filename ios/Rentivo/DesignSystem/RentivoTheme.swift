@@ -77,10 +77,3 @@ private struct NoticeAreaModifier: ViewModifier {
     content.onAppear { app.activateNoticeArea(area) }
   }
 }
-
-/// Formats a PT-BR count string with correct singular/plural noun agreement, e.g.
-/// `ptBRCount(1, singular: "fatura", plural: "faturas")` -> "1 fatura" and
-/// `ptBRCount(3, singular: "fatura", plural: "faturas")` -> "3 faturas".
-func ptBRCount(_ count: Int, singular: String, plural: String) -> String {
-  "\(count) \(count == 1 ? singular : plural)"
-}
