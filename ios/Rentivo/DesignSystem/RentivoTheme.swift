@@ -2,10 +2,9 @@ import SwiftUI
 
 /// Semantic color tokens for the app. The app renders in light appearance only
 /// (`UIUserInterfaceStyle = Light` in `Config/Rentivo-Info.plist`), so each token is a
-/// single fixed sRGB value. Accent hues (`emerald`, `amber`, `coral`, `blue`, `lilac`) are
-/// tuned so that, used as-is, they meet WCAG AA (>=4.5:1) as foreground text/icon color
-/// against both `paper` and `surface`, AND against their own 14%-opacity tint (the pattern
-/// `StatusBadge` uses).
+/// single fixed sRGB value. The cream/ink/emerald/amber/coral palette is tuned so that its
+/// semantic foreground colors meet WCAG AA (>=4.5:1) against both `paper` and `surface`, and
+/// against their own 14%-opacity tint (the pattern status and identity badges use).
 enum RentivoColors {
   // Keep RentivoLaunchBackground.colorset at these exact sRGB values. The static launch screen
   // renders before SwiftUI can read this runtime token.
@@ -18,15 +17,34 @@ enum RentivoColors {
   static let emeraldLight = Color(red: 0.87, green: 0.96, blue: 0.93)
   static let amber = Color(red: 0.539, green: 0.36, blue: 0.093)
   static let coral = Color(red: 0.681, green: 0.254, blue: 0.205)
-  static let blue = Color(red: 0.16, green: 0.395, blue: 0.714)
-  static let lilac = Color(red: 0.446, green: 0.346, blue: 0.655)
 
   // Semantic aliases keep component intent independent from the underlying palette.
   static let primaryAction = emerald
-  static let link = emerald
+  static let link = ink
   static let disabledControlFill = paper
   static let disabledControlForeground = secondaryInk
   static let error = coral
+}
+
+enum RentivoSemanticTone: Equatable, Sendable {
+  case neutral
+  case positive
+  case warning
+  case negative
+
+  var color: Color {
+    switch self {
+    case .neutral: RentivoColors.ink
+    case .positive: RentivoColors.emerald
+    case .warning: RentivoColors.amber
+    case .negative: RentivoColors.coral
+    }
+  }
+}
+
+enum AppChromeSemanticPresentation {
+  static let informationTone = RentivoSemanticTone.neutral
+  static let currentUserIdentityTone = RentivoSemanticTone.neutral
 }
 
 enum RentivoSpacing {

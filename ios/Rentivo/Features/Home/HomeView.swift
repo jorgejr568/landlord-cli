@@ -27,6 +27,10 @@ enum HomePresentationRules {
   static func overduePresentation(centavos: Int) -> HomeOverduePresentation {
     centavos > 0 ? .warning : .neutral
   }
+
+  static func resultTone(centavos: Int) -> RentivoSemanticTone {
+    FinancialAmountPresentation(kind: .result, amount: Money(centavos: centavos)).tone
+  }
 }
 
 struct HomeView: View {
@@ -149,7 +153,9 @@ private struct HomeContent: View {
               title: "Resultado",
               value: data.summary.netIncome,
               symbol: "chart.line.uptrend.xyaxis",
-              color: RentivoColors.blue
+              color: HomePresentationRules.resultTone(
+                centavos: data.summary.netIncome.centavos
+              ).color
             )
             CollectionCard(percent: data.summary.collectionRatePercent)
           }
@@ -376,7 +382,7 @@ private struct CollectionCard: View {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Image(systemName: "percent")
           .font(.title2)
-          .foregroundStyle(RentivoColors.lilac)
+          .foregroundStyle(RentivoColors.ink)
         Text("Taxa de recebimento")
           .font(.caption.weight(.semibold))
           .foregroundStyle(RentivoColors.secondaryInk)

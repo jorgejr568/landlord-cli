@@ -504,8 +504,8 @@ struct BillDetailView: View {
   @State private var downloadedFile: DownloadedFile?
   @State private var showingCommunication = false
   @State private var confirmingDelete = false
-  @State private var pendingTransition: BillTransition?
-  @State private var transitioningTo: BillStatus?
+  @State private var pendingTransition: BillLifecyclePresentedAction?
+  @State private var transitioningAction: BillLifecyclePresentedAction?
   @State private var isRegenerating = false
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
@@ -542,27 +542,36 @@ struct BillDetailView: View {
         CommunicationComposerView(billing: billing, bill: bill)
       }
     }
-    .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
+    .confirmationDialog(
+      "Excluir esta fatura?",
+      isPresented: $confirmingDelete,
+      titleVisibility: .visible
+    ) {
       Button("Excluir fatura", role: .destructive) { Task { await deleteBill() } }
       Button("Cancelar", role: .cancel) {}
+    } message: {
+      Text(
+        "A fatura e seus comprovantes serão removidos permanentemente. Esta ação não pode ser desfeita."
+      )
     }
     .confirmationDialog(
-      pendingTransition?.label ?? "Alterar status da fatura?",
+      pendingTransition?.confirmationTitle ?? "Alterar status da fatura?",
       isPresented: Binding(
         get: { pendingTransition != nil },
         set: { if !$0 { pendingTransition = nil } }
       ),
+      titleVisibility: .visible,
       presenting: pendingTransition
     ) { action in
-      Button(action.label, role: action.style == "danger" ? .destructive : nil) {
+      Button(action.action.label, role: action.isDestructive ? .destructive : nil) {
         pendingTransition = nil
         guard let currentStatus = state.value?.status else { return }
-        Task { await transition(from: currentStatus, to: action.target) }
+        Task { await transition(from: currentStatus, action: action) }
       }
-      .accessibilityIdentifier("bill.transition.confirm.\(action.target.rawValue)")
+      .accessibilityIdentifier("bill.transition.confirm.\(action.action.target.rawValue)")
       Button("Cancelar", role: .cancel) {}
-    } message: { _ in
-      Text("Confirme a alteração de status desta fatura.")
+    } message: { action in
+      if let message = action.confirmationMessage { Text(message) }
     }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
@@ -599,13 +608,7 @@ struct BillDetailView: View {
         }
 
         lineItems(bill)
-        if bill.capabilities.canTransition {
-          lifecycle(bill)
-        } else {
-          Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
-        }
+        lifecycle(bill)
 
         VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
           SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
@@ -615,7 +618,7 @@ struct BillDetailView: View {
           } label: {
             Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
           }
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .buttonStyle(RentivoButtonStyle())
           .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice)
           HStack {
             // Regenerating stays available while a render is pending: a re-trigger supersedes the
@@ -661,7 +664,8 @@ struct BillDetailView: View {
             Label("Excluir fatura", systemImage: "trash")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(RentivoDestructiveButtonStyle())
+          .accessibilityIdentifier("bill.delete")
         }
       }
       .padding(RentivoSpacing.page)
@@ -678,7 +682,7 @@ struct BillDetailView: View {
         ProgressView()
       }
       .font(.footnote)
-      .foregroundStyle(RentivoColors.secondaryInk)
+      .foregroundStyle(RentivoColors.amber)
       .accessibilityIdentifier("bill.pdf.rendering")
     case .failed:
       Label("Falha no PDF", systemImage: "exclamationmark.triangle")
@@ -719,38 +723,18 @@ struct BillDetailView: View {
   }
 
   private func lifecycle(_ bill: Bill) -> some View {
-    VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
-      // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
-      // over the local `BillStatus` state machine, when the API supplies them.
-      if bill.effectiveTransitionActions.isEmpty {
-        Label("Esta fatura está em um estado final.", systemImage: "checkmark.circle")
-          .foregroundStyle(RentivoColors.secondaryInk)
+    BillLifecycleView(
+      currentStatus: bill.status,
+      // Preserve the server-authoritative action set exposed by the domain model.
+      actions: bill.effectiveTransitionActions,
+      statusUpdatedAt: bill.statusUpdatedAt,
+      transitioningAction: transitioningAction,
+      allowsActions: bill.capabilities.canTransition
+    ) { action in
+      if action.requiresConfirmation {
+        pendingTransition = action
       } else {
-        ForEach(bill.effectiveTransitionActions, id: \.target) { action in
-          Button {
-            if action.requiresConfirmation {
-              pendingTransition = action
-            } else {
-              Task { await transition(from: bill.status, to: action.target) }
-            }
-          } label: {
-            HStack(spacing: RentivoSpacing.small) {
-              if transitioningTo == action.target { ProgressView().controlSize(.small) }
-              Label(action.label, systemImage: action.target.symbol)
-            }
-              .frame(maxWidth: .infinity)
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
-          .disabled(transitioningTo != nil)
-          .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
-        }
-      }
-      if let statusUpdatedAt = bill.statusUpdatedAt {
-        Text("Status atualizado em \(statusUpdatedAt.formattedPTBR(time: .shortened)).")
-          .font(.caption)
-          .foregroundStyle(RentivoColors.secondaryInk)
+        Task { await transition(from: bill.status, action: action) }
       }
     }
   }
@@ -833,10 +817,14 @@ struct BillDetailView: View {
     await onMutation()
   }
 
-  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
-    guard transitioningTo == nil else { return }
-    transitioningTo = status
-    defer { transitioningTo = nil }
+  private func transition(
+    from currentStatus: BillStatus,
+    action: BillLifecyclePresentedAction
+  ) async {
+    guard transitioningAction == nil else { return }
+    transitioningAction = action
+    defer { transitioningAction = nil }
+    let status = action.action.target
     do {
       try await app.dependencies.bills.transitionBill(
         billingID: billingID, billID: billID, from: currentStatus, to: status)
@@ -1170,19 +1158,6 @@ extension BillLineItemKind {
     case .fixed: "item fixo"
     case .variable: "valor variável"
     case .extra: "item extra"
-    }
-  }
-}
-
-extension BillStatus {
-  fileprivate var symbol: String {
-    switch self {
-    case .draft: "pencil.circle"
-    case .published: "megaphone.fill"
-    case .sent: "paperplane.fill"
-    case .paid: "checkmark.seal.fill"
-    case .cancelled: "xmark.circle.fill"
-    case .delayedPayment: "clock.badge.exclamationmark.fill"
     }
   }
 }

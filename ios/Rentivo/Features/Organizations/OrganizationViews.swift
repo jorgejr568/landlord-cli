@@ -704,7 +704,7 @@ struct OrganizationDetailView: View {
           Label("Aparência da organização", systemImage: "paintpalette.fill")
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+        .buttonStyle(RentivoSecondaryButtonStyle())
         .accessibilityIdentifier("organization.theme")
 
         if organization.capabilities.canManage {
@@ -713,7 +713,7 @@ struct OrganizationDetailView: View {
           } label: {
             Label("Excluir organização", systemImage: "trash").frame(maxWidth: .infinity)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(RentivoDestructiveButtonStyle())
           .disabled(activeAction != nil)
         } else {
           Label(
@@ -746,45 +746,65 @@ struct OrganizationDetailView: View {
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
           ForEach(organization.members) { member in
-            HStack {
-              VStack(alignment: .leading) {
-                HStack(spacing: RentivoSpacing.tiny) {
-                  Text(member.email).font(.subheadline.weight(.semibold))
-                  if member.isCurrentUser {
-                    Text("você").font(.caption2.weight(.bold)).foregroundStyle(RentivoColors.blue)
-                  }
-                }
-                Text(member.role.label)
-                  .font(.caption)
-                  .foregroundStyle(RentivoColors.secondaryInk)
-              }
-              Spacer()
-              if member.isCurrentUser {
-                Image(
-                  systemName: member.role == .admin
-                    ? "crown.fill" : "person.crop.circle.badge.checkmark"
+            if member.isCurrentUser {
+              memberRow(member, organization: organization)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                  "\(member.email), \(member.role.label), Você, usuário atual"
                 )
-                .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.blue)
-              } else if organization.capabilities.canManage {
-                Menu {
-                  ForEach(
-                    OrganizationRole.allCases.filter { $0 != member.role },
-                    id: \.self
-                  ) { role in
-                    Button(role.label) { Task { await changeRole(member, to: role) } }
-                  }
-                  Divider()
-                  Button("Remover", role: .destructive) { Task { await remove(member) } }
-                } label: {
-                  Image(systemName: "ellipsis.circle")
-                }
-                .disabled(activeAction != nil)
-              } else if member.role == .admin {
-                Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
-              }
+            } else {
+              memberRow(member, organization: organization)
             }
           }
         }
+      }
+    }
+  }
+
+  private func memberRow(
+    _ member: OrganizationMember,
+    organization: Organization
+  ) -> some View {
+    HStack {
+      VStack(alignment: .leading) {
+        HStack(spacing: RentivoSpacing.tiny) {
+          Text(member.email).font(.subheadline.weight(.semibold))
+          if member.isCurrentUser {
+            Text("você")
+              .font(.caption2.weight(.bold))
+              .foregroundStyle(AppChromeSemanticPresentation.currentUserIdentityTone.color)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background(
+                AppChromeSemanticPresentation.currentUserIdentityTone.color.opacity(0.14)
+              )
+              .clipShape(Capsule())
+          }
+        }
+        Text(member.role.label)
+          .font(.caption)
+          .foregroundStyle(RentivoColors.secondaryInk)
+      }
+      Spacer()
+      if member.isCurrentUser {
+        Image(
+          systemName: member.role == .admin
+            ? "crown.fill" : "person.crop.circle.badge.checkmark"
+        )
+        .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.emerald)
+      } else if organization.capabilities.canManage {
+        Menu {
+          ForEach(OrganizationRole.allCases.filter { $0 != member.role }, id: \.self) { role in
+            Button(role.label) { Task { await changeRole(member, to: role) } }
+          }
+          Divider()
+          Button("Remover", role: .destructive) { Task { await remove(member) } }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .disabled(activeAction != nil)
+      } else if member.role == .admin {
+        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
       }
     }
   }

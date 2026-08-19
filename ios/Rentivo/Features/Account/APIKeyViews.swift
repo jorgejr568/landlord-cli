@@ -76,6 +76,7 @@ struct APIKeyListView: View {
         get: { keyPendingRevoke != nil },
         set: { if !$0 { keyPendingRevoke = nil } }
       ),
+      titleVisibility: .visible,
       presenting: keyPendingRevoke
     ) { key in
       Button("Revogar chave", role: .destructive) {
@@ -153,14 +154,14 @@ private struct APIKeyCard: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(RentivoColors.secondaryInk)
         if showsActions {
-          // `RentivoButtonStyle` already expands to the available width, so the HStack
-          // splits the footer 50/50.
+          // Both semantic styles expand to the available width, so the HStack splits the footer
+          // evenly while preserving the edit/revoke hierarchy.
           HStack(spacing: RentivoSpacing.medium) {
             Button("Editar", action: onEdit)
-              .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+              .buttonStyle(RentivoSecondaryButtonStyle())
               .accessibilityIdentifier("api-key.edit")
             Button("Revogar", action: onRevoke)
-              .buttonStyle(RentivoButtonStyle(color: RentivoColors.coral))
+              .buttonStyle(RentivoDestructiveButtonStyle())
               .accessibilityIdentifier("api-key.revoke")
           }
         }

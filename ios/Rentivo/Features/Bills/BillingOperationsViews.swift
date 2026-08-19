@@ -433,6 +433,7 @@ struct AttachmentListView: View {
               }
               .labelStyle(.iconOnly)
               .buttonStyle(.borderless)
+              .foregroundStyle(RentivoColors.emerald)
             }
             .swipeActions {
               if canWrite {
@@ -552,6 +553,7 @@ struct DownloadShareView: View {
                 mediaType: file.mediaType, filename: file.filename)
             )
             .font(.system(size: 52))
+            .foregroundStyle(RentivoColors.emerald)
             .accessibilityHidden(true)
             Text(file.displayName)
               .font(RentivoTypography.title)

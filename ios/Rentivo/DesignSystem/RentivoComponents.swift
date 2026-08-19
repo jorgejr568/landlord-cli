@@ -25,18 +25,16 @@ struct RentivoCard<Content: View>: View {
 }
 
 struct RentivoButtonStyle: ButtonStyle {
-  var color = RentivoColors.primaryAction
   var isBusy = false
   @Environment(\.isEnabled) private var isEnabled
 
-  /// Buttons render as a solid, saturated fill with a white label. The style is used only with
-  /// saturated accent tokens (`emerald`, `blue`, and similar), which keep the white label at
-  /// >=4.5:1; `color` is a mutable var, so passing a light token such as `paper` or `surface`
-  /// here would break that contrast — nothing in this type enforces it.
+  /// The primary action is intentionally fixed to emerald. Call sites choose a semantic style
+  /// instead of injecting a hue that could contradict the action's meaning.
   func makeBody(configuration: Configuration) -> some View {
     HStack(spacing: RentivoSpacing.small) {
       if isBusy {
         ProgressView()
+          .controlSize(.small)
           .tint(.white)
       }
       configuration.label
@@ -80,7 +78,8 @@ struct RentivoButtonStyle: ButtonStyle {
 
   private func backgroundColor(configuration: Configuration) -> Color {
     if isUnavailable { return RentivoColors.disabledControlFill }
-    return isInteractivePress(configuration: configuration) ? color.opacity(0.75) : color
+    return isInteractivePress(configuration: configuration)
+      ? RentivoColors.primaryAction.opacity(0.75) : RentivoColors.primaryAction
   }
 }
 
@@ -104,22 +103,74 @@ extension View {
 }
 
 struct RentivoSecondaryButtonStyle: ButtonStyle {
+  var isBusy = false
   @Environment(\.isEnabled) private var isEnabled
 
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(RentivoColors.ink)
+      }
+      configuration.label
+    }
       .font(.headline.weight(.bold))
       .foregroundStyle(RentivoColors.ink)
       .frame(maxWidth: .infinity, minHeight: 48)
       .padding(.horizontal, RentivoSpacing.medium)
-      .background(configuration.isPressed ? RentivoColors.paper : RentivoColors.surface)
+      .background(isInteractivePress(configuration) ? RentivoColors.paper : RentivoColors.surface)
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
           .stroke(RentivoColors.ink, lineWidth: 2)
       }
-      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
-      .saturation(isEnabled ? 1 : 0.6)
+      .opacity(isUnavailable ? 0.45 : (isInteractivePress(configuration) ? 0.75 : 1))
+      .saturation(isUnavailable ? 0.6 : 1)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(_ configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
+  }
+}
+
+struct RentivoDestructiveButtonStyle: ButtonStyle {
+  var isBusy = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(RentivoColors.coral)
+      }
+      configuration.label
+    }
+      .font(.headline.weight(.bold))
+      .foregroundStyle(RentivoColors.coral)
+      .frame(maxWidth: .infinity, minHeight: 48)
+      .padding(.horizontal, RentivoSpacing.medium)
+      .background(
+        RentivoColors.coral.opacity(isInteractivePress(configuration) ? 0.22 : 0.14)
+      )
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(RentivoColors.coral, lineWidth: 2)
+      }
+      .opacity(isUnavailable ? 0.55 : (isInteractivePress(configuration) ? 0.75 : 1))
+      .saturation(isUnavailable ? 0.7 : 1)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(_ configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
   }
 }
 
@@ -171,27 +222,56 @@ struct BrandMark: View {
 struct StatusBadge: View {
   let status: BillStatus
 
-  private var color: Color {
+  private var presentation: BillStatusPresentation { BillStatusPresentation(status: status) }
+
+  var body: some View {
+    Label(presentation.label, systemImage: presentation.symbol)
+      .labelStyle(.titleAndIcon)
+      .font(RentivoTypography.metadata)
+      .foregroundStyle(presentation.color)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 6)
+      .background(presentation.color.opacity(0.14))
+      .clipShape(Capsule())
+      .overlay { Capsule().stroke(presentation.color, lineWidth: 1.5) }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Status: \(presentation.label)")
+  }
+}
+
+struct BillStatusPresentation: Equatable, Sendable {
+  let status: BillStatus
+  let label: String
+  let tone: RentivoSemanticTone
+  let symbol: String
+
+  init(status: BillStatus) {
+    self.status = status
+    label = status.label
     switch status {
-    case .draft: RentivoColors.secondaryInk
-    case .published: RentivoColors.lilac
-    case .sent: RentivoColors.blue
-    case .paid: RentivoColors.emerald
-    case .cancelled: RentivoColors.coral
-    case .delayedPayment: RentivoColors.amber
+    case .draft:
+      tone = .neutral
+      symbol = "pencil.circle"
+    case .published:
+      tone = .warning
+      symbol = "megaphone.fill"
+    case .sent:
+      tone = .warning
+      symbol = "paperplane.fill"
+    case .paid:
+      tone = .positive
+      symbol = "checkmark.seal.fill"
+    case .delayedPayment:
+      tone = .negative
+      symbol = "clock.badge.exclamationmark.fill"
+    case .cancelled:
+      tone = .negative
+      symbol = "xmark.circle.fill"
     }
   }
 
-  var body: some View {
-    Text(status.label)
-      .font(RentivoTypography.metadata)
-      .foregroundStyle(color)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .background(color.opacity(0.14))
-      .clipShape(Capsule())
-      .overlay { Capsule().stroke(color, lineWidth: 1.5) }
-      .accessibilityLabel("Status: \(status.label)")
+  var color: Color {
+    status == .draft ? RentivoColors.secondaryInk : tone.color
   }
 }
 
@@ -397,7 +477,7 @@ struct NoticeToast: View {
   private var color: Color {
     switch notice.kind {
     case .success: RentivoColors.emerald
-    case .information: RentivoColors.blue
+    case .information: AppChromeSemanticPresentation.informationTone.color
     case .warning: RentivoColors.amber
     }
   }
@@ -437,8 +517,10 @@ struct NoticeToast: View {
         Button("Ação em andamento") {}
           .buttonStyle(RentivoButtonStyle(isBusy: true))
           .disabled(true)
-        Button("Ação azul") {}
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+        Button("Ver detalhes") {}
+          .buttonStyle(RentivoSecondaryButtonStyle())
+        Button("Ação destrutiva") {}
+          .buttonStyle(RentivoDestructiveButtonStyle())
       }
       .padding()
       .background(background)

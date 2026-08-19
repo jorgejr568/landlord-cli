@@ -6,9 +6,30 @@ private struct BillingDetailData: Sendable {
   let expenses: [Expense]
 }
 
+struct FinancialAmountPresentation: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case received
+    case expense
+    case result
+  }
+
+  let tone: RentivoSemanticTone
+
+  init(kind: Kind, amount: Money) {
+    tone = switch (kind, amount.centavos) {
+    case (.received, 1...): .positive
+    case (.expense, 1...): .negative
+    case (.result, ..<0): .negative
+    case (.result, 1...): .positive
+    default: .neutral
+    }
+  }
+}
+
 struct BillingDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let billingID: BillingID
   let onMutation: () async -> Void
 
@@ -64,7 +85,9 @@ struct BillingDetailView: View {
       }
       Button("Cancelar", role: .cancel) {}
     } message: {
-      Text("Faturas, despesas e arquivos desta cobrança também serão removidos.")
+      Text(
+        "Faturas, despesas e arquivos desta cobrança também serão removidos. Esta ação não pode ser desfeita."
+      )
     }
     .task(id: app.dataRevision) { await load() }
     .noticeArea(.billingDetail)
@@ -113,7 +136,7 @@ struct BillingDetailView: View {
             Label("Aparência dos documentos", systemImage: "paintpalette.fill")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .buttonStyle(RentivoSecondaryButtonStyle())
           .accessibilityIdentifier("billing.theme")
         }
 
@@ -124,7 +147,8 @@ struct BillingDetailView: View {
             Label("Excluir cobrança", systemImage: "trash")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(RentivoDestructiveButtonStyle())
+          .accessibilityIdentifier("billing.delete")
         } else {
           Label(
             "Seu perfil pode consultar, mas não alterar esta cobrança.",
@@ -235,21 +259,56 @@ struct BillingDetailView: View {
       SectionTitle(title: "Resumo financeiro", symbol: "chart.bar.fill")
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
-          valueRow("Recebido", paid, RentivoColors.emerald)
+          valueRow("Recebido", paid, kind: .received)
           Divider()
-          valueRow("Despesas", expenses, RentivoColors.coral)
+          valueRow("Despesas", expenses, kind: .expense)
           Divider()
-          valueRow("Resultado", paid - expenses, RentivoColors.blue)
+          valueRow("Resultado", paid - expenses, kind: .result)
         }
       }
     }
   }
 
-  private func valueRow(_ label: String, _ money: Money, _ color: Color) -> some View {
-    HStack {
+  private func valueRow(
+    _ label: String, _ money: Money, kind: FinancialAmountPresentation.Kind
+  ) -> some View {
+    let presentation = FinancialAmountPresentation(kind: kind, amount: money)
+    return Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        verticalValueRow(label, money: money, presentation: presentation)
+      } else {
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: RentivoSpacing.small) {
+            Text(label)
+              .font(.subheadline.weight(.semibold))
+              .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: RentivoSpacing.small)
+            MoneyText(money: money, color: presentation.tone.color)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+          verticalValueRow(label, money: money, presentation: presentation)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(label): \(money.formatted())")
+  }
+
+  private func verticalValueRow(
+    _ label: String,
+    money: Money,
+    presentation: FinancialAmountPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
       Text(label).font(.subheadline.weight(.semibold))
-      Spacer()
-      MoneyText(money: money, color: color)
+      MoneyText(
+        money: money,
+        color: presentation.tone.color,
+        minimumScaleFactor: 0.5,
+        lineLimit: 1
+      )
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
   }
 

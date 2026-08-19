@@ -472,10 +472,7 @@ private struct MFAChallengeForm: View {
             Text("Usar chave de acesso")
           }
           .buttonStyle(
-            RentivoButtonStyle(
-              color: RentivoColors.blue,
-              isBusy: operation == .passkey
-            )
+            RentivoSecondaryButtonStyle(isBusy: operation == .passkey)
           )
           .disabled(isAuthenticating)
           .accessibilityIdentifier("login.mfa.passkey")
@@ -568,7 +565,7 @@ private struct MFAChallengeForm: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
           RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(codeIsFocused ? RentivoColors.link : RentivoColors.ink, lineWidth: 2)
+            .stroke(codeIsFocused ? RentivoColors.primaryAction : RentivoColors.ink, lineWidth: 2)
         }
         .accessibilityLabel("Código do aplicativo autenticador")
         .accessibilityHint(
