@@ -120,6 +120,7 @@ struct SecurityView: View {
               }
             }
           }
+          .rentivoTabContent()
           .scrollContentBackground(.hidden)
         } retry: {
           await load()
@@ -167,6 +168,7 @@ struct SecurityView: View {
     } message: { passkey in
       Text("\"\(passkey.name)\" não poderá mais ser usada para entrar neste dispositivo. Esta ação não pode ser desfeita.")
     }
+    .noticeArea(.security)
   }
 
   private func load() async {

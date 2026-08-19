@@ -53,6 +53,7 @@ struct DemoScenariosView: View {
         .accessibilityIdentifier("demo.reset")
       }
     }
+    .rentivoTabContent()
     .navigationTitle("Cenários")
     .confirmationDialog("Restaurar todos os dados?", isPresented: $confirmingReset) {
       Button("Restaurar", role: .destructive) { reset() }
@@ -60,6 +61,7 @@ struct DemoScenariosView: View {
     } message: {
       Text("Cobranças, faturas, despesas, organizações e configurações voltarão ao estado inicial.")
     }
+    .noticeArea(.demoScenarios)
   }
 
   private func reset() {

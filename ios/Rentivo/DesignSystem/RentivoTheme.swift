@@ -42,6 +42,30 @@ extension View {
     frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(RentivoColors.paper)
   }
+
+  /// The native container contributes the real tab-bar safe area. Add only the product's
+  /// breathing room so this remains correct across devices, orientations, text sizes, and OSes.
+  func rentivoTabContent() -> some View {
+    contentMargins(.bottom, RentivoSpacing.large, for: .scrollContent)
+  }
+
+  func rentivoTabBarAppearance() -> some View {
+    toolbarBackground(RentivoColors.surface, for: .tabBar)
+      .toolbarBackground(.visible, for: .tabBar)
+  }
+
+  func noticeArea(_ area: NoticeArea) -> some View {
+    modifier(NoticeAreaModifier(area: area))
+  }
+}
+
+private struct NoticeAreaModifier: ViewModifier {
+  @Environment(AppModel.self) private var app
+  let area: NoticeArea
+
+  func body(content: Content) -> some View {
+    content.onAppear { app.activateNoticeArea(area) }
+  }
 }
 
 /// Formats a PT-BR count string with correct singular/plural noun agreement, e.g.

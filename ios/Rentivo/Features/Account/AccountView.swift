@@ -135,6 +135,7 @@ struct AccountView: View {
         }
       }
     }
+    .rentivoTabContent()
     .scrollContentBackground(.hidden)
     .background(RentivoColors.paper)
     .navigationTitle("Conta")
@@ -157,6 +158,7 @@ struct AccountView: View {
       Text("Essa ação é permanente. Suas cobranças e seus dados pessoais serão excluídos.")
     }
     .task { await loadDeletionReadiness() }
+    .noticeArea(.account)
   }
 
   private func loadDeletionReadiness() async {
