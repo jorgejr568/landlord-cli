@@ -299,32 +299,61 @@ struct MoneyText: View {
   }
 }
 
+struct EmptyStateConfiguration: Sendable {
+  let title: String
+  let message: String
+  let systemImage: String
+  let actionTitle: String?
+
+  init(title: String, message: String, systemImage: String, actionTitle: String? = nil) {
+    self.title = title
+    self.message = message
+    self.systemImage = systemImage
+    self.actionTitle = actionTitle
+  }
+}
+
+struct InlineEmptyStateView: View {
+  let configuration: EmptyStateConfiguration
+  var action: (() -> Void)?
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(configuration.title, systemImage: configuration.systemImage)
+    } description: {
+      Text(configuration.message)
+    } actions: {
+      if let actionTitle = configuration.actionTitle, let action {
+        Button(actionTitle, action: action)
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("page.empty.action")
+      }
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .accessibilityIdentifier("page.empty")
+  }
+}
+
 struct PageStateView<Value: Sendable, Content: View>: View {
   let state: LoadState<Value>
   let content: (Value) -> Content
   let retry: () async -> Void
-  var emptyTitle: String
-  var emptyMessage: String
-  var emptySystemImage: String
-  var emptyActionTitle: String?
+  var emptyState: EmptyStateConfiguration?
   var emptyAction: (() -> Void)?
+  var failureTitle: String
 
   init(
     state: LoadState<Value>,
-    emptyTitle: String = "Nada por aqui ainda",
-    emptyMessage: String = "Crie o primeiro item para começar.",
-    emptySystemImage: String = "sparkles",
-    emptyActionTitle: String? = nil,
+    emptyState: EmptyStateConfiguration? = nil,
     emptyAction: (() -> Void)? = nil,
+    failureTitle: String = "Não foi possível carregar",
     @ViewBuilder content: @escaping (Value) -> Content,
     retry: @escaping () async -> Void
   ) {
     self.state = state
-    self.emptyTitle = emptyTitle
-    self.emptyMessage = emptyMessage
-    self.emptySystemImage = emptySystemImage
-    self.emptyActionTitle = emptyActionTitle
+    self.emptyState = emptyState
     self.emptyAction = emptyAction
+    self.failureTitle = failureTitle
     self.content = content
     self.retry = retry
   }
@@ -338,30 +367,46 @@ struct PageStateView<Value: Sendable, Content: View>: View {
     case .loaded(let value):
       content(value)
     case .empty:
-      ContentUnavailableView {
-        Label(emptyTitle, systemImage: emptySystemImage)
-      } description: {
-        Text(emptyMessage)
-      } actions: {
-        if let emptyActionTitle, let emptyAction {
-          Button(emptyActionTitle, action: emptyAction)
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("page.empty.action")
-        }
+      if let emptyState {
+        InlineEmptyStateView(configuration: emptyState, action: emptyAction)
+      } else {
+        MissingEmptyStateConfigurationView()
       }
-      .accessibilityIdentifier("page.empty")
     case .failed(let error):
       ContentUnavailableView {
-        Label("Não foi possível carregar", systemImage: "exclamationmark.triangle")
+        Label(failureTitle, systemImage: "exclamationmark.triangle")
       } description: {
         Text(error.message)
       } actions: {
-        Button("Tentar novamente") { Task { await retry() } }
-          .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier("page.retry")
+        if error.message
+          != "Você não tem permissão para fazer esta alteração. Peça ajuda a um administrador da organização."
+        {
+          Button("Tentar novamente") { Task { await retry() } }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("page.retry")
+        }
       }
       .accessibilityIdentifier("page.error")
     }
+  }
+}
+
+private struct MissingEmptyStateConfigurationView: View {
+  init() {
+    assertionFailure("PageStateView reached .empty without an EmptyStateConfiguration")
+  }
+
+  var body: some View {
+    #if DEBUG
+      ContentUnavailableView(
+        "Estado vazio sem configuração",
+        systemImage: "hammer.fill",
+        description: Text("Adicione uma EmptyStateConfiguration específica para esta tela.")
+      )
+      .accessibilityIdentifier("page.empty.missing-configuration")
+    #else
+      EmptyView()
+    #endif
   }
 }
 
@@ -589,17 +634,15 @@ private struct PageStateViewPreviewContainer: View {
   PageStateViewPreviewContainer(state: .loaded("Conteúdo carregado"))
 }
 
-#Preview("PageStateView - empty (default copy)") {
-  PageStateViewPreviewContainer(state: .empty)
-}
-
 #Preview("PageStateView - empty (custom copy + action)") {
   PageStateView(
     state: LoadState<String>.empty,
-    emptyTitle: "Nenhuma cobrança ainda",
-    emptyMessage: "Crie a primeira cobrança recorrente para este imóvel.",
-    emptySystemImage: "doc.text",
-    emptyActionTitle: "Nova cobrança",
+    emptyState: EmptyStateConfiguration(
+      title: "Nenhuma cobrança ainda",
+      message: "Crie a primeira cobrança recorrente para este imóvel.",
+      systemImage: "doc.text",
+      actionTitle: "Nova cobrança"
+    ),
     emptyAction: {}
   ) { value in
     Text(value).padding()

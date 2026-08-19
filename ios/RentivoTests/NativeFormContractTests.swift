@@ -65,15 +65,33 @@ import Testing
   )
 }
 
-@Test func communicationFormRulesCountUTF8BytesRatherThanCharacters() {
-  #expect(CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "a", count: 4_096)).isEmpty)
+@Test func communicationFormRulesCountUserPerceivedCharacters() {
+  for content in [
+    String(repeating: "a", count: 4_096),
+    String(repeating: "á", count: 4_096),
+    String(repeating: "😀", count: 4_096),
+    String(repeating: "e\u{301}", count: 4_096),
+  ] {
+    #expect(CommunicationFormRules.issues(subject: "Assunto", body: content).isEmpty)
+  }
   #expect(
-    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "á", count: 2_049))
-      .contains { $0.field == .body }
+    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "😀", count: 4_097))
+      .contains { $0.field == .body && $0.message == "A mensagem deve ter no máximo 4.096 caracteres." }
   )
   #expect(
     CommunicationFormRules.issues(subject: "   ", body: "Mensagem")
       .contains { $0.field == .subject }
+  )
+}
+
+@Test func communicationFormRulesRejectUnknownTemplateVariables() {
+  #expect(
+    CommunicationFormRules.issues(subject: "Assunto", body: "Olá {{ apelido }}")
+      .contains { $0.message == "Revise a variável não reconhecida: {{ apelido }}." }
+  )
+  #expect(
+    CommunicationFormRules.issues(subject: "{{unidade}}", body: "Olá {{ nome_inquilino }}")
+      .isEmpty
   )
 }
 

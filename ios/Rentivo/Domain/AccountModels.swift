@@ -30,6 +30,17 @@ public enum OrganizationRole: String, CaseIterable, Codable, Sendable {
     case .viewer: "Visualizador"
     }
   }
+
+  public var invitationDescription: String {
+    switch self {
+    case .admin:
+      "Gerencia a organização, os membros e a segurança. Também cria e administra cobranças."
+    case .manager:
+      "Pode criar cobranças e gerenciar faturas, despesas, comprovantes e envios. Não gerencia membros nem configurações da organização."
+    case .viewer:
+      "Pode consultar a organização e as cobranças, sem criar nem alterar dados."
+    }
+  }
 }
 
 public struct OrganizationCapabilities: Hashable, Codable, Sendable {

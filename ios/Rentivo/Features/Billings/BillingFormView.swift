@@ -143,6 +143,11 @@ enum BillingWizardReordering {
   }
 }
 
+enum BillingFormInitialStep {
+  case essentials
+  case pix
+}
+
 struct BillingFormView: View {
   private enum Step: CaseIterable, Hashable {
     case essentials
@@ -201,7 +206,7 @@ struct BillingFormView: View {
   /// Server-side rejection (e.g. a 422) for the last submit. It lives here instead of in the
   /// global notice banner because this form is presented in a sheet, and the banner renders
   /// behind it — the user would never see it.
-  @State private var submitErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
   @State private var saving = false
   @State private var organizations: [Organization] = []
   @State private var organizationsLoaded: Bool
@@ -212,7 +217,11 @@ struct BillingFormView: View {
   @State private var confirmingPixKeyTypeChange = false
   @State private var isPixKeyRevealed = false
 
-  init(billing: Billing? = nil, onSaved: @escaping () async -> Void) {
+  init(
+    billing: Billing? = nil,
+    initialStep: BillingFormInitialStep = .essentials,
+    onSaved: @escaping () async -> Void
+  ) {
     self.billing = billing
     self.onSaved = onSaved
     _name = State(initialValue: billing?.name ?? "")
@@ -231,6 +240,7 @@ struct BillingFormView: View {
     _recipients = State(initialValue: billing?.recipients.map(EditableRecipient.init) ?? [])
     _replyTo = State(initialValue: billing?.replyTo.map(EditableRecipient.init) ?? [])
     _organizationsLoaded = State(initialValue: billing != nil)
+    _step = State(initialValue: initialStep == .pix ? .pix : .essentials)
   }
 
   var body: some View {
@@ -597,7 +607,7 @@ struct BillingFormView: View {
   @ViewBuilder
   private var validationPanel: some View {
     if !aggregateValidationIssues.isEmpty
-      || submitErrorMessage != nil || organizationLoadError != nil
+      || submitFailure != nil || organizationLoadError != nil
     {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Text("Revise os campos")
@@ -605,7 +615,10 @@ struct BillingFormView: View {
         ForEach(aggregateValidationIssues, id: \.self) { issue in
           validationMessage(issue.message)
         }
-        if let submitErrorMessage { validationMessage(submitErrorMessage) }
+        if let submitFailure {
+          UserFacingFailureView(failure: submitFailure) { openAuthenticatorSetup() }
+            .accessibilityIdentifier("billing.form.submit-error")
+        }
         if let organizationLoadError {
           validationMessage(organizationLoadError)
           Button("Tentar carregar responsáveis novamente") {
@@ -621,6 +634,11 @@ struct BillingFormView: View {
     Label(message, systemImage: "exclamationmark.circle.fill")
       .foregroundStyle(RentivoColors.coral)
       .accessibilityIdentifier("billing.form.validation")
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 
   @ViewBuilder
@@ -698,7 +716,7 @@ struct BillingFormView: View {
   }
 
   private func validateCurrentStep() -> Bool {
-    submitErrorMessage = nil
+    submitFailure = nil
     validatedSteps.insert(step)
     switch step {
     case .essentials: return validateEssentials()
@@ -1006,14 +1024,15 @@ struct BillingFormView: View {
 
   private func save() async {
     guard !saving else { return }
-    submitErrorMessage = nil
+    submitFailure = nil
     let owner: BillingOwner
     if let billing {
       owner = billing.owner
     } else if let selected = ownerChoices.first(where: { $0.id == ownerID }) {
       owner = selected
     } else {
-      submitErrorMessage = "Não foi possível confirmar o responsável."
+      submitFailure = UserFacingFailure(
+        message: "Não foi possível confirmar o responsável.", recovery: .none)
       return
     }
     // A wholly empty row is the user leaving the "Adicionar destinatário" placeholder untouched,
@@ -1060,7 +1079,7 @@ struct BillingFormView: View {
       app.showNotice(billing == nil ? "Cobrança criada." : "Cobrança atualizada.")
       dismiss()
     } catch {
-      submitErrorMessage = DemoError(error).message
+      submitFailure = UserFacingError.presentation(for: error, operation: .saveBilling)
     }
   }
 
@@ -1101,7 +1120,7 @@ struct BillingFormView: View {
       organizations = try await app.dependencies.organizations.listOrganizations()
       organizationsLoaded = true
     } catch {
-      organizationLoadError = DemoError(error).message
+      organizationLoadError = UserFacingError.message(for: error, operation: .loadOrganizations)
     }
   }
 }

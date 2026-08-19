@@ -89,6 +89,27 @@ private struct SamplePlainError: Error {}
   #expect(CommunicationSaveScope.owner.rawValue == "owner")
 }
 
+@Test func organizationRolesExposeApprovedInviteCopy() {
+  #expect(OrganizationRole.admin.rawValue == "admin")
+  #expect(OrganizationRole.admin.label == "Administrador")
+  #expect(
+    OrganizationRole.admin.invitationDescription
+      == "Gerencia a organização, os membros e a segurança. Também cria e administra cobranças."
+  )
+  #expect(OrganizationRole.manager.rawValue == "manager")
+  #expect(OrganizationRole.manager.label == "Gerente")
+  #expect(
+    OrganizationRole.manager.invitationDescription
+      == "Pode criar cobranças e gerenciar faturas, despesas, comprovantes e envios. Não gerencia membros nem configurações da organização."
+  )
+  #expect(OrganizationRole.viewer.rawValue == "viewer")
+  #expect(OrganizationRole.viewer.label == "Visualizador")
+  #expect(
+    OrganizationRole.viewer.invitationDescription
+      == "Pode consultar a organização e as cobranças, sem criar nem alterar dados."
+  )
+}
+
 @Test func billingResolvesTheTemplateForACommunicationType() {
   let billReady = CommunicationTemplate(
     commType: .billReady, subject: "Cobrança {{unidade}}", body: "Olá {{nome_inquilino}}"

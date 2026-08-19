@@ -24,10 +24,14 @@ struct BillingListView: View {
   var body: some View {
     PageStateView(
       state: state,
-      emptyTitle: "Nenhuma cobrança ainda",
-      emptyMessage: "Crie sua primeira cobrança para começar a gerar faturas.",
-      emptySystemImage: "doc.text",
-      emptyActionTitle: canCreateBilling ? "Nova cobrança" : nil,
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhuma cobrança ainda",
+        message: canCreateBilling
+          ? "Crie sua primeira cobrança para começar a gerar faturas."
+          : "As cobranças que você pode consultar aparecerão aqui.",
+        systemImage: "doc.text",
+        actionTitle: canCreateBilling ? "Nova cobrança" : nil
+      ),
       emptyAction: canCreateBilling ? { showingCreate = true } : nil
     ) { items in
       portfolio(items)
@@ -131,9 +135,9 @@ struct BillingListView: View {
       // down the scroll view; only surface the full-page error state when there was
       // nothing previously loaded to fall back to.
       if hadContent {
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.showNotice(UserFacingError.message(for: error, operation: .loadBillings), kind: .warning)
       } else {
-        state = .failed(DemoError(error))
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadBillings).demoError)
       }
     }
   }

@@ -44,11 +44,14 @@ struct OrganizationListView: View {
   var body: some View {
     PageStateView(
       state: state,
-      emptyTitle: "Nenhuma organização ainda",
-      emptyMessage:
-        "Organizações reúnem cobranças e membros sob papéis e permissões compartilhados. Crie uma para colaborar com sua equipe.",
-      emptySystemImage: "building.2.fill",
-      emptyActionTitle: canCreateOrganization ? "Criar organização" : nil,
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhuma organização ainda",
+        message: canCreateOrganization
+          ? "Organizações reúnem cobranças e membros sob papéis e permissões compartilhados. Crie uma para colaborar com sua equipe."
+          : "As organizações das quais você participa aparecerão aqui.",
+        systemImage: "building.2.fill",
+        actionTitle: canCreateOrganization ? "Criar organização" : nil
+      ),
       emptyAction: canCreateOrganization ? { showingCreate = true } : nil
     ) { organizations in
       ScrollView {
@@ -151,9 +154,9 @@ struct OrganizationListView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.showNotice(UserFacingError.message(for: error, operation: .loadOrganizations), kind: .warning)
       default:
-        state = .failed(DemoError(error))
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadOrganizations).demoError)
       }
     }
   }
@@ -234,7 +237,7 @@ struct OrganizationFormView: View {
   @State private var usesCustomPix: Bool
   @State private var pixValidationMessage: String?
   @State private var nameValidationMessage: String?
-  @State private var submitErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
   @State private var saving = false
   @State private var step: Step = .organization
   @State private var pendingPixKeyType: PixKeyType?
@@ -418,9 +421,10 @@ struct OrganizationFormView: View {
           )
         }
       }
-      if let submitErrorMessage {
+      if let submitFailure {
         RentivoWizardSection("Não foi possível salvar") {
-          validationLabel(submitErrorMessage)
+          UserFacingFailureView(failure: submitFailure) { openAuthenticatorSetup() }
+            .accessibilityIdentifier("organization.form.submit-error")
         }
       }
     }
@@ -428,6 +432,11 @@ struct OrganizationFormView: View {
 
   private var pixSummary: String {
     usesCustomPix ? "PIX configurado" : "Sem PIX próprio"
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 
   private func validationLabel(_ message: String) -> some View {
@@ -438,7 +447,7 @@ struct OrganizationFormView: View {
   }
 
   private func validateCurrentStep() -> Bool {
-    submitErrorMessage = nil
+    submitFailure = nil
     switch step {
     case .organization:
       nameValidationMessage = OrganizationDraft.nameValidationMessage(name)
@@ -480,7 +489,7 @@ struct OrganizationFormView: View {
 
   private func save() async {
     guard !saving else { return }
-    submitErrorMessage = nil
+    submitFailure = nil
     let result = usesCustomPix
       ? PixFormRules.result(
         type: pixKeyType,
@@ -531,7 +540,9 @@ struct OrganizationFormView: View {
       await onSaved()
       dismiss()
       app.showNotice(organization == nil ? "Organização criada." : "Organização atualizada.")
-    } catch { submitErrorMessage = DemoError(error).message }
+    } catch {
+      submitFailure = UserFacingError.presentation(for: error, operation: .saveOrganization)
+    }
   }
 
   private func scheduleFocus(_ field: Field) {
@@ -661,13 +672,15 @@ struct OrganizationDetailView: View {
       ThemeEditorView(target: .organization(organizationID))
     }
     .confirmationDialog(
-      state.value?.requiresMFA == true ? "Tornar MFA opcional?" : "Exigir MFA?",
+      state.value?.requiresMFA == true
+        ? "Tornar a autenticação em duas etapas opcional?"
+        : "Exigir autenticação em duas etapas?",
       isPresented: $confirmingMFA
     ) {
       Button("Confirmar") { Task { await toggleMFA() } }.disabled(activeAction != nil)
       Button("Cancelar", role: .cancel) {}
     } message: {
-      Text("A política será aplicada a todos os membros desta organização.")
+      Text(mfaConfirmationMessage)
     }
     .confirmationDialog("Excluir organização?", isPresented: $confirmingDelete) {
       Button("Excluir", role: .destructive) { Task { await deleteOrganization() } }
@@ -751,6 +764,7 @@ struct OrganizationDetailView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(
                   "\(member.email), \(member.role.label), Você, usuário atual"
+                    + (member.role == .admin ? ", Dono da organização" : "")
                 )
             } else {
               memberRow(member, organization: organization)
@@ -792,10 +806,23 @@ struct OrganizationDetailView: View {
             ? "crown.fill" : "person.crop.circle.badge.checkmark"
         )
         .foregroundStyle(member.role == .admin ? RentivoColors.amber : RentivoColors.emerald)
+        .accessibilityLabel(
+          member.role == .admin ? "Dono da organização" : "Usuário atual"
+        )
       } else if organization.capabilities.canManage {
         Menu {
-          ForEach(OrganizationRole.allCases.filter { $0 != member.role }, id: \.self) { role in
-            Button(role.label) { Task { await changeRole(member, to: role) } }
+          ForEach(OrganizationRole.allCases, id: \.self) { role in
+            Button {
+              guard role != member.role else { return }
+              Task { await changeRole(member, to: role) }
+            } label: {
+              if role == member.role {
+                Label(role.label, systemImage: "checkmark")
+              } else {
+                Text(role.label)
+              }
+            }
+            .disabled(role == member.role)
           }
           Divider()
           Button("Remover", role: .destructive) { Task { await remove(member) } }
@@ -803,8 +830,12 @@ struct OrganizationDetailView: View {
           Image(systemName: "ellipsis.circle")
         }
         .disabled(activeAction != nil)
+        .accessibilityLabel("Alterar nível de acesso de \(member.email)")
+        .accessibilityIdentifier("organization.member.\(member.userID).role-menu")
       } else if member.role == .admin {
-        Image(systemName: "crown.fill").foregroundStyle(RentivoColors.amber)
+        Image(systemName: "crown.fill")
+          .foregroundStyle(RentivoColors.amber)
+          .accessibilityLabel("Dono da organização")
       }
     }
   }
@@ -898,9 +929,9 @@ struct OrganizationDetailView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        app.showNotice(DemoError(error).message, kind: .warning)
+        app.showNotice(UserFacingError.message(for: error, operation: .loadOrganization), kind: .warning)
       default:
-        state = .failed(DemoError(error))
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadOrganization).demoError)
       }
     }
   }
@@ -911,7 +942,7 @@ struct OrganizationDetailView: View {
   }
 
   private func changeRole(_ member: OrganizationMember, to role: OrganizationRole) async {
-    guard activeAction == nil else { return }
+    guard activeAction == nil, role != member.role else { return }
     activeAction = .member(member.userID)
     defer { activeAction = nil }
     do {
@@ -921,7 +952,9 @@ struct OrganizationDetailView: View {
         role: role
       )
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .updateMember), kind: .warning)
+    }
   }
 
   private func remove(_ member: OrganizationMember) async {
@@ -932,7 +965,9 @@ struct OrganizationDetailView: View {
       try await app.dependencies.organizations.removeMember(
         organizationID: organizationID, userID: member.userID)
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .updateMember), kind: .warning)
+    }
   }
 
   private func toggleMFA() async {
@@ -946,13 +981,23 @@ struct OrganizationDetailView: View {
       )
       await refreshAll()
       if policy.mfaSetupRequired {
-        app.selectedTab = .account
+        app.navigateToAuthenticatorSetup()
         app.showNotice(
-          "MFA passou a ser obrigatório. Abra Segurança para cadastrar um método.",
+          "A verificação em duas etapas agora é obrigatória. Em Conta, abra Segurança para configurar.",
           kind: .information
         )
       }
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(
+        UserFacingError.message(for: error, operation: .changeOrganizationSecurity), kind: .warning)
+    }
+  }
+
+  private var mfaConfirmationMessage: String {
+    guard state.value?.requiresMFA != true else {
+      return "A política será aplicada a todos os membros desta organização."
+    }
+    return "A política será aplicada a todos os membros desta organização. Você ainda não configurou a autenticação em duas etapas. Ao confirmar, será necessário configurá-la para continuar usando o Rentivo."
   }
 
   private func transfer(_ billing: Billing, to organization: Organization) async {
@@ -965,7 +1010,9 @@ struct OrganizationDetailView: View {
         toOrganizationID: organization.id
       )
       await refreshAll()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .transferBilling), kind: .warning)
+    }
   }
 
   private func deleteOrganization() async {
@@ -976,6 +1023,8 @@ struct OrganizationDetailView: View {
       try await app.dependencies.organizations.deleteOrganization(id: organizationID)
       await onMutation()
       dismiss()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteOrganization), kind: .warning)
+    }
   }
 }

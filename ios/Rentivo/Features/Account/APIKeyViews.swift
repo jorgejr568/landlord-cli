@@ -20,10 +20,14 @@ struct APIKeyListView: View {
     let canCreate = !isDemoViewerLocked
     PageStateView(
       state: state,
-      emptyTitle: "Nenhuma chave de integração",
-      emptyMessage: "Crie uma chave de API para conectar integrações externas com escopos e acessos controlados.",
-      emptySystemImage: "key.fill",
-      emptyActionTitle: canCreate ? "Criar chave" : nil,
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhuma chave de integração",
+        message: canCreate
+          ? "Crie uma chave para conectar outro serviço ao Rentivo e escolher o que ele pode acessar."
+          : "Não há chaves de integração nesta conta.",
+        systemImage: "key.fill",
+        actionTitle: canCreate ? "Criar chave" : nil
+      ),
       emptyAction: canCreate ? { showingCreate = true } : nil
     ) { keys in
       ScrollView {
@@ -92,11 +96,21 @@ struct APIKeyListView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       let keys = try await app.dependencies.apiKeys.listAPIKeys()
       state = keys.isEmpty ? .empty : .loaded(keys)
-    } catch { state = .failed(DemoError(error)) }
+    } catch {
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadAPIKeys), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadAPIKeys).demoError)
+      }
+    }
   }
 
   private func revoke(_ key: APIKeyMetadata) async {
@@ -104,7 +118,9 @@ struct APIKeyListView: View {
       try await app.dependencies.apiKeys.revokeAPIKey(id: key.id)
       await load()
       app.showNotice("Chave revogada.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .revokeAPIKey), kind: .warning)
+    }
   }
 }
 
@@ -213,6 +229,7 @@ private struct APIKeyFormView: View {
   @State private var step: Step = .identification
   @State private var validationMessage: String?
   @State private var submitErrorMessage: String?
+  @State private var submitRequiresAuthenticator = false
   @State private var saving = false
   @State private var expiresAtEdited = false
   @FocusState private var focusedField: Field?
@@ -408,6 +425,11 @@ private struct APIKeyFormView: View {
       if let submitErrorMessage {
         RentivoWizardSection("Não foi possível salvar") {
           errorLabel(submitErrorMessage)
+          if submitRequiresAuthenticator {
+            Button("Configurar autenticador") { openAuthenticatorSetup() }
+              .buttonStyle(.borderedProminent)
+              .accessibilityIdentifier("error.configure-authenticator")
+          }
         }
       }
     }
@@ -519,7 +541,9 @@ private struct APIKeyFormView: View {
         scopes.formIntersection(Set(loaded.scopes))
         expiresAt = loaded.defaultExpiration()
       }
-    } catch { options = .failed(DemoError(error)) }
+    } catch {
+      options = .failed(UserFacingError.presentation(for: error, operation: .loadOrganizations).demoError)
+    }
   }
 
   private func optionsFailure(_ error: DemoError) -> some View {
@@ -603,6 +627,7 @@ private struct APIKeyFormView: View {
   private func save() async {
     guard !saving, let options = options.value else { return }
     submitErrorMessage = nil
+    submitRequiresAuthenticator = false
     guard APIKeyValidation.isValidName(name), !scopes.isEmpty, !grantIDs.isEmpty else {
       step = !APIKeyValidation.isValidName(name) ? .identification : (scopes.isEmpty ? .scopes : .access)
       _ = validateCurrentStep()
@@ -629,13 +654,22 @@ private struct APIKeyFormView: View {
         )
         dismiss()
         await onSaved(nil)
-        app.showNotice("Metadados da chave atualizados.")
+        app.showNotice("Informações da chave atualizadas.")
       } else {
         let secret = try await app.dependencies.apiKeys.createAPIKey(draft)
         dismiss()
         await onSaved(secret)
       }
-    } catch { submitErrorMessage = DemoError(error).message }
+    } catch {
+      let failure = UserFacingError.presentation(for: error, operation: .saveAPIKey)
+      submitErrorMessage = failure.message
+      submitRequiresAuthenticator = failure.recovery == .configureAuthenticator
+    }
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 
 }

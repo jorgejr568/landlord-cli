@@ -28,7 +28,7 @@ private struct DownloadedFileSheetModifier: ViewModifier {
       // replacing another without an intervening dismissal.
       .onChange(of: file) { previous, _ in
         guard let previous else { return }
-        DownloadedFileStore.remove(previous)
+        DownloadedFileStore.shared.remove(previous)
       }
   }
 }

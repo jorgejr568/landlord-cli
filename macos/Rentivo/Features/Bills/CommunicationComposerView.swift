@@ -118,7 +118,7 @@ struct CommunicationComposerView: View {
           VStack(alignment: .leading) {
             Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
             Text(
-              "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+              "\(BrazilianLocaleFormatting.integer(message.count)) de 4.096 caracteres"
             )
             .monospacedDigit()
           }

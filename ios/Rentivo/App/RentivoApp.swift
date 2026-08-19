@@ -34,6 +34,9 @@ struct RentivoApp: App {
         if arguments.contains("--ui-testing-empty") {
           model.setEmptyMode(true)
         }
+        if arguments.contains("--ui-testing-viewer") {
+          model.setViewerMode(true)
+        }
         model.signIn()
         if arguments.contains("--ui-testing-notice") {
           model.dismissNotice()

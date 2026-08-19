@@ -316,7 +316,7 @@ final class RentivoUITests: XCTestCase {
     app.buttons["wizard.commit"].tap()
     let toast = app.descendants(matching: .any)["notice.toast"]
     XCTAssertTrue(toast.waitForExistence(timeout: 7))
-    XCTAssertTrue(toast.staticTexts["Sucesso: Tema atualizado."].exists)
+    XCTAssertTrue(toast.staticTexts["Sucesso: Aparência atualizada."].exists)
   }
 
   func testExpenseCreationJourney() throws {
@@ -328,7 +328,7 @@ final class RentivoUITests: XCTestCase {
     scrollTo(expenses, in: app)
     expenses.tap()
     XCTAssertTrue(app.navigationBars["Despesas"].waitForExistence(timeout: 2))
-    app.buttons["Adicionar"].tap()
+    app.buttons["Adicionar despesa"].tap()
     app.textFields["Descrição"].tap()
     app.textFields["Descrição"].typeText("Reparo da fechadura")
     app.buttons["wizard.continue"].tap()

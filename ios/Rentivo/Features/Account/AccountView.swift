@@ -12,6 +12,7 @@ struct AccountView: View {
   @State private var loadingDeletionReadiness = false
 
   var body: some View {
+    @Bindable var app = app
     List {
       Section {
         HStack(spacing: RentivoSpacing.medium) {
@@ -40,6 +41,7 @@ struct AccountView: View {
             title: "Segurança", subtitle: "Senha, TOTP e chaves de acesso",
             symbol: "lock.shield.fill")
         }
+        .accessibilityIdentifier("account.security")
       }
 
       Section("Personalização e integrações") {
@@ -140,6 +142,9 @@ struct AccountView: View {
     .scrollContentBackground(.hidden)
     .background(RentivoColors.paper)
     .navigationTitle("Conta")
+    .navigationDestination(isPresented: $app.securityNavigationRequested) {
+      SecurityView()
+    }
     .rentivoFullScreenWizard(isPresented: $showingProfilePIX) {
       ProfilePixView()
     }

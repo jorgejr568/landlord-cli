@@ -188,7 +188,12 @@ public struct MockFixtures: Sendable {
       ),
     ]
 
-    let anaMember = OrganizationMember(userID: profile.id, email: profile.email, role: .admin)
+    let anaMember = OrganizationMember(
+      userID: profile.id,
+      email: profile.email,
+      role: .admin,
+      isCurrentUser: true
+    )
     let organizations = [
       Organization(
         id: StableID.organizationHorizonte,

@@ -333,22 +333,22 @@ documentos") — only the "Herança" copy differs by target.
 4. Step 3/5, **"Texto e contraste"** — hex fields **Secundária escura**, **Texto**, **Texto
    de contraste**. An invalid hex string (not `#RRGGBB`) shows "Use uma cor hexadecimal no
    formato #RRGGBB." in the validation panel.
-5. Step 4/5, **"Prévia"** — a "Herança" card (Responsável / Origem efetiva rows — the
+5. Step 4/5, **"Prévia"** — a "Herança" card (Responsável / Tema aplicado rows — the
    latter one of "Cobrança"/"Organização"/"Usuário"/"Padrão Rentivo"), then **"Prévia ao
    vivo"**: a live mock-invoice render that updates as you edit colors, plus any contrast
    warnings.
 6. Step 5/5, **"Revisão"** — Herança card again, then **"Resumo do tema"**: Fonte de
-   títulos, Fonte de texto, Cor primária, and a Configuração row summarizing what will
+   títulos, Fonte de texto, Cor primária with a color swatch, and a Configuração row summarizing what will
    happen ("Tema herdado" / "Personalização deste nível" / "Restaurar herança").
-7. Tap **"Salvar tema"**. `PUT /api/v1/themes/user` returns `200`; banner "Tema
-   atualizado."
+7. Tap **"Salvar tema"**. `PUT /api/v1/themes/user` returns `200`; banner "Aparência
+   atualizada."
 
 **Alternate C2a — restore inheritance.** On step 4 or 5, if a stored override already
 exists at this level, a destructive **"Restaurar herança"** button is available; tapping
 it arms a reset (button relabels to **"Manter personalização"**, an emerald "Restauração
 selecionada" label appears). Completing the wizard from an armed reset changes the final
-button to **"Restaurar tema"** and calls `DELETE` instead of `PUT`; banner "Herança de tema
-restaurada."
+button to **"Restaurar tema"** and calls `DELETE` instead of `PUT`; banner "A aparência
+padrão foi restaurada."
 
 **Alternate C2b — read-only access.** If you can only view this level's theme (e.g.
 viewing an organization's theme as a non-admin), every field is disabled and the final
@@ -419,8 +419,9 @@ for how to reproduce this from the organization side.
 **Given** authenticated.
 
 1. Tap **Conta → "Chaves de integração"**. If empty: title "Nenhuma chave de integração" /
-   "Crie uma chave de API para conectar integrações externas com escopos e acessos
-   controlados." + action **"Criar chave"**; otherwise use the toolbar **"+"**
+   "Crie uma chave para conectar outro serviço ao Rentivo e escolher o que ele pode
+   acessar." + action **"Criar chave"**. In viewer mode the message is "Não há chaves de
+   integração nesta conta." and no action is shown; otherwise use the toolbar **"+"**
    (`api-key.create`).
 2. Full-screen wizard, "Etapa 1 de 4", **"Identificação"** — one **Nome** field.
 3. Type a name (e.g. `Sim test key`). Tap **"Continuar"**.
@@ -569,10 +570,12 @@ immediately with no confirmation.
    titled "Editar cobrança" (owner picker absent — see D1c).
 3. Header card: name, owner `Label`, PIX status/subtotal row.
 4. **"Itens recorrentes"** card: every item with its type and amount.
-5. **"Faturas"** section: if PIX isn't ready, a coral line "Configure a chave, o nome e a
-   cidade do recebedor antes de gerar uma fatura." appears above the list, and the **"+"**
-   button (`bill.create`) is disabled with that same text as its tooltip; otherwise the
-   button is active and opens [E1](#e1-create-a-bill-draft). Existing bills list as cards
+5. **"Faturas"** section: when empty, a reusable inline block says "Nenhuma fatura
+   gerada". With PIX ready it adds "Gere a primeira fatura desta cobrança." and
+   **"Gerar fatura"**. With PIX pending it adds "Configure os dados do PIX antes de gerar
+   a primeira fatura." and **"Configurar PIX"**, which opens the billing wizard directly
+   on the PIX step. Without create permission it says "Ainda não há faturas nesta
+   cobrança." and omits the action. Existing bills list as cards
    (id `bill.card.{billID}`) → pushes to [E2](#e2-bill-detail-composição-and-async-pdf-render).
 6. **"Resumo financeiro"** card: Recebido / Despesas / Resultado.
 7. **"Operações"** section — see [G](#g-billing-operations-despesas-arquivos-exportar).
@@ -776,10 +779,11 @@ ordem"** button appears above the list — reverses the display order via
 
 **Alternate E7c — rejected uploads.** A 0-byte file, a file exceeding the configured size
 cap, or a file/photo the app can't decode all fail client-side with a top banner message
-instead of an inline error — watch for, respectively, "O arquivo selecionado está vazio.",
-"O comprovante excede o limite de {size}.", or "Não foi possível ler o arquivo
-selecionado." / "Não foi possível preparar a foto do comprovante." / "Não foi possível ler
-a foto selecionada."
+instead of an inline error — watch for, respectively, "O arquivo está vazio. Escolha outro
+e tente novamente.", "O comprovante é maior que {size}. Escolha um arquivo menor e tente
+novamente.", or "Não foi possível abrir o arquivo. Escolha outro e tente novamente." /
+"Não foi possível preparar a foto. Tire outra foto ou escolha um arquivo." / "Não foi
+possível abrir a foto. Escolha outra e tente novamente."
 
 > **Fixed while testing this flow (commit `6cfc0a2d`):** attaching a receipt photo shot at
 > a typical phone-camera resolution (e.g. 4032x3024) used to balloon the invoice PDF that
@@ -809,32 +813,27 @@ payment record — use throwaway data).
 **Given** a billing with at least one recipient (see [D1](#d1-create-a-billing)) and a bill
 whose PDF has finished rendering.
 
-1. From bill detail, tap **"Enviar comunicação"**. Full-screen wizard, title dynamic —
-   **"Enviar fatura"** or **"Enviar recibo de pagamento"** depending on the segment
-   selected in step 1 — "Etapa 1 de 5", **"Canal"** — card with a segmented **Fatura** /
-   **Recibo de pagamento** picker (only shown if the bill qualifies for both; a paid bill
-   qualifies for both, an unpaid one only for Fatura). Leave on **Fatura**. Tap
-   **"Continuar"**.
-2. Step 2/5, **"Destinatários"** — subtitle "Cada destinatário recebe um e-mail separado
+1. From bill detail, tap **"Enviar comunicação"**. With one available document the
+   full-screen wizard starts at **"Destinatários"**, "Etapa 1 de 3". When both invoice
+   and receipt are available, it starts at **"O que enviar"**, "Etapa 1 de 4", with a
+   **Fatura** / **Recibo de pagamento** picker. There is no read-only Canal step.
+2. **"Destinatários"** — subtitle "Cada destinatário recebe um e-mail separado
    com o PDF da fatura anexado.", one toggle per recipient configured on the billing (on
    by default). Tap **"Continuar"**.
-3. Step 3/5, **"Mensagem"** — subtitle listing the template variables
-   (`{{nome_inquilino}}`, `{{unidade}}`, `{{mes}}`, `{{vencimento}}`, `{{total}}`), an
-   **Assunto** field and a **Corpo (Markdown — HTML não é permitido)** field, both
-   pre-filled with a sensible default template, plus a live "{n}/4.096 bytes" counter
-   under the body. Leave the defaults (they already exercise every template variable) and
-   tap **"Continuar"**.
-4. Step 4/5, **"Modelo"** — a menu defaulting to **"Não salvar como modelo"**, with
-   **"Salvar para esta cobrança"** and (billing-owner-dependent) **"Salvar para a
-   organização"**/**"Salvar para minha conta"** as alternatives. Leave default, tap
-   **"Continuar"**.
-5. Step 5/5, **"Revisar envio"** — card **"Prévia"**: Canal, Destinatários (count),
-   Assunto (rendered with the raw `{{unidade}} — {{mes}}` template, not yet substituted —
-   substitution happens server-side per recipient), Anexo ("PDF da fatura"). Commit button
-   reads **"Enviar {canal minúsculo}"**, e.g. **"Enviar fatura"**.
+3. **"Mensagem"** — subtitle "Personalize o texto e confira a prévia antes de enviar.",
+   editable **Assunto** and **Mensagem** fields, and an **"Inserir dado"** menu for the five
+   supported variables. Confirm the live counter reads "{n} de 4.096 caracteres" and the
+   expanded **"Prévia da mensagem"** substitutes recipient/billing values and renders
+   Markdown without executing HTML. An unknown `{{token}}` blocks advancement with the
+   approved validation copy.
+4. **"Revisar envio"** — rows Tipo, Destinatários with its unit, and Anexo, followed by
+   the same rendered preview. The **"Salvar como modelo para próximos envios"** toggle is
+   off by default; when enabled it offers **"Somente nesta cobrança"** and the applicable
+   owner scope, and explains that subject and message replace the current model. There is
+   no separate Modelo step.
 6. Tap it. `POST /api/v1/billings/{id}/communications/send` returns `202`; wizard
-   dismisses, banner "Comunicação enfileirada para envio."; a new row appears under bill
-   detail's **"Comunicações"** section once the worker picks up the job.
+   dismisses, banner "Envio iniciado. Acompanhe o status em Comunicações."; the detail is
+   refreshed immediately and a new **"Na fila"** row appears under **"Comunicações"**.
 
 **Alternate F1a — no recipients configured.** If the billing has none, step 2 shows "Nenhum
 destinatário cadastrado. Adicione destinatários na cobrança antes de enviar." instead of
@@ -880,11 +879,13 @@ rows depending on your permissions: **"Despesas"**, **"Arquivos"**, **"Exportar 
 **Given** a billing.
 
 1. From billing detail, tap **"Operações" → "Despesas"**. `navigationTitle` "Despesas". If
-   empty: default `PageStateView` empty copy ("Nada por aqui ainda" / "Crie o primeiro
-   item para começar.") — this list, unusually, doesn't customize that text. Otherwise a
+   empty and editable: "Nenhuma despesa registrada" / "Registre a primeira despesa para
+   acompanhar os custos desta cobrança." with inline **"Adicionar despesa"**. In viewer
+   mode the description is "Não há despesas registradas nesta cobrança." and there is no
+   CTA. Otherwise a
    section header "{N} despesa(s)" and one row per expense (description, amount, category
    icon+label).
-2. Tap toolbar **"Adicionar"**. Full-screen wizard, "Etapa 1 de 3", **"Detalhes"** — a
+2. Tap inline or toolbar **"Adicionar despesa"**. Full-screen wizard, "Etapa 1 de 3", **"Detalhes"** — a
    **Descrição** field and a **Categoria** menu (**IPTU**, **Condomínio**, **Manutenção**,
    **Seguro**, **Outros**). Fill both, tap **"Continuar"**.
 3. Step 2/3, **"Valor e data"** — **Valor** and **Data** fields. Type `1000` and confirm
@@ -908,7 +909,9 @@ despesa." / "Informe um valor maior que zero."
 **Given** a billing.
 
 1. From billing detail, tap **"Operações" → "Arquivos"**. `navigationTitle` "Arquivos".
-   Same default empty-state copy as Despesas if empty; otherwise "{N} arquivo(s)" header
+   If editable and empty: "Nenhum arquivo adicionado" / "Adicione documentos ou imagens
+   para encontrá-los junto desta cobrança." with inline **"Adicionar arquivo"**. In viewer
+   mode: "Não há arquivos nesta cobrança." and no CTA. Otherwise "{N} arquivo(s)" header
    and one row per file (name, byte count).
 2. Tap toolbar **"Adicionar"** (disabled while an upload is already in flight). Opens the
    system `fileImporter` filtered to PDF/image types. Pick a file (e.g. the invoice PDF
@@ -935,8 +938,8 @@ despesa." / "Informe um valor maior que zero."
    **"Faturas"**, no choice to make). Tap **"Continuar"**.
 4. Step 3/3, **"Revisar exportação"** — card **"Resumo"**: Formato, Conteúdo. Commit
    **"Solicitar exportação"**.
-5. Tap it. `POST .../exports` returns `202`; wizard dismisses, banner "Exportação {FORMAT}
-   enfileirada." The worker generates the file out-of-band and emails it — check the
+5. Tap it. `POST .../exports` returns `202`; wizard dismisses, banner "Seu arquivo {FORMAT}
+   está sendo preparado. Você o receberá no e-mail da sua conta." The worker generates the file out-of-band and emails it — check the
    outbox the same way as [F2](#f2-verify-the-rendered-email) for an `export_ready` event
    and an `.xlsx`/`.csv` attachment.
 
@@ -1015,13 +1018,14 @@ logged in on this device).
    **Alternate H3a — blank email.** Tapping Continuar with the field empty keeps you on
    this step and shows "Informe o e-mail." under the field.
 
-3. Step 2/3, **"Permissão"** — card "Permissão na organização" ("Escolha o que esta pessoa
-   poderá consultar e alterar."), a **Função** menu (**Administrador**/**Gerente**/
-   **Visualizador**, defaults to Visualizador), and a note — "A autenticação multifator é
+3. Step 2/3, **"Nível de acesso"** — card "Escolha o nível de acesso" ("Escolha o que esta
+   pessoa poderá fazer. Você pode alterar o nível de acesso depois."), three full cards
+   (**Administrador**/**Gerente**/**Visualizador**) with their capability descriptions,
+   checkmark and accessible selected state; Visualizador is the default. Then a note — "A autenticação multifator é
    opcional nesta organização." if the org doesn't enforce MFA, or a coral warning that
    the invitee will need to set up MFA to accept if it does. Leave on Visualizador, tap
    **"Continuar"**.
-4. Step 3/3, **"Revisão"** — card **"Convite"**: E-mail, Função, MFA
+4. Step 3/3, **"Revisão"** — card **"Convite"**: E-mail, Nível de acesso, MFA
    (Obrigatório/Opcional). Commit **"Enviar convite"**.
 5. Tap it. `POST /api/v1/organizations/{id}/invites` returns `201`; wizard dismisses,
    banner "Convite enviado."
@@ -1029,7 +1033,8 @@ logged in on this device).
 **Alternate H3b — already invited/member/unknown email.** Any of "already a member",
 "already has a pending invite", or "no account with that email" collapse to the same
 generic `409` on this screen: section **"Não foi possível convidar"**, message "Não foi
-possível criar este convite." The email field itself doesn't validate existence
+possível enviar o convite. Confira se a pessoa já é membro ou tem um convite pendente."
+The email field itself doesn't validate existence
 client-side — a mistyped or non-existent email won't be caught until this point.
 
 ### H4. Second account accepts the invitation
@@ -1058,8 +1063,8 @@ client-side — a mistyped or non-existent email won't be caught until this poin
 
 **Alternate H4b — accepting requires MFA setup.** If the org enforces MFA and the invitee
 has none configured, accepting still succeeds, but the sheet dismisses immediately, the
-tab switches to **Conta**, and a warning notice appears: "Sua nova organização exige MFA.
-Abra Segurança para configurar TOTP ou uma passkey." From there the flow is the same TOTP
+   tab switches to **Conta**, and a warning notice appears: "Sua nova organização exige
+   verificação em duas etapas. Em Conta, abra Segurança para configurar." From there the flow is the same TOTP
 setup as [C4](#c4-two-factor-totp-setup) — and if `GET /api/v1/security` itself now 403s
 with `mfa_setup_required` (this can happen even for the *inviter*/admin the moment they
 flip the org's MFA policy — see H6), Segurança shows the dedicated recovery screen from
@@ -1069,9 +1074,9 @@ commit `4e075278` instead of a dead end.
 
 **Given** you administer an organization with at least one other member (H4).
 
-1. On H2, tap the **"⋯"** menu on a non-you member row. Options: every other role
-   (**Administrador**/**Gerente**/**Visualizador**, whichever the member doesn't currently
-   have) as plain buttons, a divider, then destructive **"Remover"**.
+1. On H2, tap the **"⋯"** menu on a non-you member row. All roles are listed; the current
+   role has a checkmark and is disabled, so it cannot issue a redundant request. A divider
+   precedes destructive **"Remover"**. The owner crown announces "Dono da organização".
 2. Tap a different role, e.g. **"Gerente"**. `PATCH /api/v1/organizations/{id}/members/{userId}`
    returns `200`; the row's caption updates immediately.
 
@@ -1085,8 +1090,10 @@ immediately; the row disappears and the member count decrements.
 
 1. On H2, tap the **Toggle** in "Política de segurança" (whichever direction). This never
    flips the switch directly — it opens a confirmation dialog first: title dynamic
-   ("Exigir MFA?" if currently optional, "Tornar MFA opcional?" if currently required),
-   message "A política será aplicada a todos os membros desta organização.", buttons
+   ("Exigir autenticação em duas etapas?" if currently optional, "Tornar a autenticação
+   em duas etapas opcional?" if currently required), message "A política será aplicada a
+   todos os membros desta organização." When enabling, the confirmation also warns that
+   the current administrator must configure it to keep using Rentivo. Buttons
    **"Confirmar"** / **"Cancelar"**.
 2. Tap **"Confirmar"**. `PUT /api/v1/organizations/{id}/mfa-policy` returns `200`; the
    toggle updates and the "Autenticação em duas etapas" caption flips between "Obrigatória
@@ -1094,8 +1101,8 @@ immediately; the row disappears and the member count decrements.
 
 **Alternate H6a — you yourself now need MFA.** If you (the admin doing the toggling) don't
 have MFA configured and you just turned enforcement **on**, the screen immediately routes
-you to **Conta** with a warning notice: "MFA passou a ser obrigatório. Abra Segurança para
-cadastrar um método." This is a hard, real lockout risk if not handled: every other
+you to **Conta** with a warning notice: "A verificação em duas etapas agora é obrigatória.
+Em Conta, abra Segurança para configurar." This is a hard, real lockout risk if not handled: every other
 authenticated screen — including, previously, Segurança's own summary read — starts
 403'ing with `mfa_setup_required`. Confirm you land on the dedicated **"Configuração
 obrigatória"** recovery screen (id `security.mfa.setup-required`, fixed in `4e075278`) and

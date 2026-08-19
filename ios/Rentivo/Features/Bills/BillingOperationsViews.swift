@@ -81,7 +81,18 @@ struct ExpenseListView: View {
   @State private var pendingDeletion: Expense?
 
   var body: some View {
-    PageStateView(state: state) { expenses in
+    PageStateView(
+      state: state,
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhuma despesa registrada",
+        message: canWrite
+          ? "Registre a primeira despesa para acompanhar os custos desta cobrança."
+          : "Não há despesas registradas nesta cobrança.",
+        systemImage: "wrench.and.screwdriver.fill",
+        actionTitle: canWrite ? "Adicionar despesa" : nil
+      ),
+      emptyAction: canWrite ? { showingAdd = true } : nil
+    ) { expenses in
       List {
         Section {
           ForEach(expenses) { expense in
@@ -117,7 +128,7 @@ struct ExpenseListView: View {
         Button {
           showingAdd = true
         } label: {
-          Label("Adicionar", systemImage: "plus")
+          Label("Adicionar despesa", systemImage: "plus")
         }
       }
     }
@@ -147,11 +158,21 @@ struct ExpenseListView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       let expenses = try await app.dependencies.expenses.listExpenses(billingID: billingID)
       state = expenses.isEmpty ? .empty : .loaded(expenses)
-    } catch { state = .failed(DemoError(error)) }
+    } catch {
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadExpenses), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadExpenses).demoError)
+      }
+    }
   }
 
   private func remove(_ expense: Expense) async {
@@ -159,7 +180,9 @@ struct ExpenseListView: View {
       try await app.dependencies.expenses.deleteExpense(billingID: billingID, expenseID: expense.id)
       await load()
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteExpense), kind: .warning)
+    }
   }
 }
 
@@ -197,6 +220,7 @@ private struct ExpenseFormView: View {
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
   @State private var submitErrorMessage: String?
+  @State private var submitRequiresAuthenticator = false
   @State private var saving = false
   @FocusState private var focusedField: ExpenseFormFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: ExpenseFormFocus?
@@ -287,9 +311,19 @@ private struct ExpenseFormView: View {
   @ViewBuilder
   private var validationError: some View {
     if let submitErrorMessage {
-      Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-        .foregroundStyle(RentivoColors.coral)
-        .accessibilityIdentifier("expense.form.error")
+      VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
+          .foregroundStyle(RentivoColors.coral)
+        if submitRequiresAuthenticator {
+          Button("Configurar autenticador") {
+            dismiss()
+            Task { @MainActor in app.navigateToAuthenticatorSetup() }
+          }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("error.configure-authenticator")
+        }
+      }
+      .accessibilityIdentifier("expense.form.error")
     }
   }
 
@@ -299,6 +333,7 @@ private struct ExpenseFormView: View {
 
   private func validateAndAdvance() -> Bool {
     submitErrorMessage = nil
+    submitRequiresAuthenticator = false
     switch selectedStep {
     case .details:
       if expenseFormFocusTarget(
@@ -362,6 +397,7 @@ private struct ExpenseFormView: View {
   private func save() async {
     guard !saving else { return }
     submitErrorMessage = nil
+    submitRequiresAuthenticator = false
     guard ExpenseInput.isValidDescription(description) else {
       submitErrorMessage = "Informe uma descrição válida para a despesa."
       selectedStep = .details
@@ -384,7 +420,11 @@ private struct ExpenseFormView: View {
       )
       await onSaved()
       dismiss()
-    } catch { submitErrorMessage = DemoError(error).message }
+    } catch {
+      let failure = UserFacingError.presentation(for: error, operation: .addExpense)
+      submitErrorMessage = failure.message
+      submitRequiresAuthenticator = failure.recovery == .configureAuthenticator
+    }
   }
 
   private var selectedDate: DateOnly { DateOnly(from: incurredOn) }
@@ -401,7 +441,18 @@ struct AttachmentListView: View {
   @State private var isUploading = false
 
   var body: some View {
-    PageStateView(state: state) { attachments in
+    PageStateView(
+      state: state,
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhum arquivo adicionado",
+        message: canWrite
+          ? "Adicione documentos ou imagens para encontrá-los junto desta cobrança."
+          : "Não há arquivos nesta cobrança.",
+        systemImage: "folder.fill",
+        actionTitle: canWrite ? "Adicionar arquivo" : nil
+      ),
+      emptyAction: canWrite ? { showingFileImporter = true } : nil
+    ) { attachments in
       List {
         Section {
           ForEach(attachments) { attachment in
@@ -457,7 +508,7 @@ struct AttachmentListView: View {
         Button {
           showingFileImporter = true
         } label: {
-          Label("Adicionar", systemImage: "plus")
+          Label("Adicionar arquivo", systemImage: "plus")
         }
         .disabled(isUploading)
       }
@@ -491,11 +542,21 @@ struct AttachmentListView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       let values = try await app.dependencies.attachments.listAttachments(billingID: billingID)
       state = values.isEmpty ? .empty : .loaded(values)
-    } catch { state = .failed(DemoError(error)) }
+    } catch {
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadAttachments), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadAttachments).demoError)
+      }
+    }
   }
 
   private func add(fileURL: URL) async {
@@ -512,7 +573,9 @@ struct AttachmentListView: View {
       )
       await load()
       app.showNotice("Arquivo enviado.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addAttachment), kind: .warning)
+    }
   }
 
   private func remove(_ attachment: Attachment) async {
@@ -520,7 +583,9 @@ struct AttachmentListView: View {
       try await app.dependencies.attachments.deleteAttachment(
         billingID: billingID, attachmentID: attachment.id)
       await load()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteAttachment), kind: .warning)
+    }
   }
 
   private func download(_ attachment: Attachment) async {
@@ -530,7 +595,9 @@ struct AttachmentListView: View {
         attachmentID: attachment.id,
         presentation: attachment.documentPresentation
       )
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openAttachment), kind: .warning)
+    }
   }
 }
 
@@ -605,369 +672,6 @@ struct DownloadShareView: View {
   }
 }
 
-private enum CommunicationWizardStep: Hashable {
-  case channel
-  case recipients
-  case message
-  case template
-  case review
-}
-
-private enum CommunicationComposerFocus: Hashable {
-  case recipient(RecipientID)
-  case subject
-  case message
-}
-
-struct CommunicationComposerView: View {
-  @Environment(AppModel.self) private var app
-  @Environment(\.dismiss) private var dismiss
-  let billing: Billing
-  let bill: Bill
-
-  @State private var commType: CommunicationType = .billReady
-  @State private var selectedRecipients: Set<RecipientID>
-  @State private var subject: String
-  @State private var message: String
-  @State private var saveScope: CommunicationSaveScope?
-  @State private var selectedStep: CommunicationWizardStep = .channel
-  @State private var isSending = false
-  /// Why the last send attempt failed, be it the local recipient check or a server rejection.
-  /// The composer is presented in a sheet and the global notice banner renders behind it, so the
-  /// message has to stay inline.
-  @State private var sendErrorMessage: String?
-  @State private var hasValidatedMessage = false
-  @State private var appliedTemplateType: CommunicationType
-  @FocusState private var focusedField: CommunicationComposerFocus?
-  @AccessibilityFocusState private var accessibilityFocusedField: CommunicationComposerFocus?
-  private let initialDraftState: NativeCommunicationDraftState
-
-  init(billing: Billing, bill: Bill) {
-    self.billing = billing
-    self.bill = bill
-    let initialType: CommunicationType = bill.capabilities.canSendInvoice ? .billReady : .paymentReceipt
-    _commType = State(initialValue: initialType)
-    _selectedRecipients = State(initialValue: Set(billing.recipients.map(\.id)))
-    let template = billing.template(for: initialType)
-    let subject = template?.subject ?? ""
-    let message = template?.body ?? ""
-    initialDraftState = NativeCommunicationDraftState(
-      commType: initialType, selectedRecipients: Set(billing.recipients.map(\.id)),
-      subject: subject, message: message, saveScope: nil
-    )
-    _subject = State(initialValue: subject)
-    _message = State(initialValue: message)
-    _appliedTemplateType = State(initialValue: initialType)
-  }
-
-  private var availableTypes: [CommunicationType] {
-    CommunicationType.allCases.filter { type in
-      switch type {
-      case .billReady: bill.capabilities.canSendInvoice
-      case .paymentReceipt: bill.status == .paid && bill.capabilities.canSendRecibo
-      }
-    }
-  }
-
-  private var sendDisabled: Bool {
-    // Defense in depth: the detail screen already disables the entry point while the PDF renders,
-    // but a composer opened just before the render started must not attach a stale document.
-    communicationSendIsDisabled(
-      isSending: isSending,
-      hasSelectedRecipients: !selectedRecipients.isEmpty,
-      isRenderingPDF: bill.isRenderingPDF
-    ) || !bill.capabilities.canCompose || !availableTypes.contains(commType) || !formIssues.isEmpty
-  }
-
-  private var formIssues: [ValidationIssue] {
-    CommunicationFormRules.issues(subject: subject, body: message)
-  }
-
-  private var attachmentDescription: String {
-    commType == .paymentReceipt ? "recibo" : "PDF da fatura"
-  }
-
-  var body: some View {
-    RentivoFormWizard(
-      title: "Enviar \(commType.label.lowercased())",
-      descriptors: descriptors,
-      selectedStep: $selectedStep,
-      isBusy: isSending,
-      isPrimaryEnabled: selectedStep != .review || !sendDisabled,
-      finalActionTitle: isSending ? "Enviando..." : "Enviar \(commType.label.lowercased())",
-      onValidateAndAdvance: validateAndAdvance,
-      onCommit: { Task { await send() } }
-    ) { step in
-      switch step {
-      case .channel:
-        channelStep
-      case .recipients:
-        recipientsStep
-      case .message:
-        messageStep
-      case .template:
-        templateStep
-      case .review:
-        reviewStep
-      }
-    }
-    .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .interactiveDismissDisabled(isSending || isDirty)
-  }
-
-  private var descriptors: [RentivoWizardStepDescriptor<CommunicationWizardStep>] {
-    [
-      RentivoWizardStepDescriptor(id: .channel, title: "Canal"),
-      RentivoWizardStepDescriptor(id: .recipients, title: "Destinatários"),
-      RentivoWizardStepDescriptor(id: .message, title: "Mensagem"),
-      RentivoWizardStepDescriptor(id: .template, title: "Modelo"),
-      RentivoWizardStepDescriptor(id: .review, title: "Revisar envio"),
-    ]
-  }
-
-  private var channelStep: some View {
-    RentivoWizardSection("Canal") {
-      if availableTypes.count > 1 {
-        RentivoFormField(label: "Tipo") {
-          Picker("", selection: $commType) {
-            ForEach(availableTypes, id: \.self) { type in
-              Text(type.label).tag(type)
-            }
-          }
-          .labelsHidden()
-          .accessibilityLabel("Tipo")
-          .accessibilityIdentifier("comm.type")
-        }
-      } else if let type = availableTypes.first {
-        RentivoWizardReviewRow(label: "Tipo", value: type.label)
-      } else {
-        Label("Esta fatura ainda não está pronta para envio.", systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
-      }
-      inlineError
-    }
-  }
-
-  private var recipientsStep: some View {
-    RentivoWizardSection(
-      "Destinatários",
-      subtitle: "Cada destinatário recebe um e-mail separado com o \(attachmentDescription) anexado."
-    ) {
-      if billing.recipients.isEmpty {
-        Text("Nenhum destinatário cadastrado. Adicione destinatários na cobrança antes de enviar.")
-          .foregroundStyle(RentivoColors.secondaryInk)
-      } else {
-        ForEach(billing.recipients) { recipient in
-          Toggle(isOn: binding(for: recipient.id)) {
-            VStack(alignment: .leading) {
-              Text(recipient.name).font(.subheadline.weight(.semibold))
-              Text(recipient.email)
-                .font(.caption)
-                .foregroundStyle(RentivoColors.secondaryInk)
-            }
-          }
-          .focused($focusedField, equals: .recipient(recipient.id))
-          .accessibilityFocused($accessibilityFocusedField, equals: .recipient(recipient.id))
-        }
-      }
-      inlineError
-    }
-  }
-
-  private var messageStep: some View {
-    RentivoWizardSection(
-      "Mensagem",
-      subtitle: "Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}."
-    ) {
-      RentivoTextFormField(
-        label: "Assunto",
-        text: $subject,
-        errorMessage: messageFieldError(.subject),
-        accessibilityIdentifier: "comm.subject"
-      )
-        .focused($focusedField, equals: .subject)
-        .accessibilityFocused($accessibilityFocusedField, equals: .subject)
-      RentivoTextFormField(
-        label: "Corpo",
-        text: $message,
-        prompt: "Markdown — HTML não é permitido",
-        axis: .vertical,
-        errorMessage: messageFieldError(.body),
-        accessibilityIdentifier: "comm.body"
-      )
-        .lineLimit(5...12)
-        .focused($focusedField, equals: .message)
-        .accessibilityFocused($accessibilityFocusedField, equals: .message)
-      Text(
-        "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
-      )
-      .font(.footnote.monospacedDigit())
-      .foregroundStyle(RentivoColors.secondaryInk)
-      inlineError
-    }
-  }
-
-  private var templateStep: some View {
-    RentivoWizardSection(
-      "Modelo",
-      subtitle: "O modelo salvo preenche automaticamente as próximas comunicações."
-    ) {
-      RentivoFormField(label: "Salvar modelo") {
-        Picker("", selection: $saveScope) {
-          Text("Não salvar como modelo").tag(CommunicationSaveScope?.none)
-          Text("Salvar para esta cobrança").tag(CommunicationSaveScope?.some(.billing))
-          if billing.capabilities.canEdit {
-            Text(ownerScopeLabel).tag(CommunicationSaveScope?.some(.owner))
-          }
-        }
-        .labelsHidden()
-        .accessibilityLabel("Salvar modelo")
-        .accessibilityIdentifier("comm.save-template")
-      }
-      inlineError
-    }
-  }
-
-  private var reviewStep: some View {
-    RentivoWizardSection("Prévia") {
-      RentivoWizardReviewRow(label: "Canal", value: commType.label)
-      RentivoWizardReviewRow(
-        label: "Destinatários",
-        value: BrazilianLocaleFormatting.integer(selectedRecipients.count))
-      RentivoWizardReviewRow(label: "Assunto", value: CommunicationContent.normalizedSubject(subject))
-      RentivoWizardReviewRow(label: "Anexo", value: attachmentDescription)
-      if bill.isRenderingPDF {
-        Label("Aguarde a geração do PDF antes de enviar.", systemImage: "clock.fill")
-          .foregroundStyle(RentivoColors.secondaryInk)
-      }
-      inlineError
-    }
-  }
-
-  @ViewBuilder
-  private var inlineError: some View {
-    if let sendErrorMessage {
-      Label(sendErrorMessage, systemImage: "exclamationmark.circle.fill")
-        .foregroundStyle(RentivoColors.coral)
-        .accessibilityIdentifier("comm.error")
-    }
-  }
-
-  private func validateAndAdvance() -> Bool {
-    sendErrorMessage = nil
-    switch selectedStep {
-    case .channel:
-      guard availableTypes.contains(commType) else {
-        sendErrorMessage = "Esta comunicação não está disponível para a fatura atual."
-        return false
-      }
-    case .recipients:
-      guard !selectedRecipients.isEmpty else {
-        sendErrorMessage = "Selecione ao menos um destinatário."
-        if let recipient = billing.recipients.first {
-          scheduleFocus(.recipient(recipient.id))
-        }
-        return false
-      }
-    case .message:
-      hasValidatedMessage = true
-      if let issue = formIssues.first {
-        scheduleFocus(issue.field == .subject ? .subject : .message)
-        return false
-      }
-    case .template, .review:
-      break
-    }
-    return true
-  }
-
-  private func scheduleFocus(_ field: CommunicationComposerFocus) {
-    Task { @MainActor in
-      focusedField = field
-      accessibilityFocusedField = field
-    }
-  }
-
-  private func messageFieldError(_ field: ValidationField) -> String? {
-    guard hasValidatedMessage else { return nil }
-    return formIssues.first(where: { $0.field == field })?.message
-  }
-
-  private var isDirty: Bool {
-    NativeCommunicationDraftState(
-      commType: commType, selectedRecipients: selectedRecipients, subject: subject,
-      message: message, saveScope: saveScope
-    ).hasChanges(from: initialDraftState)
-  }
-
-  private var ownerScopeLabel: String {
-    switch billing.owner {
-    case .organization: "Salvar para a organização"
-    case .user: "Salvar para minha conta"
-    }
-  }
-
-  private func binding(for id: RecipientID) -> Binding<Bool> {
-    Binding(
-      get: { selectedRecipients.contains(id) },
-      set: { isOn in
-        if isOn { selectedRecipients.insert(id) } else { selectedRecipients.remove(id) }
-      }
-    )
-  }
-
-  private func applyTemplateIfNeeded() {
-    guard appliedTemplateType != commType else { return }
-    appliedTemplateType = commType
-    let template = billing.template(for: commType)
-    subject = template?.subject ?? ""
-    message = template?.body ?? ""
-  }
-
-  private func send() async {
-    guard !isSending else { return }
-    sendErrorMessage = nil
-    guard availableTypes.contains(commType), !bill.isRenderingPDF else {
-      sendErrorMessage = "Aguarde a fatura ficar pronta antes de enviar."
-      return
-    }
-    guard !selectedRecipients.isEmpty else {
-      sendErrorMessage = "Selecione ao menos um destinatário."
-      return
-    }
-    guard formIssues.isEmpty else {
-      hasValidatedMessage = true
-      selectedStep = .message
-      if let issue = formIssues.first {
-        scheduleFocus(issue.field == .subject ? .subject : .message)
-      }
-      return
-    }
-    guard bill.capabilities.canCompose, availableTypes.contains(commType) else {
-      sendErrorMessage = "Esta comunicação não está disponível agora."
-      return
-    }
-    let normalizedSubject = CommunicationContent.normalizedSubject(subject)
-    let normalizedMessage = CommunicationContent.normalizedMessage(message)
-    isSending = true
-    defer { isSending = false }
-    do {
-      let orderedIDs = billing.recipients.map(\.id).filter(selectedRecipients.contains)
-      _ = try await app.dependencies.communications.sendCommunication(
-        billingID: billing.id,
-        billID: bill.id,
-        commType: commType,
-        recipientIDs: orderedIDs,
-        subject: normalizedSubject,
-        message: normalizedMessage,
-        acknowledgeWarning: false,
-        saveScope: saveScope
-      )
-      dismiss()
-      app.showNotice("Comunicação enfileirada para envio.")
-    } catch { sendErrorMessage = DemoError(error).message }
-  }
-}
 
 private enum ExportWizardStep: Hashable {
   case format
@@ -982,7 +686,7 @@ struct ExportSimulationView: View {
   @State private var format = BillingExportContract.formats[0]
   @State private var selectedStep: ExportWizardStep = .format
   @State private var requestingExport = false
-  @State private var exportErrorMessage: String?
+  @State private var exportFailure: UserFacingFailure?
 
   var body: some View {
     RentivoFormWizard(
@@ -1017,10 +721,9 @@ struct ExportSimulationView: View {
             label: "Conteúdo", value: BillingExportContract.includedSections.joined(separator: ", ")
           )
         }
-        if let exportErrorMessage {
+        if let exportFailure {
           RentivoWizardSection("Não foi possível exportar") {
-            Label(exportErrorMessage, systemImage: "exclamationmark.circle.fill")
-              .foregroundStyle(RentivoColors.coral)
+            UserFacingFailureView(failure: exportFailure) { openAuthenticatorSetup() }
               .accessibilityIdentifier("export.form.error")
           }
         }
@@ -1038,13 +741,22 @@ struct ExportSimulationView: View {
 
   private func requestExport() async {
     guard !requestingExport else { return }
-    exportErrorMessage = nil
+    exportFailure = nil
     requestingExport = true
     defer { requestingExport = false }
     do {
       try await app.dependencies.exports.requestExport(billingID: billingID, format: format)
       dismiss()
-      app.showNotice("Exportação solicitada. O arquivo será enviado para seu e-mail.")
-    } catch { exportErrorMessage = DemoError(error).message }
+      app.showNotice(
+        "Seu arquivo \(format.uppercased()) está sendo preparado. Você o receberá no e-mail da sua conta."
+      )
+    } catch {
+      exportFailure = UserFacingError.presentation(for: error, operation: .requestExport)
+    }
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 }

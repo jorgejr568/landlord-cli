@@ -35,6 +35,7 @@ struct BillingDetailView: View {
 
   @State private var state: LoadState<BillingDetailData> = .idle
   @State private var showingEdit = false
+  @State private var editStartsAtPIX = false
   @State private var showingCreateBill = false
   @State private var showingTheme = false
   @State private var confirmingDelete = false
@@ -51,14 +52,20 @@ struct BillingDetailView: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         if state.value?.billing.capabilities.canEdit == true {
-          Button("Editar") { showingEdit = true }
+          Button("Editar") {
+            editStartsAtPIX = false
+            showingEdit = true
+          }
             .accessibilityIdentifier("billing.edit")
         }
       }
     }
     .rentivoFullScreenWizard(isPresented: $showingEdit) {
       if let billing = state.value?.billing {
-        BillingFormView(billing: billing) {
+        BillingFormView(
+          billing: billing,
+          initialStep: editStartsAtPIX ? .pix : .essentials
+        ) {
           await load()
           await onMutation()
         }
@@ -202,22 +209,24 @@ struct BillingDetailView: View {
         Spacer()
         if data.billing.capabilities.canCreateBills {
           Button {
-            showingCreateBill = true
+            performBillEmptyAction(for: data.billing)
           } label: {
             Image(systemName: "plus.circle.fill")
           }
-          .accessibilityLabel("Gerar fatura")
+          .accessibilityLabel(data.billing.pixNeedsSetup ? "Configurar PIX" : "Gerar fatura")
           .accessibilityIdentifier("bill.create")
-          .disabled(!data.billing.canGenerateBills)
-          .help(
-            data.billing.canGenerateBills
-              ? "Gerar fatura" : "Configure a chave PIX, o nome e a cidade do recebedor primeiro."
-          )
+          .help(data.billing.pixNeedsSetup ? "Configurar PIX" : "Gerar fatura")
         }
       }
       if data.bills.isEmpty {
-        Text("Nenhuma fatura foi gerada para esta cobrança.")
-          .foregroundStyle(RentivoColors.secondaryInk)
+        InlineEmptyStateView(
+          configuration: billEmptyState(for: data.billing),
+          action: data.billing.capabilities.canCreateBills
+            ? { performBillEmptyAction(for: data.billing) }
+            : nil
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, RentivoSpacing.small)
       } else {
         ForEach(data.bills) { bill in
           NavigationLink {
@@ -249,6 +258,39 @@ struct BillingDetailView: View {
           .accessibilityIdentifier("bill.card.\(bill.id.rawValue)")
         }
       }
+    }
+  }
+
+  private func billEmptyState(for billing: Billing) -> EmptyStateConfiguration {
+    if !billing.capabilities.canCreateBills {
+      return EmptyStateConfiguration(
+        title: "Nenhuma fatura gerada",
+        message: "Ainda não há faturas nesta cobrança.",
+        systemImage: "doc.text"
+      )
+    }
+    if billing.pixNeedsSetup {
+      return EmptyStateConfiguration(
+        title: "Nenhuma fatura gerada",
+        message: "Configure os dados do PIX antes de gerar a primeira fatura.",
+        systemImage: "doc.text",
+        actionTitle: "Configurar PIX"
+      )
+    }
+    return EmptyStateConfiguration(
+      title: "Nenhuma fatura gerada",
+      message: "Gere a primeira fatura desta cobrança.",
+      systemImage: "doc.text",
+      actionTitle: "Gerar fatura"
+    )
+  }
+
+  private func performBillEmptyAction(for billing: Billing) {
+    if billing.pixNeedsSetup {
+      editStartsAtPIX = true
+      showingEdit = true
+    } else {
+      showingCreateBill = true
     }
   }
 
@@ -337,7 +379,11 @@ struct BillingDetailView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       let data = BillingDetailData(
         billing: try await app.dependencies.billings.billing(id: billingID),
@@ -346,7 +392,11 @@ struct BillingDetailView: View {
       )
       state = .loaded(data)
     } catch {
-      state = .failed(DemoError(error))
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadBilling), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadBilling).demoError)
+      }
     }
   }
 
@@ -357,7 +407,7 @@ struct BillingDetailView: View {
       app.showNotice("Cobrança excluída.")
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteBilling), kind: .warning)
     }
   }
 }

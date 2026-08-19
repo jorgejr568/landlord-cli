@@ -270,7 +270,7 @@ public enum PixFormRules {
 }
 
 public enum CommunicationFormRules {
-  public static let maximumBodyByteCount = 4_096
+  public static let maximumBodyCharacterCount = 4_096
   public static let maximumSubjectCount = 998
 
   public static func issues(subject: String, body: String) -> [ValidationIssue] {
@@ -284,12 +284,75 @@ public enum CommunicationFormRules {
     }
     if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       issues.append(ValidationIssue(field: .body, message: "Informe a mensagem."))
-    } else if body.lengthOfBytes(using: .utf8) > maximumBodyByteCount {
+    } else if body.count > maximumBodyCharacterCount {
       issues.append(
-        ValidationIssue(field: .body, message: "A mensagem deve ter no máximo 4096 bytes.")
+        ValidationIssue(field: .body, message: "A mensagem deve ter no máximo 4.096 caracteres.")
+      )
+    }
+    if let token = CommunicationVariables.firstUnknownToken(in: subject) {
+      issues.append(
+        ValidationIssue(field: .subject, message: "Revise a variável não reconhecida: \(token).")
+      )
+    }
+    if let token = CommunicationVariables.firstUnknownToken(in: body) {
+      issues.append(
+        ValidationIssue(field: .body, message: "Revise a variável não reconhecida: \(token).")
       )
     }
     return issues
+  }
+}
+
+public enum CommunicationVariable: String, CaseIterable, Sendable {
+  case tenantName = "nome_inquilino"
+  case unit = "unidade"
+  case referenceMonth = "mes"
+  case dueDate = "vencimento"
+  case total = "total"
+
+  public var label: String {
+    switch self {
+    case .tenantName: "Nome do inquilino"
+    case .unit: "Unidade"
+    case .referenceMonth: "Mês de referência"
+    case .dueDate: "Vencimento"
+    case .total: "Valor total"
+    }
+  }
+
+  public var token: String { "{{\(rawValue)}}" }
+}
+
+public enum CommunicationVariables {
+  private static let tokenExpression = try! NSRegularExpression(
+    pattern: #"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
+  )
+
+  public static func firstUnknownToken(in text: String) -> String? {
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    for match in tokenExpression.matches(in: text, range: range) {
+      guard
+        let identifierRange = Range(match.range(at: 1), in: text),
+        CommunicationVariable(rawValue: String(text[identifierRange])) == nil,
+        let tokenRange = Range(match.range(at: 0), in: text)
+      else { continue }
+      return String(text[tokenRange])
+    }
+    return nil
+  }
+
+  public static func replacingTokens(in text: String, values: [CommunicationVariable: String]) -> String {
+    let mutable = NSMutableString(string: text)
+    let range = NSRange(location: 0, length: mutable.length)
+    for match in tokenExpression.matches(in: text, range: range).reversed() {
+      guard
+        let identifierRange = Range(match.range(at: 1), in: text),
+        let variable = CommunicationVariable(rawValue: String(text[identifierRange])),
+        let value = values[variable]
+      else { continue }
+      mutable.replaceCharacters(in: match.range(at: 0), with: value)
+    }
+    return mutable as String
   }
 }
 

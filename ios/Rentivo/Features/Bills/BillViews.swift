@@ -100,7 +100,7 @@ struct BillFormView: View {
   @State private var selectedStep: BillWizardStep = .competence
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
-  @State private var submitErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
   @State private var hasValidatedItems = false
   @State private var saving = false
   @FocusState private var focusedField: BillFormFocus?
@@ -278,7 +278,7 @@ struct BillFormView: View {
           RentivoWizardReviewRow(label: "Observações", value: notes)
         }
       }
-      if !aggregateIssues.isEmpty || submitErrorMessage != nil {
+      if !aggregateIssues.isEmpty || submitFailure != nil {
         validationIssues
       }
     }
@@ -290,9 +290,8 @@ struct BillFormView: View {
         Label(issue.message, systemImage: "exclamationmark.circle.fill")
           .foregroundStyle(RentivoColors.coral)
       }
-      if let submitErrorMessage {
-        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
+      if let submitFailure {
+        UserFacingFailureView(failure: submitFailure) { openAuthenticatorSetup() }
           .accessibilityIdentifier("bill.form.error")
       }
     }
@@ -304,6 +303,11 @@ struct BillFormView: View {
       || (hasDueDate && DateOnly(from: dueDate) != initialDueDate)
       || notes != initialNotes
       || lines.map(\.domain) != initialLines
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
@@ -369,7 +373,7 @@ struct BillFormView: View {
   }
 
   private func validateAndAdvance() -> Bool {
-    submitErrorMessage = nil
+    submitFailure = nil
     guard selectedStep == .items else { return true }
     hasValidatedItems = true
     issues = draft.validate()
@@ -458,7 +462,7 @@ struct BillFormView: View {
     // A disabled action is not a synchronization primitive: claim the in-flight state before
     // any suspension so queued commits cannot submit the same draft twice.
     guard !saving else { return }
-    submitErrorMessage = nil
+    submitFailure = nil
     issues = draft.validate()
     guard issues.isEmpty else {
       hasValidatedItems = true
@@ -482,7 +486,7 @@ struct BillFormView: View {
       app.showNotice(bill == nil ? "Fatura criada como rascunho." : "Fatura atualizada.")
       dismiss()
     } catch {
-      submitErrorMessage = DemoError(error).message
+      submitFailure = UserFacingError.presentation(for: error, operation: .saveBill)
     }
   }
 
@@ -539,7 +543,10 @@ struct BillDetailView: View {
     .downloadedFileSheet($downloadedFile)
     .fullScreenCover(isPresented: $showingCommunication) {
       if let billing, let bill = state.value {
-        CommunicationComposerView(billing: billing, bill: bill)
+        CommunicationComposerView(billing: billing, bill: bill) {
+          await refreshQuietly()
+          await onMutation()
+        }
       }
     }
     .confirmationDialog(
@@ -648,13 +655,25 @@ struct BillDetailView: View {
         communicationHistory(bill)
 
         if bill.capabilities.canCompose {
+          let canOpenCommunication =
+            !CommunicationComposerRules.availableTypes(for: bill).isEmpty
           Button {
             showingCommunication = true
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
+          .disabled(!canOpenCommunication)
+          .help(
+            canOpenCommunication
+              ? "Enviar comunicação"
+              : "Esta fatura ainda não está pronta para envio."
+          )
+          if !canOpenCommunication {
+            Text("Esta fatura ainda não está pronta para envio.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
 
         if bill.capabilities.canDelete {
@@ -777,12 +796,20 @@ struct BillDetailView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       billing = try await app.dependencies.billings.billing(id: billingID)
       state = .loaded(try await app.dependencies.bills.bill(billingID: billingID, id: billID))
     } catch {
-      state = .failed(DemoError(error))
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadBill), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadBill).demoError)
+      }
     }
   }
 
@@ -831,7 +858,7 @@ struct BillDetailView: View {
       await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .changeBillStatus), kind: .warning)
     }
   }
 
@@ -841,7 +868,7 @@ struct BillDetailView: View {
       await onMutation()
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteBill), kind: .warning)
     }
   }
 
@@ -858,8 +885,10 @@ struct BillDetailView: View {
       state = .loaded(bill.applyingRenderMetadata(from: queued))
       pollGeneration += 1
       await onMutation()
-      app.showNotice("Documento enfileirado para regeneração.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+      app.showNotice("Novo documento solicitado. Ele aparecerá aqui quando estiver pronto.")
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .regenerateDocument), kind: .warning)
+    }
   }
 
   private func downloadInvoice(_ bill: Bill) async {
@@ -869,7 +898,9 @@ struct BillDetailView: View {
       downloadedFile = try await app.dependencies.downloads.downloadInvoice(
         billingID: billingID, billID: billID, presentation: presentation)
     }
-    catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 
   private func downloadRecibo(_ bill: Bill) async {
@@ -879,7 +910,9 @@ struct BillDetailView: View {
       downloadedFile = try await app.dependencies.downloads.downloadRecibo(
         billingID: billingID, billID: billID, presentation: presentation)
     }
-    catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 }
 
@@ -1001,7 +1034,10 @@ private struct ReceiptManagerView: View {
         onCancel: { showingCamera = false },
         onFailure: {
           showingCamera = false
-          app.showNotice("Não foi possível usar a foto capturada.", kind: .warning)
+          app.showNotice(
+            "Não foi possível usar a foto. Tire outra foto ou escolha um arquivo.",
+            kind: .warning
+          )
         }
       )
       .ignoresSafeArea()
@@ -1051,16 +1087,22 @@ private struct ReceiptManagerView: View {
         )
           .clampedToAcceptedReceiptFormat()
       else {
-        app.showNotice("Não foi possível ler o arquivo selecionado.", kind: .warning)
+        app.showNotice(
+          "Não foi possível abrir o arquivo. Escolha outro e tente novamente.", kind: .warning)
         return
       }
       await send(upload)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func add(capturedPhoto image: UIImage) async {
     guard let upload = FileUpload.capturedPhoto(image) else {
-      app.showNotice("Não foi possível preparar a foto do comprovante.", kind: .warning)
+      app.showNotice(
+        "Não foi possível preparar a foto. Tire outra foto ou escolha um arquivo.",
+        kind: .warning
+      )
       return
     }
     await send(upload)
@@ -1070,22 +1112,25 @@ private struct ReceiptManagerView: View {
     photoSelection = nil
     do {
       guard let upload = try await photoItem.receiptUpload() else {
-        app.showNotice("Não foi possível ler a foto selecionada.", kind: .warning)
+        app.showNotice("Não foi possível abrir a foto. Escolha outra e tente novamente.", kind: .warning)
         return
       }
       await send(upload)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func send(_ upload: FileUpload) async {
     guard !isMutating else { return }
     guard upload.byteCount > 0 else {
-      app.showNotice("O arquivo selecionado está vazio.", kind: .warning)
+      app.showNotice("O arquivo está vazio. Escolha outro e tente novamente.", kind: .warning)
       return
     }
     guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
       app.showNotice(
-        "O comprovante excede o limite de \(ReceiptUploadLimit.label).", kind: .warning)
+        "O comprovante é maior que \(ReceiptUploadLimit.label). Escolha um arquivo menor e tente novamente.",
+        kind: .warning)
       return
     }
     isMutating = true
@@ -1097,7 +1142,9 @@ private struct ReceiptManagerView: View {
         upload: upload
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func remove(_ receipt: Receipt) async {
@@ -1111,7 +1158,9 @@ private struct ReceiptManagerView: View {
         receiptID: receipt.id
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteReceipt), kind: .warning)
+    }
   }
 
   private func reverse() async {
@@ -1123,7 +1172,9 @@ private struct ReceiptManagerView: View {
         billingID: billingID, billID: bill.id, receiptIDs: Array(bill.receipts.map(\.id).reversed())
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .reorderReceipts), kind: .warning)
+    }
   }
 
   private func download(_ receipt: Receipt) async {
@@ -1139,7 +1190,9 @@ private struct ReceiptManagerView: View {
           mediaType: receipt.mediaType
         )
       )
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 
 }

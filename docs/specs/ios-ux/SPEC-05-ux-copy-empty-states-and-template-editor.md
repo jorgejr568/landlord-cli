@@ -619,3 +619,14 @@ As tabelas de empty state, toast e error mapping acima fazem parte desta fonte d
 5. Aplicar cards de papel e regra de instruções.
 6. Atualizar todos os toasts e UI tests que verificam copy literal.
 7. Executar testes automáticos e a matriz manual de acessibilidade.
+
+## Adendo (2026-08-19, segunda leva de screenshots QA)
+
+Achados adicionais da rodada H5–H8 do passe manual; tratam-se de copy e microUX no mesmo escopo desta spec:
+
+1. **Erro de lockout MFA dentro de formulários (H6a-02).** Quando a organização passa a exigir MFA e o usuário ainda não configurou, chamadas 403 aparecem como erro de campo em formulários (ex.: wizard Dados e PIX) com a mensagem `Sua organização exige a configuração da autenticação multifator.` e uma ação `Tentar novamente` que não resolve nada. Especificar: nesse caso o erro deve oferecer a ação `Configurar autenticador` que navega para Conta → Segurança (ou apresenta a tela `security.mfa.setup-required`), em vez de (ou além de) `Tentar novamente`.
+2. **Confirmação da política de MFA (H6-01).** O popover atual diz apenas `A política será aplicada a todos os membros desta organização.` Quando o próprio administrador ainda não tem MFA configurado, acrescentar aviso explícito de que ele será bloqueado até configurar (copy sugerida: `Você ainda não configurou a autenticação em duas etapas. Ao confirmar, será necessário configurá-la para continuar usando o Rentivo.`). Descobrir no código se o estado MFA do usuário atual está disponível nessa tela; se não estiver, especificar a variante incondicional mais informativa.
+3. **Wizard de Aparência/tema (H8).** Etapa Tipografia mostra dois pickers idênticos sem rótulo (`Montserrat ⌄` duas vezes) — aplicar labels persistentes `Fonte de títulos` e `Fonte de texto` (mesmo padrão RentivoFormField). Na Revisão, `Cor primária #8A4C94` deve exibir um swatch da cor ao lado do hex. A copy de herança `Este nível herda o tema de padrão rentivo.` deve virar algo claro e com marca correta, ex.: `Este nível herda o tema padrão do Rentivo.`; avaliar também o rótulo `Origem efetiva` (jargão) → `Tema aplicado`.
+4. **Menu de papel do membro (H5-01).** O menu (Administrador / Gerente / Remover) não indica o papel atual do membro — marcar o papel atual (checkmark) e garantir que a opção do papel corrente não dispare request redundante. O ícone de coroa do dono precisa de accessibilityLabel (`Dono da organização`).
+
+Critérios de aceite adicionais: cada item acima tem copy PT-BR final aplicada, os dois pickers de tipografia têm rótulos visíveis e acessíveis distintos, o swatch da cor primária aparece na revisão do tema, o erro 403 de MFA em formulários oferece navegação para a configuração, e o menu de papel indica o papel atual.

@@ -85,6 +85,7 @@ final class AppModel {
   var selectedTab: AppTab = .home {
     didSet { activateNoticeArea(selectedTab.noticeArea) }
   }
+  var securityNavigationRequested = false
   private(set) var notice: AppNotice?
   var isSigningOut = false
   var isDeletingAccount = false
@@ -161,6 +162,11 @@ final class AppModel {
   }
 
   var usesLiveAPI: Bool { dependencies.auth.usesLiveAPI }
+
+  func navigateToAuthenticatorSetup() {
+    selectedTab = .account
+    securityNavigationRequested = true
+  }
 
   func signIn() {
     session = .authenticated(currentUser)

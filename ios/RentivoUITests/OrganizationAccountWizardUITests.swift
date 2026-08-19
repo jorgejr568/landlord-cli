@@ -164,7 +164,76 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     app.buttons["wizard.continue"].tap()
     XCTAssertTrue(app.staticTexts["Restaurar herança"].exists)
     app.buttons["wizard.commit"].tap()
-    assertSuccessNotice("Herança de tema restaurada.", in: app)
+    assertSuccessNotice("A aparência padrão foi restaurada.", in: app)
+  }
+
+  func testThemeTypographyLabelsAndPrimaryColorSwatchReachReview() throws {
+    let app = launchAndSignInAndOpenTheme()
+
+    XCTAssertTrue(app.staticTexts["Fonte de títulos"].exists)
+    XCTAssertTrue(app.staticTexts["Fonte de texto"].exists)
+    XCTAssertTrue(app.buttons["theme.form.header-font"].exists)
+    XCTAssertTrue(app.buttons["theme.form.text-font"].exists)
+
+    for _ in 0..<4 { app.buttons["wizard.continue"].tap() }
+    let color = app.descendants(matching: .any)["theme.review.primary-color"]
+    XCTAssertTrue(color.waitForExistence(timeout: 2))
+    XCTAssertTrue(color.label.hasPrefix("Cor primária: #"))
+    XCTAssertTrue(app.staticTexts["Tema aplicado"].exists)
+  }
+
+  func testInviteExplainsRolesAndUsesAccessLevelInReview() throws {
+    let app = launchAndSignIn()
+    openCanonicalOrganization(in: app)
+    app.buttons["Convidar membro"].tap()
+
+    let email = app.textFields["invite.form.email"]
+    XCTAssertTrue(email.waitForExistence(timeout: 2))
+    email.tap()
+    email.typeText("nova@example.com")
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertTrue(app.staticTexts["Nível de acesso"].waitForExistence(timeout: 2))
+    let adminRole = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Administrador,")
+    ).firstMatch
+    let managerRole = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Gerente,")
+    ).firstMatch
+    let viewerRole = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Visualizador,")
+    ).firstMatch
+    XCTAssertTrue(adminRole.label.contains(
+      "Gerencia a organização, os membros e a segurança. Também cria e administra cobranças."
+    ))
+    XCTAssertTrue(managerRole.label.contains(
+      "Pode criar cobranças e gerenciar faturas, despesas, comprovantes e envios. Não gerencia membros nem configurações da organização."
+    ))
+    XCTAssertTrue(viewerRole.label.contains(
+      "Pode consultar a organização e as cobranças, sem criar nem alterar dados."
+    ))
+    managerRole.tap()
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.staticTexts["Nível de acesso"].exists)
+    XCTAssertTrue(app.staticTexts["Gerente"].exists)
+  }
+
+  func testMemberRoleMenuMarksCurrentRoleAndOwnerCrownIsNamed() throws {
+    let app = launchAndSignIn()
+    openCanonicalOrganization(in: app)
+
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(
+        NSPredicate(format: "label CONTAINS %@", "Dono da organização")
+      ).firstMatch.waitForExistence(timeout: 2)
+    )
+    let roleMenu = app.buttons["organization.member.11.role-menu"]
+    scrollTo(roleMenu, in: app)
+    roleMenu.tap()
+    let currentRole = app.buttons["Administrador"]
+    XCTAssertTrue(currentRole.waitForExistence(timeout: 2))
+    XCTAssertFalse(currentRole.isEnabled)
+    XCTAssertTrue(app.buttons["Gerente"].isEnabled)
   }
 
   private func launchAndSignInAndOpenTheme() -> XCUIApplication {
@@ -175,6 +244,23 @@ final class OrganizationAccountWizardUITests: XCTestCase {
     theme.tap()
     XCTAssertTrue(app.buttons["wizard.continue"].waitForExistence(timeout: 2))
     return app
+  }
+
+  private func openCanonicalOrganization(in app: XCUIApplication) {
+    app.tabBars.buttons["Organizações"].tap()
+    let organization = app.staticTexts["Imobiliária Horizonte"]
+    XCTAssertTrue(organization.waitForExistence(timeout: 3))
+    organization.tap()
+    XCTAssertTrue(app.navigationBars["Organização"].waitForExistence(timeout: 2))
+  }
+
+  private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
+    var attempts = 0
+    while !element.exists && attempts < 8 {
+      app.swipeUp()
+      attempts += 1
+    }
+    XCTAssertTrue(element.exists)
   }
 
   private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {

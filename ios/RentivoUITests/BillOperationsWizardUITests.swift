@@ -44,7 +44,7 @@ final class BillOperationsWizardUITests: XCTestCase {
   func testExpenseWizardSeparatesDetailsFromAmount() throws {
     let app = launchAndSignInAndOpenExpenses()
 
-    app.buttons["Adicionar"].tap()
+    app.buttons["Adicionar despesa"].tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
     let description = app.textFields["Descrição"]
@@ -91,7 +91,7 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
   }
 
-  func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
+  func testCommunicationWizardSkipsChannelAndTracksPDFReadiness() throws {
     let app = launchAndSignInAndOpenCanonicalBilling()
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
     scrollTo(draft, in: app)
@@ -105,14 +105,62 @@ final class BillOperationsWizardUITests: XCTestCase {
     let communicate = app.buttons["Enviar comunicação"]
     scrollTo(communicate, in: app)
     communicate.tap()
-    for _ in 0..<4 {
-      app.buttons["wizard.continue"].tap()
-    }
 
-    XCTAssertFalse(app.buttons["wizard.commit"].isEnabled)
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    XCTAssertFalse(app.staticTexts["Canal"].exists)
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.descendants(matching: .any)["comm.preview"].waitForExistence(timeout: 2))
+    let characterCount = app.descendants(matching: .any)["comm.character-count"]
+    XCTAssertTrue(characterCount.exists)
+    XCTAssertTrue(characterCount.label.hasSuffix(" de 4.096 caracteres"))
+    app.buttons["wizard.continue"].tap()
+
+    let waitingForPDF = app.staticTexts["Aguarde a geração do PDF antes de enviar."].exists
+    XCTAssertEqual(app.buttons["wizard.commit"].isEnabled, !waitingForPDF)
     let backButtons = app.buttons.matching(identifier: "wizard.back")
     XCTAssertGreaterThan(backButtons.count, 0)
     XCTAssertTrue(backButtons.element(boundBy: backButtons.count - 1).isEnabled)
+  }
+
+  func testCommunicationPreviewInsertsVariableAndRendersMarkdown() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+
+    let communicate = app.buttons["Enviar comunicação"]
+    scrollTo(communicate, in: app)
+    communicate.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+
+    let message = app.textViews["comm.body"]
+    XCTAssertTrue(message.waitForExistence(timeout: 2))
+    app.buttons["comm.insert-data"].tap()
+    app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Nome do inquilino")
+    ).firstMatch.tap()
+
+    XCTAssertTrue((message.value as? String ?? "").contains("{{nome_inquilino}}"))
+    let preview = app.descendants(matching: .any)["comm.preview"]
+    XCTAssertTrue(preview.waitForExistence(timeout: 2))
+    XCTAssertTrue(
+      preview.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Locatário")
+      ).firstMatch.exists
+    )
+    XCTAssertTrue(
+      preview.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Segue em anexo a cobrança")
+      ).firstMatch.exists
+    )
+    XCTAssertFalse(
+      preview.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "**")).firstMatch.exists
+    )
+    XCTAssertTrue(
+      app.descendants(matching: .any)["comm.character-count"].label
+        .hasSuffix(" de 4.096 caracteres")
+    )
   }
 
   func testCSVAndXLSXExportsShowTheSameEmailDeliveryConfirmation() throws {
@@ -172,7 +220,7 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertTrue(toast.waitForExistence(timeout: 7))
     XCTAssertTrue(
       toast.staticTexts[
-        "Sucesso: Exportação solicitada. O arquivo será enviado para seu e-mail."
+        "Sucesso: Seu arquivo \(format) está sendo preparado. Você o receberá no e-mail da sua conta."
       ].exists
     )
     XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
