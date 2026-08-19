@@ -104,6 +104,7 @@ struct ExpenseListView: View {
           Text(ptBRCount(expenses.count, singular: "despesa", plural: "despesas"))
         }
       }
+      .rentivoTabContent()
       .scrollContentBackground(.hidden)
     } retry: {
       await load()
@@ -141,6 +142,7 @@ struct ExpenseListView: View {
       Text("A despesa será removida permanentemente do registro desta cobrança.")
     }
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.billOperations)
   }
 
   private func load() async {
@@ -436,6 +438,7 @@ struct AttachmentListView: View {
           Text(ptBRCount(attachments.count, singular: "arquivo", plural: "arquivos"))
         }
       }
+      .rentivoTabContent()
       .scrollContentBackground(.hidden)
     } retry: {
       await load()
@@ -476,6 +479,7 @@ struct AttachmentListView: View {
     } message: {
       Text("O arquivo será removido permanentemente e não poderá ser recuperado.")
     }
+    .noticeArea(.billOperations)
     .task(id: app.dataRevision) { await load() }
   }
 

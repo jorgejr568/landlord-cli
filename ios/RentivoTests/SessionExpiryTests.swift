@@ -136,6 +136,7 @@ private final class ExpiringSessionURLProtocol: URLProtocol, @unchecked Sendable
       return
     }
     #expect(app.notice?.message == "Sua sessão expirou. Entre novamente para continuar.")
+    #expect(app.notice?.owner == .authentication)
   }
 
   @MainActor

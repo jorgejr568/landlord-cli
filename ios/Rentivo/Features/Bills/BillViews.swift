@@ -563,6 +563,7 @@ struct BillDetailView: View {
     }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
+    .noticeArea(.billOperations)
   }
 
   private func content(_ bill: Bill) -> some View {
@@ -661,6 +662,7 @@ struct BillDetailView: View {
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   @ViewBuilder

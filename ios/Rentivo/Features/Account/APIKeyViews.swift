@@ -39,6 +39,7 @@ struct APIKeyListView: View {
         }
         .padding(RentivoSpacing.page)
       }
+      .rentivoTabContent()
     } retry: {
       await load()
     }
@@ -86,6 +87,7 @@ struct APIKeyListView: View {
     } message: { key in
       Text("Qualquer integração usando \"\(key.name)\" perderá acesso imediatamente. Esta ação não pode ser desfeita.")
     }
+    .noticeArea(.apiKeys)
   }
 
   private func load() async {

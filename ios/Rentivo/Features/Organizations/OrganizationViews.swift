@@ -92,6 +92,7 @@ struct OrganizationListView: View {
         }
         .padding(RentivoSpacing.page)
       }
+      .rentivoTabContent()
     } retry: {
       await load()
     }
@@ -118,6 +119,7 @@ struct OrganizationListView: View {
       }
     }
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.organizations)
     .refreshable { await load() }
   }
 
@@ -675,6 +677,7 @@ struct OrganizationDetailView: View {
       Text("Primeiro transfira todas as cobranças vinculadas.")
     }
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.organizations)
   }
 
   private func content(_ organization: Organization) -> some View {
@@ -723,6 +726,7 @@ struct OrganizationDetailView: View {
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   private func memberSection(_ organization: Organization) -> some View {

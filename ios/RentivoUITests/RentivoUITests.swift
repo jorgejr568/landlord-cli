@@ -40,6 +40,72 @@ final class RentivoUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Conta"].waitForExistence(timeout: 2))
   }
 
+  func testToastIsBelowNavigationAboveTabBarAndTimesOut() {
+    let app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+
+    let navigationBar = app.navigationBars["Início"]
+    let tabBar = app.tabBars.firstMatch
+    XCTAssertGreaterThanOrEqual(toast.frame.minY, navigationBar.frame.maxY)
+    XCTAssertLessThanOrEqual(toast.frame.maxY + 3, tabBar.frame.minY - 12)
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 4.6))
+  }
+
+  func testToastCanBeClosedAndSwipedAway() {
+    var app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    app.buttons["notice.toast.close"].tap()
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 1))
+
+    app.terminate()
+    app = launchAuthenticated("--ui-testing-notice")
+    let replacementToast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(replacementToast.waitForExistence(timeout: 7))
+    replacementToast.swipeRight()
+    XCTAssertTrue(replacementToast.waitForNonExistence(timeout: 1))
+  }
+
+  func testChangingTabsDismissesTheOwnedToast() {
+    let app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+
+    app.tabBars.buttons["Cobranças"].tap()
+
+    XCTAssertTrue(app.navigationBars["Cobranças"].waitForExistence(timeout: 2))
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 1))
+  }
+
+  func testEmptyHomeLeadsWithOnboardingAndKeepsItsCTAAboveTheTabBar() {
+    let app = launchAuthenticated("--ui-testing-empty")
+    let hero = app.descendants(matching: .any)["home.onboarding-hero"]
+    XCTAssertTrue(hero.waitForExistence(timeout: 3))
+    XCTAssertFalse(app.descendants(matching: .any)["home.summary-grid"].exists)
+    XCTAssertFalse(app.staticTexts["As mudanças feitas na demonstração aparecerão aqui."].exists)
+
+    let cta = app.buttons["home.onboarding.cta"]
+    scrollTo(cta, in: app)
+    XCTAssertLessThanOrEqual(cta.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+    cta.tap()
+    XCTAssertTrue(app.navigationBars["Cobranças"].waitForExistence(timeout: 2))
+  }
+
+  func testAccountBottomContentClearsTheOpaqueTabBar() {
+    let app = launchAuthenticated()
+    app.tabBars.buttons["Conta"].tap()
+
+    let terms = app.staticTexts["Termos de uso"]
+    scrollTo(terms, in: app)
+    XCTAssertLessThanOrEqual(terms.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+
+    let delete = app.buttons["Excluir conta"]
+    scrollTo(delete, in: app)
+    XCTAssertLessThanOrEqual(delete.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+    add(XCTAttachment(screenshot: app.screenshot()))
+  }
+
   func testUpcomingBillOnHomeOpensItsDetailAndSurvivesLeavingTheList() throws {
     let app = launchAndSignIn()
 
@@ -231,6 +297,14 @@ final class RentivoUITests: XCTestCase {
     app.launchArguments = ["--ui-testing"]
     app.launch()
     signIn(app)
+    return app
+  }
+
+  private func launchAuthenticated(_ additionalArguments: String...) -> XCUIApplication {
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing-authenticated"] + additionalArguments
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
   }
 

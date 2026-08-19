@@ -39,6 +39,7 @@ import Testing
       // Deliberately the same copy the browser hand-off shows: both end in one connected session,
       // and which door the user came through is not something the notice should report.
       #expect(app.notice?.message == "Sessão conectada ao Rentivo.")
+      #expect(app.notice?.owner == .home)
       guard case .success = app.notice?.kind else {
         Issue.record("Expected a success-kind notice, got \(String(describing: app.notice?.kind))")
         return

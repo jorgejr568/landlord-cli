@@ -57,6 +57,7 @@ struct BillingListView: View {
     }
     .task(id: app.dataRevision) { await load() }
     .refreshable { await load() }
+    .noticeArea(.billings)
   }
 
   private var canCreateBilling: Bool { !app.demoSettings.viewerMode }
@@ -87,6 +88,7 @@ struct BillingListView: View {
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   private func filteredItems(_ items: [BillingPortfolioItem]) -> [BillingPortfolioItem] {

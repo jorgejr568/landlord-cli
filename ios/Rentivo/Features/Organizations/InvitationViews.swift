@@ -64,6 +64,8 @@ struct InvitationListView: View {
     .background(RentivoColors.paper)
     .navigationTitle("Convites")
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.invitations)
+    .onDisappear { app.activateNoticeArea(.organizations) }
   }
 
   private var content: some View {

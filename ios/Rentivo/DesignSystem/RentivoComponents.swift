@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RentivoCard<Content: View>: View {
   private let content: Content
@@ -284,23 +285,44 @@ struct PageStateView<Value: Sendable, Content: View>: View {
   }
 }
 
-struct NoticeBanner: View {
+private struct NoticeToastWidthKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = nextValue()
+  }
+}
+
+struct NoticeToast: View {
   let notice: AppNotice
+  let reduceMotion: Bool
+  let didMount: () -> Void
+  let interactionBegan: () -> Void
+  let interactionEnded: (Bool) -> Void
   let dismiss: () -> Void
+  @State private var dragOffset: CGFloat = 0
+  @State private var isDraggingHorizontally = false
+  @State private var width: CGFloat = 0
 
   var body: some View {
-    HStack(spacing: RentivoSpacing.medium) {
+    HStack(alignment: .firstTextBaseline, spacing: RentivoSpacing.medium) {
       Image(systemName: symbol)
         .foregroundStyle(color)
+        .accessibilityHidden(true)
       Text(notice.message)
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(RentivoColors.ink)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(announcement)
       Button(action: dismiss) {
         Image(systemName: "xmark")
+          .font(.body.weight(.semibold))
       }
+      .frame(width: 44, height: 44)
       .foregroundStyle(RentivoColors.ink)
       .accessibilityLabel("Fechar aviso")
+      .accessibilityIdentifier("notice.toast.close")
     }
     .padding(RentivoSpacing.medium)
     .background(RentivoColors.surface)
@@ -310,6 +332,66 @@ struct NoticeBanner: View {
         .stroke(RentivoColors.ink, lineWidth: 2)
     }
     .shadow(color: RentivoColors.ink, radius: 0, x: 3, y: 3)
+    .offset(x: reduceMotion ? 0 : dragOffset)
+    .background {
+      GeometryReader { geometry in
+        Color.clear.preference(key: NoticeToastWidthKey.self, value: geometry.size.width)
+      }
+    }
+    .onPreferenceChange(NoticeToastWidthKey.self) { width = $0 }
+    .simultaneousGesture(horizontalDismissGesture)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("notice.toast")
+    .contentTransition(.opacity)
+    .onAppear(perform: mountAndAnnounce)
+    .onChange(of: notice.id) { _, _ in
+      dragOffset = 0
+      isDraggingHorizontally = false
+      mountAndAnnounce()
+    }
+  }
+
+  private var horizontalDismissGesture: some Gesture {
+    DragGesture(minimumDistance: 12, coordinateSpace: .local)
+      .onChanged { value in
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        if !isDraggingHorizontally {
+          isDraggingHorizontally = true
+          interactionBegan()
+        }
+        if !reduceMotion { dragOffset = value.translation.width }
+      }
+      .onEnded { value in
+        guard isDraggingHorizontally else { return }
+        let committed = abs(value.translation.width) >= 80
+          || (width > 0 && abs(value.predictedEndTranslation.width) >= width * 0.4)
+        isDraggingHorizontally = false
+        if committed {
+          interactionEnded(true)
+        } else {
+          if reduceMotion {
+            dragOffset = 0
+          } else {
+            withAnimation(.spring(duration: 0.25, bounce: 0)) { dragOffset = 0 }
+          }
+          interactionEnded(false)
+        }
+      }
+  }
+
+  private func mountAndAnnounce() {
+    didMount()
+    if UIAccessibility.isVoiceOverRunning {
+      UIAccessibility.post(notification: .announcement, argument: announcement)
+    }
+  }
+
+  private var announcement: String {
+    switch notice.kind {
+    case .success: "Sucesso: \(notice.message)"
+    case .information: "Informação: \(notice.message)"
+    case .warning: "Atenção: \(notice.message)"
+    }
   }
 
   private var color: Color {
@@ -446,11 +528,20 @@ private struct PageStateViewPreviewContainer: View {
   PageStateViewPreviewContainer(state: .failed(.operationFailed))
 }
 
-#Preview("NoticeBanner") {
+#Preview("NoticeToast") {
   VStack(spacing: RentivoSpacing.medium) {
-    NoticeBanner(notice: AppNotice(kind: .success, message: "Cobrança salva com sucesso."), dismiss: {})
-    NoticeBanner(notice: AppNotice(kind: .information, message: "Sua sessão foi atualizada."), dismiss: {})
-    NoticeBanner(notice: AppNotice(kind: .warning, message: "Não foi possível restaurar sua sessão."), dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .success, message: "Cobrança salva com sucesso."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .information, message: "Sua sessão foi atualizada."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .warning, message: "Não foi possível restaurar sua sessão."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
   }
   .padding()
   .rentivoPage()

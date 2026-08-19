@@ -67,6 +67,7 @@ struct BillingDetailView: View {
       Text("Faturas, despesas e arquivos desta cobrança também serão removidos.")
     }
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.billingDetail)
   }
 
   private func detail(_ data: BillingDetailData) -> some View {
@@ -135,6 +136,7 @@ struct BillingDetailView: View {
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   private func lineItems(_ items: [BillingItem]) -> some View {
