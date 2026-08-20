@@ -39,4 +39,19 @@ import Testing
         == "Aceite um convite pendente para entrar em uma organização."
     )
   }
+
+  @Test func organizationMFAWarningMentionsSelfSetupOnlyWhenTheCurrentUserLacksMFA() {
+    #expect(
+      OrganizationMFAPolicyCopy.confirmationMessage(requiresMFA: false, currentUserHasMFA: false)
+        .contains("Você ainda não configurou a autenticação em duas etapas")
+    )
+    #expect(
+      !OrganizationMFAPolicyCopy.confirmationMessage(requiresMFA: false, currentUserHasMFA: true)
+        .contains("Você ainda não configurou a autenticação em duas etapas")
+    )
+    #expect(
+      !OrganizationMFAPolicyCopy.confirmationMessage(requiresMFA: false, currentUserHasMFA: nil)
+        .contains("Você ainda não configurou a autenticação em duas etapas")
+    )
+  }
 #endif

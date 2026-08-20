@@ -39,6 +39,7 @@ struct BillingDetailView: View {
   @State private var showingCreateBill = false
   @State private var showingTheme = false
   @State private var confirmingDelete = false
+  @State private var downloadedFile: DownloadedFile?
 
   var body: some View {
     PageStateView(state: state) { data in
@@ -82,6 +83,9 @@ struct BillingDetailView: View {
     .rentivoFullScreenWizard(isPresented: $showingTheme) {
       ThemeEditorView(target: .billing(billingID))
     }
+    // Keep the sheet on the pop target: iOS 26 UIKit can livelock the main thread when a modal
+    // owned by a pushed screen is dismissed immediately before that screen is popped.
+    .downloadedFileSheet($downloadedFile)
     .confirmationDialog(
       "Excluir esta cobrança?",
       isPresented: $confirmingDelete,
@@ -129,7 +133,8 @@ struct BillingDetailView: View {
         financialSummary(data)
         BillingOperationsLinks(
           billingID: billingID,
-          capabilities: data.billing.capabilities
+          capabilities: data.billing.capabilities,
+          onDownloadedFile: { downloadedFile = $0 }
         ) {
           await load()
           await onMutation()
@@ -230,10 +235,15 @@ struct BillingDetailView: View {
       } else {
         ForEach(data.bills) { bill in
           NavigationLink {
-            BillDetailView(billingID: billingID, billID: bill.id) {
-              await load()
-              await onMutation()
-            }
+            BillDetailView(
+              billingID: billingID,
+              billID: bill.id,
+              onMutation: {
+                await load()
+                await onMutation()
+              },
+              onDownloadedFile: { downloadedFile = $0 }
+            )
           } label: {
             RentivoCard {
               HStack {
@@ -404,7 +414,7 @@ struct BillingDetailView: View {
     do {
       try await app.dependencies.billings.deleteBilling(id: billingID)
       await onMutation()
-      app.showNotice("Cobrança excluída.")
+      app.showNotice("Cobrança excluída.", owner: .billings)
       dismiss()
     } catch {
       app.showNotice(UserFacingError.message(for: error, operation: .deleteBilling), kind: .warning)

@@ -24,6 +24,19 @@ enum CommunicationComposerRules {
   }
 }
 
+struct CommunicationComposerPresentation: Identifiable {
+  let id = UUID()
+  let billing: Billing
+  let bill: Bill
+  let availableTypes: [CommunicationType]
+
+  init(billing: Billing, bill: Bill) {
+    self.billing = billing
+    self.bill = bill
+    availableTypes = CommunicationComposerRules.availableTypes(for: bill)
+  }
+}
+
 enum CommunicationVariableInsertion {
   static func insert(_ token: String, into text: String, selection: NSRange) -> (String, NSRange) {
     let source = text as NSString
@@ -90,6 +103,7 @@ struct CommunicationComposerView: View {
   @Environment(\.dismiss) private var dismiss
   let billing: Billing
   let bill: Bill
+  let availableTypes: [CommunicationType]
   let onSent: () async -> Void
 
   @State private var commType: CommunicationType
@@ -107,26 +121,20 @@ struct CommunicationComposerView: View {
   @State private var subjectSelection = NSRange(location: 0, length: 0)
   @State private var messageSelection = NSRange(location: 0, length: 0)
   @State private var requestedTextFocus: CommunicationComposerFocus?
-  @State private var counterAnnouncementState: CounterAnnouncementState = .normal
+  @State private var counterAnnouncementState: CommunicationBodyLengthState = .normal
   @FocusState private var focusedRecipient: CommunicationComposerFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: CommunicationComposerFocus?
   private let initialDraftState: NativeCommunicationDraftState
 
-  private enum CounterAnnouncementState {
-    case normal
-    case nearLimit
-    case overLimit
-  }
-
   init(
-    billing: Billing,
-    bill: Bill,
+    presentation: CommunicationComposerPresentation,
     onSent: @escaping () async -> Void = {}
   ) {
-    self.billing = billing
-    self.bill = bill
+    billing = presentation.billing
+    bill = presentation.bill
+    availableTypes = presentation.availableTypes
     self.onSent = onSent
-    let available = CommunicationComposerRules.availableTypes(for: bill)
+    let available = presentation.availableTypes
     let initialType = available.first ?? .billReady
     let recipients = Set(billing.recipients.map(\.id))
     let template = billing.template(for: initialType)
@@ -147,10 +155,6 @@ struct CommunicationComposerView: View {
       message: initialMessage,
       saveScope: nil
     )
-  }
-
-  private var availableTypes: [CommunicationType] {
-    CommunicationComposerRules.availableTypes(for: bill)
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<CommunicationComposerStep>] {
@@ -184,6 +188,18 @@ struct CommunicationComposerView: View {
   }
 
   var body: some View {
+    Group {
+      if descriptors.isEmpty {
+        Color.clear
+          .onAppear { dismiss() }
+          .accessibilityHidden(true)
+      } else {
+        wizard
+      }
+    }
+  }
+
+  private var wizard: some View {
     RentivoFormWizard(
       title: "Enviar \(commType.label.lowercased())",
       descriptors: descriptors,
@@ -202,7 +218,7 @@ struct CommunicationComposerView: View {
       }
     }
     .onChange(of: commType) { _, _ in applyTemplateIfNeeded() }
-    .onChange(of: message.count) { _, count in announceCounterBoundary(for: count) }
+    .onChange(of: message) { _, message in announceCounterBoundary(for: message) }
     .interactiveDismissDisabled(isSending || isDirty)
   }
 
@@ -286,15 +302,12 @@ struct CommunicationComposerView: View {
         Spacer()
         Text("\(BrazilianLocaleFormatting.integer(message.count)) de 4.096 caracteres")
           .font(.footnote.monospacedDigit())
-          .foregroundStyle(
-            message.count > CommunicationFormRules.maximumBodyCharacterCount
-              ? RentivoColors.coral : RentivoColors.secondaryInk
-          )
+          .foregroundStyle(counterColor)
           .accessibilityIdentifier("comm.character-count")
       }
 
-      if message.count > CommunicationFormRules.maximumBodyCharacterCount {
-        fieldError("A mensagem deve ter no máximo 4.096 caracteres.", id: "comm.character-limit")
+      if CommunicationFormRules.bodyLengthState(message) == .overLimit {
+        fieldError("Mensagem muito longa. Reduza o texto para enviar.", id: "comm.character-limit")
       } else if let token = CommunicationVariables.firstUnknownToken(in: subject + "\n" + message) {
         fieldError("Revise a variável não reconhecida: \(token).", id: "comm.variable.error")
       }
@@ -488,26 +501,27 @@ struct CommunicationComposerView: View {
     messageSelection = NSRange(location: (message as NSString).length, length: 0)
   }
 
-  private func announceCounterBoundary(for count: Int) {
-    let next: CounterAnnouncementState
-    if count > CommunicationFormRules.maximumBodyCharacterCount {
-      next = .overLimit
-    } else if count >= Int(Double(CommunicationFormRules.maximumBodyCharacterCount) * 0.9) {
-      next = .nearLimit
-    } else {
-      next = .normal
+  private var counterColor: Color {
+    switch CommunicationFormRules.bodyLengthState(message) {
+    case .normal: RentivoColors.secondaryInk
+    case .nearLimit: RentivoColors.amber
+    case .overLimit: RentivoColors.coral
     }
+  }
+
+  private func announceCounterBoundary(for messageBody: String) {
+    let next = CommunicationFormRules.bodyLengthState(messageBody)
     guard next != counterAnnouncementState else { return }
     let previous = counterAnnouncementState
     counterAnnouncementState = next
     let message: String?
     switch (previous, next) {
     case (_, .overLimit):
-      message = "A mensagem ultrapassou o limite de 4.096 caracteres."
+      message = "Mensagem muito longa. Reduza o texto para enviar."
     case (.overLimit, .nearLimit), (.overLimit, .normal):
       message = "A mensagem voltou ao limite permitido."
     case (.normal, .nearLimit):
-      message = "A mensagem atingiu noventa por cento do limite."
+      message = "A mensagem está próxima do limite permitido."
     default:
       message = nil
     }

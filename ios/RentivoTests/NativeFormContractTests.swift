@@ -65,19 +65,20 @@ import Testing
   )
 }
 
-@Test func communicationFormRulesCountUserPerceivedCharacters() {
+@Test func communicationFormRulesEnforceTheServerUTF8Limit() {
   for content in [
     String(repeating: "a", count: 4_096),
-    String(repeating: "á", count: 4_096),
-    String(repeating: "😀", count: 4_096),
-    String(repeating: "e\u{301}", count: 4_096),
+    String(repeating: "á", count: 2_048),
+    String(repeating: "😀", count: 1_024),
   ] {
     #expect(CommunicationFormRules.issues(subject: "Assunto", body: content).isEmpty)
   }
   #expect(
-    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "😀", count: 4_097))
-      .contains { $0.field == .body && $0.message == "A mensagem deve ter no máximo 4.096 caracteres." }
+    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "😀", count: 1_025))
+      .contains { $0.field == .body && $0.message == "Mensagem muito longa. Reduza o texto para enviar." }
   )
+  #expect(CommunicationFormRules.bodyLengthState(String(repeating: "a", count: 3_686)) == .nearLimit)
+  #expect(CommunicationFormRules.bodyLengthState(String(repeating: "😀", count: 1_025)) == .overLimit)
   #expect(
     CommunicationFormRules.issues(subject: "   ", body: "Mensagem")
       .contains { $0.field == .subject }

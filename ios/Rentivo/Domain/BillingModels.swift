@@ -651,7 +651,7 @@ public func communicationSendIsDisabled(
 
 public enum CommunicationContent {
   public static let maximumSubjectLength = CommunicationFormRules.maximumSubjectCount
-  public static let maximumMessageCharacterCount = CommunicationFormRules.maximumBodyCharacterCount
+  public static let maximumMessageUTF8Count = CommunicationFormRules.maximumBodyUTF8Count
 
   public static func normalizedSubject(_ subject: String) -> String {
     subject.trimmingCharacters(in: .whitespacesAndNewlines)

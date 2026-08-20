@@ -119,6 +119,21 @@ import Testing
       #expect(app.notice == nil)
     }
 
+    @Test func noticeOwnedByDestinationAreaSurvivesProgrammaticNavigation() {
+      let app = makeApp()
+      app.activateNoticeArea(.organizations)
+      app.showNotice("Configure a autenticação em duas etapas.", owner: .security)
+
+      app.navigateToAuthenticatorSetup()
+      app.activateNoticeArea(.account)
+      app.activateNoticeArea(.security)
+
+      #expect(app.selectedTab == .account)
+      #expect(app.securityNavigationRequested)
+      #expect(app.notice?.owner == .security)
+      #expect(app.notice?.message == "Configure a autenticação em duas etapas.")
+    }
+
     @Test func sceneDeactivationAndSessionCleanupDismissImmediately() async {
       let app = makeApp()
       app.showNotice("Aviso temporário.", owner: .home)

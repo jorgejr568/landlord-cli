@@ -286,16 +286,6 @@ final class RentivoUITests: XCTestCase {
     transition("sent", in: app)
     transition("paid", in: app)
 
-    // "Abrir recibo" only appears once the bill is paid. The mock store returns
-    // a deterministic PDF so the customer-facing preview path remains covered.
-    let openReceipt = app.buttons["Abrir recibo"]
-    scrollTo(openReceipt, in: app)
-    openReceipt.tap()
-    XCTAssertTrue(app.navigationBars["Prévia"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.buttons["Compartilhar ou salvar arquivo"].exists)
-    app.buttons["Fechar"].tap()
-    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
-
     app.navigationBars.buttons.element(boundBy: 0).tap()
     let theme = app.buttons["billing.theme"]
     scrollTo(theme, in: app)
@@ -317,6 +307,17 @@ final class RentivoUITests: XCTestCase {
     let toast = app.descendants(matching: .any)["notice.toast"]
     XCTAssertTrue(toast.waitForExistence(timeout: 7))
     XCTAssertTrue(toast.staticTexts["Sucesso: Aparência atualizada."].exists)
+
+    // Preview last. Its sheet is owned by this billing screen (the pop target), which avoids the
+    // iOS 26 modal-dismiss-then-pop livelock while preserving the customer-facing preview coverage.
+    scrollTo(draft, in: app)
+    draft.tap()
+    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
+    let openReceipt = app.buttons["Abrir recibo"]
+    scrollTo(openReceipt, in: app)
+    openReceipt.tap()
+    XCTAssertTrue(app.navigationBars["Prévia"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["Compartilhar ou salvar arquivo"].exists)
   }
 
   func testExpenseCreationJourney() throws {

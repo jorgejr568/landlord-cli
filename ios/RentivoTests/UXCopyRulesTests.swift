@@ -16,6 +16,21 @@ import Testing
     #expect(CommunicationComposerRules.steps(availableTypeCount: 0).isEmpty)
   }
 
+  @Test func communicationPresentationKeepsTheBillAndTypesCapturedAtOpenTime() throws {
+    let billing = try #require(
+      MockFixtures.canonical.snapshot.billings.first { $0.id == StableID.billingAurora101 })
+    var bill = try #require(
+      MockFixtures.canonical.snapshot.bills.first { $0.id == StableID.billDraft })
+    let presentation = CommunicationComposerPresentation(billing: billing, bill: bill)
+
+    bill.capabilities.canSendInvoice = false
+    bill.capabilities.canSendRecibo = false
+
+    #expect(presentation.bill.capabilities.canSendInvoice)
+    #expect(presentation.availableTypes == [.billReady])
+    #expect(CommunicationComposerRules.availableTypes(for: bill).isEmpty)
+  }
+
   @Test func variableInsertionReplacesSelectionAndPreservesUTF16Cursor() {
     let token = CommunicationVariable.tenantName.token
 
@@ -176,6 +191,11 @@ import Testing
       UserFacingError.presentation(for: LiveAPIError.invalidResponse, operation: .loadOrganizations)
         .message
         == "Não foi possível carregar as organizações. Tente novamente em alguns instantes."
+    )
+    #expect(
+      UserFacingError.presentation(for: LiveAPIError.invalidResponse, operation: .loadAPIKeyOptions)
+        .message
+        == "Não foi possível carregar as opções da chave de integração. Tente novamente em alguns instantes."
     )
     #expect(
       UserFacingError.presentation(

@@ -24,6 +24,23 @@ enum OrganizationListRules {
   }
 }
 
+enum OrganizationMFAPolicyCopy {
+  static func confirmationMessage(
+    requiresMFA: Bool,
+    currentUserHasMFA: Bool?
+  ) -> String {
+    let base = "A política será aplicada a todos os membros desta organização."
+    guard !requiresMFA else { return base }
+    if currentUserHasMFA == false {
+      return "\(base) Você ainda não configurou a autenticação em duas etapas. Ao confirmar, será necessário configurá-la para continuar usando o Rentivo."
+    }
+    if currentUserHasMFA == nil {
+      return "\(base) Membros sem autenticação em duas etapas precisarão configurá-la para continuar usando o Rentivo."
+    }
+    return base
+  }
+}
+
 struct OrganizationListView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<[OrganizationListItem]> = .idle
@@ -643,6 +660,7 @@ struct OrganizationDetailView: View {
   @State private var confirmingMFA = false
   @State private var confirmingDelete = false
   @State private var activeAction: OrganizationDetailAction?
+  @State private var currentUserHasMFA: Bool?
 
   var body: some View {
     PageStateView(state: state) { organization in
@@ -924,7 +942,9 @@ struct OrganizationDetailView: View {
         id: organizationID
       )
       let loadedBillings = try await app.dependencies.billings.listBillings()
+      let security = try? await app.dependencies.security.securitySummary()
       billings = loadedBillings
+      currentUserHasMFA = security.map { $0.totpEnabled || !$0.passkeys.isEmpty }
       state = .loaded(loadedOrganization)
     } catch {
       switch state {
@@ -984,7 +1004,8 @@ struct OrganizationDetailView: View {
         app.navigateToAuthenticatorSetup()
         app.showNotice(
           "A verificação em duas etapas agora é obrigatória. Em Conta, abra Segurança para configurar.",
-          kind: .information
+          kind: .information,
+          owner: .security
         )
       }
     } catch {
@@ -994,10 +1015,10 @@ struct OrganizationDetailView: View {
   }
 
   private var mfaConfirmationMessage: String {
-    guard state.value?.requiresMFA != true else {
-      return "A política será aplicada a todos os membros desta organização."
-    }
-    return "A política será aplicada a todos os membros desta organização. Você ainda não configurou a autenticação em duas etapas. Ao confirmar, será necessário configurá-la para continuar usando o Rentivo."
+    OrganizationMFAPolicyCopy.confirmationMessage(
+      requiresMFA: state.value?.requiresMFA == true,
+      currentUserHasMFA: currentUserHasMFA
+    )
   }
 
   private func transfer(_ billing: Billing, to organization: Organization) async {

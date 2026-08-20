@@ -542,7 +542,7 @@ private struct APIKeyFormView: View {
         expiresAt = loaded.defaultExpiration()
       }
     } catch {
-      options = .failed(UserFacingError.presentation(for: error, operation: .loadOrganizations).demoError)
+      options = .failed(UserFacingError.presentation(for: error, operation: .loadAPIKeyOptions).demoError)
     }
   }
 

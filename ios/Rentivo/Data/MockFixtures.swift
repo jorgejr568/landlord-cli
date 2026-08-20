@@ -8,6 +8,13 @@ public struct MockFixtures: Sendable {
   }
 
   public static let canonical = MockFixtures(snapshot: canonicalSnapshot())
+  public static let canonicalWithPendingPDF: MockFixtures = {
+    var snapshot = canonicalSnapshot()
+    if let index = snapshot.bills.firstIndex(where: { $0.id == StableID.billDraft }) {
+      snapshot.bills[index].pdfRenderStatus = .pending
+    }
+    return MockFixtures(snapshot: snapshot)
+  }()
 
   private static func canonicalSnapshot() -> StoreSnapshot {
     let personalPix = PixConfiguration(

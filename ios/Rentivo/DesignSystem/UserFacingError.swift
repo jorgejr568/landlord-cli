@@ -35,6 +35,7 @@ enum UserFacingOperation: Equatable, Sendable {
   case sendInvitation
   case respondToInvitation
   case loadAPIKeys
+  case loadAPIKeyOptions
   case saveAPIKey
   case revokeAPIKey
 
@@ -100,6 +101,8 @@ enum UserFacingOperation: Equatable, Sendable {
       "Não foi possível responder ao convite. Atualize a lista e tente novamente."
     case .loadAPIKeys:
       "Não foi possível carregar as chaves de integração. Verifique sua conexão e tente novamente."
+    case .loadAPIKeyOptions:
+      "Não foi possível carregar as opções da chave de integração. Verifique sua conexão e tente novamente."
     case .saveAPIKey:
       "Não foi possível salvar a chave de integração. Revise os dados e tente novamente."
     case .revokeAPIKey:

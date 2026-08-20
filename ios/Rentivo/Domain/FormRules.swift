@@ -269,9 +269,22 @@ public enum PixFormRules {
   }
 }
 
+public enum CommunicationBodyLengthState: Equatable, Sendable {
+  case normal
+  case nearLimit
+  case overLimit
+}
+
 public enum CommunicationFormRules {
-  public static let maximumBodyCharacterCount = 4_096
+  public static let maximumBodyUTF8Count = 4_096
   public static let maximumSubjectCount = 998
+
+  public static func bodyLengthState(_ body: String) -> CommunicationBodyLengthState {
+    let count = body.utf8.count
+    if count > maximumBodyUTF8Count { return .overLimit }
+    if count >= maximumBodyUTF8Count * 9 / 10 { return .nearLimit }
+    return .normal
+  }
 
   public static func issues(subject: String, body: String) -> [ValidationIssue] {
     var issues: [ValidationIssue] = []
@@ -284,9 +297,9 @@ public enum CommunicationFormRules {
     }
     if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       issues.append(ValidationIssue(field: .body, message: "Informe a mensagem."))
-    } else if body.count > maximumBodyCharacterCount {
+    } else if bodyLengthState(body) == .overLimit {
       issues.append(
-        ValidationIssue(field: .body, message: "A mensagem deve ter no máximo 4.096 caracteres.")
+        ValidationIssue(field: .body, message: "Mensagem muito longa. Reduza o texto para enviar.")
       )
     }
     if let token = CommunicationVariables.firstUnknownToken(in: subject) {

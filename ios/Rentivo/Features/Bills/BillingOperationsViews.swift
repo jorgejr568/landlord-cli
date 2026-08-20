@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct BillingOperationsLinks: View {
   let billingID: BillingID
   let capabilities: BillingCapabilities
+  let onDownloadedFile: (DownloadedFile) -> Void
   let onMutation: () async -> Void
   @State private var showingExport = false
 
@@ -29,7 +30,8 @@ struct BillingOperationsLinks: View {
             NavigationLink {
               AttachmentListView(
                 billingID: billingID,
-                canWrite: capabilities.canWriteAttachments
+                canWrite: capabilities.canWriteAttachments,
+                onDownloadedFile: onDownloadedFile
               )
             } label: {
               OperationRow(title: "Arquivos", symbol: "folder.fill")
@@ -218,9 +220,9 @@ private struct ExpenseFormView: View {
   @State private var incurredOn = Date()
   @State private var selectedStep: ExpenseWizardStep = .details
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
-  /// and the global notice banner renders behind it, so the message has to stay inline.
-  @State private var submitErrorMessage: String?
-  @State private var submitRequiresAuthenticator = false
+  /// and the global notice banner renders behind it, so the failure has to stay on the review step.
+  @State private var validationErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
   @State private var saving = false
   @FocusState private var focusedField: ExpenseFormFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: ExpenseFormFocus?
@@ -241,7 +243,7 @@ private struct ExpenseFormView: View {
           RentivoTextFormField(
             label: "Descrição",
             text: $description,
-            errorMessage: selectedStep == .details ? submitErrorMessage : nil,
+            errorMessage: selectedStep == .details ? validationErrorMessage : nil,
             accessibilityIdentifier: "expense.form.description"
           )
             .textInputAutocapitalization(.sentences)
@@ -263,7 +265,7 @@ private struct ExpenseFormView: View {
           RentivoCurrencyField(
             label: "Valor",
             amountInCents: $centavos,
-            errorMessage: selectedStep == .valueAndDate ? submitErrorMessage : nil,
+            errorMessage: selectedStep == .valueAndDate ? validationErrorMessage : nil,
             isFocused: amountFocusBinding,
             isAccessibilityFocused: accessibilityAmountFocusBinding,
             accessibilityIdentifier: "expense.form.amount"
@@ -281,22 +283,25 @@ private struct ExpenseFormView: View {
           RentivoWizardReviewRow(label: "Categoria", value: category.label)
           RentivoWizardReviewRow(label: "Valor", value: Money(centavos: centavos).formatted())
           RentivoWizardReviewRow(label: "Data", value: selectedDate.displayFormatted)
-          validationError
+          reviewFailure
         }
       }
     }
     .interactiveDismissDisabled(saving || isDirty)
     .onChange(of: description) {
-      if selectedStep == .details, submitErrorMessage != nil,
+      if selectedStep == .details, validationErrorMessage != nil,
         ExpenseInput.isValidDescription(description)
       {
-        submitErrorMessage = nil
+        validationErrorMessage = nil
       }
     }
     .onChange(of: centavos) {
-      if selectedStep == .valueAndDate, submitErrorMessage != nil, centavos > 0 {
-        submitErrorMessage = nil
+      if selectedStep == .valueAndDate, validationErrorMessage != nil, centavos > 0 {
+        validationErrorMessage = nil
       }
+    }
+    .onChange(of: selectedStep) { previous, current in
+      if previous == .review, current != .review { submitFailure = nil }
     }
   }
 
@@ -309,19 +314,11 @@ private struct ExpenseFormView: View {
   }
 
   @ViewBuilder
-  private var validationError: some View {
-    if let submitErrorMessage {
-      VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
-        if submitRequiresAuthenticator {
-          Button("Configurar autenticador") {
-            dismiss()
-            Task { @MainActor in app.navigateToAuthenticatorSetup() }
-          }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("error.configure-authenticator")
-        }
+  private var reviewFailure: some View {
+    if let submitFailure {
+      UserFacingFailureView(failure: submitFailure) {
+        dismiss()
+        Task { @MainActor in app.navigateToAuthenticatorSetup() }
       }
       .accessibilityIdentifier("expense.form.error")
     }
@@ -332,8 +329,7 @@ private struct ExpenseFormView: View {
   }
 
   private func validateAndAdvance() -> Bool {
-    submitErrorMessage = nil
-    submitRequiresAuthenticator = false
+    validationErrorMessage = nil
     switch selectedStep {
     case .details:
       if expenseFormFocusTarget(
@@ -341,7 +337,7 @@ private struct ExpenseFormView: View {
         descriptionIsValid: ExpenseInput.isValidDescription(description),
         centavos: centavos
       ) == .description {
-        submitErrorMessage = "Informe uma descrição válida para a despesa."
+        validationErrorMessage = "Informe uma descrição válida para a despesa."
         scheduleFocus(.description)
         return false
       }
@@ -351,7 +347,7 @@ private struct ExpenseFormView: View {
         descriptionIsValid: true,
         centavos: centavos
       ) == .amount {
-        submitErrorMessage = "Informe um valor maior que zero."
+        validationErrorMessage = "Informe um valor maior que zero."
         scheduleFocus(.amount)
         return false
       }
@@ -396,15 +392,15 @@ private struct ExpenseFormView: View {
 
   private func save() async {
     guard !saving else { return }
-    submitErrorMessage = nil
-    submitRequiresAuthenticator = false
+    validationErrorMessage = nil
+    submitFailure = nil
     guard ExpenseInput.isValidDescription(description) else {
-      submitErrorMessage = "Informe uma descrição válida para a despesa."
+      validationErrorMessage = "Informe uma descrição válida para a despesa."
       selectedStep = .details
       return
     }
     guard centavos > 0 else {
-      submitErrorMessage = "Informe um valor maior que zero."
+      validationErrorMessage = "Informe um valor maior que zero."
       selectedStep = .valueAndDate
       return
     }
@@ -421,9 +417,7 @@ private struct ExpenseFormView: View {
       await onSaved()
       dismiss()
     } catch {
-      let failure = UserFacingError.presentation(for: error, operation: .addExpense)
-      submitErrorMessage = failure.message
-      submitRequiresAuthenticator = failure.recovery == .configureAuthenticator
+      submitFailure = UserFacingError.presentation(for: error, operation: .addExpense)
     }
   }
 
@@ -434,8 +428,8 @@ struct AttachmentListView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
   let canWrite: Bool
+  let onDownloadedFile: (DownloadedFile) -> Void
   @State private var state: LoadState<[Attachment]> = .idle
-  @State private var downloadedFile: DownloadedFile?
   @State private var showingFileImporter = false
   @State private var pendingDeletion: Attachment?
   @State private var isUploading = false
@@ -513,7 +507,6 @@ struct AttachmentListView: View {
         .disabled(isUploading)
       }
     }
-    .downloadedFileSheet($downloadedFile)
     .fileImporter(
       isPresented: $showingFileImporter,
       allowedContentTypes: [UTType.pdf, UTType.image],
@@ -590,10 +583,12 @@ struct AttachmentListView: View {
 
   private func download(_ attachment: Attachment) async {
     do {
-      downloadedFile = try await app.dependencies.downloads.downloadAttachment(
-        billingID: billingID,
-        attachmentID: attachment.id,
-        presentation: attachment.documentPresentation
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadAttachment(
+          billingID: billingID,
+          attachmentID: attachment.id,
+          presentation: attachment.documentPresentation
+        )
       )
     } catch {
       app.showNotice(UserFacingError.message(for: error, operation: .openAttachment), kind: .warning)

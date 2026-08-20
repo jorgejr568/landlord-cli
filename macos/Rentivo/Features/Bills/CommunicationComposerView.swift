@@ -121,6 +121,7 @@ struct CommunicationComposerView: View {
               "\(BrazilianLocaleFormatting.integer(message.count)) de 4.096 caracteres"
             )
             .monospacedDigit()
+            .foregroundStyle(counterColor)
           }
         }
 
@@ -189,6 +190,14 @@ struct CommunicationComposerView: View {
       commType: commType, selectedRecipients: selectedRecipients, subject: subject,
       message: message, saveScope: saveScope
     ).hasChanges(from: initialDraftState)
+  }
+
+  private var counterColor: Color {
+    switch CommunicationFormRules.bodyLengthState(message) {
+    case .normal: RentivoColors.secondaryInk
+    case .nearLimit: RentivoColors.amber
+    case .overLimit: RentivoColors.coral
+    }
   }
 
   private var ownerScopeLabel: String {

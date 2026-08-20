@@ -4,6 +4,9 @@ extension View {
   /// Presents the shared Quick Look preview for `file` and removes its private temporary directory
   /// once that sheet is gone.
   ///
+  /// Attach this to the pushed screen's pop-target ancestor. On iOS 26, UIKit can livelock the
+  /// main thread when a sheet owned by the pushed screen is dismissed immediately before a pop.
+  ///
   /// The removal is driven by the binding losing its value, never from inside `DownloadShareView`:
   /// while that sheet is on screen its `ShareLink` still needs the file on disk. That is safe
   /// because every activity the user can pick from the share sheet (Mail, Mensagens, Salvar em

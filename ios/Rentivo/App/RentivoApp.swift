@@ -10,8 +10,10 @@ struct RentivoApp: App {
       let usesMockData = arguments.contains("--ui-testing")
         || arguments.contains("--ui-testing-authenticated")
         || arguments.contains("--screenshot-authenticated")
+      let mockFixtures: MockFixtures = arguments.contains("--ui-testing-pdf-rendering")
+        ? .canonicalWithPendingPDF : .canonical
       let model = usesMockData
-        ? AppModel(store: MockRentivoStore(fixtures: .canonical))
+        ? AppModel(store: MockRentivoStore(fixtures: mockFixtures))
         : AppModel(dependencies: .live())
     #else
       let model = AppModel(dependencies: .live())

@@ -501,12 +501,12 @@ struct BillDetailView: View {
   let billingID: BillingID
   let billID: BillID
   let onMutation: () async -> Void
+  let onDownloadedFile: (DownloadedFile) -> Void
 
   @State private var state: LoadState<Bill> = .idle
   @State private var billing: Billing?
   @State private var showingEdit = false
-  @State private var downloadedFile: DownloadedFile?
-  @State private var showingCommunication = false
+  @State private var communicationPresentation: CommunicationComposerPresentation?
   @State private var confirmingDelete = false
   @State private var pendingTransition: BillLifecyclePresentedAction?
   @State private var transitioningAction: BillLifecyclePresentedAction?
@@ -540,13 +540,10 @@ struct BillDetailView: View {
         }
       }
     }
-    .downloadedFileSheet($downloadedFile)
-    .fullScreenCover(isPresented: $showingCommunication) {
-      if let billing, let bill = state.value {
-        CommunicationComposerView(billing: billing, bill: bill) {
-          await refreshQuietly()
-          await onMutation()
-        }
+    .fullScreenCover(item: $communicationPresentation) { presentation in
+      CommunicationComposerView(presentation: presentation) {
+        await refreshQuietly()
+        await onMutation()
       }
     }
     .confirmationDialog(
@@ -649,7 +646,8 @@ struct BillDetailView: View {
           billingID: billingID,
           billingName: billing?.name ?? "Cobrança",
           bill: bill,
-          capabilities: bill.capabilities
+          capabilities: bill.capabilities,
+          onDownloadedFile: onDownloadedFile
         ) { await refreshAll() }
 
         communicationHistory(bill)
@@ -658,7 +656,10 @@ struct BillDetailView: View {
           let canOpenCommunication =
             !CommunicationComposerRules.availableTypes(for: bill).isEmpty
           Button {
-            showingCommunication = true
+            guard let billing else { return }
+            let presentation = CommunicationComposerPresentation(billing: billing, bill: bill)
+            guard !presentation.availableTypes.isEmpty else { return }
+            communicationPresentation = presentation
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
@@ -895,8 +896,10 @@ struct BillDetailView: View {
     let presentation = DocumentPresentation.invoice(
       billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
     do {
-      downloadedFile = try await app.dependencies.downloads.downloadInvoice(
-        billingID: billingID, billID: billID, presentation: presentation)
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadInvoice(
+          billingID: billingID, billID: billID, presentation: presentation)
+      )
     }
     catch {
       app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
@@ -907,8 +910,10 @@ struct BillDetailView: View {
     let presentation = DocumentPresentation.generatedReceipt(
       billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
     do {
-      downloadedFile = try await app.dependencies.downloads.downloadRecibo(
-        billingID: billingID, billID: billID, presentation: presentation)
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadRecibo(
+          billingID: billingID, billID: billID, presentation: presentation)
+      )
     }
     catch {
       app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
@@ -922,8 +927,8 @@ private struct ReceiptManagerView: View {
   let billingName: String
   let bill: Bill
   let capabilities: BillCapabilities
+  let onDownloadedFile: (DownloadedFile) -> Void
   let onMutation: () async -> Void
-  @State private var downloadedFile: DownloadedFile?
   @State private var showingSourceChooser = false
   @State private var showingFileImporter = false
   @State private var showingCamera = false
@@ -1006,7 +1011,6 @@ private struct ReceiptManagerView: View {
         .disabled(isMutating)
       }
     }
-    .downloadedFileSheet($downloadedFile)
     .confirmationDialog(
       "Adicionar comprovante",
       isPresented: $showingSourceChooser,
@@ -1179,15 +1183,17 @@ private struct ReceiptManagerView: View {
 
   private func download(_ receipt: Receipt) async {
     do {
-      downloadedFile = try await app.dependencies.downloads.downloadReceipt(
-        billingID: billingID,
-        billID: bill.id,
-        receiptID: receipt.id,
-        presentation: DocumentPresentation.uploadedReceipt(
-          filename: receipt.name,
-          billingName: billingName,
-          referenceMonth: bill.referenceMonth,
-          mediaType: receipt.mediaType
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadReceipt(
+          billingID: billingID,
+          billID: bill.id,
+          receiptID: receipt.id,
+          presentation: DocumentPresentation.uploadedReceipt(
+            filename: receipt.name,
+            billingName: billingName,
+            referenceMonth: bill.referenceMonth,
+            mediaType: receipt.mediaType
+          )
         )
       )
     } catch {

@@ -164,8 +164,9 @@ final class AppModel {
   var usesLiveAPI: Bool { dependencies.auth.usesLiveAPI }
 
   func navigateToAuthenticatorSetup() {
-    selectedTab = .account
     securityNavigationRequested = true
+    selectedTab = .account
+    activateNoticeArea(.security)
   }
 
   func signIn() {
@@ -346,6 +347,7 @@ final class AppModel {
   }
 
   func activateNoticeArea(_ area: NoticeArea) {
+    if area == .account, securityNavigationRequested { return }
     activeNoticeArea = area
     if let notice, notice.owner != area {
       dismissNotice(id: notice.id)

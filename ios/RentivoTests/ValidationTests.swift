@@ -384,11 +384,11 @@ import Testing
     subject: "Assunto", message: String(repeating: "b", count: 4_097)
   ) != nil)
   #expect(CommunicationContent.validationMessage(
-    subject: "Assunto", message: String(repeating: "😀", count: 4_096)
+    subject: "Assunto", message: String(repeating: "😀", count: 1_024)
   ) == nil)
   #expect(CommunicationContent.validationMessage(
-    subject: "Assunto", message: String(repeating: "😀", count: 4_097)
-  ) == "A mensagem deve ter no máximo 4.096 caracteres.")
+    subject: "Assunto", message: String(repeating: "😀", count: 1_025)
+  ) == "Mensagem muito longa. Reduza o texto para enviar.")
   #expect(CommunicationContent.normalizedSubject("  Assunto  ") == "Assunto")
   #expect(CommunicationContent.normalizedMessage("  Corpo  ") == "Corpo")
 }

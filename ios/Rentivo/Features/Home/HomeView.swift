@@ -125,6 +125,7 @@ private struct HomeContent: View {
   /// detail screen (status transition, edit, deletion), so the summary cards
   /// and the "Próximas faturas" list don't go stale behind the pushed view.
   let reload: () async -> Void
+  @State private var downloadedFile: DownloadedFile?
 
   private let columns = [
     GridItem(.flexible(), spacing: RentivoSpacing.medium),
@@ -182,10 +183,14 @@ private struct HomeContent: View {
     }
     .rentivoTabContent()
     .navigationDestination(for: BillRoute.self) { route in
-      BillDetailView(billingID: route.billingID, billID: route.billID) {
-        await reload()
-      }
+      BillDetailView(
+        billingID: route.billingID,
+        billID: route.billID,
+        onMutation: { await reload() },
+        onDownloadedFile: { downloadedFile = $0 }
+      )
     }
+    .downloadedFileSheet($downloadedFile)
   }
 
   private var greeting: some View {

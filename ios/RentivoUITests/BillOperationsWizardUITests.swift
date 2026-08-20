@@ -91,15 +91,12 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
   }
 
-  func testCommunicationWizardSkipsChannelAndTracksPDFReadiness() throws {
-    let app = launchAndSignInAndOpenCanonicalBilling()
+  func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling("--ui-testing-pdf-rendering")
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
     scrollTo(draft, in: app)
     draft.tap()
 
-    let regenerate = app.buttons["Regenerar documento"]
-    scrollTo(regenerate, in: app)
-    regenerate.tap()
     XCTAssertTrue(app.staticTexts["Renderizando…"].waitForExistence(timeout: 2))
 
     let communicate = app.buttons["Enviar comunicação"]
@@ -115,8 +112,8 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertTrue(characterCount.label.hasSuffix(" de 4.096 caracteres"))
     app.buttons["wizard.continue"].tap()
 
-    let waitingForPDF = app.staticTexts["Aguarde a geração do PDF antes de enviar."].exists
-    XCTAssertEqual(app.buttons["wizard.commit"].isEnabled, !waitingForPDF)
+    XCTAssertTrue(app.staticTexts["Aguarde a geração do PDF antes de enviar."].exists)
+    XCTAssertFalse(app.buttons["wizard.commit"].isEnabled)
     let backButtons = app.buttons.matching(identifier: "wizard.back")
     XCTAssertGreaterThan(backButtons.count, 0)
     XCTAssertTrue(backButtons.element(boundBy: backButtons.count - 1).isEnabled)
@@ -226,8 +223,10 @@ final class BillOperationsWizardUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
   }
 
-  private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {
-    let app = launchAndSignIn()
+  private func launchAndSignInAndOpenCanonicalBilling(
+    _ additionalArguments: String...
+  ) -> XCUIApplication {
+    let app = launchAndSignIn(additionalArguments)
     app.tabBars.buttons["Cobranças"].tap()
 
     let billing = app.buttons["billing.card.00000000-0000-0000-0000-000000000101"]
@@ -246,11 +245,11 @@ final class BillOperationsWizardUITests: XCTestCase {
     return app
   }
 
-  private func launchAndSignIn() -> XCUIApplication {
+  private func launchAndSignIn(_ additionalArguments: [String] = []) -> XCUIApplication {
     let app = XCUIApplication()
     app.launchArguments = [
       "--ui-testing", "-AppleLanguages", "(pt-BR)", "-AppleLocale", "pt_BR",
-    ]
+    ] + additionalArguments
     app.launch()
 
     let email = app.textFields["login.email"]

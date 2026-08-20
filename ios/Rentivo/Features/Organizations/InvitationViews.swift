@@ -165,7 +165,8 @@ struct InvitationListView: View {
         app.navigateToAuthenticatorSetup()
         app.showNotice(
           "Sua nova organização exige verificação em duas etapas. Em Conta, abra Segurança para configurar.",
-          kind: .warning
+          kind: .warning,
+          owner: .security
         )
         return
       }
