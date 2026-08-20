@@ -393,13 +393,18 @@ public actor LiveAPIClient {
     downloads.purge()
   }
 
-  func download(path: String, filename: String, mediaType: String = "application/pdf") async throws -> DownloadedFile {
+  func download(
+    path: String,
+    presentation: DocumentPresentation,
+    mediaType: String? = nil
+  ) async throws -> DownloadedFile {
     guard let accessToken else {
       throw LiveAPIError.sessionExpired
     }
     var request = URLRequest(url: Self.baseURL.appending(path: path))
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-    request.setValue(mediaType, forHTTPHeaderField: "Accept")
+    let requestedMediaType = mediaType ?? presentation.mediaType
+    request.setValue(requestedMediaType, forHTTPHeaderField: "Accept")
     // `download(for:)` streams the body straight to a file instead of accumulating it in memory,
     // so a 10 MB receipt costs a rename rather than a 10 MB `Data` plus a synchronous write that
     // blocked this actor for the whole of it. Every path that does not adopt the staged file has
@@ -423,31 +428,52 @@ public actor LiveAPIClient {
       try? FileManager.default.removeItem(at: staged)
       throw LiveAPIError.server(message: "Não foi possível baixar o arquivo.")
     }
-    let responseMediaType = (http.value(forHTTPHeaderField: "Content-Type") ?? mediaType)
-      .split(separator: ";", maxSplits: 1).first.map(String.init) ?? mediaType
-    let resolvedFilename = filename.contains(".")
-      ? filename
-      : "\(filename).\(fileExtension(for: responseMediaType))"
+    let responseMediaType = (http.value(forHTTPHeaderField: "Content-Type") ?? requestedMediaType)
+      .split(separator: ";", maxSplits: 1).first.map(String.init) ?? requestedMediaType
+    let resolvedFilename = DocumentPresentation.resolvedFilename(
+      presentation.suggestedFilename, mediaType: responseMediaType)
+    let sanitizedFilename = DocumentPresentation.sanitizedFilename(resolvedFilename)
+    var destination: URL?
     do {
-      let destination = try downloads.makeDestination(
-        pathExtension: (resolvedFilename as NSString).pathExtension)
-      try Self.adopt(staged, at: destination)
-      return DownloadedFile(fileURL: destination, filename: resolvedFilename, mediaType: responseMediaType)
+      let createdDestination = try downloads.makeDestination(filename: sanitizedFilename)
+      destination = createdDestination
+      try Self.adopt(staged, at: createdDestination)
+      return DownloadedFile(
+        fileURL: createdDestination,
+        displayName: presentation.displayName,
+        filename: sanitizedFilename,
+        mediaType: responseMediaType
+      )
     } catch {
+      if let destination { downloads.removeDestination(destination) }
       try? FileManager.default.removeItem(at: staged)
       throw error
     }
   }
 
+  /// Compatibility surface for non-UI callers; feature repositories pass full presentation data.
+  func download(
+    path: String, filename: String, mediaType: String = "application/pdf"
+  ) async throws -> DownloadedFile {
+    try await download(
+      path: path,
+      presentation: DocumentPresentation(
+        displayName: (filename as NSString).deletingPathExtension,
+        suggestedFilename: filename
+      ),
+      mediaType: mediaType
+    )
+  }
+
   /// Moves a staged download into the downloads directory under its final name.
   ///
-  /// `destination` is a fresh UUID inside the app's own temporary directory, so this is a
-  /// same-volume rename: atomic, which is what the replaced `Data.write(options: .atomic)` bought,
-  /// and O(1) in the file's size. The protection class has to be reapplied by hand because it rode
-  /// on those same writing options before; it is best effort for the same reason the store's
-  /// options were (see `DownloadedFileStore.writingOptions`) — whether Darwin honors a
-  /// data-protection class depends on the environment, and a document the user asked for should not
-  /// fail to arrive because the extra at-rest protection could not be set.
+  /// `destination` is inside a fresh private directory under the app's temporary downloads root,
+  /// so this is a same-volume rename: atomic, which is what the replaced
+  /// `Data.write(options: .atomic)` bought, and O(1) in the file's size. The protection class has to
+  /// be reapplied by hand because it rode on those same writing options before; it is best effort
+  /// for the same reason the store's options were (see `DownloadedFileStore.writingOptions`) —
+  /// whether Darwin honors a data-protection class depends on the environment, and a document the
+  /// user asked for should not fail to arrive because the extra at-rest protection could not be set.
   private nonisolated static func adopt(_ staged: URL, at destination: URL) throws {
     let manager = FileManager.default
     try manager.moveItem(at: staged, to: destination)
@@ -455,17 +481,6 @@ public actor LiveAPIClient {
       try? manager.setAttributes(
         [.protectionKey: FileProtectionType.completeUnlessOpen], ofItemAtPath: destination.path)
     #endif
-  }
-
-  private func fileExtension(for mediaType: String) -> String {
-    switch mediaType.lowercased() {
-    case "application/pdf": "pdf"
-    case "image/jpeg": "jpg"
-    case "image/png": "png"
-    case "image/heic": "heic"
-    case "text/plain": "txt"
-    default: "bin"
-    }
   }
 
   private func send<Body: Encodable, Response: Decodable>(

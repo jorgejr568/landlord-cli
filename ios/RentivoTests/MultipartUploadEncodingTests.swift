@@ -143,7 +143,7 @@ private final class CapturingAttachmentUploadURLProtocol: URLProtocol, @unchecke
       body = #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#
     case "/api/v1/billings/billing-1/attachments":
       Self.capturedBody = Self.requestBody(from: request)
-      body = #"{"uuid":"attachment-1","name":"contrato-locacao.pdf","content_type":"application/pdf","file_size":8}"#
+      body = #"{"uuid":"attachment-1","name":"contrato-locacao.pdf","filename":"contrato-locacao.pdf","content_type":"application/pdf","file_size":8,"sort_order":0,"created_at":null}"#
     default:
       body = #"{"detail":"Endpoint inesperado: \#(path ?? "nil")"}"#
     }

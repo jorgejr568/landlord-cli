@@ -90,7 +90,17 @@ enum BillingPixOverride {
   }
 
   static func resolve(key: String, merchantName: String, merchantCity: String) -> Resolution {
-    let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    resolve(
+      editor: MacOSPixKeyEditor(persistedKey: key),
+      merchantName: merchantName,
+      merchantCity: merchantCity
+    )
+  }
+
+  static func resolve(
+    editor: MacOSPixKeyEditor, merchantName: String, merchantCity: String
+  ) -> Resolution {
+    let key = editor.key.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     let merchantCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty else { return Resolution(configuration: nil, message: nil) }
@@ -100,12 +110,14 @@ enum BillingPixOverride {
         message: "Informe o nome e a cidade do recebedor para usar uma chave PIX própria."
       )
     }
-    return Resolution(
-      configuration: PixConfiguration(
-        key: key, merchantName: merchantName, merchantCity: merchantCity
-      ),
-      message: nil
-    )
+    switch editor.result(merchantName: merchantName, merchantCity: merchantCity) {
+    case .inherit:
+      return Resolution(configuration: nil, message: nil)
+    case .custom(let configuration):
+      return Resolution(configuration: configuration, message: nil)
+    case .invalid(let message):
+      return Resolution(configuration: nil, message: message)
+    }
   }
 }
 
@@ -119,7 +131,7 @@ struct BillingFormView: View {
   @State private var billingDescription: String
   @State private var ownerID: WorkspaceID
   @State private var items: [EditableBillingItem]
-  @State private var pixKey: String
+  @State private var pixEditor: MacOSPixKeyEditor
   @State private var pixMerchantName: String
   @State private var pixMerchantCity: String
   @State private var usesCustomPix: Bool
@@ -141,7 +153,9 @@ struct BillingFormView: View {
     _billingDescription = State(initialValue: billing?.description ?? "")
     _ownerID = State(initialValue: billing?.owner.id ?? .personal)
     _items = State(initialValue: billing?.items.map(EditableBillingItem.init) ?? [])
-    _pixKey = State(initialValue: billing?.pixOverride?.key ?? "")
+    _pixEditor = State(
+      initialValue: MacOSPixKeyEditor(persistedKey: billing?.pixOverride?.key ?? "")
+    )
     _pixMerchantName = State(initialValue: billing?.pixOverride?.merchantName ?? "")
     _pixMerchantCity = State(initialValue: billing?.pixOverride?.merchantCity ?? "")
     _usesCustomPix = State(initialValue: billing?.pixOverride != nil)
@@ -233,7 +247,13 @@ struct BillingFormView: View {
       RentivoSection("PIX") {
         Toggle("Usar PIX personalizado", isOn: $usesCustomPix)
         if usesCustomPix {
-          TextField("Chave PIX própria", text: $pixKey)
+          Picker("Tipo de chave", selection: pixKeyTypeBinding) {
+            ForEach(PixKeyType.allCases, id: \.self) { type in
+              Text(type.label).tag(type)
+            }
+          }
+          .accessibilityIdentifier("billing.form.pix.key-type")
+          TextField("Chave PIX própria", text: pixKeyBinding)
             .autocorrectionDisabled()
             .accessibilityIdentifier("billing.form.pix.key")
           TextField("Nome do recebedor", text: $pixMerchantName)
@@ -377,7 +397,7 @@ struct BillingFormView: View {
     return name != billing.name || billingDescription != billing.description
       || ownerID != billing.owner.id || currentItems != billing.items
       || usesCustomPix != (billing.pixOverride != nil)
-      || pixKey != (billing.pixOverride?.key ?? "")
+      || pixEditor.key != (billing.pixOverride?.key ?? "")
       || pixMerchantName != (billing.pixOverride?.merchantName ?? "")
       || pixMerchantCity != (billing.pixOverride?.merchantCity ?? "")
       || currentRecipients != billing.recipients || currentReplyTo != billing.replyTo
@@ -426,7 +446,7 @@ struct BillingFormView: View {
     let draftReplyTo = replyTo.filter { !$0.isBlank }.map { $0.domain() }
     let pix = usesCustomPix
       ? BillingPixOverride.resolve(
-        key: pixKey, merchantName: pixMerchantName, merchantCity: pixMerchantCity
+        editor: pixEditor, merchantName: pixMerchantName, merchantCity: pixMerchantCity
       )
       : BillingPixOverride.Resolution(configuration: nil, message: nil)
     pixRecipientRequiredMessage = pix.message
@@ -440,6 +460,9 @@ struct BillingFormView: View {
       replyTo: draftReplyTo
     )
     validationIssues = draft.validate()
+    if pixEditor.preservesUnclassifiedLegacyKey {
+      validationIssues.removeAll { $0.field == .pix }
+    }
     guard validationIssues.isEmpty && pixRecipientRequiredMessage == nil else { return }
     saving = true
     defer { saving = false }
@@ -466,6 +489,20 @@ struct BillingFormView: View {
     } catch {
       organizationLoadError = DemoError(error).message
     }
+  }
+
+  private var pixKeyBinding: Binding<String> {
+    Binding(
+      get: { pixEditor.key },
+      set: { pixEditor.updateKey($0) }
+    )
+  }
+
+  private var pixKeyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { pixEditor.keyType },
+      set: { pixEditor.selectType($0) }
+    )
   }
 }
 

@@ -14,11 +14,8 @@ import XCTest
 //   trigger `login.error`) is not reproducible without adding a test-only failure
 //   hook to `AppModel`/`MockRentivoStore`/`RentivoApp.swift`, which is out of
 //   scope for a test-only fix. Dropped.
-// - Every `FileDownloadRepository` method on `MockRentivoStore` (invoice,
-//   recibo, receipt, attachment downloads) unconditionally throws
-//   `DemoError.operationFailed` — the mock store never produces a real file.
-//   Any flow that taps a "download"/"open PDF" action in mock mode ends in
-//   the demonstration failure notice, never a document preview sheet.
+// - File downloads use deterministic local fixtures, allowing the mock journey
+//   to exercise the same preview sheet as the live repository.
 @MainActor
 final class RentivoUITests: XCTestCase {
   override func setUpWithError() throws {
@@ -38,6 +35,72 @@ final class RentivoUITests: XCTestCase {
 
     app.tabBars.buttons["Conta"].tap()
     XCTAssertTrue(app.navigationBars["Conta"].waitForExistence(timeout: 2))
+  }
+
+  func testToastIsBelowNavigationAboveTabBarAndTimesOut() {
+    let app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+
+    let navigationBar = app.navigationBars["Início"]
+    let tabBar = app.tabBars.firstMatch
+    XCTAssertGreaterThanOrEqual(toast.frame.minY, navigationBar.frame.maxY)
+    XCTAssertLessThanOrEqual(toast.frame.maxY + 3, tabBar.frame.minY - 12)
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 4.6))
+  }
+
+  func testToastCanBeClosedAndSwipedAway() {
+    var app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    app.buttons["notice.toast.close"].tap()
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 1))
+
+    app.terminate()
+    app = launchAuthenticated("--ui-testing-notice")
+    let replacementToast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(replacementToast.waitForExistence(timeout: 7))
+    replacementToast.swipeRight()
+    XCTAssertTrue(replacementToast.waitForNonExistence(timeout: 1))
+  }
+
+  func testChangingTabsDismissesTheOwnedToast() {
+    let app = launchAuthenticated("--ui-testing-notice")
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+
+    app.tabBars.buttons["Cobranças"].tap()
+
+    XCTAssertTrue(app.navigationBars["Cobranças"].waitForExistence(timeout: 2))
+    XCTAssertTrue(toast.waitForNonExistence(timeout: 1))
+  }
+
+  func testEmptyHomeLeadsWithOnboardingAndKeepsItsCTAAboveTheTabBar() {
+    let app = launchAuthenticated("--ui-testing-empty")
+    let hero = app.descendants(matching: .any)["home.onboarding-hero"]
+    XCTAssertTrue(hero.waitForExistence(timeout: 3))
+    XCTAssertFalse(app.descendants(matching: .any)["home.summary-grid"].exists)
+    XCTAssertFalse(app.staticTexts["As mudanças feitas na demonstração aparecerão aqui."].exists)
+
+    let cta = app.buttons["home.onboarding.cta"]
+    scrollTo(cta, in: app)
+    XCTAssertLessThanOrEqual(cta.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+    cta.tap()
+    XCTAssertTrue(app.navigationBars["Cobranças"].waitForExistence(timeout: 2))
+  }
+
+  func testAccountBottomContentClearsTheOpaqueTabBar() {
+    let app = launchAuthenticated()
+    app.tabBars.buttons["Conta"].tap()
+
+    let terms = app.staticTexts["Termos de uso"]
+    scrollTo(terms, in: app)
+    XCTAssertLessThanOrEqual(terms.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+
+    let delete = app.buttons["Excluir conta"]
+    scrollTo(delete, in: app)
+    XCTAssertLessThanOrEqual(delete.frame.maxY, app.tabBars.firstMatch.frame.minY - 20)
+    add(XCTAttachment(screenshot: app.screenshot()))
   }
 
   func testUpcomingBillOnHomeOpensItsDetailAndSurvivesLeavingTheList() throws {
@@ -63,6 +126,126 @@ final class RentivoUITests: XCTestCase {
     XCTAssertFalse(upcoming.exists)
   }
 
+  func testDraftBillShowsOnePrimaryTransitionAndSecondaryLifecycleMenu() {
+    let app = launchAuthenticated()
+    openCanonicalDraft(in: app)
+
+    let timeline = app.descendants(matching: .any)["bill.lifecycle.timeline"]
+    scrollTo(timeline, in: app)
+    XCTAssertTrue(timeline.exists)
+    XCTAssertEqual(app.buttons.matching(identifier: "bill.transition.published").count, 1)
+
+    let moreActions = app.buttons["bill.lifecycle.more-actions"]
+    XCTAssertTrue(moreActions.exists)
+    XCTAssertEqual(moreActions.label, "Mais ações do ciclo da fatura")
+    XCTAssertFalse(app.buttons["bill.transition.cancelled"].exists)
+  }
+
+  func testBillDetailStaysPushedThroughPrimaryLifecycleToPaid() {
+    let app = launchAuthenticated()
+    openCanonicalDraft(in: app)
+
+    transition("published", in: app)
+    XCTAssertTrue(app.navigationBars["Fatura"].exists)
+    transition("sent", in: app)
+    XCTAssertTrue(app.navigationBars["Fatura"].exists)
+    transition("paid", in: app)
+
+    XCTAssertTrue(app.navigationBars["Fatura"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["Status: Paga"].exists)
+    XCTAssertFalse(app.buttons["bill.transition.paid"].exists)
+  }
+
+  func testCancellationCanBeDismissedWithoutChangingTheDraft() {
+    let app = launchAuthenticated()
+    openCanonicalDraft(in: app)
+
+    openCancellationConfirmation(in: app)
+    XCTAssertTrue(app.staticTexts["Cancelar esta fatura?"].exists)
+    XCTAssertTrue(
+      app.staticTexts[
+        "A fatura sairá do ciclo de cobrança. Confirme para continuar."
+      ].exists
+    )
+    dismissConfirmation(titled: "Cancelar esta fatura?", in: app)
+
+    XCTAssertTrue(app.buttons["bill.transition.published"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.descendants(matching: .any)["Status: Rascunho"].exists)
+  }
+
+  func testCancellationConfirmationMovesTheBillToCancelledWithoutPrimaryCTA() {
+    let app = launchAuthenticated()
+    openCanonicalDraft(in: app)
+
+    openCancellationConfirmation(in: app)
+    let confirm = app.buttons.matching(identifier: "bill.transition.confirm.cancelled").firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 2))
+    confirm.tap()
+
+    XCTAssertTrue(
+      app.descendants(matching: .any)["Status: Cancelada"].waitForExistence(timeout: 3)
+    )
+    XCTAssertTrue(app.descendants(matching: .any)["Cancelada, status atual"].exists)
+    XCTAssertFalse(app.buttons["bill.transition.published"].exists)
+    XCTAssertFalse(app.buttons["bill.lifecycle.more-actions"].exists)
+  }
+
+  func testBillAndBillingDeleteConfirmationsCanBeDismissed() {
+    let app = launchAuthenticated()
+    app.tabBars.buttons["Cobranças"].tap()
+    openCanonicalBilling(in: app)
+
+    let billingDelete = app.buttons["billing.delete"]
+    scrollTo(billingDelete, in: app)
+    billingDelete.tap()
+    XCTAssertTrue(app.staticTexts["Excluir esta cobrança?"].exists)
+    XCTAssertTrue(
+      app.staticTexts[
+        "Faturas, despesas e arquivos desta cobrança também serão removidos. Esta ação não pode ser desfeita."
+      ].exists
+    )
+    dismissConfirmation(titled: "Excluir esta cobrança?", in: app)
+    XCTAssertTrue(app.navigationBars["Detalhes"].exists)
+
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+    let billDelete = app.buttons["bill.delete"]
+    scrollTo(billDelete, in: app)
+    billDelete.tap()
+    XCTAssertTrue(app.staticTexts["Excluir esta fatura?"].exists)
+    XCTAssertTrue(
+      app.staticTexts[
+        "A fatura e seus comprovantes serão removidos permanentemente. Esta ação não pode ser desfeita."
+      ].exists
+    )
+    dismissConfirmation(titled: "Excluir esta fatura?", in: app)
+    XCTAssertTrue(app.navigationBars["Fatura"].exists)
+  }
+
+  func testLifecycleUsesVerticalAccessibleStagesAtAccessibilityTextSize() {
+    let app = launchAuthenticated(
+      "-UIPreferredContentSizeCategoryName",
+      "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+    )
+    app.tabBars.buttons["Cobranças"].tap()
+    openCanonicalBilling(in: app)
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+
+    let timeline = app.descendants(matching: .any)["bill.lifecycle.timeline"]
+    scrollTo(timeline, in: app)
+    XCTAssertTrue(app.descendants(matching: .any)["Rascunho, status atual"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["Publicada, próxima etapa"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["Enviada, próxima etapa"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["Paga, próxima etapa"].exists)
+    XCTAssertEqual(
+      app.buttons["bill.lifecycle.more-actions"].label,
+      "Mais ações do ciclo da fatura"
+    )
+  }
+
   func testBillingCreationValidation() throws {
     let app = launchAndSignIn()
     app.tabBars.buttons["Cobranças"].tap()
@@ -71,8 +254,7 @@ final class RentivoUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["Nova cobrança"].waitForExistence(timeout: 2))
     app.buttons["wizard.continue"].tap()
     XCTAssertTrue(
-      app.staticTexts.matching(identifier: "billing.form.validation").firstMatch
-        .waitForExistence(timeout: 2)
+      app.staticTexts["Inválido. Informe o nome da cobrança."].waitForExistence(timeout: 2)
     )
   }
 
@@ -88,7 +270,14 @@ final class RentivoUITests: XCTestCase {
       app.buttons["wizard.continue"].tap()
     }
     app.buttons["wizard.commit"].tap()
-    XCTAssertTrue(app.staticTexts["Fatura criada como rascunho."].waitForExistence(timeout: 3))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["notice.toast"].waitForExistence(timeout: 3)
+    )
+    XCTAssertTrue(
+      app.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Fatura criada como rascunho.")
+      ).firstMatch.exists
+    )
 
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
     scrollTo(draft, in: app)
@@ -96,18 +285,6 @@ final class RentivoUITests: XCTestCase {
     transition("published", in: app)
     transition("sent", in: app)
     transition("paid", in: app)
-
-    // "Abrir recibo" only appears once the bill is paid. The mock store's
-    // download stub always fails (see file-level comment above), so this
-    // verifies the recoverable failure notice rather than a document preview.
-    let openReceipt = app.buttons["Abrir recibo"]
-    scrollTo(openReceipt, in: app)
-    openReceipt.tap()
-    XCTAssertTrue(
-      app.staticTexts["Não foi possível concluir esta ação de demonstração."]
-        .waitForExistence(timeout: 3)
-    )
-    app.buttons["Fechar aviso"].tap()
 
     app.navigationBars.buttons.element(boundBy: 0).tap()
     let theme = app.buttons["billing.theme"]
@@ -127,7 +304,20 @@ final class RentivoUITests: XCTestCase {
     }
     XCTAssertTrue(app.staticTexts["Etapa 5 de 5"].exists)
     app.buttons["wizard.commit"].tap()
-    XCTAssertTrue(app.staticTexts["Tema atualizado."].waitForExistence(timeout: 3))
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    XCTAssertTrue(toast.staticTexts["Sucesso: Aparência atualizada."].exists)
+
+    // Preview last. Its sheet is owned by this billing screen (the pop target), which avoids the
+    // iOS 26 modal-dismiss-then-pop livelock while preserving the customer-facing preview coverage.
+    scrollTo(draft, in: app)
+    draft.tap()
+    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
+    let openReceipt = app.buttons["Abrir recibo"]
+    scrollTo(openReceipt, in: app)
+    openReceipt.tap()
+    XCTAssertTrue(app.navigationBars["Prévia"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["Compartilhar ou salvar arquivo"].exists)
   }
 
   func testExpenseCreationJourney() throws {
@@ -139,12 +329,12 @@ final class RentivoUITests: XCTestCase {
     scrollTo(expenses, in: app)
     expenses.tap()
     XCTAssertTrue(app.navigationBars["Despesas"].waitForExistence(timeout: 2))
-    app.buttons["Adicionar"].tap()
+    app.buttons["Adicionar despesa"].tap()
     app.textFields["Descrição"].tap()
     app.textFields["Descrição"].typeText("Reparo da fechadura")
     app.buttons["wizard.continue"].tap()
-    app.textFields["Valor em centavos"].tap()
-    app.textFields["Valor em centavos"].typeText("12500")
+    app.textFields["expense.form.amount"].tap()
+    app.textFields["expense.form.amount"].typeText("12500")
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.commit"].tap()
     XCTAssertTrue(app.staticTexts["Reparo da fechadura"].waitForExistence(timeout: 3))
@@ -178,7 +368,12 @@ final class RentivoUITests: XCTestCase {
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
     scrollTo(draft, in: app)
     draft.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["bill.lifecycle.timeline"]
+        .waitForExistence(timeout: 2)
+    )
     XCTAssertFalse(app.buttons["bill.transition.published"].exists)
+    XCTAssertFalse(app.buttons["bill.lifecycle.more-actions"].exists)
     XCTAssertTrue(
       app.staticTexts["Ciclo disponível somente para quem pode gerenciar faturas."]
         .waitForExistence(timeout: 2)
@@ -207,7 +402,9 @@ final class RentivoUITests: XCTestCase {
 
     app.tabBars.buttons["Conta"].tap()
     app.buttons["demo.reset"].tap()
-    app.buttons["Restaurar tema"].tap()
+    let restore = app.buttons["Restaurar"]
+    XCTAssertTrue(restore.waitForExistence(timeout: 2))
+    restore.tap()
     app.tabBars.buttons["Cobranças"].tap()
     XCTAssertTrue(
       app.buttons["billing.card.00000000-0000-0000-0000-000000000101"]
@@ -231,6 +428,14 @@ final class RentivoUITests: XCTestCase {
     app.launchArguments = ["--ui-testing"]
     app.launch()
     signIn(app)
+    return app
+  }
+
+  private func launchAuthenticated(_ additionalArguments: String...) -> XCUIApplication {
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing-authenticated"] + additionalArguments
+    app.launch()
+    XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
     return app
   }
 
@@ -273,6 +478,37 @@ final class RentivoUITests: XCTestCase {
     scrollTo(scenarios, in: app)
     scenarios.tap()
     XCTAssertTrue(app.navigationBars["Cenários"].waitForExistence(timeout: 2))
+  }
+
+  private func openCanonicalDraft(in app: XCUIApplication) {
+    app.tabBars.buttons["Cobranças"].tap()
+    openCanonicalBilling(in: app)
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+    XCTAssertTrue(app.navigationBars["Fatura"].waitForExistence(timeout: 3))
+  }
+
+  private func openCancellationConfirmation(in app: XCUIApplication) {
+    let moreActions = app.buttons["bill.lifecycle.more-actions"]
+    scrollTo(moreActions, in: app)
+    moreActions.tap()
+    let cancellation = app.buttons["bill.transition.cancelled"]
+    XCTAssertTrue(cancellation.waitForExistence(timeout: 2))
+    cancellation.tap()
+    XCTAssertTrue(
+      app.buttons["bill.transition.confirm.cancelled"].waitForExistence(timeout: 2)
+    )
+  }
+
+  /// iOS 26 renders the confirmation-dialog cancel row without an accessible label even though
+  /// the SwiftUI action is `Button("Cancelar", role: .cancel)`. Activating the bottom row of the
+  /// dialog exercises that action without coupling the regression to that runtime bug.
+  private func dismissConfirmation(titled title: String, in app: XCUIApplication) {
+    let sheet = app.sheets[title]
+    XCTAssertTrue(sheet.exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+    XCTAssertTrue(app.staticTexts[title].waitForNonExistence(timeout: 2))
   }
 
   private func transition(_ status: String, in app: XCUIApplication) {

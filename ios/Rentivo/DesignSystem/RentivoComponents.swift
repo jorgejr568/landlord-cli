@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RentivoCard<Content: View>: View {
   private let content: Content
@@ -24,57 +25,152 @@ struct RentivoCard<Content: View>: View {
 }
 
 struct RentivoButtonStyle: ButtonStyle {
-  var color = RentivoColors.emerald
+  var isBusy = false
   @Environment(\.isEnabled) private var isEnabled
 
-  /// Buttons render as a solid, saturated fill with a white label. The style is used only with
-  /// saturated accent tokens (`emerald`, `blue`, and similar), which keep the white label at
-  /// >=4.5:1; `color` is a mutable var, so passing a light token such as `paper` or `surface`
-  /// here would break that contrast — nothing in this type enforces it.
+  /// The primary action is intentionally fixed to emerald. Call sites choose a semantic style
+  /// instead of injecting a hue that could contradict the action's meaning.
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(.white)
+      }
+      configuration.label
+    }
       .font(.headline.weight(.bold))
-      .foregroundStyle(Color.white)
+      .foregroundStyle(isUnavailable ? RentivoColors.disabledControlForeground : Color.white)
       .frame(maxWidth: .infinity, minHeight: 48)
       .padding(.horizontal, RentivoSpacing.medium)
-      .background(configuration.isPressed ? color.opacity(0.75) : color)
+      .background(backgroundColor(configuration: configuration))
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(RentivoColors.ink, lineWidth: 2)
+          .stroke(
+            isUnavailable ? RentivoColors.disabledControlForeground : RentivoColors.ink,
+            lineWidth: 2
+          )
       }
       .shadow(
-        color: configuration.isPressed ? .clear : RentivoColors.ink,
+        color: removesShadow(configuration: configuration) ? .clear : RentivoColors.ink,
         radius: 0,
         x: 3,
         y: 3
       )
-      .offset(x: configuration.isPressed ? 3 : 0, y: configuration.isPressed ? 3 : 0)
+      .offset(
+        x: isInteractivePress(configuration: configuration) ? 3 : 0,
+        y: isInteractivePress(configuration: configuration) ? 3 : 0
+      )
       .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-      // Match the system's disabled affordance: plain-style siblings (e.g. "Abrir recibo") dim
-      // automatically, but a custom ButtonStyle must read `isEnabled` itself.
-      .opacity(isEnabled ? 1 : 0.45)
-      .saturation(isEnabled ? 1 : 0.6)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
+  }
+
+  private func removesShadow(configuration: Configuration) -> Bool {
+    isUnavailable || isInteractivePress(configuration: configuration)
+  }
+
+  private func backgroundColor(configuration: Configuration) -> Color {
+    if isUnavailable { return RentivoColors.disabledControlFill }
+    return isInteractivePress(configuration: configuration)
+      ? RentivoColors.primaryAction.opacity(0.75) : RentivoColors.primaryAction
+  }
+}
+
+private struct RentivoInlineLinkModifier: ViewModifier {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func body(content: Content) -> some View {
+    content
+      .font(.footnote.weight(.bold))
+      .foregroundStyle(isEnabled ? RentivoColors.link : RentivoColors.disabledControlForeground)
+      .underline()
+      .frame(minHeight: 44)
+      .contentShape(Rectangle())
+  }
+}
+
+extension View {
+  func rentivoInlineLink() -> some View {
+    modifier(RentivoInlineLinkModifier())
   }
 }
 
 struct RentivoSecondaryButtonStyle: ButtonStyle {
+  var isBusy = false
   @Environment(\.isEnabled) private var isEnabled
 
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(RentivoColors.ink)
+      }
+      configuration.label
+    }
       .font(.headline.weight(.bold))
       .foregroundStyle(RentivoColors.ink)
       .frame(maxWidth: .infinity, minHeight: 48)
       .padding(.horizontal, RentivoSpacing.medium)
-      .background(configuration.isPressed ? RentivoColors.paper : RentivoColors.surface)
+      .background(isInteractivePress(configuration) ? RentivoColors.paper : RentivoColors.surface)
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
           .stroke(RentivoColors.ink, lineWidth: 2)
       }
-      .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
-      .saturation(isEnabled ? 1 : 0.6)
+      .opacity(isUnavailable ? 0.45 : (isInteractivePress(configuration) ? 0.75 : 1))
+      .saturation(isUnavailable ? 0.6 : 1)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(_ configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
+  }
+}
+
+struct RentivoDestructiveButtonStyle: ButtonStyle {
+  var isBusy = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: RentivoSpacing.small) {
+      if isBusy {
+        ProgressView()
+          .controlSize(.small)
+          .tint(RentivoColors.coral)
+      }
+      configuration.label
+    }
+      .font(.headline.weight(.bold))
+      .foregroundStyle(RentivoColors.coral)
+      .frame(maxWidth: .infinity, minHeight: 48)
+      .padding(.horizontal, RentivoSpacing.medium)
+      .background(
+        RentivoColors.coral.opacity(isInteractivePress(configuration) ? 0.22 : 0.14)
+      )
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(RentivoColors.coral, lineWidth: 2)
+      }
+      .opacity(isUnavailable ? 0.55 : (isInteractivePress(configuration) ? 0.75 : 1))
+      .saturation(isUnavailable ? 0.7 : 1)
+      .accessibilityValue(isBusy ? "Em andamento" : "")
+  }
+
+  private var isUnavailable: Bool { !isEnabled && !isBusy }
+
+  private func isInteractivePress(_ configuration: Configuration) -> Bool {
+    configuration.isPressed && isEnabled && !isBusy
   }
 }
 
@@ -126,27 +222,56 @@ struct BrandMark: View {
 struct StatusBadge: View {
   let status: BillStatus
 
-  private var color: Color {
+  private var presentation: BillStatusPresentation { BillStatusPresentation(status: status) }
+
+  var body: some View {
+    Label(presentation.label, systemImage: presentation.symbol)
+      .labelStyle(.titleAndIcon)
+      .font(RentivoTypography.metadata)
+      .foregroundStyle(presentation.color)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 6)
+      .background(presentation.color.opacity(0.14))
+      .clipShape(Capsule())
+      .overlay { Capsule().stroke(presentation.color, lineWidth: 1.5) }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Status: \(presentation.label)")
+  }
+}
+
+struct BillStatusPresentation: Equatable, Sendable {
+  let status: BillStatus
+  let label: String
+  let tone: RentivoSemanticTone
+  let symbol: String
+
+  init(status: BillStatus) {
+    self.status = status
+    label = status.label
     switch status {
-    case .draft: RentivoColors.secondaryInk
-    case .published: RentivoColors.lilac
-    case .sent: RentivoColors.blue
-    case .paid: RentivoColors.emerald
-    case .cancelled: RentivoColors.coral
-    case .delayedPayment: RentivoColors.amber
+    case .draft:
+      tone = .neutral
+      symbol = "pencil.circle"
+    case .published:
+      tone = .warning
+      symbol = "megaphone.fill"
+    case .sent:
+      tone = .warning
+      symbol = "paperplane.fill"
+    case .paid:
+      tone = .positive
+      symbol = "checkmark.seal.fill"
+    case .delayedPayment:
+      tone = .negative
+      symbol = "clock.badge.exclamationmark.fill"
+    case .cancelled:
+      tone = .negative
+      symbol = "xmark.circle.fill"
     }
   }
 
-  var body: some View {
-    Text(status.label)
-      .font(RentivoTypography.metadata)
-      .foregroundStyle(color)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .background(color.opacity(0.14))
-      .clipShape(Capsule())
-      .overlay { Capsule().stroke(color, lineWidth: 1.5) }
-      .accessibilityLabel("Status: \(status.label)")
+  var color: Color {
+    status == .draft ? RentivoColors.secondaryInk : tone.color
   }
 }
 
@@ -174,32 +299,61 @@ struct MoneyText: View {
   }
 }
 
+struct EmptyStateConfiguration: Sendable {
+  let title: String
+  let message: String
+  let systemImage: String
+  let actionTitle: String?
+
+  init(title: String, message: String, systemImage: String, actionTitle: String? = nil) {
+    self.title = title
+    self.message = message
+    self.systemImage = systemImage
+    self.actionTitle = actionTitle
+  }
+}
+
+struct InlineEmptyStateView: View {
+  let configuration: EmptyStateConfiguration
+  var action: (() -> Void)?
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(configuration.title, systemImage: configuration.systemImage)
+    } description: {
+      Text(configuration.message)
+    } actions: {
+      if let actionTitle = configuration.actionTitle, let action {
+        Button(actionTitle, action: action)
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("page.empty.action")
+      }
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .accessibilityIdentifier("page.empty")
+  }
+}
+
 struct PageStateView<Value: Sendable, Content: View>: View {
   let state: LoadState<Value>
   let content: (Value) -> Content
   let retry: () async -> Void
-  var emptyTitle: String
-  var emptyMessage: String
-  var emptySystemImage: String
-  var emptyActionTitle: String?
+  var emptyState: EmptyStateConfiguration?
   var emptyAction: (() -> Void)?
+  var failureTitle: String
 
   init(
     state: LoadState<Value>,
-    emptyTitle: String = "Nada por aqui ainda",
-    emptyMessage: String = "Crie o primeiro item para começar.",
-    emptySystemImage: String = "sparkles",
-    emptyActionTitle: String? = nil,
+    emptyState: EmptyStateConfiguration? = nil,
     emptyAction: (() -> Void)? = nil,
+    failureTitle: String = "Não foi possível carregar",
     @ViewBuilder content: @escaping (Value) -> Content,
     retry: @escaping () async -> Void
   ) {
     self.state = state
-    self.emptyTitle = emptyTitle
-    self.emptyMessage = emptyMessage
-    self.emptySystemImage = emptySystemImage
-    self.emptyActionTitle = emptyActionTitle
+    self.emptyState = emptyState
     self.emptyAction = emptyAction
+    self.failureTitle = failureTitle
     self.content = content
     self.retry = retry
   }
@@ -213,50 +367,87 @@ struct PageStateView<Value: Sendable, Content: View>: View {
     case .loaded(let value):
       content(value)
     case .empty:
-      ContentUnavailableView {
-        Label(emptyTitle, systemImage: emptySystemImage)
-      } description: {
-        Text(emptyMessage)
-      } actions: {
-        if let emptyActionTitle, let emptyAction {
-          Button(emptyActionTitle, action: emptyAction)
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("page.empty.action")
-        }
+      if let emptyState {
+        InlineEmptyStateView(configuration: emptyState, action: emptyAction)
+      } else {
+        MissingEmptyStateConfigurationView()
       }
-      .accessibilityIdentifier("page.empty")
     case .failed(let error):
       ContentUnavailableView {
-        Label("Não foi possível carregar", systemImage: "exclamationmark.triangle")
+        Label(failureTitle, systemImage: "exclamationmark.triangle")
       } description: {
         Text(error.message)
       } actions: {
-        Button("Tentar novamente") { Task { await retry() } }
-          .buttonStyle(.borderedProminent)
-          .accessibilityIdentifier("page.retry")
+        if error.message
+          != "Você não tem permissão para fazer esta alteração. Peça ajuda a um administrador da organização."
+        {
+          Button("Tentar novamente") { Task { await retry() } }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("page.retry")
+        }
       }
       .accessibilityIdentifier("page.error")
     }
   }
 }
 
-struct NoticeBanner: View {
-  let notice: AppNotice
-  let dismiss: () -> Void
+private struct MissingEmptyStateConfigurationView: View {
+  init() {
+    assertionFailure("PageStateView reached .empty without an EmptyStateConfiguration")
+  }
 
   var body: some View {
-    HStack(spacing: RentivoSpacing.medium) {
+    #if DEBUG
+      ContentUnavailableView(
+        "Estado vazio sem configuração",
+        systemImage: "hammer.fill",
+        description: Text("Adicione uma EmptyStateConfiguration específica para esta tela.")
+      )
+      .accessibilityIdentifier("page.empty.missing-configuration")
+    #else
+      EmptyView()
+    #endif
+  }
+}
+
+private struct NoticeToastWidthKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = nextValue()
+  }
+}
+
+struct NoticeToast: View {
+  let notice: AppNotice
+  let reduceMotion: Bool
+  let didMount: () -> Void
+  let interactionBegan: () -> Void
+  let interactionEnded: (Bool) -> Void
+  let dismiss: () -> Void
+  @State private var dragOffset: CGFloat = 0
+  @State private var isDraggingHorizontally = false
+  @State private var width: CGFloat = 0
+
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: RentivoSpacing.medium) {
       Image(systemName: symbol)
         .foregroundStyle(color)
+        .accessibilityHidden(true)
       Text(notice.message)
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(RentivoColors.ink)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(announcement)
       Button(action: dismiss) {
         Image(systemName: "xmark")
+          .font(.body.weight(.semibold))
       }
+      .frame(width: 44, height: 44)
       .foregroundStyle(RentivoColors.ink)
       .accessibilityLabel("Fechar aviso")
+      .accessibilityIdentifier("notice.toast.close")
     }
     .padding(RentivoSpacing.medium)
     .background(RentivoColors.surface)
@@ -266,12 +457,72 @@ struct NoticeBanner: View {
         .stroke(RentivoColors.ink, lineWidth: 2)
     }
     .shadow(color: RentivoColors.ink, radius: 0, x: 3, y: 3)
+    .offset(x: reduceMotion ? 0 : dragOffset)
+    .background {
+      GeometryReader { geometry in
+        Color.clear.preference(key: NoticeToastWidthKey.self, value: geometry.size.width)
+      }
+    }
+    .onPreferenceChange(NoticeToastWidthKey.self) { width = $0 }
+    .simultaneousGesture(horizontalDismissGesture)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("notice.toast")
+    .contentTransition(.opacity)
+    .onAppear(perform: mountAndAnnounce)
+    .onChange(of: notice.id) { _, _ in
+      dragOffset = 0
+      isDraggingHorizontally = false
+      mountAndAnnounce()
+    }
+  }
+
+  private var horizontalDismissGesture: some Gesture {
+    DragGesture(minimumDistance: 12, coordinateSpace: .local)
+      .onChanged { value in
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        if !isDraggingHorizontally {
+          isDraggingHorizontally = true
+          interactionBegan()
+        }
+        if !reduceMotion { dragOffset = value.translation.width }
+      }
+      .onEnded { value in
+        guard isDraggingHorizontally else { return }
+        let committed = abs(value.translation.width) >= 80
+          || (width > 0 && abs(value.predictedEndTranslation.width) >= width * 0.4)
+        isDraggingHorizontally = false
+        if committed {
+          interactionEnded(true)
+        } else {
+          if reduceMotion {
+            dragOffset = 0
+          } else {
+            withAnimation(.spring(duration: 0.25, bounce: 0)) { dragOffset = 0 }
+          }
+          interactionEnded(false)
+        }
+      }
+  }
+
+  private func mountAndAnnounce() {
+    didMount()
+    if UIAccessibility.isVoiceOverRunning {
+      UIAccessibility.post(notification: .announcement, argument: announcement)
+    }
+  }
+
+  private var announcement: String {
+    switch notice.kind {
+    case .success: "Sucesso: \(notice.message)"
+    case .information: "Informação: \(notice.message)"
+    case .warning: "Atenção: \(notice.message)"
+    }
   }
 
   private var color: Color {
     switch notice.kind {
     case .success: RentivoColors.emerald
-    case .information: RentivoColors.blue
+    case .information: AppChromeSemanticPresentation.informationTone.color
     case .warning: RentivoColors.amber
     }
   }
@@ -299,12 +550,26 @@ struct NoticeBanner: View {
   .rentivoPage()
 }
 
-#Preview("RentivoButtonStyle") {
-  VStack(spacing: RentivoSpacing.medium) {
-    Button("Salvar cobrança") {}
-      .buttonStyle(RentivoButtonStyle())
-    Button("Ver detalhes") {}
-      .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+#Preview("RentivoButtonStyle states") {
+  VStack(spacing: RentivoSpacing.large) {
+    ForEach([RentivoColors.paper, RentivoColors.surface], id: \.self) { background in
+      VStack(spacing: RentivoSpacing.medium) {
+        Button("Ação disponível") {}
+          .buttonStyle(RentivoButtonStyle())
+        Button("Ação indisponível") {}
+          .buttonStyle(RentivoButtonStyle())
+          .disabled(true)
+        Button("Ação em andamento") {}
+          .buttonStyle(RentivoButtonStyle(isBusy: true))
+          .disabled(true)
+        Button("Ver detalhes") {}
+          .buttonStyle(RentivoSecondaryButtonStyle())
+        Button("Ação destrutiva") {}
+          .buttonStyle(RentivoDestructiveButtonStyle())
+      }
+      .padding()
+      .background(background)
+    }
   }
   .padding()
   .rentivoPage()
@@ -369,17 +634,15 @@ private struct PageStateViewPreviewContainer: View {
   PageStateViewPreviewContainer(state: .loaded("Conteúdo carregado"))
 }
 
-#Preview("PageStateView - empty (default copy)") {
-  PageStateViewPreviewContainer(state: .empty)
-}
-
 #Preview("PageStateView - empty (custom copy + action)") {
   PageStateView(
     state: LoadState<String>.empty,
-    emptyTitle: "Nenhuma cobrança ainda",
-    emptyMessage: "Crie a primeira cobrança recorrente para este imóvel.",
-    emptySystemImage: "doc.text",
-    emptyActionTitle: "Nova cobrança",
+    emptyState: EmptyStateConfiguration(
+      title: "Nenhuma cobrança ainda",
+      message: "Crie a primeira cobrança recorrente para este imóvel.",
+      systemImage: "doc.text",
+      actionTitle: "Nova cobrança"
+    ),
     emptyAction: {}
   ) { value in
     Text(value).padding()
@@ -390,11 +653,20 @@ private struct PageStateViewPreviewContainer: View {
   PageStateViewPreviewContainer(state: .failed(.operationFailed))
 }
 
-#Preview("NoticeBanner") {
+#Preview("NoticeToast") {
   VStack(spacing: RentivoSpacing.medium) {
-    NoticeBanner(notice: AppNotice(kind: .success, message: "Cobrança salva com sucesso."), dismiss: {})
-    NoticeBanner(notice: AppNotice(kind: .information, message: "Sua sessão foi atualizada."), dismiss: {})
-    NoticeBanner(notice: AppNotice(kind: .warning, message: "Não foi possível restaurar sua sessão."), dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .success, message: "Cobrança salva com sucesso."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .information, message: "Sua sessão foi atualizada."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
+    NoticeToast(
+      notice: AppNotice(kind: .warning, message: "Não foi possível restaurar sua sessão."),
+      reduceMotion: false, didMount: {}, interactionBegan: {}, interactionEnded: { _ in },
+      dismiss: {})
   }
   .padding()
   .rentivoPage()

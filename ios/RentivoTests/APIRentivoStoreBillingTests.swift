@@ -163,6 +163,26 @@ import Testing
   #expect(bill.receipts.first?.mediaType == "application/pdf")
   #expect(bill.receipts.first?.byteCount == 1_536)
   #expect(bill.receipts.first?.createdAt != nil)
+  let receipt = try #require(bill.receipts.first)
+  let presentation = DocumentPresentation.uploadedReceipt(
+    filename: receipt.name,
+    billingName: "Apartamento",
+    referenceMonth: bill.referenceMonth,
+    mediaType: receipt.mediaType
+  )
+  #expect(presentation.displayName == "comprovante")
+  #expect(presentation.suggestedFilename == "comprovante.pdf")
+  #expect(DocumentPresentation.metadataLine(byteCount: receipt.byteCount) == "2 kB")
+}
+
+@Test func remoteExportKeepsOnlyTheCurrentQueuedContract() throws {
+  let export = try JSONDecoder().decode(
+    RemoteExport.self,
+    from: Data(#"{"format":"xlsx","status":"queued","future_field":"ignored"}"#.utf8)
+  )
+
+  #expect(export.format == "xlsx")
+  #expect(export.status == "queued")
 }
 
 @MainActor

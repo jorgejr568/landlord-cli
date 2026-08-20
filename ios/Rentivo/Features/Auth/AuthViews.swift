@@ -99,8 +99,7 @@ private struct AuthLinkButton: View {
   var body: some View {
     Button(title, action: action)
       .buttonStyle(.plain)
-      .font(.footnote.weight(.bold))
-      .foregroundStyle(RentivoColors.blue)
+      .rentivoInlineLink()
   }
 }
 
@@ -110,7 +109,8 @@ private struct AuthErrorLabel: View {
   var body: some View {
     Label(message, systemImage: "exclamationmark.circle.fill")
       .font(.footnote.weight(.semibold))
-      .foregroundStyle(RentivoColors.coral)
+      .foregroundStyle(RentivoColors.error)
+      .fixedSize(horizontal: false, vertical: true)
   }
 }
 
@@ -155,6 +155,7 @@ private struct SignInForm: View {
   let onChallenge: (MFAChallenge) -> Void
   @State private var validationMessage: String?
   @State private var isAuthenticating = false
+  @State private var isPasswordRevealed = false
 
   private var canSubmit: Bool {
     !isAuthenticating && AuthEmailAddress.isValid(email)
@@ -176,33 +177,32 @@ private struct SignInForm: View {
             .authFieldPlaceholder("voce@exemplo.com.br", visible: email.isEmpty)
             .accessibilityIdentifier("login.email")
         }
-        AuthField("SENHA") {
-          SecureField("Sua senha", text: $password)
-            .textContentType(.password)
-            .submitLabel(.go)
-            .onSubmit(submit)
-            .accessibilityIdentifier("login.password")
-        }
+        RentivoSecureFormField(
+          label: "SENHA",
+          text: $password,
+          isRevealed: $isPasswordRevealed,
+          prompt: "Sua senha",
+          textContentType: .password,
+          accessibilityIdentifier: "login.password",
+          visibilityAccessibilityName: "senha"
+        )
+        .submitLabel(.go)
+        .onSubmit(submit)
         Link(
           "Esqueceu sua senha?",
           destination: LiveAPIClient.productionURL.appending(path: "forgot-password")
         )
-        .font(.footnote.weight(.bold))
+        .rentivoInlineLink()
+        .tint(RentivoColors.link)
         .accessibilityIdentifier("login.forgot")
         if let validationMessage {
           AuthErrorLabel(message: validationMessage)
             .accessibilityIdentifier("login.error")
         }
         Button(action: submit) {
-          HStack(spacing: RentivoSpacing.small) {
-            if isAuthenticating {
-              ProgressView()
-                .tint(.white)
-            }
-            Text("Entrar")
-          }
+          Text("Entrar")
         }
-        .buttonStyle(RentivoButtonStyle())
+        .buttonStyle(RentivoButtonStyle(isBusy: isAuthenticating))
         .disabled(!canSubmit)
         .accessibilityIdentifier("login.submit")
         HStack(spacing: RentivoSpacing.tiny) {
@@ -235,7 +235,7 @@ private struct SignInForm: View {
       do {
         try await operation()
       } catch {
-        validationMessage = ptBRDescription(for: error)
+        validationMessage = AuthFeedback.presentation(for: error, context: .signIn).message
       }
     }
   }
@@ -249,6 +249,21 @@ private struct SignUpForm: View {
   @State private var confirmPassword = ""
   @State private var validationMessage: String?
   @State private var isAuthenticating = false
+  @State private var isPasswordRevealed = false
+  @State private var isConfirmationRevealed = false
+  @State private var confirmationTouched = false
+  @State private var shouldValidateConfirmation = false
+  @State private var confirmationIsFocused = false
+  @State private var confirmationValidationTask: Task<Void, Never>?
+
+  private var confirmationError: String? {
+    SignUpConfirmationRules.errorMessage(
+      password: password,
+      confirmation: confirmPassword,
+      isTouched: confirmationTouched,
+      shouldValidate: shouldValidateConfirmation
+    )
+  }
 
   private var canSubmit: Bool {
     !isAuthenticating && AuthEmailAddress.isValid(email)
@@ -270,32 +285,40 @@ private struct SignUpForm: View {
             .authFieldPlaceholder("voce@exemplo.com.br", visible: email.isEmpty)
             .accessibilityIdentifier("signup.email")
         }
-        AuthField("SENHA") {
-          SecureField("Crie uma senha", text: $password)
-            .textContentType(.newPassword)
-            .accessibilityIdentifier("signup.password")
-        }
-        AuthField("CONFIRMAR SENHA") {
-          SecureField("Repita a senha", text: $confirmPassword)
-            .textContentType(.newPassword)
-            .submitLabel(.go)
-            .onSubmit(submit)
-            .accessibilityIdentifier("signup.confirm")
+        RentivoSecureFormField(
+          label: "SENHA",
+          text: $password,
+          isRevealed: $isPasswordRevealed,
+          prompt: "Crie uma senha",
+          textContentType: .newPassword,
+          accessibilityIdentifier: "signup.password",
+          visibilityAccessibilityName: "senha"
+        )
+        RentivoSecureFormField(
+          label: "CONFIRMAR SENHA",
+          text: $confirmPassword,
+          isRevealed: $isConfirmationRevealed,
+          prompt: "Repita a senha",
+          errorMessage: confirmationError,
+          isFocused: $confirmationIsFocused,
+          textContentType: .newPassword,
+          accessibilityIdentifier: "signup.confirm",
+          visibilityAccessibilityName: "confirmação da senha",
+          errorAccessibilityIdentifier: "signup.confirm.error"
+        )
+        .submitLabel(.go)
+        .onSubmit {
+          validateConfirmationImmediately(announce: true)
+          submit()
         }
         if let validationMessage {
           AuthErrorLabel(message: validationMessage)
             .accessibilityIdentifier("signup.error")
         }
         Button(action: submit) {
-          HStack(spacing: RentivoSpacing.small) {
-            if isAuthenticating {
-              ProgressView()
-                .tint(.white)
-            }
-            Text("Criar Conta")
-          }
+          Text("Criar Conta")
         }
-        .buttonStyle(RentivoButtonStyle())
+        .buttonStyle(RentivoButtonStyle(isBusy: isAuthenticating))
         .disabled(!canSubmit)
         .accessibilityIdentifier("signup.submit")
         HStack(spacing: RentivoSpacing.tiny) {
@@ -307,16 +330,20 @@ private struct SignUpForm: View {
         }
       }
     }
+    .onChange(of: password) { _, _ in confirmationInputChanged() }
+    .onChange(of: confirmPassword) { oldValue, newValue in
+      if oldValue != newValue { confirmationTouched = true }
+      confirmationInputChanged()
+    }
+    .onChange(of: confirmationIsFocused) { oldValue, newValue in
+      if oldValue && !newValue { validateConfirmationImmediately(announce: true) }
+    }
+    .onDisappear { confirmationValidationTask?.cancel() }
   }
 
   private func submit() {
+    validateConfirmationImmediately(announce: true)
     guard canSubmit else { return }
-    // The API takes only e-mail and password; the confirmation exists to catch a mistyped
-    // password here, before an account is created with it.
-    guard password == confirmPassword else {
-      validationMessage = "As senhas não coincidem."
-      return
-    }
     validationMessage = nil
     isAuthenticating = true
     Task {
@@ -324,8 +351,40 @@ private struct SignUpForm: View {
       do {
         try await app.signUp(email: email.trimmed, password: password)
       } catch {
-        validationMessage = ptBRDescription(for: error)
+        validationMessage = AuthFeedback.presentation(for: error, context: .signUp).message
       }
+    }
+  }
+
+  private func confirmationInputChanged() {
+    confirmationValidationTask?.cancel()
+    guard confirmationTouched, !confirmPassword.isEmpty, password != confirmPassword else {
+      shouldValidateConfirmation = false
+      return
+    }
+    shouldValidateConfirmation = false
+    let passwordSnapshot = password
+    let confirmationSnapshot = confirmPassword
+    confirmationValidationTask = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(500))
+      guard !Task.isCancelled,
+        password == passwordSnapshot,
+        confirmPassword == confirmationSnapshot
+      else { return }
+      shouldValidateConfirmation = true
+    }
+  }
+
+  private func validateConfirmationImmediately(announce: Bool) {
+    confirmationValidationTask?.cancel()
+    confirmationTouched = true
+    let hadError = confirmationError != nil
+    shouldValidateConfirmation = true
+    if announce, !hadError, confirmationError != nil {
+      UIAccessibility.post(
+        notification: .announcement,
+        argument: SignUpConfirmationRules.mismatchMessage
+      )
     }
   }
 }
@@ -353,13 +412,23 @@ private struct MFAChallengeForm: View {
     }
   }
 
+  private enum Operation: Equatable {
+    case totp
+    case recovery
+    case passkey
+  }
+
   @Environment(AppModel.self) private var app
   let challenge: MFAChallenge
   let onCancel: () -> Void
   @State private var code = ""
   @State private var codeKind: CodeKind
   @State private var validationMessage: String?
-  @State private var isAuthenticating = false
+  @State private var operation: Operation?
+  @State private var lastSubmittedValue: String?
+  @State private var isTerminal = false
+  @FocusState private var codeIsFocused: Bool
+  @AccessibilityFocusState private var terminalErrorIsFocused: Bool
 
   init(challenge: MFAChallenge, onCancel: @escaping () -> Void) {
     self.challenge = challenge
@@ -374,7 +443,14 @@ private struct MFAChallengeForm: View {
   private var offersRecovery: Bool { challenge.methods.contains(.recovery) }
   private var offersCode: Bool { offersTOTP || offersRecovery }
 
-  private var canSubmitCode: Bool { !isAuthenticating && !code.trimmed.isEmpty }
+  private var isAuthenticating: Bool { operation != nil }
+  private var canSubmitCode: Bool {
+    guard !isAuthenticating else { return false }
+    return switch codeKind {
+    case .totp: code.count == TOTPCodeRules.requiredLength
+    case .recovery: !code.trimmed.isEmpty
+    }
+  }
 
   var body: some View {
     AuthScaffold(
@@ -382,80 +458,148 @@ private struct MFAChallengeForm: View {
       subtitle: "Confirme que é você para concluir a entrada."
     ) {
       VStack(alignment: .leading, spacing: RentivoSpacing.large) {
-        if offersPasskey {
-          Button(action: submitPasskey) {
-            HStack(spacing: RentivoSpacing.small) {
-              if isAuthenticating {
-                ProgressView()
-                  .tint(.white)
-              }
-              Text("Usar chave de acesso")
-            }
+        if isTerminal {
+          if let validationMessage {
+            AuthErrorLabel(message: validationMessage)
+              .accessibilityIdentifier("login.mfa.error")
+              .accessibilityFocused($terminalErrorIsFocused)
           }
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          Button("Voltar para entrar", action: onCancel)
+            .buttonStyle(RentivoButtonStyle())
+            .accessibilityIdentifier("login.mfa.return-to-login")
+        } else if offersPasskey {
+          Button(action: submitPasskey) {
+            Text("Usar chave de acesso")
+          }
+          .buttonStyle(
+            RentivoSecondaryButtonStyle(isBusy: operation == .passkey)
+          )
           .disabled(isAuthenticating)
           .accessibilityIdentifier("login.mfa.passkey")
         }
-        if offersCode {
-          AuthField(codeKind.label) {
-            TextField(codeKind.placeholder, text: $code)
-              .keyboardType(codeKind == .totp ? .numberPad : .asciiCapable)
-              // `.oneTimeCode` is what surfaces the authenticator code above the keyboard; a
-              // recovery code is a stored secret, never an incoming one, so the hint would only
-              // offer an unrelated TOTP in its place.
-              .textContentType(codeKind == .totp ? .oneTimeCode : nil)
-              .textInputAutocapitalization(.characters)
-              .autocorrectionDisabled()
-              .submitLabel(.go)
-              .onSubmit(submitCode)
-              .accessibilityIdentifier("login.mfa.code")
-          }
-        }
-        if let validationMessage {
-          AuthErrorLabel(message: validationMessage)
-            .accessibilityIdentifier("login.mfa.error")
-        }
-        if offersCode {
-          Button(action: submitCode) {
-            HStack(spacing: RentivoSpacing.small) {
-              if isAuthenticating {
-                ProgressView()
-                  .tint(.white)
+        if !isTerminal {
+          if offersCode {
+            switch codeKind {
+            case .totp:
+              totpInput
+            case .recovery:
+              AuthField(codeKind.label) {
+                TextField(codeKind.placeholder, text: $code)
+                  .keyboardType(.asciiCapable)
+                  .textInputAutocapitalization(.characters)
+                  .autocorrectionDisabled()
+                  .submitLabel(.go)
+                  .onSubmit { submitCode() }
+                  .focused($codeIsFocused)
+                  .disabled(isAuthenticating)
+                  .accessibilityIdentifier("login.mfa.code")
               }
-              Text("Confirmar")
             }
           }
-          .buttonStyle(RentivoButtonStyle())
-          .disabled(!canSubmitCode)
-          .accessibilityIdentifier("login.mfa.submit")
-        }
-        if offersRecovery && offersTOTP {
-          AuthLinkButton(
-            title: codeKind == .totp
-              ? "Usar código de recuperação" : "Usar código do aplicativo autenticador"
-          ) {
-            codeKind = codeKind == .totp ? .recovery : .totp
-            code = ""
-            validationMessage = nil
+          if let validationMessage {
+            AuthErrorLabel(message: validationMessage)
+              .accessibilityIdentifier("login.mfa.error")
           }
-          .accessibilityIdentifier("login.mfa.recovery")
+          if offersCode {
+            Button(action: { submitCode() }) {
+              Text("Confirmar")
+            }
+            .buttonStyle(
+              RentivoButtonStyle(isBusy: operation == codeOperation)
+            )
+            .disabled(!canSubmitCode)
+            .accessibilityIdentifier("login.mfa.submit")
+          }
+          if offersRecovery && offersTOTP {
+            AuthLinkButton(
+              title: codeKind == .totp
+                ? "Usar código de recuperação" : "Usar código do aplicativo autenticador"
+            ) {
+              switchCodeKind()
+            }
+            .disabled(isAuthenticating)
+            .accessibilityIdentifier("login.mfa.recovery")
+          }
+          if !offersCode && !offersPasskey {
+            Text("Nenhuma verificação disponível para este dispositivo.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
+          AuthLinkButton(title: "Voltar", action: onCancel)
+            .disabled(isAuthenticating)
+            .accessibilityIdentifier("login.mfa.cancel")
         }
-        if !offersCode && !offersPasskey {
-          Text("Nenhuma verificação disponível para este dispositivo.")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
-        }
-        AuthLinkButton(title: "Voltar", action: onCancel)
-          .disabled(isAuthenticating)
-          .accessibilityIdentifier("login.mfa.cancel")
       }
+    }
+    .onChange(of: code) { oldValue, newValue in codeChanged(from: oldValue, to: newValue) }
+    .task {
+      if codeKind == .totp { codeIsFocused = true }
     }
   }
 
-  private func submitCode() {
-    guard canSubmitCode else { return }
-    let submitted = code.trimmed
-    verify {
+  private var codeOperation: Operation {
+    codeKind == .totp ? .totp : .recovery
+  }
+
+  private var totpInput: some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+      Text(CodeKind.totp.label)
+        .font(RentivoTypography.metadata)
+        .foregroundStyle(RentivoColors.secondaryInk)
+        .fixedSize(horizontal: false, vertical: true)
+      Text("Digite os 6 dígitos exibidos no seu aplicativo autenticador.")
+        .font(.footnote)
+        .foregroundStyle(RentivoColors.secondaryInk)
+        .fixedSize(horizontal: false, vertical: true)
+      TextField("000000", text: $code)
+        .font(RentivoTypography.code)
+        .multilineTextAlignment(.center)
+        .keyboardType(.numberPad)
+        .textContentType(.oneTimeCode)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .focused($codeIsFocused)
+        .disabled(isAuthenticating)
+        .frame(maxWidth: .infinity, minHeight: 64)
+        .background(RentivoColors.paper)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(codeIsFocused ? RentivoColors.primaryAction : RentivoColors.ink, lineWidth: 2)
+        }
+        .accessibilityLabel("Código do aplicativo autenticador")
+        .accessibilityHint(
+          "Digite ou cole 6 dígitos. A verificação começa automaticamente ao completar o código."
+        )
+        .accessibilityValue("\(code.count) de 6 dígitos preenchidos")
+        .accessibilityIdentifier("login.mfa.code")
+    }
+  }
+
+  private func codeChanged(from oldValue: String, to newValue: String) {
+    guard codeKind == .totp else { return }
+    let previous = TOTPCodeRules.normalize(oldValue)
+    let normalized = TOTPCodeRules.normalize(newValue)
+    if code != normalized { code = normalized }
+    if TOTPCodeRules.shouldAutoSubmit(
+      previousValue: previous,
+      currentValue: normalized,
+      isBusy: isAuthenticating,
+      lastSubmittedValue: lastSubmittedValue
+    ) {
+      submitCode(submittedValue: normalized)
+    }
+  }
+
+  private func submitCode(submittedValue: String? = nil) {
+    guard !isAuthenticating else { return }
+    let submitted = submittedValue ?? (codeKind == .totp ? code : code.trimmed)
+    guard codeKind == .totp
+      ? submitted.count == TOTPCodeRules.requiredLength
+      : !submitted.isEmpty
+    else { return }
+    lastSubmittedValue = submitted
+    verify(operation: codeOperation) {
       switch codeKind {
       case .totp:
         try await app.completeTOTP(challenge: challenge, code: submitted)
@@ -467,7 +611,7 @@ private struct MFAChallengeForm: View {
 
   private func submitPasskey() {
     guard !isAuthenticating else { return }
-    verify {
+    verify(operation: .passkey) {
       let options = try await app.dependencies.auth.beginPasskeyAssertion(challenge: challenge)
       // Held for the whole assertion: `ASAuthorizationController` only calls back while its
       // owner is alive.
@@ -484,29 +628,47 @@ private struct MFAChallengeForm: View {
     }
   }
 
-  private func verify(_ operation: @escaping () async throws -> Void) {
+  private func verify(
+    operation requestedOperation: Operation,
+    _ action: @escaping () async throws -> Void
+  ) {
     validationMessage = nil
-    isAuthenticating = true
+    operation = requestedOperation
     Task {
-      defer { isAuthenticating = false }
+      defer { operation = nil }
       do {
-        try await operation()
+        try await action()
       } catch {
-        code = ""
-        validationMessage = ptBRDescription(for: error)
+        let context: AuthFeedbackContext = switch requestedOperation {
+        case .totp: .mfaTOTP
+        case .recovery: .mfaRecovery
+        case .passkey: .mfaPasskey
+        }
+        let feedback = AuthFeedback.presentation(for: error, context: context)
+        validationMessage = feedback.message
+        if feedback.disposition == .terminal {
+          code = ""
+          lastSubmittedValue = nil
+          isTerminal = true
+          Task { @MainActor in terminalErrorIsFocused = true }
+        } else if (error as? LiveAPIError)?.problemCode == "invalid_mfa_code" {
+          code = ""
+          lastSubmittedValue = nil
+          Task { @MainActor in codeIsFocused = true }
+        }
       }
     }
   }
-}
 
-/// The server already answers in PT-BR (`detail` on the problem document), so its message is
-/// preferred over anything invented here; everything else falls back to one generic sentence
-/// rather than leaking a system error string in English.
-private func ptBRDescription(for error: Error) -> String {
-  if let liveError = error as? LiveAPIError, let description = liveError.errorDescription {
-    return description
+  private func switchCodeKind() {
+    guard !isAuthenticating else { return }
+    codeKind = codeKind == .totp ? .recovery : .totp
+    code = ""
+    validationMessage = nil
+    lastSubmittedValue = nil
+    operation = nil
+    Task { @MainActor in codeIsFocused = true }
   }
-  return "Não foi possível concluir o login. Tente novamente."
 }
 
 extension String {

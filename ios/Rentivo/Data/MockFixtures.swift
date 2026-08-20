@@ -8,6 +8,13 @@ public struct MockFixtures: Sendable {
   }
 
   public static let canonical = MockFixtures(snapshot: canonicalSnapshot())
+  public static let canonicalWithPendingPDF: MockFixtures = {
+    var snapshot = canonicalSnapshot()
+    if let index = snapshot.bills.firstIndex(where: { $0.id == StableID.billDraft }) {
+      snapshot.bills[index].pdfRenderStatus = .pending
+    }
+    return MockFixtures(snapshot: snapshot)
+  }()
 
   private static func canonicalSnapshot() -> StoreSnapshot {
     let personalPix = PixConfiguration(
@@ -105,19 +112,22 @@ public struct MockFixtures: Sendable {
       ),
     ]
 
+    let now = Date(timeIntervalSince1970: 1_768_521_600)
     let paidReceipt = Receipt(
       id: stableID(2_001),
       name: "comprovante-pix-junho.pdf",
       sortOrder: 0,
       mediaType: "application/pdf",
-      byteCount: 184_320
+      byteCount: 184_320,
+      createdAt: now
     )
     let paidReceiptImage = Receipt(
       id: stableID(2_002),
       name: "confirmacao-bancaria.jpg",
       sortOrder: 1,
       mediaType: "image/jpeg",
-      byteCount: 92_160
+      byteCount: 92_160,
+      createdAt: nil
     )
     let bills = [
       bill(
@@ -185,7 +195,12 @@ public struct MockFixtures: Sendable {
       ),
     ]
 
-    let anaMember = OrganizationMember(userID: profile.id, email: profile.email, role: .admin)
+    let anaMember = OrganizationMember(
+      userID: profile.id,
+      email: profile.email,
+      role: .admin,
+      isCurrentUser: true
+    )
     let organizations = [
       Organization(
         id: StableID.organizationHorizonte,
@@ -212,7 +227,6 @@ public struct MockFixtures: Sendable {
       ),
     ]
 
-    let now = Date(timeIntervalSince1970: 1_768_521_600)
     let integrationKey = APIKeyMetadata(
       id: StableID.apiKeyDashboard,
       name: "Painel financeiro",
@@ -234,9 +248,21 @@ public struct MockFixtures: Sendable {
         StableID.billingAurora101: [
           Attachment(
             id: stableID(6_001),
-            name: "contrato-locacao.pdf",
+            name: "Contrato de locação",
+            filename: "contrato-locacao.pdf",
             mediaType: "application/pdf",
-            byteCount: 184_320
+            byteCount: 184_320,
+            sortOrder: 0,
+            createdAt: now
+          ),
+          Attachment(
+            id: stableID(6_002),
+            name: "  ",
+            filename: "vistoria-entrada.jpg",
+            mediaType: "image/jpeg",
+            byteCount: 92_160,
+            sortOrder: 1,
+            createdAt: nil
           )
         ]
       ],

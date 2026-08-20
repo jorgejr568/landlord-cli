@@ -9,6 +9,30 @@ private struct HomeData: Sendable {
   let hasBillings: Bool
 }
 
+enum HomeDashboardMode: Equatable {
+  case onboarding
+  case populated
+}
+
+enum HomeOverduePresentation: Equatable {
+  case neutral
+  case warning
+}
+
+enum HomePresentationRules {
+  static func mode(hasBillings: Bool) -> HomeDashboardMode {
+    hasBillings ? .populated : .onboarding
+  }
+
+  static func overduePresentation(centavos: Int) -> HomeOverduePresentation {
+    centavos > 0 ? .warning : .neutral
+  }
+
+  static func resultTone(centavos: Int) -> RentivoSemanticTone {
+    FinancialAmountPresentation(kind: .result, amount: Money(centavos: centavos)).tone
+  }
+}
+
 struct HomeView: View {
   @Environment(AppModel.self) private var app
   @State private var state: LoadState<HomeData> = .idle
@@ -28,6 +52,7 @@ struct HomeView: View {
     }
     .task(id: app.dataRevision) { await load() }
     .refreshable { await load() }
+    .noticeArea(.home)
   }
 
   private func load() async {
@@ -100,6 +125,7 @@ private struct HomeContent: View {
   /// detail screen (status transition, edit, deletion), so the summary cards
   /// and the "Próximas faturas" list don't go stale behind the pushed view.
   let reload: () async -> Void
+  @State private var downloadedFile: DownloadedFile?
 
   private let columns = [
     GridItem(.flexible(), spacing: RentivoSpacing.medium),
@@ -110,28 +136,31 @@ private struct HomeContent: View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: RentivoSpacing.section) {
         greeting
-        LazyVGrid(columns: columns, spacing: RentivoSpacing.medium) {
-          SummaryCard(
-            title: "Recebido",
-            value: data.summary.received,
-            symbol: "arrow.down.circle.fill",
-            color: RentivoColors.emerald
-          )
-          SummaryCard(
-            title: "Despesas",
-            value: data.summary.expenses,
-            symbol: "arrow.up.circle.fill",
-            color: RentivoColors.coral
-          )
-          SummaryCard(
-            title: "Resultado",
-            value: data.summary.netIncome,
-            symbol: "chart.line.uptrend.xyaxis",
-            color: RentivoColors.blue
-          )
-          CollectionCard(percent: data.summary.collectionRatePercent)
-        }
-        if data.hasBillings {
+        if HomePresentationRules.mode(hasBillings: data.hasBillings) == .populated {
+          LazyVGrid(columns: columns, spacing: RentivoSpacing.medium) {
+            SummaryCard(
+              title: "Recebido",
+              value: data.summary.received,
+              symbol: "arrow.down.circle.fill",
+              color: RentivoColors.emerald
+            )
+            SummaryCard(
+              title: "Despesas",
+              value: data.summary.expenses,
+              symbol: "arrow.up.circle.fill",
+              color: RentivoColors.coral
+            )
+            SummaryCard(
+              title: "Resultado",
+              value: data.summary.netIncome,
+              symbol: "chart.line.uptrend.xyaxis",
+              color: HomePresentationRules.resultTone(
+                centavos: data.summary.netIncome.centavos
+              ).color
+            )
+            CollectionCard(percent: data.summary.collectionRatePercent)
+          }
+          .accessibilityIdentifier("home.summary-grid")
           if !data.overdueBills.isEmpty {
             overdueSection
           }
@@ -142,18 +171,26 @@ private struct HomeContent: View {
               bills: Array(data.upcomingBills.prefix(4))
             )
           }
+          activitySection
         } else {
           noBillingsSection
+          if !data.activities.isEmpty {
+            activitySection
+          }
         }
-        activitySection
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
     .navigationDestination(for: BillRoute.self) { route in
-      BillDetailView(billingID: route.billingID, billID: route.billID) {
-        await reload()
-      }
+      BillDetailView(
+        billingID: route.billingID,
+        billID: route.billID,
+        onMutation: { await reload() },
+        onDownloadedFile: { downloadedFile = $0 }
+      )
     }
+    .downloadedFileSheet($downloadedFile)
   }
 
   private var greeting: some View {
@@ -163,14 +200,34 @@ private struct HomeContent: View {
         .foregroundStyle(RentivoColors.ink)
       Text(app.usesLiveAPI ? "Seu portfólio está conectado ao Rentivo." : "Seu portfólio está pronto para a demonstração.")
         .foregroundStyle(RentivoColors.secondaryInk)
-      HStack {
-        Label("Saldo em atraso", systemImage: "clock.badge.exclamationmark")
-          .font(.caption.weight(.semibold))
-        Spacer()
-        MoneyText(money: data.summary.overdue, color: RentivoColors.coral)
+      if HomePresentationRules.mode(hasBillings: data.hasBillings) == .populated {
+        overdueRow
+          .padding(.top, RentivoSpacing.small)
       }
-      .padding(.top, RentivoSpacing.small)
     }
+  }
+
+  private var overdueRow: some View {
+    let presentation = HomePresentationRules.overduePresentation(
+      centavos: data.summary.overdue.centavos)
+    let isWarning = presentation == .warning
+    return HStack(alignment: .firstTextBaseline) {
+      Label(
+        "Saldo em atraso",
+        systemImage: isWarning ? "clock.badge.exclamationmark" : "checkmark.circle.fill"
+      )
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(isWarning ? RentivoColors.coral : RentivoColors.emerald)
+      Spacer()
+      MoneyText(
+        money: data.summary.overdue,
+        color: isWarning ? RentivoColors.coral : RentivoColors.ink,
+        font: isWarning ? RentivoTypography.money : .subheadline.weight(.semibold)
+      )
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Saldo em atraso: \(data.summary.overdue.formatted())")
+    .accessibilityIdentifier("home.overdue-row")
   }
 
   private var overdueSection: some View {
@@ -223,9 +280,12 @@ private struct HomeContent: View {
           .foregroundStyle(RentivoColors.secondaryInk)
           Button("Ver cobranças") { app.selectedTab = .billings }
             .buttonStyle(RentivoButtonStyle())
+            .accessibilityIdentifier("home.onboarding.cta")
         }
       }
     }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("home.onboarding-hero")
   }
 
   private func billsSection(title: String, bills: [Bill]) -> some View {
@@ -239,7 +299,7 @@ private struct HomeContent: View {
                 VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
                   Text(data.billingNames[bill.billingID] ?? "Cobrança")
                     .font(RentivoTypography.cardTitle)
-                  Text(bill.referenceMonth.label.capitalized)
+                  Text(bill.referenceMonth.standaloneDisplayFormatted)
                     .font(.subheadline)
                     .foregroundStyle(RentivoColors.secondaryInk)
                 }
@@ -327,11 +387,11 @@ private struct CollectionCard: View {
       VStack(alignment: .leading, spacing: RentivoSpacing.small) {
         Image(systemName: "percent")
           .font(.title2)
-          .foregroundStyle(RentivoColors.lilac)
+          .foregroundStyle(RentivoColors.ink)
         Text("Taxa de recebimento")
           .font(.caption.weight(.semibold))
           .foregroundStyle(RentivoColors.secondaryInk)
-        Text("\(percent)%")
+        Text("\(BrazilianLocaleFormatting.integer(percent))%")
           .font(.system(.title3, design: .monospaced, weight: .bold))
           .foregroundStyle(RentivoColors.ink)
       }

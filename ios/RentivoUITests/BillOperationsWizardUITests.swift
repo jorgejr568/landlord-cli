@@ -16,15 +16,26 @@ final class BillOperationsWizardUITests: XCTestCase {
     createBill.tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 5"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.staticTexts["Ano"].exists)
+    let year = app.descendants(matching: .any)["bill.form.year"]
+    XCTAssertTrue(year.exists)
+    XCTAssertEqual(year.value as? String, "2026")
+    XCTAssertFalse(
+      app.descendants(matching: .any).matching(
+        NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "2.026", "2.026")
+      ).firstMatch.exists
+    )
     XCTAssertEqual(app.buttons["wizard.continue"].label, "Continuar")
     XCTAssertTrue(app.buttons["wizard.close"].exists)
 
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.close"].tap()
-    XCTAssertTrue(app.staticTexts["Descartar alterações?"].waitForExistence(timeout: 2))
-    let keepEditing = app.buttons["xmark"]
-    XCTAssertTrue(keepEditing.waitForExistence(timeout: 2))
-    keepEditing.tap()
+    let discardTitle = app.staticTexts["Descartar alterações?"]
+    XCTAssertTrue(discardTitle.waitForExistence(timeout: 2))
+    XCTAssertTrue(app.sheets["Descartar alterações?"].exists)
+    // iOS 26 exposes this confirmation dialog's cancel row without its SwiftUI label.
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+    XCTAssertTrue(discardTitle.waitForNonExistence(timeout: 2))
     XCTAssertTrue(app.staticTexts["Etapa 2 de 5"].exists)
   }
 
@@ -33,7 +44,7 @@ final class BillOperationsWizardUITests: XCTestCase {
   func testExpenseWizardSeparatesDetailsFromAmount() throws {
     let app = launchAndSignInAndOpenExpenses()
 
-    app.buttons["Adicionar"].tap()
+    app.buttons["Adicionar despesa"].tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
     let description = app.textFields["Descrição"]
@@ -41,56 +52,181 @@ final class BillOperationsWizardUITests: XCTestCase {
     description.typeText("Manutenção")
     app.buttons["wizard.continue"].tap()
 
-    let amount = app.textFields["Valor em centavos"]
+    let amount = app.textFields["expense.form.amount"]
     XCTAssertTrue(amount.waitForExistence(timeout: 2))
     amount.tap()
-    amount.typeText("1000")
+    amount.typeText("350")
+    XCTAssertTrue(waitForValue(of: amount, containing: "R$ 3,50"))
     app.buttons["wizard.continue"].tap()
 
     XCTAssertEqual(app.buttons["wizard.commit"].label, "Salvar despesa")
   }
 
-  func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
+  func testBillVariableAmountFormatsContinuouslyAsBRL() throws {
     let app = launchAndSignInAndOpenCanonicalBilling()
+    let createBill = app.buttons["bill.create"]
+    scrollTo(createBill, in: app)
+    createBill.tap()
+
+    app.buttons["wizard.continue"].tap()
+    app.buttons["wizard.continue"].tap()
+
+    let amount = app.textFields.matching(
+      NSPredicate(format: "identifier BEGINSWITH 'bill.form.line.' AND identifier ENDSWITH '.amount'")
+    ).firstMatch
+    XCTAssertTrue(amount.waitForExistence(timeout: 2))
+    amount.tap()
+    XCTAssertTrue(waitForKeyboardFocus(on: amount))
+    for (digit, formattedValue) in [
+      ("1", "R$ 0,01"),
+      ("2", "R$ 0,12"),
+      ("0", "R$ 1,20"),
+      ("0", "R$ 12,00"),
+      ("0", "R$ 120,00"),
+      ("0", "R$ 1.200,00"),
+    ] {
+      amount.typeText(digit)
+      XCTAssertTrue(waitForValue(of: amount, containing: formattedValue))
+    }
+    XCTAssertEqual(amount.value as? String, "R$ 1.200,00")
+  }
+
+  func testCommunicationWizardDisablesCommitWhilePDFIsRendering() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling("--ui-testing-pdf-rendering")
     let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
     scrollTo(draft, in: app)
     draft.tap()
 
-    let regenerate = app.buttons["Regenerar documento"]
-    scrollTo(regenerate, in: app)
-    regenerate.tap()
     XCTAssertTrue(app.staticTexts["Renderizando…"].waitForExistence(timeout: 2))
 
     let communicate = app.buttons["Enviar comunicação"]
     scrollTo(communicate, in: app)
     communicate.tap()
-    for _ in 0..<4 {
-      app.buttons["wizard.continue"].tap()
-    }
 
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    XCTAssertFalse(app.staticTexts["Canal"].exists)
+    app.buttons["wizard.continue"].tap()
+    XCTAssertTrue(app.descendants(matching: .any)["comm.preview"].waitForExistence(timeout: 2))
+    let characterCount = app.descendants(matching: .any)["comm.character-count"]
+    XCTAssertTrue(characterCount.exists)
+    XCTAssertTrue(characterCount.label.hasSuffix(" de 4.096 caracteres"))
+    app.buttons["wizard.continue"].tap()
+
+    XCTAssertTrue(app.staticTexts["Aguarde a geração do PDF antes de enviar."].exists)
     XCTAssertFalse(app.buttons["wizard.commit"].isEnabled)
     let backButtons = app.buttons.matching(identifier: "wizard.back")
     XCTAssertGreaterThan(backButtons.count, 0)
     XCTAssertTrue(backButtons.element(boundBy: backButtons.count - 1).isEnabled)
   }
 
-  func testSuccessfulExportDismissesTheWizardAndShowsConfirmation() throws {
+  func testCommunicationPreviewInsertsVariableAndRendersMarkdown() throws {
     let app = launchAndSignInAndOpenCanonicalBilling()
+    let draft = app.buttons["bill.card.00000000-0000-0000-0000-000000001001"]
+    scrollTo(draft, in: app)
+    draft.tap()
+
+    let communicate = app.buttons["Enviar comunicação"]
+    scrollTo(communicate, in: app)
+    communicate.tap()
+    XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    app.buttons["wizard.continue"].tap()
+
+    let message = app.textViews["comm.body"]
+    XCTAssertTrue(message.waitForExistence(timeout: 2))
+    app.buttons["comm.insert-data"].tap()
+    app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Nome do inquilino")
+    ).firstMatch.tap()
+
+    XCTAssertTrue((message.value as? String ?? "").contains("{{nome_inquilino}}"))
+    let preview = app.descendants(matching: .any)["comm.preview"]
+    XCTAssertTrue(preview.waitForExistence(timeout: 2))
+    XCTAssertTrue(
+      preview.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Locatário")
+      ).firstMatch.exists
+    )
+    XCTAssertTrue(
+      preview.staticTexts.matching(
+        NSPredicate(format: "label CONTAINS %@", "Segue em anexo a cobrança")
+      ).firstMatch.exists
+    )
+    XCTAssertFalse(
+      preview.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "**")).firstMatch.exists
+    )
+    XCTAssertTrue(
+      app.descendants(matching: .any)["comm.character-count"].label
+        .hasSuffix(" de 4.096 caracteres")
+    )
+  }
+
+  func testCSVAndXLSXExportsShowTheSameEmailDeliveryConfirmation() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    requestExport(format: "CSV", in: app)
+    requestExport(format: "XLSX", in: app)
+  }
+
+  func testInvoiceOpensHumanNamedQuickLookPreview() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let augustBill = app.buttons["bill.card.00000000-0000-0000-0000-000000001002"]
+    scrollTo(augustBill, in: app)
+    augustBill.tap()
+
+    XCTAssertTrue(app.staticTexts["Agosto de 2026"].waitForExistence(timeout: 2))
+    let openInvoice = app.buttons["Abrir fatura em PDF"]
+    scrollTo(openInvoice, in: app)
+    openInvoice.tap()
+
+    XCTAssertTrue(app.navigationBars["Prévia"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["Fatura - Apt 101 - Edifício Aurora - agosto 2026"].exists)
+    XCTAssertTrue(app.buttons["Fechar"].exists)
+    XCTAssertTrue(app.buttons["Compartilhar ou salvar arquivo"].exists)
+    XCTAssertTrue(app.descendants(matching: .any)["document.preview.quicklook"].exists)
+    XCTAssertFalse(app.images["doc.text.fill"].exists)
+    XCTAssertFalse(app.staticTexts["Arquivo baixado do Rentivo."].exists)
+  }
+
+  func testFilesShowHumanNameTypeSizeAndCreationDate() throws {
+    let app = launchAndSignInAndOpenCanonicalBilling()
+    let files = app.buttons["Arquivos"]
+    scrollTo(files, in: app)
+    files.tap()
+
+    XCTAssertTrue(app.staticTexts["Contrato de locação"].waitForExistence(timeout: 2))
+    XCTAssertTrue(app.staticTexts["184 kB • 15/01/2026"].exists)
+    XCTAssertTrue(app.images["attachment.type.doc.richtext.fill"].exists)
+    XCTAssertTrue(app.staticTexts["vistoria-entrada.jpg"].exists)
+    XCTAssertTrue(app.staticTexts["92 kB"].exists)
+    XCTAssertTrue(app.images["attachment.type.photo.fill"].exists)
+  }
+
+  private func requestExport(format: String, in app: XCUIApplication) {
     let export = app.buttons["Exportar dados"]
     scrollTo(export, in: app)
     export.tap()
 
     XCTAssertTrue(app.staticTexts["Etapa 1 de 3"].waitForExistence(timeout: 2))
+    if format == "XLSX" {
+      app.buttons["XLSX"].tap()
+    }
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.continue"].tap()
     app.buttons["wizard.commit"].tap()
 
+    let toast = app.descendants(matching: .any)["notice.toast"]
+    XCTAssertTrue(toast.waitForExistence(timeout: 7))
+    XCTAssertTrue(
+      toast.staticTexts[
+        "Sucesso: Seu arquivo \(format) está sendo preparado. Você o receberá no e-mail da sua conta."
+      ].exists
+    )
     XCTAssertTrue(app.navigationBars["Detalhes"].waitForExistence(timeout: 3))
-    XCTAssertTrue(app.staticTexts["Exportação CSV enfileirada."].waitForExistence(timeout: 3))
   }
 
-  private func launchAndSignInAndOpenCanonicalBilling() -> XCUIApplication {
-    let app = launchAndSignIn()
+  private func launchAndSignInAndOpenCanonicalBilling(
+    _ additionalArguments: String...
+  ) -> XCUIApplication {
+    let app = launchAndSignIn(additionalArguments)
     app.tabBars.buttons["Cobranças"].tap()
 
     let billing = app.buttons["billing.card.00000000-0000-0000-0000-000000000101"]
@@ -109,9 +245,11 @@ final class BillOperationsWizardUITests: XCTestCase {
     return app
   }
 
-  private func launchAndSignIn() -> XCUIApplication {
+  private func launchAndSignIn(_ additionalArguments: [String] = []) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing"]
+    app.launchArguments = [
+      "--ui-testing", "-AppleLanguages", "(pt-BR)", "-AppleLocale", "pt_BR",
+    ] + additionalArguments
     app.launch()
 
     let email = app.textFields["login.email"]
@@ -125,7 +263,8 @@ final class BillOperationsWizardUITests: XCTestCase {
 
     let savePasswordSheet = app.sheets.firstMatch
     if savePasswordSheet.waitForExistence(timeout: 5) {
-      savePasswordSheet.buttons.element(boundBy: 0).tap()
+      let dismissSavePassword = savePasswordSheet.buttons.element(boundBy: 0)
+      dismissSavePassword.tap()
       XCTAssertTrue(savePasswordSheet.waitForNonExistence(timeout: 5))
     }
     XCTAssertTrue(app.tabBars.buttons["Início"].waitForExistence(timeout: 5))
@@ -139,5 +278,19 @@ final class BillOperationsWizardUITests: XCTestCase {
       attempts += 1
     }
     XCTAssertTrue(element.exists)
+  }
+
+  private func waitForValue(
+    of element: XCUIElement, containing substring: String, timeout: TimeInterval = 3
+  ) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "value CONTAINS %@", substring), object: element)
+    return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+  }
+
+  private func waitForKeyboardFocus(on element: XCUIElement) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: element)
+    return XCTWaiter().wait(for: [expectation], timeout: 2) == .completed
   }
 }

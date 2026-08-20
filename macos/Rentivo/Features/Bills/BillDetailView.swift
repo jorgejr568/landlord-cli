@@ -96,6 +96,7 @@ struct BillDetailView: View {
         lifecycleSection(bill)
         ReceiptManagerView(
           billingID: billingID,
+          billingName: billing?.name ?? "Cobrança",
           bill: bill,
           capabilities: bill.capabilities
         ) { refreshAll() }
@@ -432,21 +433,35 @@ struct BillDetailView: View {
 
   private func downloadInvoice() async {
     guard downloadingDocument == nil else { return }
+    guard let bill = state.value else { return }
     downloadingDocument = .invoice
     defer { downloadingDocument = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadInvoice(
-        billingID: billingID, billID: billID)
+        billingID: billingID,
+        billID: billID,
+        presentation: MacOSDocumentPresentations.invoice(
+          billingName: billing?.name ?? "Cobrança",
+          referenceMonth: bill.referenceMonth
+        )
+      )
     } catch { app.reportFailure(error) }
   }
 
   private func downloadRecibo() async {
     guard downloadingDocument == nil else { return }
+    guard let bill = state.value else { return }
     downloadingDocument = .recibo
     defer { downloadingDocument = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadRecibo(
-        billingID: billingID, billID: billID)
+        billingID: billingID,
+        billID: billID,
+        presentation: MacOSDocumentPresentations.generatedReceipt(
+          billingName: billing?.name ?? "Cobrança",
+          referenceMonth: bill.referenceMonth
+        )
+      )
     } catch { app.reportFailure(error) }
   }
 }

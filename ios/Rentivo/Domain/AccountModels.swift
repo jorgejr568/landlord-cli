@@ -30,6 +30,17 @@ public enum OrganizationRole: String, CaseIterable, Codable, Sendable {
     case .viewer: "Visualizador"
     }
   }
+
+  public var invitationDescription: String {
+    switch self {
+    case .admin:
+      "Gerencia a organização, os membros e a segurança. Também cria e administra cobranças."
+    case .manager:
+      "Pode criar cobranças e gerenciar faturas, despesas, comprovantes e envios. Não gerencia membros nem configurações da organização."
+    case .viewer:
+      "Pode consultar a organização e as cobranças, sem criar nem alterar dados."
+    }
+  }
 }
 
 public struct OrganizationCapabilities: Hashable, Codable, Sendable {
@@ -164,17 +175,17 @@ public struct OrganizationDraft: Hashable, Sendable {
     key: String, merchantName: String, city: String
   ) -> String? {
     let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
     if normalizedKey.isEmpty { return nil }
-    if normalizedName.isEmpty || normalizedCity.isEmpty {
-      return "Informe o nome e a cidade do recebedor para usar uma chave PIX."
+    guard let type = PixKeyInput.inferType(from: normalizedKey) else {
+      return "Informe uma chave PIX válida."
     }
-    if normalizedName.unicodeScalars.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
-    }
-    if normalizedCity.unicodeScalars.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
+    if case .invalid(let message) = PixFormRules.result(
+      type: type,
+      key: normalizedKey,
+      merchantName: merchantName,
+      merchantCity: city
+    ) {
+      return message
     }
     return nil
   }

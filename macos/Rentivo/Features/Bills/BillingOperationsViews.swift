@@ -436,7 +436,9 @@ struct AttachmentListView: View {
     defer { downloadingAttachmentID = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadAttachment(
-        billingID: billingID, attachmentID: attachment.id
+        billingID: billingID,
+        attachmentID: attachment.id,
+        presentation: MacOSDocumentPresentations.attachment(attachment)
       )
     } catch { app.reportFailure(error) }
   }

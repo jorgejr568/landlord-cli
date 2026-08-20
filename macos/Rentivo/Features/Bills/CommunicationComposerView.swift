@@ -118,9 +118,10 @@ struct CommunicationComposerView: View {
           VStack(alignment: .leading) {
             Text("Variáveis: {{nome_inquilino}}, {{unidade}}, {{mes}}, {{vencimento}}, {{total}}.")
             Text(
-              "\(message.lengthOfBytes(using: .utf8))/\(CommunicationFormRules.maximumBodyByteCount) bytes"
+              "\(BrazilianLocaleFormatting.integer(message.count)) de 4.096 caracteres"
             )
             .monospacedDigit()
+            .foregroundStyle(counterColor)
           }
         }
 
@@ -189,6 +190,14 @@ struct CommunicationComposerView: View {
       commType: commType, selectedRecipients: selectedRecipients, subject: subject,
       message: message, saveScope: saveScope
     ).hasChanges(from: initialDraftState)
+  }
+
+  private var counterColor: Color {
+    switch CommunicationFormRules.bodyLengthState(message) {
+    case .normal: RentivoColors.secondaryInk
+    case .nearLimit: RentivoColors.amber
+    case .overLimit: RentivoColors.coral
+    }
   }
 
   private var ownerScopeLabel: String {

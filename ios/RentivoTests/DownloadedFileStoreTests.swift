@@ -36,9 +36,10 @@ func makeIsolatedDownloadsStore() -> DownloadedFileStore {
   )
 
   #expect(
-    file.fileURL.deletingLastPathComponent().standardizedFileURL.path
+    file.fileURL.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
       == store.directory.standardizedFileURL.path
   )
+  #expect(file.fileURL.lastPathComponent == "fatura-julho.pdf")
   #expect(try Data(contentsOf: file.fileURL) == Data("%PDF-1.4".utf8))
   // Whether Darwin honors data-protection classes depends on the environment, not just the OS:
   // real devices enforce them, the iOS Simulator accepts the option but reports the container
@@ -47,7 +48,7 @@ func makeIsolatedDownloadsStore() -> DownloadedFileStore {
   // the environment honors them, hold the store's file to the full end-to-end contract; when it
   // does not, the options the store passes are the only part that is the store's to guarantee.
   #if os(iOS)
-    let probe = store.directory.appendingPathComponent("protection-probe")
+    let probe = file.fileURL.deletingLastPathComponent().appendingPathComponent("protection-probe")
     try Data("probe".utf8).write(to: probe, options: DownloadedFileStore.writingOptions)
     let probeProtection =
       try FileManager.default.attributesOfItem(atPath: probe.path)[.protectionKey]
@@ -88,26 +89,29 @@ private final class ProtectedDownloadURLProtocol: URLProtocol, @unchecked Sendab
 @Test func removeDeletesASingleDownloadedFileAndToleratesAMissingOne() throws {
   let store = makeIsolatedDownloadsStore()
   defer { store.purge() }
-  let destination = try store.makeDestination(pathExtension: "pdf")
+  let destination = try store.makeDestination(filename: "fatura.pdf")
   try Data("%PDF-1.4".utf8).write(to: destination, options: DownloadedFileStore.writingOptions)
   let file = DownloadedFile(
-    fileURL: destination, filename: "fatura.pdf", mediaType: "application/pdf"
+    fileURL: destination, displayName: "Fatura", filename: "fatura.pdf",
+    mediaType: "application/pdf"
   )
+  let parent = destination.deletingLastPathComponent()
 
-  DownloadedFileStore.remove(file)
+  store.remove(file)
 
   #expect(!FileManager.default.fileExists(atPath: destination.path))
+  #expect(!FileManager.default.fileExists(atPath: parent.path))
   // iOS reclaims `tmp/` on its own schedule, so removing an already-gone file is expected and
   // must stay silent rather than throw.
-  DownloadedFileStore.remove(file)
+  store.remove(file)
   #expect(!FileManager.default.fileExists(atPath: destination.path))
 }
 
 @Test func purgeRemovesTheWholeDownloadsDirectory() throws {
   let store = makeIsolatedDownloadsStore()
-  let first = try store.makeDestination(pathExtension: "pdf")
+  let first = try store.makeDestination(filename: "contrato.pdf")
   try Data("%PDF-1.4".utf8).write(to: first, options: DownloadedFileStore.writingOptions)
-  let second = try store.makeDestination(pathExtension: "jpg")
+  let second = try store.makeDestination(filename: "vistoria.jpg")
   try Data([0xFF, 0xD8, 0xFF]).write(to: second, options: DownloadedFileStore.writingOptions)
 
   store.purge()
@@ -117,4 +121,46 @@ private final class ProtectedDownloadURLProtocol: URLProtocol, @unchecked Sendab
   #expect(!FileManager.default.fileExists(atPath: store.directory.path))
   // Purging a directory that no longer exists is a no-op, not a failure.
   store.purge()
+}
+
+@Test func sameNamedDownloadsUseDifferentDirectoriesAndRemovalIsIsolated() throws {
+  let store = makeIsolatedDownloadsStore()
+  defer { store.purge() }
+  let first = try store.makeDestination(filename: "Contrato.pdf")
+  let second = try store.makeDestination(filename: "Contrato.pdf")
+  try Data("first".utf8).write(to: first, options: DownloadedFileStore.writingOptions)
+  try Data("second".utf8).write(to: second, options: DownloadedFileStore.writingOptions)
+
+  #expect(first.lastPathComponent == "Contrato.pdf")
+  #expect(second.lastPathComponent == "Contrato.pdf")
+  #expect(first.deletingLastPathComponent() != second.deletingLastPathComponent())
+
+  store.remove(
+    DownloadedFile(
+      fileURL: first, displayName: "Contrato", filename: "Contrato.pdf",
+      mediaType: "application/pdf")
+  )
+
+  #expect(!FileManager.default.fileExists(atPath: first.path))
+  #expect(FileManager.default.fileExists(atPath: second.path))
+}
+
+@Test func removeRefusesAUUIDDirectoryOutsideTheStoresRoot() throws {
+  let store = makeIsolatedDownloadsStore()
+  defer { store.purge() }
+  let outsideRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "RentivoDownloadsOutsideTests-\(UUID().uuidString)", isDirectory: true)
+  defer { try? FileManager.default.removeItem(at: outsideRoot) }
+  let outsideDirectory = outsideRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+  try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+  let outsideFile = outsideDirectory.appendingPathComponent("nao-apagar.pdf")
+  try Data("preservar".utf8).write(to: outsideFile)
+
+  store.remove(
+    DownloadedFile(
+      fileURL: outsideFile, displayName: "Não apagar", filename: "nao-apagar.pdf",
+      mediaType: "application/pdf")
+  )
+
+  #expect(FileManager.default.fileExists(atPath: outsideFile.path))
 }

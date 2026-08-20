@@ -174,7 +174,7 @@ import Testing
       )
     ],
     pixOverride: PixConfiguration(
-      key: "pix", merchantName: String(repeating: "m", count: 26),
+      key: "ana@example.com", merchantName: String(repeating: "m", count: 26),
       merchantCity: String(repeating: "c", count: 16)
     ),
     recipients: [
@@ -384,8 +384,11 @@ import Testing
     subject: "Assunto", message: String(repeating: "b", count: 4_097)
   ) != nil)
   #expect(CommunicationContent.validationMessage(
+    subject: "Assunto", message: String(repeating: "😀", count: 1_024)
+  ) == nil)
+  #expect(CommunicationContent.validationMessage(
     subject: "Assunto", message: String(repeating: "😀", count: 1_025)
-  ) != nil)
+  ) == "Mensagem muito longa. Reduza o texto para enviar.")
   #expect(CommunicationContent.normalizedSubject("  Assunto  ") == "Assunto")
   #expect(CommunicationContent.normalizedMessage("  Corpo  ") == "Corpo")
 }
@@ -401,26 +404,50 @@ import Testing
   let combiningCharacter = "e\u{301}"
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "pix", merchantName: String(repeating: "😀", count: 25), city: String(repeating: "😀", count: 15)
+      key: "ana@example.com", merchantName: String(repeating: "😀", count: 25), city: String(repeating: "😀", count: 15)
     ) == nil
   )
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "pix", merchantName: String(repeating: combiningCharacter, count: 13), city: "RECIFE"
+      key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 13), city: "RECIFE"
     ) == "O nome do recebedor deve ter até 25 caracteres."
   )
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "pix", merchantName: "ANA", city: String(repeating: combiningCharacter, count: 8)
+      key: "ana@example.com", merchantName: "ANA", city: String(repeating: combiningCharacter, count: 8)
     ) == "A cidade do recebedor deve ter até 15 caracteres."
   )
   #expect(
     OrganizationDraft(
       name: "Imobiliária",
       pix: PixConfiguration(
-        key: "pix", merchantName: String(repeating: combiningCharacter, count: 13),
+        key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 13),
         merchantCity: "RECIFE"
       )
     ).isValid == false
+  )
+}
+
+@Test func untypedPIXValidationRejectsTheKeyBeforeRecipientData() {
+  let item = BillingItem(
+    id: UUID(), description: "Aluguel", amount: Money(centavos: 120_000),
+    type: .fixed, sortOrder: 0
+  )
+  let draft = BillingDraft(
+    name: "Apartamento 202",
+    description: "",
+    owner: .user(id: StableID.userAna, name: "Pessoal"),
+    items: [item],
+    pixOverride: PixConfiguration(key: "incompatível", merchantName: "", merchantCity: "")
+  )
+
+  #expect(
+    draft.validate().first(where: { $0.field == .pix })?.message
+      == "Informe uma chave PIX válida."
+  )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "incompatível", merchantName: "", city: ""
+    ) == "Informe uma chave PIX válida."
   )
 }

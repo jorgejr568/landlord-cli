@@ -27,6 +27,7 @@ import Testing
     #expect(profile.email == app.currentUser.email)
     #expect(app.selectedTab == .home)
     #expect(app.notice?.message == "Bem-vinda à demonstração do Rentivo.")
+    #expect(app.notice?.owner == .home)
     guard case .success = app.notice?.kind else {
       Issue.record("Expected a success-kind notice, got \(String(describing: app.notice?.kind))")
       return
@@ -122,6 +123,30 @@ import Testing
   }
 
   @MainActor
+  @Test func failedSessionRestorationShowsAnAuthenticationOwnedNotice() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FailedSessionRestorationURLProtocol.self]
+    let client = LiveAPIClient(
+      session: URLSession(configuration: configuration),
+      credentials: MemoryCredentialStore(token: "stored-token")
+    )
+    let app = AppModel(dependencies: .live(store: APIRentivoStore(client: client)))
+
+    await app.restoreSessionIfNeeded()
+
+    guard case .anonymous = app.session else {
+      Issue.record("Expected a failed restoration to leave the app anonymous")
+      return
+    }
+    #expect(app.notice?.message == "Não foi possível restaurar sua sessão. Entre novamente.")
+    #expect(app.notice?.owner == .authentication)
+    guard case .warning = app.notice?.kind else {
+      Issue.record("Expected a warning-kind restoration notice")
+      return
+    }
+  }
+
+  @MainActor
   @Test func deletingTheAccountGoesAnonymousAndReportsSuccessWithNoBrowserRoundTrip() async throws {
     let app = try await authenticatedLiveApp(protocolClass: AccountDeletionURLProtocol.self)
 
@@ -134,6 +159,7 @@ import Testing
     #expect(app.isDeletingAccount == false)
     // Set after `completeSignOut()` clears the notice; nothing else runs to disturb it.
     #expect(app.notice?.message == "Sua conta foi excluída.")
+    #expect(app.notice?.owner == .authentication)
     guard case .success = app.notice?.kind else {
       Issue.record("Expected a success-kind notice, got \(String(describing: app.notice?.kind))")
       return
@@ -206,6 +232,26 @@ import Testing
     override func stopLoading() {}
   }
 
+  private final class FailedSessionRestorationURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+      let response = HTTPURLResponse(
+        url: request.url!, statusCode: 500, httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocol(
+        self,
+        didLoad: Data(#"{"detail":"Falha controlada."}"#.utf8)
+      )
+      client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+  }
+
   /// Authenticates the session bootstrap and accepts the account deletion; the subclass below
   /// rejects the deletion instead. Two classes rather than one switchable stub so the tests
   /// share no mutable state and stay safe to run in parallel.
@@ -262,6 +308,127 @@ import Testing
       Issue.record("Expected restoreSessionIfNeeded() to leave an already-anonymous session alone")
       return
     }
+  }
+
+  @MainActor
+  @Test func liveAppStartsInTheRestoringState() {
+    let app = AppModel(
+      dependencies: .live(
+        store: APIRentivoStore(
+          client: LiveAPIClient(credentials: MemoryCredentialStore())
+        )
+      )
+    )
+
+    guard case .restoring = app.session else {
+      Issue.record("Expected a live dependency to start in .restoring")
+      return
+    }
+  }
+
+  @MainActor
+  @Test func sessionRestoreWithAStoredSessionEndsAuthenticated() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SuccessfulRestoreURLProtocol.self]
+    let app = AppModel(
+      dependencies: .live(
+        store: APIRentivoStore(
+          client: LiveAPIClient(
+            session: URLSession(configuration: configuration),
+            credentials: MemoryCredentialStore(token: "stored-token")
+          )
+        )
+      )
+    )
+
+    await app.restoreSessionIfNeeded()
+
+    guard case .authenticated(let profile) = app.session else {
+      Issue.record("Expected a successful restore to authenticate")
+      return
+    }
+    #expect(profile.email == "ana@rentivo.com.br")
+  }
+
+  @MainActor
+  @Test func sessionRestoreWithoutAStoredSessionEndsAnonymous() async {
+    let app = AppModel(
+      dependencies: .live(
+        store: APIRentivoStore(
+          client: LiveAPIClient(credentials: MemoryCredentialStore())
+        )
+      )
+    )
+
+    await app.restoreSessionIfNeeded()
+
+    guard case .anonymous = app.session else {
+      Issue.record("Expected a restore without credentials to end anonymous")
+      return
+    }
+    #expect(app.notice == nil)
+  }
+
+  @MainActor
+  @Test func failedSessionRestoreEndsAnonymousWithTheExistingNotice() async {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FailedRestoreURLProtocol.self]
+    let app = AppModel(
+      dependencies: .live(
+        store: APIRentivoStore(
+          client: LiveAPIClient(
+            session: URLSession(configuration: configuration),
+            credentials: MemoryCredentialStore(token: "stored-token")
+          )
+        )
+      )
+    )
+
+    await app.restoreSessionIfNeeded()
+
+    guard case .anonymous = app.session else {
+      Issue.record("Expected a failed restore to end anonymous")
+      return
+    }
+    #expect(
+      app.notice?.message
+        == "Não foi possível restaurar sua sessão. Entre novamente."
+    )
+    guard case .warning = app.notice?.kind else {
+      Issue.record("Expected the restore failure notice to be a warning")
+      return
+    }
+  }
+
+  private final class SuccessfulRestoreURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+      let body = Data(
+        #"{"status":"authenticated","bootstrap":{"user":{"id":7,"email":"ana@rentivo.com.br"}}}"#.utf8
+      )
+      let response = HTTPURLResponse(
+        url: request.url!, statusCode: 200, httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+      client?.urlProtocol(self, didLoad: body)
+      client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+  }
+
+  private final class FailedRestoreURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+      client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+
+    override func stopLoading() {}
   }
 
 #endif

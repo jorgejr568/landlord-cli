@@ -162,6 +162,25 @@ ios-openapi-check:
 ios-test:
 	swift test --package-path ios
 
+# Builds the Debug app for the iOS Simulator, boots the target device if
+# needed, installs the build, and launches it. Override IOS_SIM_DEVICE to
+# target another simulator, e.g. `make ios-run IOS_SIM_DEVICE="iPhone 17e"`.
+IOS_SIM_DEVICE ?= iPhone 17 Pro
+IOS_APP_BUNDLE_ID := br.com.rentivo.ios
+
+.PHONY: ios-run
+ios-run:
+	xcodebuild -project ios/Rentivo.xcodeproj -scheme Rentivo \
+		-configuration Debug \
+		-destination 'platform=iOS Simulator,name=$(IOS_SIM_DEVICE)' \
+		-derivedDataPath ios/.build/ios-run \
+		-skipPackagePluginValidation build
+	xcrun simctl bootstatus "$(IOS_SIM_DEVICE)" -b
+	open -a Simulator
+	xcrun simctl install "$(IOS_SIM_DEVICE)" \
+		ios/.build/ios-run/Build/Products/Debug-iphonesimulator/Rentivo.app
+	xcrun simctl launch "$(IOS_SIM_DEVICE)" $(IOS_APP_BUNDLE_ID)
+
 # The macOS app is ad-hoc signed for local builds; `macos-dmg` packages the
 # drag-to-Applications installer into dist/.
 MACOS_XCODEBUILD := xcodebuild -project macos/Rentivo.xcodeproj -scheme Rentivo

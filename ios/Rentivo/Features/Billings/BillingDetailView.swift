@@ -6,17 +6,40 @@ private struct BillingDetailData: Sendable {
   let expenses: [Expense]
 }
 
+struct FinancialAmountPresentation: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case received
+    case expense
+    case result
+  }
+
+  let tone: RentivoSemanticTone
+
+  init(kind: Kind, amount: Money) {
+    tone = switch (kind, amount.centavos) {
+    case (.received, 1...): .positive
+    case (.expense, 1...): .negative
+    case (.result, ..<0): .negative
+    case (.result, 1...): .positive
+    default: .neutral
+    }
+  }
+}
+
 struct BillingDetailView: View {
   @Environment(AppModel.self) private var app
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let billingID: BillingID
   let onMutation: () async -> Void
 
   @State private var state: LoadState<BillingDetailData> = .idle
   @State private var showingEdit = false
+  @State private var editStartsAtPIX = false
   @State private var showingCreateBill = false
   @State private var showingTheme = false
   @State private var confirmingDelete = false
+  @State private var downloadedFile: DownloadedFile?
 
   var body: some View {
     PageStateView(state: state) { data in
@@ -30,14 +53,20 @@ struct BillingDetailView: View {
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         if state.value?.billing.capabilities.canEdit == true {
-          Button("Editar") { showingEdit = true }
+          Button("Editar") {
+            editStartsAtPIX = false
+            showingEdit = true
+          }
             .accessibilityIdentifier("billing.edit")
         }
       }
     }
     .rentivoFullScreenWizard(isPresented: $showingEdit) {
       if let billing = state.value?.billing {
-        BillingFormView(billing: billing) {
+        BillingFormView(
+          billing: billing,
+          initialStep: editStartsAtPIX ? .pix : .essentials
+        ) {
           await load()
           await onMutation()
         }
@@ -54,6 +83,9 @@ struct BillingDetailView: View {
     .rentivoFullScreenWizard(isPresented: $showingTheme) {
       ThemeEditorView(target: .billing(billingID))
     }
+    // Keep the sheet on the pop target: iOS 26 UIKit can livelock the main thread when a modal
+    // owned by a pushed screen is dismissed immediately before that screen is popped.
+    .downloadedFileSheet($downloadedFile)
     .confirmationDialog(
       "Excluir esta cobrança?",
       isPresented: $confirmingDelete,
@@ -64,9 +96,12 @@ struct BillingDetailView: View {
       }
       Button("Cancelar", role: .cancel) {}
     } message: {
-      Text("Faturas, despesas e arquivos desta cobrança também serão removidos.")
+      Text(
+        "Faturas, despesas e arquivos desta cobrança também serão removidos. Esta ação não pode ser desfeita."
+      )
     }
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.billingDetail)
   }
 
   private func detail(_ data: BillingDetailData) -> some View {
@@ -98,7 +133,8 @@ struct BillingDetailView: View {
         financialSummary(data)
         BillingOperationsLinks(
           billingID: billingID,
-          capabilities: data.billing.capabilities
+          capabilities: data.billing.capabilities,
+          onDownloadedFile: { downloadedFile = $0 }
         ) {
           await load()
           await onMutation()
@@ -112,7 +148,7 @@ struct BillingDetailView: View {
             Label("Aparência dos documentos", systemImage: "paintpalette.fill")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .buttonStyle(RentivoSecondaryButtonStyle())
           .accessibilityIdentifier("billing.theme")
         }
 
@@ -123,7 +159,8 @@ struct BillingDetailView: View {
             Label("Excluir cobrança", systemImage: "trash")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(RentivoDestructiveButtonStyle())
+          .accessibilityIdentifier("billing.delete")
         } else {
           Label(
             "Seu perfil pode consultar, mas não alterar esta cobrança.",
@@ -135,6 +172,7 @@ struct BillingDetailView: View {
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   private func lineItems(_ items: [BillingItem]) -> some View {
@@ -176,34 +214,41 @@ struct BillingDetailView: View {
         Spacer()
         if data.billing.capabilities.canCreateBills {
           Button {
-            showingCreateBill = true
+            performBillEmptyAction(for: data.billing)
           } label: {
             Image(systemName: "plus.circle.fill")
           }
-          .accessibilityLabel("Gerar fatura")
+          .accessibilityLabel(data.billing.pixNeedsSetup ? "Configurar PIX" : "Gerar fatura")
           .accessibilityIdentifier("bill.create")
-          .disabled(!data.billing.canGenerateBills)
-          .help(
-            data.billing.canGenerateBills
-              ? "Gerar fatura" : "Configure a chave PIX, o nome e a cidade do recebedor primeiro."
-          )
+          .help(data.billing.pixNeedsSetup ? "Configurar PIX" : "Gerar fatura")
         }
       }
       if data.bills.isEmpty {
-        Text("Nenhuma fatura foi gerada para esta cobrança.")
-          .foregroundStyle(RentivoColors.secondaryInk)
+        InlineEmptyStateView(
+          configuration: billEmptyState(for: data.billing),
+          action: data.billing.capabilities.canCreateBills
+            ? { performBillEmptyAction(for: data.billing) }
+            : nil
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, RentivoSpacing.small)
       } else {
         ForEach(data.bills) { bill in
           NavigationLink {
-            BillDetailView(billingID: billingID, billID: bill.id) {
-              await load()
-              await onMutation()
-            }
+            BillDetailView(
+              billingID: billingID,
+              billID: bill.id,
+              onMutation: {
+                await load()
+                await onMutation()
+              },
+              onDownloadedFile: { downloadedFile = $0 }
+            )
           } label: {
             RentivoCard {
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.small) {
-                  Text(bill.referenceMonth.displayFormatted.capitalized)
+                  Text(bill.referenceMonth.standaloneDisplayFormatted)
                     .font(.headline)
                   StatusBadge(status: bill.status)
                 }
@@ -226,6 +271,39 @@ struct BillingDetailView: View {
     }
   }
 
+  private func billEmptyState(for billing: Billing) -> EmptyStateConfiguration {
+    if !billing.capabilities.canCreateBills {
+      return EmptyStateConfiguration(
+        title: "Nenhuma fatura gerada",
+        message: "Ainda não há faturas nesta cobrança.",
+        systemImage: "doc.text"
+      )
+    }
+    if billing.pixNeedsSetup {
+      return EmptyStateConfiguration(
+        title: "Nenhuma fatura gerada",
+        message: "Configure os dados do PIX antes de gerar a primeira fatura.",
+        systemImage: "doc.text",
+        actionTitle: "Configurar PIX"
+      )
+    }
+    return EmptyStateConfiguration(
+      title: "Nenhuma fatura gerada",
+      message: "Gere a primeira fatura desta cobrança.",
+      systemImage: "doc.text",
+      actionTitle: "Gerar fatura"
+    )
+  }
+
+  private func performBillEmptyAction(for billing: Billing) {
+    if billing.pixNeedsSetup {
+      editStartsAtPIX = true
+      showingEdit = true
+    } else {
+      showingCreateBill = true
+    }
+  }
+
   private func financialSummary(_ data: BillingDetailData) -> some View {
     let paid = data.bills.filter { $0.status == .paid }.map(\.effectiveTotal).reduce(.zero, +)
     let expenses = data.expenses.map(\.amount).reduce(.zero, +)
@@ -233,21 +311,56 @@ struct BillingDetailView: View {
       SectionTitle(title: "Resumo financeiro", symbol: "chart.bar.fill")
       RentivoCard {
         VStack(spacing: RentivoSpacing.medium) {
-          valueRow("Recebido", paid, RentivoColors.emerald)
+          valueRow("Recebido", paid, kind: .received)
           Divider()
-          valueRow("Despesas", expenses, RentivoColors.coral)
+          valueRow("Despesas", expenses, kind: .expense)
           Divider()
-          valueRow("Resultado", paid - expenses, RentivoColors.blue)
+          valueRow("Resultado", paid - expenses, kind: .result)
         }
       }
     }
   }
 
-  private func valueRow(_ label: String, _ money: Money, _ color: Color) -> some View {
-    HStack {
+  private func valueRow(
+    _ label: String, _ money: Money, kind: FinancialAmountPresentation.Kind
+  ) -> some View {
+    let presentation = FinancialAmountPresentation(kind: kind, amount: money)
+    return Group {
+      if dynamicTypeSize.isAccessibilitySize {
+        verticalValueRow(label, money: money, presentation: presentation)
+      } else {
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: RentivoSpacing.small) {
+            Text(label)
+              .font(.subheadline.weight(.semibold))
+              .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: RentivoSpacing.small)
+            MoneyText(money: money, color: presentation.tone.color)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+          verticalValueRow(label, money: money, presentation: presentation)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(label): \(money.formatted())")
+  }
+
+  private func verticalValueRow(
+    _ label: String,
+    money: Money,
+    presentation: FinancialAmountPresentation
+  ) -> some View {
+    VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
       Text(label).font(.subheadline.weight(.semibold))
-      Spacer()
-      MoneyText(money: money, color: color)
+      MoneyText(
+        money: money,
+        color: presentation.tone.color,
+        minimumScaleFactor: 0.5,
+        lineLimit: 1
+      )
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
   }
 
@@ -276,7 +389,11 @@ struct BillingDetailView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       let data = BillingDetailData(
         billing: try await app.dependencies.billings.billing(id: billingID),
@@ -285,7 +402,11 @@ struct BillingDetailView: View {
       )
       state = .loaded(data)
     } catch {
-      state = .failed(DemoError(error))
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadBilling), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadBilling).demoError)
+      }
     }
   }
 
@@ -293,10 +414,10 @@ struct BillingDetailView: View {
     do {
       try await app.dependencies.billings.deleteBilling(id: billingID)
       await onMutation()
-      app.showNotice("Cobrança excluída.")
+      app.showNotice("Cobrança excluída.", owner: .billings)
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteBilling), kind: .warning)
     }
   }
 }

@@ -189,6 +189,8 @@ struct ProfilePixView: View {
   @State private var hasLoaded = false
   @State private var loadFailureMessage: String?
   @State private var isSaving = false
+  @State private var hasPersistedPix = false
+  @State private var confirmingRemoval = false
 
   /// Demo "viewer mode" is a local demo/mock-backend concept only. Once the app is
   /// connected to the live API, the signed-in user owns their own account and this
@@ -210,7 +212,15 @@ struct ProfilePixView: View {
           // descendant cannot re-enable itself — so a lock at section level took the retry with
           // it, and a load that failed in viewer mode had no way back.
           Group {
-            TextField("Chave PIX", text: $form.key)
+            Picker("Tipo de chave", selection: keyTypeBinding) {
+              ForEach(PixKeyType.allCases, id: \.self) { type in
+                Text(type.label).tag(type)
+              }
+            }
+            .accessibilityIdentifier("profile.pix.key-type")
+            TextField("Chave PIX", text: keyBinding)
+              .autocorrectionDisabled()
+              .accessibilityIdentifier("profile.pix.key")
             TextField("Nome do recebedor", text: $form.merchantName)
             TextField("Cidade", text: $form.merchantCity)
             if let message = form.validationMessage {
@@ -219,6 +229,11 @@ struct ProfilePixView: View {
             }
           }
           .disabled(isDemoViewerLocked)
+          if hasPersistedPix, !isDemoViewerLocked {
+            Button("Remover chave", role: .destructive) { confirmingRemoval = true }
+              .disabled(isSaving)
+              .accessibilityIdentifier("profile.pix.remove")
+          }
         } else if let loadFailureMessage {
           VStack(alignment: .leading, spacing: RentivoSpacing.small) {
             Label(loadFailureMessage, systemImage: "exclamationmark.triangle.fill")
@@ -263,6 +278,16 @@ struct ProfilePixView: View {
       }
     }
     .task { await load() }
+    .confirmationDialog(
+      "Remover chave PIX?",
+      isPresented: $confirmingRemoval,
+      titleVisibility: .visible
+    ) {
+      Button("Remover chave", role: .destructive) { Task { await removePix() } }
+      Button("Cancelar", role: .cancel) {}
+    } message: {
+      Text("As cobranças pessoais que herdam esta configuração ficarão sem PIX até que outra chave seja cadastrada.")
+    }
   }
 
   /// The fields stay behind the load rather than starting empty: a blank form mid-request reads as
@@ -271,7 +296,9 @@ struct ProfilePixView: View {
   private func load() async {
     loadFailureMessage = nil
     do {
-      form = ProfilePIXForm(profile: try await app.loadProfile())
+      let profile = try await app.loadProfile()
+      form = ProfilePIXForm(profile: profile)
+      hasPersistedPix = profile.pix != nil
       hasLoaded = true
     } catch {
       // Reported in the section, with a retry, rather than through the global banner: the failure
@@ -285,10 +312,51 @@ struct ProfilePixView: View {
     isSaving = true
     defer { isSaving = false }
     do {
-      form = ProfilePIXForm(profile: try await app.updateProfilePIX(form.configuration))
-      app.showNotice(form.configuration == nil ? "PIX pessoal removido." : "PIX pessoal atualizado.")
+      let profile = try await app.updateProfilePIX(form.configuration)
+      form = ProfilePIXForm(profile: profile)
+      hasPersistedPix = profile.pix != nil
+      app.showNotice("PIX pessoal atualizado.")
       // This screen is pushed rather than presented, so the global banner is visible here.
     } catch { app.reportFailure(error) }
+  }
+
+  private var keyBinding: Binding<String> {
+    Binding(
+      get: { form.key },
+      set: {
+        form.key = PixKeyInput.formatted($0, as: form.keyType)
+        form.preservesUnclassifiedLegacyKey = false
+      }
+    )
+  }
+
+  private var keyTypeBinding: Binding<PixKeyType> {
+    Binding(
+      get: { form.keyType },
+      set: {
+        form.keyType = $0
+        form.preservesUnclassifiedLegacyKey = false
+      }
+    )
+  }
+
+  private func removePix() async {
+    guard !isSaving, hasPersistedPix else { return }
+    isSaving = true
+    defer { isSaving = false }
+    do {
+      form = try await ProfilePIXRemoval.perform(in: app)
+      hasPersistedPix = false
+    } catch { app.reportFailure(error) }
+  }
+}
+
+@MainActor
+enum ProfilePIXRemoval {
+  static func perform(in app: AppModel) async throws -> ProfilePIXForm {
+    let form = ProfilePIXForm(profile: try await app.updateProfilePIX(nil))
+    app.showNotice("PIX pessoal removido.")
+    return form
   }
 }
 

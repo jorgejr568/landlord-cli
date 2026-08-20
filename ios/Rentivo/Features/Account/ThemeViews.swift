@@ -151,14 +151,22 @@ struct ThemeEditorView: View {
         "Tipografia da marca",
         subtitle: "Escolha fontes para títulos e textos dos documentos."
       ) {
-        Picker("Fonte de títulos", selection: $values.headerFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        RentivoFormField(label: "Fonte de títulos") {
+          Picker("", selection: $values.headerFont) {
+            ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+          }
+          .labelsHidden()
+          .accessibilityLabel("Fonte de títulos")
+          .accessibilityIdentifier("theme.form.header-font")
         }
-        .accessibilityIdentifier("theme.form.header-font")
-        Picker("Fonte de texto", selection: $values.textFont) {
-          ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        RentivoFormField(label: "Fonte de texto") {
+          Picker("", selection: $values.textFont) {
+            ForEach(ThemeFont.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+          }
+          .labelsHidden()
+          .accessibilityLabel("Fonte de texto")
+          .accessibilityIdentifier("theme.form.text-font")
         }
-        .accessibilityIdentifier("theme.form.text-font")
       }
     case .primaryColors:
       RentivoWizardSection(
@@ -235,7 +243,7 @@ struct ThemeEditorView: View {
       RentivoWizardSection("Resumo do tema") {
         RentivoWizardReviewRow(label: "Fonte de títulos", value: values.headerFont.rawValue)
         RentivoWizardReviewRow(label: "Fonte de texto", value: values.textFont.rawValue)
-        RentivoWizardReviewRow(label: "Cor primária", value: values.primary)
+        ThemeColorReviewRow(label: "Cor primária", value: values.primary)
         RentivoWizardReviewRow(
           label: "Configuração",
           value: resetRequested
@@ -260,11 +268,11 @@ struct ThemeEditorView: View {
     if let record {
       RentivoWizardSection("Herança") {
         RentivoWizardReviewRow(label: "Responsável", value: record.ownerName)
-        RentivoWizardReviewRow(label: "Origem efetiva", value: record.effectiveSource.label)
+        RentivoWizardReviewRow(label: "Tema aplicado", value: record.effectiveSource.label)
           .accessibilityIdentifier("theme.source")
         if record.stored == nil {
           Label(
-            "Este nível herda o tema de \(record.effectiveSource.label.lowercased()).",
+            "Este nível herda o tema padrão do Rentivo.",
             systemImage: "arrow.triangle.branch"
           )
           .font(.footnote)
@@ -387,7 +395,7 @@ struct ThemeEditorView: View {
     do {
       try await app.dependencies.themes.updateTheme(target: target, values: values)
       await load(force: true)
-      app.showNotice("Tema atualizado.")
+      app.showNotice("Aparência atualizada.")
       dismiss()
     } catch { self.error = DemoError(error) }
   }
@@ -400,7 +408,7 @@ struct ThemeEditorView: View {
       try await app.dependencies.themes.resetTheme(target: target)
       resetRequested = false
       await load(force: true)
-      app.showNotice("Herança de tema restaurada.")
+      app.showNotice("A aparência padrão foi restaurada.")
       dismiss()
     } catch { self.error = DemoError(error) }
   }
@@ -410,6 +418,27 @@ struct ThemeEditorView: View {
       focusedField = field
       accessibilityFocusedField = field
     }
+  }
+}
+
+private struct ThemeColorReviewRow: View {
+  let label: String
+  let value: String
+
+  var body: some View {
+    HStack(spacing: RentivoSpacing.small) {
+      Text(label).foregroundStyle(RentivoColors.secondaryInk)
+      Spacer()
+      Circle()
+        .fill(Color(hex: value) ?? .clear)
+        .frame(width: 24, height: 24)
+        .overlay { Circle().stroke(RentivoColors.ink.opacity(0.4)) }
+        .accessibilityHidden(true)
+      Text(value).font(.body.monospaced())
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(label): \(value)")
+    .accessibilityIdentifier("theme.review.primary-color")
   }
 }
 

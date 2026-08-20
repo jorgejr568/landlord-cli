@@ -47,24 +47,84 @@ import Testing
     PixFormRules.result(key: "", merchantName: "", merchantCity: "") == .inherit
   )
   #expect(
-    PixFormRules.result(key: "chave", merchantName: "", merchantCity: "São Paulo")
-      == .invalid("Preencha a chave, o nome e a cidade do recebedor para usar PIX personalizado.")
+    PixFormRules.result(
+      type: .email, key: "ana@example.com", merchantName: "", merchantCity: "São Paulo"
+    ) == .invalid("Informe o nome do recebedor.")
   )
   #expect(
-    PixFormRules.result(key: " chave ", merchantName: " Locador ", merchantCity: " SAO PAULO ")
-      == .custom(PixConfiguration(key: "chave", merchantName: "Locador", merchantCity: "SAO PAULO"))
+    PixFormRules.result(
+      type: .email,
+      key: " ANA@EXAMPLE.COM ",
+      merchantName: " Locador ",
+      merchantCity: " SAO PAULO "
+    ) == .custom(
+      PixConfiguration(
+        key: "ana@example.com", merchantName: "Locador", merchantCity: "SAO PAULO"
+      )
+    )
   )
 }
 
-@Test func communicationFormRulesCountUTF8BytesRatherThanCharacters() {
-  #expect(CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "a", count: 4_096)).isEmpty)
+@Test func untypedPIXValidationDoesNotReferToASelector() {
+  let expectedMessage = "Informe uma chave PIX válida."
   #expect(
-    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "á", count: 2_049))
-      .contains { $0.field == .body }
+    PixFormRules.result(
+      key: "chave-legada", merchantName: "Locador", merchantCity: "RECIFE"
+    ) == .invalid(expectedMessage)
   )
+  #expect(
+    OrganizationDraft.pixValidationMessage(
+      key: "chave-legada", merchantName: "Locador", city: "RECIFE"
+    ) == expectedMessage
+  )
+
+  let item = BillingItem(
+    id: BillingItemID(rawValue: "item-1"),
+    description: "Aluguel",
+    amount: Money(centavos: 100_000),
+    type: .fixed,
+    sortOrder: 0
+  )
+  let draft = BillingDraft(
+    name: "Apartamento",
+    description: "",
+    owner: .user(id: 7, name: "Pessoal"),
+    items: [item],
+    pixOverride: PixConfiguration(
+      key: "chave-legada", merchantName: "Locador", merchantCity: "RECIFE"
+    )
+  )
+  #expect(draft.validate().first { $0.field == .pix }?.message == expectedMessage)
+}
+
+@Test func communicationFormRulesEnforceTheServerUTF8Limit() {
+  for content in [
+    String(repeating: "a", count: 4_096),
+    String(repeating: "á", count: 2_048),
+    String(repeating: "😀", count: 1_024),
+  ] {
+    #expect(CommunicationFormRules.issues(subject: "Assunto", body: content).isEmpty)
+  }
+  #expect(
+    CommunicationFormRules.issues(subject: "Assunto", body: String(repeating: "😀", count: 1_025))
+      .contains { $0.field == .body && $0.message == "Mensagem muito longa. Reduza o texto para enviar." }
+  )
+  #expect(CommunicationFormRules.bodyLengthState(String(repeating: "a", count: 3_686)) == .nearLimit)
+  #expect(CommunicationFormRules.bodyLengthState(String(repeating: "😀", count: 1_025)) == .overLimit)
   #expect(
     CommunicationFormRules.issues(subject: "   ", body: "Mensagem")
       .contains { $0.field == .subject }
+  )
+}
+
+@Test func communicationFormRulesRejectUnknownTemplateVariables() {
+  #expect(
+    CommunicationFormRules.issues(subject: "Assunto", body: "Olá {{ apelido }}")
+      .contains { $0.message == "Revise a variável não reconhecida: {{ apelido }}." }
+  )
+  #expect(
+    CommunicationFormRules.issues(subject: "{{unidade}}", body: "Olá {{ nome_inquilino }}")
+      .isEmpty
   )
 }
 
@@ -88,6 +148,8 @@ import Testing
 @Test func moneyInputRulesCapPastedAmountsInsteadOfResettingOverflowToZero() {
   #expect(MoneyInputRules.centavos(from: "R$ 2.450,00") == 245_000)
   #expect(MoneyInputRules.centavos(from: "000000123") == 123)
+  #expect(MoneyInputRules.centavos(from: "sem valor") == 0)
+  #expect(MoneyInputRules.centavos(from: "٣٥٠") == 0)
   #expect(MoneyInputRules.centavos(from: "2.147.483.647") == 2_147_483_647)
   #expect(MoneyInputRules.centavos(from: "999999999999999999999") == 2_147_483_647)
 }

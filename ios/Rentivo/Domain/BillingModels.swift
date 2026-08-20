@@ -357,17 +357,25 @@ public struct BillingDraft: Hashable, Sendable {
         )
       )
     }
-    if let pixOverride,
-      (pixOverride.merchantName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count
-        > 25
-        || pixOverride.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
-          .count > 15)
-    {
-      issues.append(
-        ValidationIssue(
-          field: .pix, message: "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade."
+    if let pixOverride {
+      let normalizedKey = pixOverride.key.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let keyType = PixKeyInput.inferType(from: normalizedKey) {
+        if case .invalid(let message) = PixFormRules.result(
+          type: keyType,
+          key: normalizedKey,
+          merchantName: pixOverride.merchantName,
+          merchantCity: pixOverride.merchantCity
+        ) {
+          issues.append(ValidationIssue(field: .pix, message: message))
+        }
+      } else {
+        issues.append(
+          ValidationIssue(
+            field: .pix,
+            message: "Informe uma chave PIX válida."
+          )
         )
-      )
+      }
     }
     if recipients.contains(where: {
       let normalizedName = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -523,15 +531,35 @@ public struct Receipt: Identifiable, Hashable, Codable, Sendable {
 public struct Attachment: Identifiable, Hashable, Codable, Sendable {
   public let id: AttachmentID
   public var name: String
+  public var filename: String
   public var mediaType: String
   public var byteCount: Int
+  public var sortOrder: Int
+  public var createdAt: Date?
 
-  public init(id: AttachmentID, name: String, mediaType: String, byteCount: Int) {
+  public init(
+    id: AttachmentID,
+    name: String,
+    filename: String = "",
+    mediaType: String,
+    byteCount: Int,
+    sortOrder: Int = 0,
+    createdAt: Date? = nil
+  ) {
     self.id = id
     self.name = name
+    self.filename = filename
     self.mediaType = mediaType
     self.byteCount = byteCount
+    self.sortOrder = sortOrder
+    self.createdAt = createdAt
   }
+
+  public var documentPresentation: DocumentPresentation {
+    DocumentPresentation.attachment(name: name, filename: filename, mediaType: mediaType)
+  }
+
+  public var displayName: String { documentPresentation.displayName }
 }
 
 /// The queued export currently contains the billing's bill rows only. Keep the client copy and
@@ -622,8 +650,8 @@ public func communicationSendIsDisabled(
 }
 
 public enum CommunicationContent {
-  public static let maximumSubjectLength = 998
-  public static let maximumMessageByteCount = 4_096
+  public static let maximumSubjectLength = CommunicationFormRules.maximumSubjectCount
+  public static let maximumMessageUTF8Count = CommunicationFormRules.maximumBodyUTF8Count
 
   public static func normalizedSubject(_ subject: String) -> String {
     subject.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -634,17 +662,7 @@ public enum CommunicationContent {
   }
 
   public static func validationMessage(subject: String, message: String) -> String? {
-    let subject = normalizedSubject(subject)
-    let message = normalizedMessage(message)
-    if subject.isEmpty { return "Informe o assunto." }
-    if subject.unicodeScalars.count > maximumSubjectLength {
-      return "O assunto deve ter no máximo 998 caracteres."
-    }
-    if message.isEmpty { return "Informe o corpo da mensagem." }
-    if message.utf8.count > maximumMessageByteCount {
-      return "A mensagem deve ter no máximo 4096 bytes."
-    }
-    return nil
+    CommunicationFormRules.issues(subject: subject, body: message).first?.message
   }
 }
 

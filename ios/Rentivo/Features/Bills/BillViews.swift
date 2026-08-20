@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-private struct EditableBillLine: Identifiable {
+private struct EditableBillLine: Identifiable, Equatable {
   let id: BillLineItemID
   var description: String
   var centavos: Int
@@ -100,7 +100,8 @@ struct BillFormView: View {
   @State private var selectedStep: BillWizardStep = .competence
   /// Server-side rejection (e.g. a 422) for the last submit. This form is presented in a sheet
   /// and the global notice banner renders behind it, so the message has to stay inline.
-  @State private var submitErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
+  @State private var hasValidatedItems = false
   @State private var saving = false
   @FocusState private var focusedField: BillFormFocus?
   @AccessibilityFocusState private var accessibilityFocusedField: BillFormFocus?
@@ -159,12 +160,23 @@ struct BillFormView: View {
       switch step {
       case .competence:
         RentivoWizardSection("Competência") {
-          Picker("Mês", selection: $month) {
-            ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+          RentivoFormField(label: "Mês") {
+            Picker("", selection: $month) {
+              ForEach(1...12, id: \.self) { Text(monthName($0)).tag($0) }
+            }
+            .labelsHidden()
+            .accessibilityLabel("Mês")
+            .accessibilityIdentifier("bill.form.month")
           }
-          .pickerStyle(.menu)
           .onChange(of: month) { _, _ in syncDueDateWithReferenceMonth() }
-          Stepper("Ano: \(year)", value: $year, in: 2024...2035)
+          RentivoFormField(label: "Ano") {
+            Stepper(value: $year, in: 2024...2035) {
+              Text(BrazilianLocaleFormatting.year(year))
+            }
+            .accessibilityLabel("Ano")
+            .accessibilityValue(BrazilianLocaleFormatting.year(year))
+            .accessibilityIdentifier("bill.form.year")
+          }
             .onChange(of: year) { _, _ in syncDueDateWithReferenceMonth() }
           if bill != nil {
             Text("A competência não pode ser alterada depois que a fatura é criada.")
@@ -181,15 +193,25 @@ struct BillFormView: View {
           Toggle("Definir vencimento", isOn: $hasDueDate)
             .accessibilityIdentifier("bill.form.hasDueDate")
           if hasDueDate {
-            DatePicker("Data de vencimento", selection: dueDateBinding, displayedComponents: .date)
-              .accessibilityIdentifier("bill.form.dueDate")
+            RentivoFormField(label: "Data de vencimento") {
+              DatePicker("", selection: dueDateBinding, displayedComponents: .date)
+                .labelsHidden()
+                .accessibilityLabel("Data de vencimento")
+                .accessibilityIdentifier("bill.form.dueDate")
+            }
           }
         }
       case .items:
         itemsStep
       case .notes:
         RentivoWizardSection("Observações", subtitle: "Opcional") {
-          TextField("Mensagem opcional", text: $notes, axis: .vertical)
+          RentivoTextFormField(
+            label: "Observações",
+            text: $notes,
+            prompt: "Mensagem opcional",
+            axis: .vertical,
+            accessibilityIdentifier: "bill.form.notes"
+          )
             .lineLimit(3...6)
         }
       case .review:
@@ -197,6 +219,9 @@ struct BillFormView: View {
       }
     }
     .interactiveDismissDisabled(saving || isDirty)
+    .onChange(of: draft) {
+      if hasValidatedItems { issues = draft.validate() }
+    }
   }
 
   private var descriptors: [RentivoWizardStepDescriptor<BillWizardStep>] {
@@ -230,7 +255,7 @@ struct BillFormView: View {
           }
         }
       }
-      if !issues.isEmpty {
+      if !aggregateIssues.isEmpty {
         validationIssues
       }
     }
@@ -239,18 +264,21 @@ struct BillFormView: View {
   private var reviewStep: some View {
     VStack(alignment: .leading, spacing: RentivoSpacing.section) {
       RentivoWizardSection("Resumo") {
-        RentivoWizardReviewRow(label: "Competência", value: ReferenceMonth(year: year, month: month).label)
+        RentivoWizardReviewRow(
+          label: "Competência",
+          value: ReferenceMonth(year: year, month: month).displayFormatted)
         RentivoWizardReviewRow(
           label: "Vencimento",
           value: hasDueDate ? DateOnly(from: dueDate).displayFormatted : "Não definido"
         )
-        RentivoWizardReviewRow(label: "Itens", value: "\(lines.count)")
+        RentivoWizardReviewRow(
+          label: "Itens", value: BrazilianLocaleFormatting.integer(lines.count))
         RentivoWizardReviewRow(label: "Total", value: total.formatted())
         if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           RentivoWizardReviewRow(label: "Observações", value: notes)
         }
       }
-      if !issues.isEmpty || submitErrorMessage != nil {
+      if !aggregateIssues.isEmpty || submitFailure != nil {
         validationIssues
       }
     }
@@ -258,13 +286,12 @@ struct BillFormView: View {
 
   private var validationIssues: some View {
     RentivoWizardSection("Revise a fatura") {
-      ForEach(issues, id: \.self) { issue in
+      ForEach(aggregateIssues, id: \.self) { issue in
         Label(issue.message, systemImage: "exclamationmark.circle.fill")
           .foregroundStyle(RentivoColors.coral)
       }
-      if let submitErrorMessage {
-        Label(submitErrorMessage, systemImage: "exclamationmark.circle.fill")
-          .foregroundStyle(RentivoColors.coral)
+      if let submitFailure {
+        UserFacingFailureView(failure: submitFailure) { openAuthenticatorSetup() }
           .accessibilityIdentifier("bill.form.error")
       }
     }
@@ -276,6 +303,11 @@ struct BillFormView: View {
       || (hasDueDate && DateOnly(from: dueDate) != initialDueDate)
       || notes != initialNotes
       || lines.map(\.domain) != initialLines
+  }
+
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
   }
 
   /// Writes through to `dueDate` while recording that the choice is now the user's. A plain
@@ -306,18 +338,25 @@ struct BillFormView: View {
       if bill == nil, lines[index].kind != .extra {
         LabeledContent("Descrição", value: lines[index].description)
       } else {
-        TextField("Descrição", text: $lines[index].description)
+        RentivoTextFormField(
+          label: "Descrição",
+          text: $lines[index].description,
+          errorMessage: lineDescriptionError(at: index),
+          accessibilityIdentifier: "bill.form.line.\(lines[index].id.rawValue).description"
+        )
           .focused($focusedField, equals: .lineDescription(lines[index].id))
           .accessibilityFocused($accessibilityFocusedField, equals: .lineDescription(lines[index].id))
       }
       if bill == nil, lines[index].kind == .fixed {
         LabeledContent("Valor", value: Money(centavos: lines[index].centavos).formatted())
       } else {
-        CurrencyCentavosField(
-          "Valor em centavos",
-          centavos: $lines[index].centavos,
+        RentivoCurrencyField(
+          label: "Valor",
+          amountInCents: $lines[index].centavos,
+          errorMessage: lineAmountError(at: index),
           isFocused: amountFocusBinding(for: lines[index].id),
-          isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id)
+          isAccessibilityFocused: accessibilityAmountFocusBinding(for: lines[index].id),
+          accessibilityIdentifier: "bill.form.line.\(lines[index].id.rawValue).amount"
         )
       }
       if canRemove {
@@ -334,8 +373,9 @@ struct BillFormView: View {
   }
 
   private func validateAndAdvance() -> Bool {
-    submitErrorMessage = nil
+    submitFailure = nil
     guard selectedStep == .items else { return true }
+    hasValidatedItems = true
     issues = draft.validate()
     focusFirstInvalidLine()
     return issues.isEmpty
@@ -347,6 +387,30 @@ struct BillFormView: View {
   private func focusFirstInvalidLine() {
     guard let target = billFormFocusTarget(issues: issues, lines: lines.map(\.domain)) else { return }
     scheduleFocus(target)
+  }
+
+  private var aggregateIssues: [ValidationIssue] {
+    issues.filter { $0.field == .items }
+  }
+
+  private func lineDescriptionError(at index: Int) -> String? {
+    guard lines.indices.contains(index),
+      let issue = issues.first(where: { $0.field == .itemDescription })
+    else { return nil }
+    let firstInvalidIndex = lines.firstIndex { line in
+      let value = line.description.trimmingCharacters(in: .whitespacesAndNewlines)
+      return value.isEmpty || value.unicodeScalars.count > 255
+    }
+    return firstInvalidIndex == index ? issue.message : nil
+  }
+
+  private func lineAmountError(at index: Int) -> String? {
+    guard lines.indices.contains(index),
+      let issue = issues.first(where: { $0.field == .itemAmount }),
+      billFormFocusTarget(issues: [issue], lines: lines.map(\.domain))
+        == .lineAmount(lines[index].id)
+    else { return nil }
+    return issue.message
   }
 
   private func amountFocusBinding(for id: BillLineItemID) -> Binding<Bool> {
@@ -398,9 +462,14 @@ struct BillFormView: View {
     // A disabled action is not a synchronization primitive: claim the in-flight state before
     // any suspension so queued commits cannot submit the same draft twice.
     guard !saving else { return }
-    submitErrorMessage = nil
+    submitFailure = nil
     issues = draft.validate()
-    guard issues.isEmpty else { return }
+    guard issues.isEmpty else {
+      hasValidatedItems = true
+      selectedStep = .items
+      Task { @MainActor in focusFirstInvalidLine() }
+      return
+    }
     saving = true
     defer { saving = false }
     do {
@@ -417,14 +486,12 @@ struct BillFormView: View {
       app.showNotice(bill == nil ? "Fatura criada como rascunho." : "Fatura atualizada.")
       dismiss()
     } catch {
-      submitErrorMessage = DemoError(error).message
+      submitFailure = UserFacingError.presentation(for: error, operation: .saveBill)
     }
   }
 
   private func monthName(_ month: Int) -> String {
-    ReferenceMonth(year: year, month: month).label.components(separatedBy: " de ").first?
-      .capitalized
-      ?? "Mês"
+    ReferenceMonth(year: year, month: month).standaloneMonthName
   }
 }
 
@@ -434,15 +501,15 @@ struct BillDetailView: View {
   let billingID: BillingID
   let billID: BillID
   let onMutation: () async -> Void
+  let onDownloadedFile: (DownloadedFile) -> Void
 
   @State private var state: LoadState<Bill> = .idle
   @State private var billing: Billing?
   @State private var showingEdit = false
-  @State private var downloadedFile: DownloadedFile?
-  @State private var showingCommunication = false
+  @State private var communicationPresentation: CommunicationComposerPresentation?
   @State private var confirmingDelete = false
-  @State private var pendingTransition: BillTransition?
-  @State private var transitioningTo: BillStatus?
+  @State private var pendingTransition: BillLifecyclePresentedAction?
+  @State private var transitioningAction: BillLifecyclePresentedAction?
   @State private var isRegenerating = false
   /// Bumped by `regenerate` so the poll loop restarts for the render it just enqueued, even when
   /// the bill was already `pending`.
@@ -473,36 +540,46 @@ struct BillDetailView: View {
         }
       }
     }
-    .downloadedFileSheet($downloadedFile)
-    .fullScreenCover(isPresented: $showingCommunication) {
-      if let billing, let bill = state.value {
-        CommunicationComposerView(billing: billing, bill: bill)
+    .fullScreenCover(item: $communicationPresentation) { presentation in
+      CommunicationComposerView(presentation: presentation) {
+        await refreshQuietly()
+        await onMutation()
       }
     }
-    .confirmationDialog("Excluir esta fatura?", isPresented: $confirmingDelete) {
+    .confirmationDialog(
+      "Excluir esta fatura?",
+      isPresented: $confirmingDelete,
+      titleVisibility: .visible
+    ) {
       Button("Excluir fatura", role: .destructive) { Task { await deleteBill() } }
       Button("Cancelar", role: .cancel) {}
+    } message: {
+      Text(
+        "A fatura e seus comprovantes serão removidos permanentemente. Esta ação não pode ser desfeita."
+      )
     }
     .confirmationDialog(
-      pendingTransition?.label ?? "Alterar status da fatura?",
+      pendingTransition?.confirmationTitle ?? "Alterar status da fatura?",
       isPresented: Binding(
         get: { pendingTransition != nil },
         set: { if !$0 { pendingTransition = nil } }
       ),
+      titleVisibility: .visible,
       presenting: pendingTransition
     ) { action in
-      Button(action.label, role: action.style == "danger" ? .destructive : nil) {
+      Button(action.action.label, role: action.isDestructive ? .destructive : nil) {
         pendingTransition = nil
         guard let currentStatus = state.value?.status else { return }
-        Task { await transition(from: currentStatus, to: action.target) }
+        Task { await transition(from: currentStatus, action: action) }
       }
-      .accessibilityIdentifier("bill.transition.confirm.\(action.target.rawValue)")
+      .accessibilityIdentifier("bill.transition.confirm.\(action.action.target.rawValue)")
       Button("Cancelar", role: .cancel) {}
-    } message: { _ in
-      Text("Confirme a alteração de status desta fatura.")
+    } message: { action in
+      if let message = action.confirmationMessage { Text(message) }
     }
     .task(id: app.dataRevision) { await load() }
     .task(id: pollKey) { await pollWhileRendering() }
+    .noticeArea(.billOperations)
   }
 
   private func content(_ bill: Bill) -> some View {
@@ -515,7 +592,7 @@ struct BillDetailView: View {
                 Text(billing?.name ?? "Cobrança")
                   .font(.subheadline.weight(.semibold))
                   .foregroundStyle(RentivoColors.secondaryInk)
-                Text(bill.referenceMonth.label.capitalized)
+                Text(bill.referenceMonth.standaloneDisplayFormatted)
                   .font(RentivoTypography.title)
               }
               Spacer()
@@ -535,23 +612,17 @@ struct BillDetailView: View {
         }
 
         lineItems(bill)
-        if bill.capabilities.canTransition {
-          lifecycle(bill)
-        } else {
-          Label("Ciclo disponível somente para quem pode gerenciar faturas.", systemImage: "eye")
-            .font(.footnote)
-            .foregroundStyle(RentivoColors.secondaryInk)
-        }
+        lifecycle(bill)
 
         VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
           SectionTitle(title: "Documento", symbol: "doc.richtext.fill")
           renderStatus(bill)
           Button {
-            Task { await downloadInvoice() }
+            Task { await downloadInvoice(bill) }
           } label: {
             Label("Abrir fatura em PDF", systemImage: "doc.text.magnifyingglass")
           }
-          .buttonStyle(RentivoButtonStyle(color: RentivoColors.blue))
+          .buttonStyle(RentivoButtonStyle())
           .disabled(bill.isRenderingPDF || !bill.capabilities.canDownloadInvoice)
           HStack {
             // Regenerating stays available while a render is pending: a re-trigger supersedes the
@@ -559,7 +630,7 @@ struct BillDetailView: View {
             Button("Regenerar documento") { Task { await regenerate(bill) } }
               .disabled(!bill.capabilities.canRegenerate || isRegenerating)
             if bill.capabilities.canOpenRecibo {
-              Button("Abrir recibo") { Task { await downloadRecibo() } }
+              Button("Abrir recibo") { Task { await downloadRecibo(bill) } }
                 .disabled(bill.isRenderingPDF)
             }
           }
@@ -573,20 +644,37 @@ struct BillDetailView: View {
 
         ReceiptManagerView(
           billingID: billingID,
+          billingName: billing?.name ?? "Cobrança",
           bill: bill,
-          capabilities: bill.capabilities
+          capabilities: bill.capabilities,
+          onDownloadedFile: onDownloadedFile
         ) { await refreshAll() }
 
         communicationHistory(bill)
 
         if bill.capabilities.canCompose {
+          let canOpenCommunication =
+            !CommunicationComposerRules.availableTypes(for: bill).isEmpty
           Button {
-            showingCommunication = true
+            guard let billing else { return }
+            let presentation = CommunicationComposerPresentation(billing: billing, bill: bill)
+            guard !presentation.availableTypes.isEmpty else { return }
+            communicationPresentation = presentation
           } label: {
             Label("Enviar comunicação", systemImage: "paperplane.fill")
           }
           .buttonStyle(RentivoButtonStyle())
-          .disabled(!bill.capabilities.canSendInvoice && !bill.capabilities.canSendRecibo)
+          .disabled(!canOpenCommunication)
+          .help(
+            canOpenCommunication
+              ? "Enviar comunicação"
+              : "Esta fatura ainda não está pronta para envio."
+          )
+          if !canOpenCommunication {
+            Text("Esta fatura ainda não está pronta para envio.")
+              .font(.footnote)
+              .foregroundStyle(RentivoColors.secondaryInk)
+          }
         }
 
         if bill.capabilities.canDelete {
@@ -596,11 +684,13 @@ struct BillDetailView: View {
             Label("Excluir fatura", systemImage: "trash")
               .frame(maxWidth: .infinity)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(RentivoDestructiveButtonStyle())
+          .accessibilityIdentifier("bill.delete")
         }
       }
       .padding(RentivoSpacing.page)
     }
+    .rentivoTabContent()
   }
 
   @ViewBuilder
@@ -612,7 +702,7 @@ struct BillDetailView: View {
         ProgressView()
       }
       .font(.footnote)
-      .foregroundStyle(RentivoColors.secondaryInk)
+      .foregroundStyle(RentivoColors.amber)
       .accessibilityIdentifier("bill.pdf.rendering")
     case .failed:
       Label("Falha no PDF", systemImage: "exclamationmark.triangle")
@@ -653,38 +743,18 @@ struct BillDetailView: View {
   }
 
   private func lifecycle(_ bill: Bill) -> some View {
-    VStack(alignment: .leading, spacing: RentivoSpacing.medium) {
-      SectionTitle(title: "Ciclo da fatura", symbol: "arrow.triangle.2.circlepath")
-      // Prefer the server-authoritative transitions for this specific bill (`available_transitions`)
-      // over the local `BillStatus` state machine, when the API supplies them.
-      if bill.effectiveTransitionActions.isEmpty {
-        Label("Esta fatura está em um estado final.", systemImage: "checkmark.circle")
-          .foregroundStyle(RentivoColors.secondaryInk)
+    BillLifecycleView(
+      currentStatus: bill.status,
+      // Preserve the server-authoritative action set exposed by the domain model.
+      actions: bill.effectiveTransitionActions,
+      statusUpdatedAt: bill.statusUpdatedAt,
+      transitioningAction: transitioningAction,
+      allowsActions: bill.capabilities.canTransition
+    ) { action in
+      if action.requiresConfirmation {
+        pendingTransition = action
       } else {
-        ForEach(bill.effectiveTransitionActions, id: \.target) { action in
-          Button {
-            if action.requiresConfirmation {
-              pendingTransition = action
-            } else {
-              Task { await transition(from: bill.status, to: action.target) }
-            }
-          } label: {
-            HStack(spacing: RentivoSpacing.small) {
-              if transitioningTo == action.target { ProgressView().controlSize(.small) }
-              Label(action.label, systemImage: action.target.symbol)
-            }
-              .frame(maxWidth: .infinity)
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(action.style == "danger" ? RentivoColors.coral : RentivoColors.emerald)
-          .disabled(transitioningTo != nil)
-          .accessibilityIdentifier("bill.transition.\(action.target.rawValue)")
-        }
-      }
-      if let statusUpdatedAt = bill.statusUpdatedAt {
-        Text("Status atualizado em \(statusUpdatedAt.formattedPTBR(time: .shortened)).")
-          .font(.caption)
-          .foregroundStyle(RentivoColors.secondaryInk)
+        Task { await transition(from: bill.status, action: action) }
       }
     }
   }
@@ -727,12 +797,20 @@ struct BillDetailView: View {
   }
 
   private func load() async {
-    state = .loading
+    let hadVisibleState: Bool = switch state {
+    case .loaded, .empty: true
+    default: false
+    }
+    if !hadVisibleState { state = .loading }
     do {
       billing = try await app.dependencies.billings.billing(id: billingID)
       state = .loaded(try await app.dependencies.bills.bill(billingID: billingID, id: billID))
     } catch {
-      state = .failed(DemoError(error))
+      if hadVisibleState {
+        app.showNotice(UserFacingError.message(for: error, operation: .loadBill), kind: .warning)
+      } else {
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadBill).demoError)
+      }
     }
   }
 
@@ -767,17 +845,21 @@ struct BillDetailView: View {
     await onMutation()
   }
 
-  private func transition(from currentStatus: BillStatus, to status: BillStatus) async {
-    guard transitioningTo == nil else { return }
-    transitioningTo = status
-    defer { transitioningTo = nil }
+  private func transition(
+    from currentStatus: BillStatus,
+    action: BillLifecyclePresentedAction
+  ) async {
+    guard transitioningAction == nil else { return }
+    transitioningAction = action
+    defer { transitioningAction = nil }
+    let status = action.action.target
     do {
       try await app.dependencies.bills.transitionBill(
         billingID: billingID, billID: billID, from: currentStatus, to: status)
       await refreshAll()
       app.showNotice("Fatura marcada como \(status.label.lowercased()).")
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .changeBillStatus), kind: .warning)
     }
   }
 
@@ -787,7 +869,7 @@ struct BillDetailView: View {
       await onMutation()
       dismiss()
     } catch {
-      app.showNotice(DemoError(error).message, kind: .warning)
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteBill), kind: .warning)
     }
   }
 
@@ -804,28 +886,49 @@ struct BillDetailView: View {
       state = .loaded(bill.applyingRenderMetadata(from: queued))
       pollGeneration += 1
       await onMutation()
-      app.showNotice("Documento enfileirado para regeneração.")
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+      app.showNotice("Novo documento solicitado. Ele aparecerá aqui quando estiver pronto.")
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .regenerateDocument), kind: .warning)
+    }
   }
 
-  private func downloadInvoice() async {
-    do { downloadedFile = try await app.dependencies.downloads.downloadInvoice(billingID: billingID, billID: billID) }
-    catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  private func downloadInvoice(_ bill: Bill) async {
+    let presentation = DocumentPresentation.invoice(
+      billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
+    do {
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadInvoice(
+          billingID: billingID, billID: billID, presentation: presentation)
+      )
+    }
+    catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 
-  private func downloadRecibo() async {
-    do { downloadedFile = try await app.dependencies.downloads.downloadRecibo(billingID: billingID, billID: billID) }
-    catch { app.showNotice(DemoError(error).message, kind: .warning) }
+  private func downloadRecibo(_ bill: Bill) async {
+    let presentation = DocumentPresentation.generatedReceipt(
+      billingName: billing?.name ?? "Cobrança", referenceMonth: bill.referenceMonth)
+    do {
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadRecibo(
+          billingID: billingID, billID: billID, presentation: presentation)
+      )
+    }
+    catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 }
 
 private struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
+  let billingName: String
   let bill: Bill
   let capabilities: BillCapabilities
+  let onDownloadedFile: (DownloadedFile) -> Void
   let onMutation: () async -> Void
-  @State private var downloadedFile: DownloadedFile?
   @State private var showingSourceChooser = false
   @State private var showingFileImporter = false
   @State private var showingCamera = false
@@ -852,15 +955,26 @@ private struct ReceiptManagerView: View {
         RentivoCard {
           VStack(spacing: RentivoSpacing.medium) {
             ForEach(bill.receipts) { receipt in
+              let presentation = DocumentPresentation.uploadedReceipt(
+                filename: receipt.name,
+                billingName: billingName,
+                referenceMonth: bill.referenceMonth,
+                mediaType: receipt.mediaType
+              )
               HStack {
                 VStack(alignment: .leading, spacing: RentivoSpacing.tiny) {
-                  Label(receipt.name, systemImage: "doc.fill")
+                  Label(
+                    presentation.displayName,
+                    systemImage: DocumentPresentation.symbolName(
+                      mediaType: receipt.mediaType, filename: receipt.name)
+                  )
                     .font(.subheadline)
-                  if receipt.byteCount > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(receipt.byteCount), countStyle: .file))
-                      .font(.caption)
-                      .foregroundStyle(RentivoColors.secondaryInk)
-                  }
+                  Text(
+                    DocumentPresentation.metadataLine(
+                      byteCount: receipt.byteCount, createdAt: receipt.createdAt)
+                  )
+                  .font(.caption)
+                  .foregroundStyle(RentivoColors.secondaryInk)
                 }
                 Spacer()
                 Menu {
@@ -872,7 +986,7 @@ private struct ReceiptManagerView: View {
                 } label: {
                   Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Mais opções para \(receipt.name)")
+                .accessibilityLabel("Mais opções para \(presentation.displayName)")
               }
             }
             // Drag-to-reorder (`.onMove`) would need these rows hosted in a `List`, but this
@@ -897,7 +1011,6 @@ private struct ReceiptManagerView: View {
         .disabled(isMutating)
       }
     }
-    .downloadedFileSheet($downloadedFile)
     .confirmationDialog(
       "Adicionar comprovante",
       isPresented: $showingSourceChooser,
@@ -925,7 +1038,10 @@ private struct ReceiptManagerView: View {
         onCancel: { showingCamera = false },
         onFailure: {
           showingCamera = false
-          app.showNotice("Não foi possível usar a foto capturada.", kind: .warning)
+          app.showNotice(
+            "Não foi possível usar a foto. Tire outra foto ou escolha um arquivo.",
+            kind: .warning
+          )
         }
       )
       .ignoresSafeArea()
@@ -975,16 +1091,22 @@ private struct ReceiptManagerView: View {
         )
           .clampedToAcceptedReceiptFormat()
       else {
-        app.showNotice("Não foi possível ler o arquivo selecionado.", kind: .warning)
+        app.showNotice(
+          "Não foi possível abrir o arquivo. Escolha outro e tente novamente.", kind: .warning)
         return
       }
       await send(upload)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func add(capturedPhoto image: UIImage) async {
     guard let upload = FileUpload.capturedPhoto(image) else {
-      app.showNotice("Não foi possível preparar a foto do comprovante.", kind: .warning)
+      app.showNotice(
+        "Não foi possível preparar a foto. Tire outra foto ou escolha um arquivo.",
+        kind: .warning
+      )
       return
     }
     await send(upload)
@@ -994,22 +1116,25 @@ private struct ReceiptManagerView: View {
     photoSelection = nil
     do {
       guard let upload = try await photoItem.receiptUpload() else {
-        app.showNotice("Não foi possível ler a foto selecionada.", kind: .warning)
+        app.showNotice("Não foi possível abrir a foto. Escolha outra e tente novamente.", kind: .warning)
         return
       }
       await send(upload)
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func send(_ upload: FileUpload) async {
     guard !isMutating else { return }
     guard upload.byteCount > 0 else {
-      app.showNotice("O arquivo selecionado está vazio.", kind: .warning)
+      app.showNotice("O arquivo está vazio. Escolha outro e tente novamente.", kind: .warning)
       return
     }
     guard !ReceiptUploadLimit.exceedsLimit(byteCount: upload.byteCount) else {
       app.showNotice(
-        "O comprovante excede o limite de \(ReceiptUploadLimit.label).", kind: .warning)
+        "O comprovante é maior que \(ReceiptUploadLimit.label). Escolha um arquivo menor e tente novamente.",
+        kind: .warning)
       return
     }
     isMutating = true
@@ -1021,7 +1146,9 @@ private struct ReceiptManagerView: View {
         upload: upload
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .addReceipt), kind: .warning)
+    }
   }
 
   private func remove(_ receipt: Receipt) async {
@@ -1035,7 +1162,9 @@ private struct ReceiptManagerView: View {
         receiptID: receipt.id
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .deleteReceipt), kind: .warning)
+    }
   }
 
   private func reverse() async {
@@ -1047,15 +1176,29 @@ private struct ReceiptManagerView: View {
         billingID: billingID, billID: bill.id, receiptIDs: Array(bill.receipts.map(\.id).reversed())
       )
       await onMutation()
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .reorderReceipts), kind: .warning)
+    }
   }
 
   private func download(_ receipt: Receipt) async {
     do {
-      downloadedFile = try await app.dependencies.downloads.downloadReceipt(
-        billingID: billingID, billID: bill.id, receiptID: receipt.id
+      onDownloadedFile(
+        try await app.dependencies.downloads.downloadReceipt(
+          billingID: billingID,
+          billID: bill.id,
+          receiptID: receipt.id,
+          presentation: DocumentPresentation.uploadedReceipt(
+            filename: receipt.name,
+            billingName: billingName,
+            referenceMonth: bill.referenceMonth,
+            mediaType: receipt.mediaType
+          )
+        )
       )
-    } catch { app.showNotice(DemoError(error).message, kind: .warning) }
+    } catch {
+      app.showNotice(UserFacingError.message(for: error, operation: .openDocument), kind: .warning)
+    }
   }
 
 }
@@ -1074,19 +1217,6 @@ extension BillLineItemKind {
     case .fixed: "item fixo"
     case .variable: "valor variável"
     case .extra: "item extra"
-    }
-  }
-}
-
-extension BillStatus {
-  fileprivate var symbol: String {
-    switch self {
-    case .draft: "pencil.circle"
-    case .published: "megaphone.fill"
-    case .sent: "paperplane.fill"
-    case .paid: "checkmark.seal.fill"
-    case .cancelled: "xmark.circle.fill"
-    case .delayedPayment: "clock.badge.exclamationmark.fill"
     }
   }
 }

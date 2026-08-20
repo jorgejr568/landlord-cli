@@ -7,9 +7,13 @@ struct RentivoApp: App {
   init() {
     #if DEBUG
       let arguments = ProcessInfo.processInfo.arguments
-      let usesMockData = arguments.contains("--ui-testing") || arguments.contains("--screenshot-authenticated")
+      let usesMockData = arguments.contains("--ui-testing")
+        || arguments.contains("--ui-testing-authenticated")
+        || arguments.contains("--screenshot-authenticated")
+      let mockFixtures: MockFixtures = arguments.contains("--ui-testing-pdf-rendering")
+        ? .canonicalWithPendingPDF : .canonical
       let model = usesMockData
-        ? AppModel(store: MockRentivoStore(fixtures: .canonical))
+        ? AppModel(store: MockRentivoStore(fixtures: mockFixtures))
         : AppModel(dependencies: .live())
     #else
       let model = AppModel(dependencies: .live())
@@ -27,7 +31,24 @@ struct RentivoApp: App {
           default: model.selectedTab = .home
           }
         }
-        model.notice = nil
+        model.dismissNotice()
+      } else if arguments.contains("--ui-testing-authenticated") {
+        if arguments.contains("--ui-testing-empty") {
+          model.setEmptyMode(true)
+        }
+        if arguments.contains("--ui-testing-viewer") {
+          model.setViewerMode(true)
+        }
+        model.signIn()
+        if arguments.contains("--ui-testing-notice") {
+          model.dismissNotice()
+          Task { @MainActor in
+            // XCUITest spends several seconds establishing its automation session after launch.
+            // Post only after that hand-off so the test observes the real four-second lifetime.
+            try? await Task.sleep(for: .seconds(5))
+            model.showNotice("Sessão conectada ao Rentivo.", owner: .home)
+          }
+        }
       }
     #endif
     _app = State(initialValue: model)

@@ -64,14 +64,18 @@ struct InvitationListView: View {
     .background(RentivoColors.paper)
     .navigationTitle("Convites")
     .task(id: app.dataRevision) { await load() }
+    .noticeArea(.invitations)
+    .onDisappear { app.activateNoticeArea(.organizations) }
   }
 
   private var content: some View {
     PageStateView(
       state: state,
-      emptyTitle: "Nenhum convite pendente",
-      emptyMessage: "Convites para participar de organizações aparecerão aqui assim que alguém te convidar.",
-      emptySystemImage: "envelope.open"
+      emptyState: EmptyStateConfiguration(
+        title: "Nenhum convite pendente",
+        message: "Convites para participar de organizações aparecerão aqui assim que alguém te convidar.",
+        systemImage: "envelope.open"
+      )
     ) { invitations in
       List {
         ForEach(invitations) { invitation in
@@ -135,9 +139,9 @@ struct InvitationListView: View {
     } catch {
       switch state {
       case .loaded, .empty:
-        notice = .failure(DemoError(error).message)
+        notice = .failure(UserFacingError.message(for: error, operation: .loadInvitations))
       default:
-        state = .failed(DemoError(error))
+        state = .failed(UserFacingError.presentation(for: error, operation: .loadInvitations).demoError)
       }
     }
   }
@@ -158,17 +162,20 @@ struct InvitationListView: View {
       await onMutation()
       if acceptance?.mfaSetupRequired == true {
         dismiss()
-        app.selectedTab = .account
+        app.navigateToAuthenticatorSetup()
         app.showNotice(
-          "Sua nova organização exige MFA. Abra Segurança para configurar TOTP ou uma passkey.",
-          kind: .warning
+          "Sua nova organização exige verificação em duas etapas. Em Conta, abra Segurança para configurar.",
+          kind: .warning,
+          owner: .security
         )
         return
       }
       // The confirmation goes in the same slot as a failure rather than through `app.showNotice`:
       // the global banner would render behind this sheet and the user would never see it.
       notice = .confirmation(accept ? "Convite aceito." : "Convite recusado.")
-    } catch { notice = .failure(DemoError(error).message) }
+    } catch {
+      notice = .failure(UserFacingError.message(for: error, operation: .respondToInvitation))
+    }
   }
 }
 
@@ -186,7 +193,7 @@ struct InviteMemberView: View {
   @State private var email = ""
   @State private var role: OrganizationRole = .viewer
   @State private var emailValidationMessage: String?
-  @State private var submitErrorMessage: String?
+  @State private var submitFailure: UserFacingFailure?
   @State private var saving = false
   @State private var step: Step = .person
   @FocusState private var emailIsFocused: Bool
@@ -210,7 +217,7 @@ struct InviteMemberView: View {
   private var descriptors: [RentivoWizardStepDescriptor<Step>] {
     [
       .init(id: .person, title: "Pessoa"),
-      .init(id: .permission, title: "Permissão"),
+      .init(id: .permission, title: "Nível de acesso"),
       .init(id: .review, title: "Revisão"),
     ]
   }
@@ -223,25 +230,64 @@ struct InviteMemberView: View {
         "Quem você quer convidar?",
         subtitle: "O convite será enviado para este endereço."
       ) {
-        TextField("E-mail", text: $email)
+        RentivoTextFormField(
+          label: "E-mail",
+          text: $email,
+          errorMessage: emailValidationMessage,
+          isFocused: Binding(
+            get: { emailIsFocused },
+            set: { emailIsFocused = $0 }
+          ),
+          isAccessibilityFocused: Binding(
+            get: { emailIsAccessibilityFocused },
+            set: { emailIsAccessibilityFocused = $0 }
+          ),
+          accessibilityIdentifier: "invite.form.email"
+        )
           .keyboardType(.emailAddress)
           .textInputAutocapitalization(.never)
-          .focused($emailIsFocused)
-          .accessibilityFocused($emailIsAccessibilityFocused)
-          .accessibilityIdentifier("invite.form.email")
-        if let emailValidationMessage { errorLabel(emailValidationMessage) }
+          .autocorrectionDisabled()
+          .onChange(of: email) {
+            if emailValidationMessage != nil {
+              emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
+            }
+          }
       }
     case .permission:
       RentivoWizardSection(
-        "Permissão na organização",
-        subtitle: "Escolha o que esta pessoa poderá consultar e alterar."
+        "Escolha o nível de acesso",
+        subtitle: "Escolha o que esta pessoa poderá fazer. Você pode alterar o nível de acesso depois."
       ) {
-        Picker("Função", selection: $role) {
-          ForEach(OrganizationRole.allCases, id: \.self) { role in
-            Text(role.label).tag(role)
+        ForEach(OrganizationRole.allCases, id: \.self) { option in
+          Button {
+            role = option
+          } label: {
+            RentivoCard {
+              HStack(alignment: .top, spacing: RentivoSpacing.medium) {
+                VStack(alignment: .leading, spacing: RentivoSpacing.small) {
+                  Text(option.label)
+                    .font(.headline)
+                    .foregroundStyle(RentivoColors.ink)
+                  Text(option.invitationDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(RentivoColors.secondaryInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: RentivoSpacing.small)
+                Image(systemName: role == option ? "checkmark.circle.fill" : "circle")
+                  .foregroundStyle(role == option ? RentivoColors.emerald : RentivoColors.secondaryInk)
+                  .accessibilityHidden(true)
+              }
+              .frame(minHeight: 44)
+            }
           }
+          .buttonStyle(.plain)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("\(option.label). \(option.invitationDescription)")
+          .accessibilityValue(role == option ? "Selecionado" : "Não selecionado")
+          .accessibilityAddTraits(role == option ? [.isSelected] : [])
+          .accessibilityIdentifier("invite.form.role.\(option.rawValue)")
         }
-        .accessibilityIdentifier("invite.form.role")
         if organization.requiresMFA {
           Label(
             "Esta organização exige MFA. A pessoa precisará configurar um fator de autenticação ao aceitar o convite.",
@@ -268,14 +314,15 @@ struct InviteMemberView: View {
     case .review:
       RentivoWizardSection("Convite") {
         RentivoWizardReviewRow(label: "E-mail", value: OrganizationInviteEmail.normalized(email))
-        RentivoWizardReviewRow(label: "Função", value: role.label)
+        RentivoWizardReviewRow(label: "Nível de acesso", value: role.label)
         RentivoWizardReviewRow(
           label: "MFA", value: organization.requiresMFA ? "Obrigatório" : "Opcional"
         )
       }
-      if let submitErrorMessage {
+      if let submitFailure {
         RentivoWizardSection("Não foi possível convidar") {
-          errorLabel(submitErrorMessage)
+          UserFacingFailureView(failure: submitFailure) { openAuthenticatorSetup() }
+            .accessibilityIdentifier("invite.form.error")
         }
       }
     }
@@ -288,8 +335,13 @@ struct InviteMemberView: View {
       .accessibilityIdentifier("invite.form.error")
   }
 
+  private func openAuthenticatorSetup() {
+    dismiss()
+    Task { @MainActor in app.navigateToAuthenticatorSetup() }
+  }
+
   private func validateCurrentStep() -> Bool {
-    submitErrorMessage = nil
+    submitFailure = nil
     guard step == .person else { return true }
     emailValidationMessage = OrganizationInviteEmail.validationMessage(email)
     if emailValidationMessage != nil { scheduleEmailFocus() }
@@ -304,7 +356,7 @@ struct InviteMemberView: View {
       scheduleEmailFocus()
       return
     }
-    submitErrorMessage = nil
+    submitFailure = nil
     saving = true
     defer { saving = false }
     do {
@@ -316,7 +368,9 @@ struct InviteMemberView: View {
       await onSaved()
       dismiss()
       app.showNotice("Convite enviado.")
-    } catch { submitErrorMessage = DemoError(error).message }
+    } catch {
+      submitFailure = UserFacingError.presentation(for: error, operation: .sendInvitation)
+    }
   }
 
   private func scheduleEmailFocus() {

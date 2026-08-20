@@ -35,19 +35,34 @@ public struct DownloadedFileStore: Sendable {
     self.directory = directory
   }
 
-  /// Creates the downloads directory if needed and returns a collision-free destination carrying
-  /// `pathExtension`, which is what lets `ShareLink` and the receiving app infer the file's type.
-  func makeDestination(pathExtension: String) throws -> URL {
+  /// Creates a private per-download directory so collisions cannot change the human final name.
+  func makeDestination(filename: String) throws -> URL {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory
-      .appendingPathComponent(UUID().uuidString)
-      .appendingPathExtension(pathExtension)
+    let downloadDirectory = directory.appendingPathComponent(
+      UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: downloadDirectory, withIntermediateDirectories: false)
+    return downloadDirectory.appendingPathComponent(
+      DocumentPresentation.sanitizedFilename(filename), isDirectory: false)
   }
 
   /// Removes one downloaded file. Best effort: a file iOS already reclaimed from `tmp/` on its own
   /// schedule is not a failure worth surfacing to the caller.
-  public static func remove(_ file: DownloadedFile) {
-    try? FileManager.default.removeItem(at: file.fileURL)
+  public func remove(_ file: DownloadedFile) {
+    removeDestination(file.fileURL)
+  }
+
+  /// Removes a destination created by `makeDestination`, including an incomplete write or move.
+  /// Refusing URLs outside this store's root keeps cleanup from trusting a caller-provided UUID
+  /// directory name by itself.
+  func removeDestination(_ fileURL: URL) {
+    let root = directory.standardizedFileURL
+    let downloadDirectory = fileURL.deletingLastPathComponent().standardizedFileURL
+    guard
+      downloadDirectory.deletingLastPathComponent().standardizedFileURL == root,
+      UUID(uuidString: downloadDirectory.lastPathComponent) != nil
+    else { return }
+    try? FileManager.default.removeItem(at: downloadDirectory)
   }
 
   /// Removes every file this store produced, so nothing an authenticated session downloaded

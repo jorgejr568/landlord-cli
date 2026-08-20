@@ -116,10 +116,64 @@ public protocol CommunicationRepository: AnyObject {
 
 @MainActor
 public protocol FileDownloadRepository: AnyObject {
-  func downloadInvoice(billingID: BillingID, billID: BillID) async throws -> DownloadedFile
-  func downloadRecibo(billingID: BillingID, billID: BillID) async throws -> DownloadedFile
-  func downloadReceipt(billingID: BillingID, billID: BillID, receiptID: ReceiptID) async throws -> DownloadedFile
-  func downloadAttachment(billingID: BillingID, attachmentID: AttachmentID) async throws -> DownloadedFile
+  func downloadInvoice(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile
+  func downloadRecibo(
+    billingID: BillingID, billID: BillID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile
+  func downloadReceipt(
+    billingID: BillingID, billID: BillID, receiptID: ReceiptID,
+    presentation: DocumentPresentation
+  ) async throws -> DownloadedFile
+  func downloadAttachment(
+    billingID: BillingID, attachmentID: AttachmentID, presentation: DocumentPresentation
+  ) async throws -> DownloadedFile
+}
+
+public extension FileDownloadRepository {
+  func downloadInvoice(
+    billingID: BillingID, billID: BillID
+  ) async throws -> DownloadedFile {
+    try await downloadInvoice(
+      billingID: billingID,
+      billID: billID,
+      presentation: .serverFallback(serverName: billID.rawValue, mediaType: "application/pdf")
+    )
+  }
+
+  func downloadRecibo(
+    billingID: BillingID, billID: BillID
+  ) async throws -> DownloadedFile {
+    try await downloadRecibo(
+      billingID: billingID,
+      billID: billID,
+      presentation: .serverFallback(serverName: billID.rawValue, mediaType: "application/pdf")
+    )
+  }
+
+  func downloadReceipt(
+    billingID: BillingID, billID: BillID, receiptID: ReceiptID
+  ) async throws -> DownloadedFile {
+    try await downloadReceipt(
+      billingID: billingID,
+      billID: billID,
+      receiptID: receiptID,
+      presentation: .serverFallback(
+        serverName: receiptID.rawValue, mediaType: "application/octet-stream")
+    )
+  }
+
+  func downloadAttachment(
+    billingID: BillingID, attachmentID: AttachmentID
+  ) async throws -> DownloadedFile {
+    try await downloadAttachment(
+      billingID: billingID,
+      attachmentID: attachmentID,
+      presentation: .serverFallback(
+        serverName: attachmentID.rawValue, mediaType: "application/octet-stream")
+    )
+  }
 }
 
 @MainActor
