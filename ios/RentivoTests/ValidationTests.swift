@@ -428,7 +428,7 @@ import Testing
   )
 }
 
-@Test func customPIXValidationRejectsTheKeyBeforeRecipientData() {
+@Test func untypedPIXValidationRejectsTheKeyBeforeRecipientData() {
   let item = BillingItem(
     id: UUID(), description: "Aluguel", amount: Money(centavos: 120_000),
     type: .fixed, sortOrder: 0
@@ -443,11 +443,11 @@ import Testing
 
   #expect(
     draft.validate().first(where: { $0.field == .pix })?.message
-      == "Esta chave não corresponde ao tipo selecionado."
+      == "Informe uma chave PIX válida."
   )
   #expect(
     OrganizationDraft.pixValidationMessage(
       key: "incompatível", merchantName: "", city: ""
-    ) == "Esta chave não corresponde ao tipo selecionado."
+    ) == "Informe uma chave PIX válida."
   )
 }

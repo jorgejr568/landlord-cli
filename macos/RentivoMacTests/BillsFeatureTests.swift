@@ -371,3 +371,55 @@ struct DownloadedFileExportTests {
     )
   }
 }
+
+@Suite("macOS download presentation names")
+struct MacOSDownloadPresentationTests {
+  @Test("generated bill documents use the cobrança name and competência")
+  func generatedDocumentsUseHumanNames() {
+    let month = ReferenceMonth(year: 2026, month: 8)
+
+    let invoice = MacOSDocumentPresentations.invoice(
+      billingName: "Apartamento 202", referenceMonth: month
+    )
+    let receipt = MacOSDocumentPresentations.generatedReceipt(
+      billingName: "Apartamento 202", referenceMonth: month
+    )
+
+    #expect(invoice.displayName == "Fatura - Apartamento 202 - agosto 2026")
+    #expect(invoice.suggestedFilename == "Fatura - Apartamento 202 - agosto 2026.pdf")
+    #expect(invoice.mediaType == "application/pdf")
+    #expect(receipt.displayName == "Recibo - Apartamento 202 - agosto 2026")
+    #expect(receipt.suggestedFilename == "Recibo - Apartamento 202 - agosto 2026.pdf")
+    #expect(receipt.mediaType == "application/pdf")
+  }
+
+  @Test("uploaded receipts and attachments retain their names and media types")
+  func uploadedDocumentsRetainNamesAndMediaTypes() {
+    let month = ReferenceMonth(year: 2026, month: 8)
+    let receipt = Receipt(
+      id: ReceiptID(rawValue: "receipt-id"),
+      name: "comprovante-pix.jpg",
+      sortOrder: 0,
+      mediaType: "image/jpeg"
+    )
+    let attachment = Attachment(
+      id: AttachmentID(rawValue: "attachment-id"),
+      name: "Contrato assinado",
+      filename: "contrato.pdf",
+      mediaType: "application/pdf",
+      byteCount: 10
+    )
+
+    let receiptPresentation = MacOSDocumentPresentations.uploadedReceipt(
+      receipt, billingName: "Apartamento 202", referenceMonth: month
+    )
+    let attachmentPresentation = MacOSDocumentPresentations.attachment(attachment)
+
+    #expect(receiptPresentation.displayName == "comprovante-pix")
+    #expect(receiptPresentation.suggestedFilename == "comprovante-pix.jpg")
+    #expect(receiptPresentation.mediaType == "image/jpeg")
+    #expect(attachmentPresentation.displayName == "Contrato assinado")
+    #expect(attachmentPresentation.suggestedFilename == "contrato.pdf")
+    #expect(attachmentPresentation.mediaType == "application/pdf")
+  }
+}

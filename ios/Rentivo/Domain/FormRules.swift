@@ -263,7 +263,7 @@ public enum PixFormRules {
     let city = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmedKey.isEmpty, name.isEmpty, city.isEmpty { return .inherit }
     guard let type = PixKeyInput.inferType(from: trimmedKey) else {
-      return .invalid("Esta chave não corresponde ao tipo selecionado.")
+      return .invalid("Informe uma chave PIX válida.")
     }
     return result(type: type, key: trimmedKey, merchantName: name, merchantCity: city)
   }

@@ -27,11 +27,13 @@ struct AccountProfilePIXTests {
     #expect(ProfilePIXForm(profile: try await app.loadProfile()) == saved)
   }
 
-  @Test("only a complete, type-confirmed PIX form is savable")
-  func pixFormSavabilityMatchesTheServerContract() {
+  @Test("the macOS type picker makes a non-UUID PIX key savable")
+  func pixTypePickerMakesANonUUIDKeySavable() {
     var form = ProfilePIXForm()
     #expect(form.isSavable == false)
     #expect(form.configuration == nil)
+    // ProfilePixView's "Tipo de chave" Picker writes this same property. Selecting E-mail must
+    // move the form off its default random/UUID validation before the key is entered.
     form.keyType = .email
     form.key = "jorge@example.com"
     #expect(form.isSavable == false)
@@ -47,6 +49,19 @@ struct AccountProfilePIXTests {
     form.merchantName = "JORGE JUNIOR"
     form.merchantCity = String(repeating: "C", count: 16)
     #expect(form.isSavable == false)
+  }
+
+  @Test("the explicit removal action clears persisted PIX and confirms it")
+  func explicitRemovalClearsPersistedPIX() async throws {
+    let app = AppModel(store: MockRentivoStore(fixtures: .canonical))
+    app.signIn()
+    #expect(try await app.loadProfile().pix != nil)
+
+    let form = try await ProfilePIXRemoval.perform(in: app)
+
+    #expect(form == ProfilePIXForm(profile: try await app.loadProfile()))
+    #expect(try await app.loadProfile().pix == nil)
+    #expect(app.notice?.message == "PIX pessoal removido.")
   }
 
   @Test("demo viewer mode locks the PIX section but still reads the profile")

@@ -6,6 +6,7 @@ import SwiftUI
 struct ReceiptManagerView: View {
   @Environment(AppModel.self) private var app
   let billingID: BillingID
+  let billingName: String
   let bill: Bill
   let capabilities: BillCapabilities
   let onMutation: () async -> Void
@@ -224,7 +225,14 @@ struct ReceiptManagerView: View {
     defer { downloadingReceiptID = nil }
     do {
       downloadedFile = try await app.dependencies.downloads.downloadReceipt(
-        billingID: billingID, billID: bill.id, receiptID: receipt.id
+        billingID: billingID,
+        billID: bill.id,
+        receiptID: receipt.id,
+        presentation: MacOSDocumentPresentations.uploadedReceipt(
+          receipt,
+          billingName: billingName,
+          referenceMonth: bill.referenceMonth
+        )
       )
     } catch { app.reportFailure(error) }
   }
