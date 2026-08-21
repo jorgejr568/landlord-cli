@@ -367,11 +367,17 @@ struct PageStateView<Value: Sendable, Content: View>: View {
     case .loaded(let value):
       content(value)
     case .empty:
-      if let emptyState {
-        InlineEmptyStateView(configuration: emptyState, action: emptyAction)
-      } else {
-        MissingEmptyStateConfigurationView()
+      // `InlineEmptyStateView` is intrinsically sized so it can sit inside a scrolling section.
+      // As a whole page it must still claim the container, or the screen background paints only
+      // behind the text block and the rest of the page falls through to the system background.
+      Group {
+        if let emptyState {
+          InlineEmptyStateView(configuration: emptyState, action: emptyAction)
+        } else {
+          MissingEmptyStateConfigurationView()
+        }
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     case .failed(let error):
       ContentUnavailableView {
         Label(failureTitle, systemImage: "exclamationmark.triangle")
