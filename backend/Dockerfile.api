@@ -23,7 +23,11 @@ RUN uv sync --project backend --frozen $(for e in $API_EXTRAS; do echo --extra $
 # --- Runtime stage: FastAPI only ---
 FROM python:3.14-slim
 
+# The upstream interpreter image lags Debian security releases; upgrade the
+# installed OS packages so the weekly vulnerability scan tracks the Debian
+# security repository instead of whatever the base image last baked in.
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --no-install-recommends --yes curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --home-dir /home/appuser --shell /usr/sbin/nologin appuser
