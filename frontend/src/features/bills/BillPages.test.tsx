@@ -456,9 +456,10 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
 
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   expect(screen.getByLabelText("Vencimento")).toHaveValue("2026-08-10");
-  expect(screen.getAllByLabelText("Tipo")[0]).toBeDisabled();
+  expect(screen.getAllByText("Fixo")[0]).toHaveClass("tag--fixed");
+  await user.click(screen.getByRole("button", { name: "Comprovantes 0" }));
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "edit.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
   expect(await screen.findByText("edit.pdf")).toBeVisible();
@@ -469,7 +470,7 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   const amounts = screen.getAllByLabelText("Valor (R$)");
   await user.type(descriptions.at(-1)!, "Energia");
   await user.type(amounts.at(-1)!, "50,00");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await waitFor(() => expect(patchBody).toEqual({
     due_date: "2026-08-10",
     line_items: [
@@ -480,12 +481,49 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
     notes: "Atualizado"
   }));
 
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   expect(await screen.findByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
+});
+
+it("presents invoice editing as one workspace with a live summary and disclosed records", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      line_items: [{ ...bill.line_items[0], item_type: "variable" }, bill.line_items[1]],
+      status: "delayed_payment"
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  const workspace = await screen.findByRole("article", { name: "Editor da fatura de Julho/2026" });
+  expect(within(workspace).getByRole("heading", { level: 1, name: "Editar fatura" })).toBeVisible();
+  expect(within(workspace).getByText("Pagamento atrasado")).toHaveClass("tag--delayed");
+  expect(within(workspace).getByText("Variável")).toHaveClass("tag--variable");
+  expect(within(workspace).getByRole("region", { name: "Resumo das alterações" })).toHaveTextContent("R$ 2.512,50");
+  expect(within(workspace).getByText("2 itens")).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Salvar alterações" })).toBeDisabled();
+  const actions = within(workspace).getByRole("button", { name: "Ações da fatura" });
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  expect(actions).toHaveFocus();
+
+  const receipts = within(workspace).getByRole("button", { name: "Comprovantes 0" });
+  expect(receipts).toHaveAttribute("aria-expanded", "false");
+  expect(within(workspace).queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
+  await user.click(receipts);
+  expect(receipts).toHaveAttribute("aria-expanded", "true");
+  expect(within(workspace).getByLabelText("Anexar comprovantes")).toBeVisible();
 });
 
 it("sends selected recipients and applies templates without requesting a preview", async () => {
@@ -992,9 +1030,9 @@ it("retries edit loading and obeys denied edit and file capabilities", async () 
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
   expect(await screen.findByText("Falha ao abrir edição.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  expect(await screen.findByText(/a última tentativa de gerar o PDF falhou/)).toBeVisible();
+  expect(await screen.findByText(/O PDF não foi gerado/)).toBeVisible();
   expect(screen.getByText("Você não possui permissão para editar esta fatura.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Salvar alterações" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
@@ -1018,16 +1056,18 @@ it("validates edit rows, removes extras, and focuses nested API errors", async (
     }
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   await user.click(screen.getByRole("button", { name: "Remover Gás" }));
   expect(screen.queryByDisplayValue("Gás")).not.toBeInTheDocument();
   const description = screen.getByLabelText("Descrição");
   const amount = screen.getByLabelText("Valor (R$)");
   await user.clear(description);
   await user.clear(amount);
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor válido.")).toBeVisible();
+  expect(description).toHaveAttribute("aria-invalid", "true");
+  expect(amount).toHaveAttribute("aria-invalid", "true");
   expect(description).toHaveFocus();
 
   fireEvent.change(description, { target: { value: "😀".repeat(256) } });
@@ -1038,11 +1078,13 @@ it("validates edit rows, removes extras, and focuses nested API errors", async (
   fireEvent.change(screen.getByLabelText("Descrição"), {
     target: { value: "Aluguel" },
   });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
   expect(screen.getByText("Vencimento não permitido.")).toBeVisible();
+  expect(screen.getByLabelText("Vencimento")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByLabelText("Observações")).toHaveAttribute("aria-invalid", "true");
   await waitFor(() => expect(screen.getByLabelText("Vencimento")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a fatura.")).toBeVisible();
 });
 
@@ -1050,11 +1092,11 @@ it("rejects an edited bill total beyond the persistence limit", async () => {
   const user = userEvent.setup();
   const fetchMock = installFetch(detailHandlers());
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   const firstAmount = screen.getAllByLabelText("Valor (R$)")[0];
   await user.clear(firstAmount);
   await user.type(firstAmount, "21.474.836,47");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
   expect(firstAmount).toHaveFocus();
@@ -1069,9 +1111,11 @@ it("reports edit regeneration and deletion failures", async () => {
     "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => problemResponse({ code: "delete_failed", detail: "Exclusão indisponível.", fields: {}, request_id: "req", status: 409, title: "Erro", type: "problem" })
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   expect(await screen.findByText("Regeneração indisponível.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   expect(await screen.findByText("Exclusão indisponível.")).toBeVisible();
@@ -1097,12 +1141,13 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
     }
   });
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
-  fireEvent.submit(screen.getByRole("button", { name: "Salvando..." }).closest("form")!);
+  await screen.findByRole("heading", { name: "Editar fatura" });
+  await user.type(screen.getByLabelText("Observações"), " (rascunho)");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
+  fireEvent.submit(document.getElementById("invoice-edit-form")!);
   expect(patchCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
-  await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
+  await screen.findByRole("article", { name: "Editor da fatura de Agosto/2026" });
   expect(mutation.signal?.aborted).toBe(true);
 
   settle();
@@ -1140,15 +1185,17 @@ it.each([
     }
   });
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   if (action === "regenerate") {
+    await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
     await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   } else {
+    await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
     await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   }
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
-  await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
+  await screen.findByRole("article", { name: "Editor da fatura de Agosto/2026" });
   expect(mutation.signal?.aborted).toBe(true);
 
   settle();
