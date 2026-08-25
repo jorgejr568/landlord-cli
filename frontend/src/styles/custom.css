@@ -789,6 +789,12 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .wizard-summary__body { padding: 1rem; }
 .wizard-summary__body > :first-child { margin-top: 0; }
 .wizard-summary__body > :last-child { margin-bottom: 0; }
+.summary-list { display: grid; gap: 0.7rem; margin: 0; }
+.summary-list > div { display: grid; gap: 0.12rem; }
+.summary-list dt { color: var(--muted); font-family: var(--font-mono); font-size: 0.61rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+.summary-list dd { margin: 0; font-size: 0.84rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.summary-list__total { margin: 0.2rem -1rem -1rem; padding: 0.85rem 1rem; border-top: var(--bw) solid var(--ink); background: var(--accent-pale); }
+.summary-list__total dd { color: var(--accent-dark); font-family: var(--font-display); font-size: 1.25rem; letter-spacing: -0.03em; }
 .review-list { display: grid; margin: 0; border: var(--bw) solid var(--ink); border-radius: var(--r-sm); overflow: hidden; }
 .review-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0.95rem; background: var(--surface); }
 .review-row + .review-row { border-top: 1.5px solid var(--line); }
