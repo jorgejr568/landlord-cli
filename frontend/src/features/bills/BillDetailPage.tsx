@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { LoadError, LoadingState } from "../../components/PageState";
+import { LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage } from "../../lib/api/errors";
 import { formatBrl, formatDateTime, formatIsoDate, formatMonth } from "../../lib/format";
@@ -236,7 +236,19 @@ export function BillDetailPage() {
   };
 
   if (loading) return <LoadingState label="Carregando fatura..." />;
-  if (loadError) return <LoadError message={loadError} onRetry={() => void load()} />;
+  if (loadError) return (
+    <section aria-labelledby="bill-load-error-title" className="bill-route-error">
+      <FileWarning aria-hidden="true" size={24} />
+      <div>
+        <h1 id="bill-load-error-title">Não foi possível abrir esta fatura</h1>
+        <p role="alert">{loadError}</p>
+      </div>
+      <div className="bill-route-error__actions">
+        <button className="btn btn--primary" onClick={() => void load()} type="button">Tentar novamente</button>
+        <Link className="btn" to={`/billings/${billingUuid}`}><ArrowLeft aria-hidden="true" size={15} />Voltar para a cobrança</Link>
+      </div>
+    </section>
+  );
   /* v8 ignore next -- successful paired loading always sets both resources */
   if (!bill || !billing) return null;
   const status = STATUS_META[bill.status] ?? { className: "tag--draft", label: bill.status };
@@ -257,6 +269,17 @@ export function BillDetailPage() {
               {bill.pdf_render_status === "failed" ? <span className="tag tag--cancelled" title="Falha ao gerar o PDF. Tente regenerar pelo menu de ações.">Falha no PDF</span> : null}
             </div>
             <p>{billing.name}{bill.due_date ? ` · vencimento ${formatIsoDate(bill.due_date)}` : ""}</p>
+          </div>
+        </header>
+
+        <section aria-label="Resumo da fatura" className="bill-workspace__control-strip">
+          <div className="bill-workspace__amount">
+            <span>Total a pagar</span>
+            <strong>{formatBrl(bill.total_amount)}</strong>
+          </div>
+          <div className="bill-workspace__due">
+            <CalendarDays aria-hidden="true" size={17} />
+            <span>{bill.due_date ? <>Vencimento<strong>{formatIsoDate(bill.due_date)}</strong></> : <>Vencimento<strong>Sem data definida</strong></>}</span>
           </div>
           <div className="bill-workspace__toolbar">
             {bill.capabilities.can_download_invoice ? <a className="btn btn--sm btn--primary" href={`/api/v1/billings/${billingUuid}/bills/${bill.uuid}/invoice`} target="_blank"><FileText aria-hidden="true" size={15} />Abrir PDF</a> : null}
@@ -286,7 +309,7 @@ export function BillDetailPage() {
               )}
             /> : null}
           </div>
-        </header>
+        </section>
 
         <div className="bill-workspace__progress">
           <div><span>Andamento</span>{bill.status_updated_at ? <small>Atualizado em {formatDateTime(bill.status_updated_at)}</small> : null}</div>
@@ -305,29 +328,25 @@ export function BillDetailPage() {
             </dl>
             <div className="bill-ledger__table"><table className="table"><thead><tr><th>Descrição</th><th className="center">Tipo</th><th className="num">Valor</th></tr></thead><tbody>
               {bill.line_items.map((item, index) => <tr key={`${item.description}-${item.sort_order}-${index}`}><td className="table__primary">{item.description}</td><td className="center"><span className={`tag tag--${item.item_type}`}>{item.item_type === "fixed" ? "Fixo" : item.item_type === "variable" ? "Variável" : "Extra"}</span></td><td className="num">{formatBrl(item.amount)}</td></tr>)}
-              <tr className="total"><td colSpan={2}>Total a pagar</td><td className="num">{formatBrl(bill.total_amount)}</td></tr>
             </tbody></table></div>
             {bill.notes ? <div className="bill-ledger__notes"><strong>Observações</strong><p>{bill.notes}</p></div> : null}
           </section>
 
-          <aside aria-label="Resumo do pagamento" className="bill-payment-rail">
-            <span className="bill-payment-rail__label">Total a pagar</span>
-            <strong className="bill-payment-rail__amount">{formatBrl(bill.total_amount)}</strong>
-            {bill.due_date ? <div className="bill-payment-rail__due"><CalendarDays aria-hidden="true" size={17} /><span>Vencimento<strong>{formatIsoDate(bill.due_date)}</strong></span></div> : null}
-            <DocumentFeedback ready={bill.capabilities.can_download_invoice} status={bill.pdf_render_status} />
-            <p className="bill-payment-rail__hint">O PDF inclui o QR Code PIX no padrão EMV.</p>
-            {bill.capabilities.can_download_invoice ? <a className="btn btn--ink btn--block" href={`/api/v1/billings/${billingUuid}/bills/${bill.uuid}/invoice`} target="_blank">Abrir PDF com QR</a> : null}
+          <aside aria-label="Documento e registros" className="bill-operations">
+            <div className="bill-operations__document">
+              <DocumentFeedback ready={bill.capabilities.can_download_invoice} status={bill.pdf_render_status} />
+              <p>O PDF reúne a cobrança e o QR Code PIX no padrão EMV.</p>
+            </div>
+            <section className="bill-records">
+              <div aria-label="Registros da fatura" className="bill-records__tabs" role="tablist">
+                <button aria-controls="bill-communications-panel" aria-selected={activeRecords === "communications"} id="bill-communications-tab" onClick={() => changeRecordsTab("communications")} onKeyDown={(event) => handleRecordsKeyDown(event, "communications")} ref={(element) => { recordTabRefs.current[0] = element; }} role="tab" tabIndex={activeRecords === "communications" ? 0 : -1} type="button">Comunicações <span>{bill.communications.length}</span></button>
+                <button aria-controls="bill-receipts-panel" aria-selected={activeRecords === "receipts"} id="bill-receipts-tab" onClick={() => changeRecordsTab("receipts")} onKeyDown={(event) => handleRecordsKeyDown(event, "receipts")} ref={(element) => { recordTabRefs.current[1] = element; }} role="tab" tabIndex={activeRecords === "receipts" ? 0 : -1} type="button">Comprovantes <span>{bill.receipts.length}</span></button>
+              </div>
+              {activeRecords === "communications" ? <div aria-labelledby="bill-communications-tab" className="bill-records__panel" id="bill-communications-panel" role="tabpanel">{bill.communications.length === 0 ? <p className="text-muted">Nenhuma comunicação enviada.</p> : <ul className="bill-activity">{bill.communications.map((communication) => <li key={communication.uuid}><time className="mono">{formatDateTime(communication.created_at)}</time><div>{hasFullCommunication(communication) ? <><strong>{communication.recipient_name} &lt;{communication.recipient_email}&gt;</strong><span>{communication.subject}</span></> : <><strong>Dados do destinatário protegidos</strong><span>Assunto indisponível</span></>}</div><span className={`tag ${communication.status === "sent" ? "tag--paid" : communication.status === "failed" ? "tag--cancelled" : "tag--draft"}`}>{communication.status === "sent" ? "Enviado" : communication.status === "failed" ? "Falhou" : "Na fila"}</span></li>)}</ul>}</div> : null}
+              {activeRecords === "receipts" ? <div aria-labelledby="bill-receipts-tab" className="bill-records__panel" id="bill-receipts-panel" role="tabpanel"><ReceiptManager billingUuid={billingUuid} billUuid={bill.uuid} capabilities={bill.capabilities} onChange={(receipts) => { setBill((current) => ({ ...current!, receipts })); void load({ silent: true }); }} receipts={bill.receipts} /></div> : null}
+            </section>
           </aside>
         </div>
-
-        <section className="bill-records">
-          <div aria-label="Registros da fatura" className="bill-records__tabs" role="tablist">
-            <button aria-controls="bill-communications-panel" aria-selected={activeRecords === "communications"} id="bill-communications-tab" onClick={() => changeRecordsTab("communications")} onKeyDown={(event) => handleRecordsKeyDown(event, "communications")} ref={(element) => { recordTabRefs.current[0] = element; }} role="tab" tabIndex={activeRecords === "communications" ? 0 : -1} type="button">Comunicações <span>{bill.communications.length}</span></button>
-            <button aria-controls="bill-receipts-panel" aria-selected={activeRecords === "receipts"} id="bill-receipts-tab" onClick={() => changeRecordsTab("receipts")} onKeyDown={(event) => handleRecordsKeyDown(event, "receipts")} ref={(element) => { recordTabRefs.current[1] = element; }} role="tab" tabIndex={activeRecords === "receipts" ? 0 : -1} type="button">Comprovantes <span>{bill.receipts.length}</span></button>
-          </div>
-          {activeRecords === "communications" ? <div aria-labelledby="bill-communications-tab" className="bill-records__panel" id="bill-communications-panel" role="tabpanel">{bill.communications.length === 0 ? <p className="text-muted">Nenhuma comunicação enviada.</p> : <ul className="bill-activity">{bill.communications.map((communication) => <li key={communication.uuid}><time className="mono">{formatDateTime(communication.created_at)}</time><div>{hasFullCommunication(communication) ? <><strong>{communication.recipient_name} &lt;{communication.recipient_email}&gt;</strong><span>{communication.subject}</span></> : <><strong>Dados do destinatário protegidos</strong><span>Assunto indisponível</span></>}</div><span className={`tag ${communication.status === "sent" ? "tag--paid" : communication.status === "failed" ? "tag--cancelled" : "tag--draft"}`}>{communication.status === "sent" ? "Enviado" : communication.status === "failed" ? "Falhou" : "Na fila"}</span></li>)}</ul>}</div> : null}
-          {activeRecords === "receipts" ? <div aria-labelledby="bill-receipts-tab" className="bill-records__panel" id="bill-receipts-panel" role="tabpanel"><ReceiptManager billingUuid={billingUuid} billUuid={bill.uuid} capabilities={bill.capabilities} onChange={(receipts) => { setBill((current) => ({ ...current!, receipts })); void load({ silent: true }); }} receipts={bill.receipts} /></div> : null}
-        </section>
       </article>
       {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}{success && <div className="toast toast--success" role="status">{success}</div>}
       <ConfirmDialog acceptLabel="Excluir fatura" body="A fatura e seus arquivos serão removidos. Esta ação não pode ser desfeita." onClose={() => setDeleteOpen(false)} onConfirm={() => void removeBill()} open={deleteOpen} title="Tem certeza que deseja excluir esta fatura?" />

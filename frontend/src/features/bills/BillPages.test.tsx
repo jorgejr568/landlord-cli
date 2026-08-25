@@ -141,9 +141,9 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
   expect(within(lifecycle).getByText("Pago").closest("li")).toHaveAttribute("data-state", "current");
   expect(screen.getByRole("heading", { name: "Documento pronto" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Residencial Sol" })).toHaveClass("crumb");
-  expect(screen.getAllByText("R$ 2.512,50")).toHaveLength(2);
+  expect(screen.getAllByText("R$ 2.512,50")).toHaveLength(1);
   expect(screen.getByText("Extra")).toHaveClass("tag--extra");
-  expect(screen.getByRole("link", { name: "Abrir PDF com QR" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice");
+  expect(screen.getByRole("link", { name: "Abrir PDF" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice");
   expect(screen.getByRole("link", { name: "Baixar recibo" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/recibo/download");
   expect(screen.getByRole("button", { name: "Ações da fatura" })).toHaveClass("btn-dropdown-toggle", "btn--sm");
   expect(screen.getByRole("link", { name: "Enviar fatura" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready");
@@ -163,7 +163,7 @@ it("presents invoice details as one workspace with compact actions and switchabl
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
 
   const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
-  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(2);
+  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(1);
   expect(within(workspace).getByRole("link", { name: "Abrir PDF" })).toHaveAttribute(
     "href",
     "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice"
@@ -197,6 +197,34 @@ it("presents invoice details as one workspace with compact actions and switchabl
   expect(receiptsTab).toHaveAttribute("aria-selected", "true");
   fireEvent.keyDown(receiptsTab, { key: "Tab" });
   expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+});
+
+it("keeps payment, document access, and records in one non-duplicated operating surface", async () => {
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
+  const summary = within(workspace).getByRole("region", { name: "Resumo da fatura" });
+  const operations = within(workspace).getByRole("complementary", { name: "Documento e registros" });
+
+  expect(within(summary).getByText("R$ 2.512,50")).toBeVisible();
+  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(1);
+  expect(within(workspace).getAllByRole("link", { name: "Abrir PDF" })).toHaveLength(1);
+  expect(within(operations).getByRole("heading", { name: "Documento pronto" })).toBeVisible();
+  expect(within(operations).getByRole("tab", { name: "Comunicações 3" })).toBeVisible();
+});
+
+it("offers a route-aware way back when an invoice cannot be loaded", async () => {
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => problemResponse({ code: "not_found", detail: "Recurso não encontrado.", fields: {}, request_id: "req", status: 404, title: "Não encontrado", type: "problem" }),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => problemResponse({ code: "not_found", detail: "Recurso não encontrado.", fields: {}, request_id: "req", status: 404, title: "Não encontrado", type: "problem" })
+  });
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  expect(await screen.findByRole("link", { name: "Voltar para a cobrança" })).toHaveAttribute(
+    "href",
+    "/billings/billing-public-uuid"
+  );
 });
 
 it("toggles the unified action dropdown and returns focus when Escape closes it", async () => {

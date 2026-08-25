@@ -292,7 +292,11 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
         <form encType="multipart/form-data" onSubmit={(event) => void upload(event)}>
           <div className="field">
             <label className="field__label field-label" htmlFor="receipt_files">Anexar comprovantes</label>
-            <input accept=".pdf,.jpg,.jpeg,.png" className="input field-input" id="receipt_files" multiple name="receipt_files" onChange={(event) => setFiles(uniqueFiles(Array.from(event.currentTarget.files ?? [])))} ref={fileRef} type="file" />
+            <div className="receipt-upload-picker">
+              <input accept=".pdf,.jpg,.jpeg,.png" className="sr-only" id="receipt_files" multiple name="receipt_files" onChange={(event) => setFiles(uniqueFiles(Array.from(event.currentTarget.files ?? [])))} ref={fileRef} type="file" />
+              <label className="btn btn--sm" htmlFor="receipt_files">Escolher arquivos</label>
+              <span aria-live="polite">{files.length === 0 ? "Nenhum arquivo selecionado." : files.length === 1 ? files[0].name : `${files.length} arquivos selecionados.`}</span>
+            </div>
             <span className="field__hint text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</span>
           </div>
           {busy === "upload" && <progress aria-label="Progresso do envio" />}

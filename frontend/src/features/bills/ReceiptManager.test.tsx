@@ -74,6 +74,27 @@ function installFetch(handlers: Record<string, (init?: RequestInit) => Response 
   return fetchMock;
 }
 
+it("keeps the selected-file state readable outside the native file control", () => {
+  render(<ReceiptManager
+    billingUuid="billing-public-uuid" billUuid="bill-public-uuid"
+    capabilities={capabilities} onChange={vi.fn()} receipts={[]}
+  />);
+
+  const input = screen.getByLabelText("Anexar comprovantes");
+  expect(input).toHaveClass("sr-only");
+  expect(screen.getByText("Nenhum arquivo selecionado.")).toBeVisible();
+
+  fireEvent.change(input, {
+    target: {
+      files: [
+        new File(["pdf"], "comprovante-de-agosto.pdf", { type: "application/pdf" }),
+        new File(["png"], "pix-agosto.png", { type: "image/png" })
+      ]
+    }
+  });
+  expect(screen.getByText("2 arquivos selecionados.")).toBeVisible();
+});
+
 it("renders same-origin downloads and uploads, deletes, and reorders receipts from capabilities", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
