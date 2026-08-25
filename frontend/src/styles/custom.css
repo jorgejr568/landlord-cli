@@ -802,6 +802,36 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .review-row dd { margin: 0.18rem 0 0; font-weight: 700; line-height: 1.35; }
 .review-row__edit { border: 0; background: none; color: var(--accent-dark); cursor: pointer; font: inherit; font-size: 0.78rem; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
 .review-row__edit:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.recipient-picker { display: grid; gap: 0.65rem; }
+.recipient-option {
+    display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.9rem;
+    border: var(--bw) solid var(--ink); border-radius: var(--r-sm); background: var(--surface); cursor: pointer;
+}
+.recipient-option:has(input:checked) { background: var(--accent-pale); box-shadow: inset 4px 0 0 var(--accent); }
+.recipient-option input { margin-top: 0.15rem; accent-color: var(--accent); }
+.recipient-option span { display: grid; min-width: 0; gap: 0.15rem; }
+.recipient-option strong { overflow-wrap: anywhere; }
+.recipient-option small { color: var(--muted); font-size: 0.76rem; }
+.field-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.byte-count { color: var(--muted); font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; }
+.byte-count--warning { color: var(--overdue); }
+.variable-toolbar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.variable-toolbar button {
+    padding: 0.35rem 0.55rem; border: 1.5px solid var(--ink); border-radius: 100px;
+    background: var(--paper-2); color: var(--ink); cursor: pointer; font: inherit; font-size: 0.7rem; font-weight: 800;
+}
+.variable-toolbar button::before { content: "+ "; color: var(--accent-dark); }
+.variable-toolbar button:hover { background: var(--accent-pale); }
+.variable-toolbar button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.message-preview { display: grid; gap: 0.7rem; }
+.message-preview__to, .message-preview__attachment {
+    width: fit-content; padding: 0.25rem 0.45rem; border: 1.5px solid var(--ink); border-radius: 100px;
+    background: var(--paper-2); font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700;
+}
+.message-preview strong { font-size: 0.9rem; overflow-wrap: anywhere; }
+.message-preview p { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-preview__attachment { border-radius: var(--r-sm); background: var(--accent-pale); color: var(--accent-dark); }
+.review-save-scope { margin-top: 1rem; }
 
 @media (max-width: 1050px) {
     .wizard--with-aside { grid-template-columns: minmax(180px, 210px) minmax(0, 1fr); }

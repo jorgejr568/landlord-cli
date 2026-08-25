@@ -105,6 +105,21 @@ function renderAt(element: React.ReactElement, path: string, routePath: string) 
   );
 }
 
+async function composeGoToMessage() {
+  await screen.findByRole("heading", { name: /Enviar (fatura|recibo de pagamento)/ });
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  return {
+    body: await screen.findByLabelText("Corpo (Markdown — HTML não é permitido)"),
+    subject: screen.getByLabelText("Assunto")
+  };
+}
+
+async function composeGoToReview() {
+  await composeGoToMessage();
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  await screen.findByRole("heading", { name: "Revisar envio" });
+}
+
 const detailHandlers = () => ({
   "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
   "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill)
@@ -407,7 +422,9 @@ it("sends selected recipients and applies templates without requesting a preview
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("Ana <ana@example.com>")).toBeChecked();
   expect(screen.getByLabelText("Destinatário protegido")).toBeChecked();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Fatura de julho");
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeEnabled();
   await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
@@ -419,6 +436,28 @@ it("sends selected recipients and applies templates without requesting a preview
   }));
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-public-uuid");
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
+});
+
+it("guides communication through recipients, personalized message preview, and review", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+
+  expect(await screen.findByText("Etapa 1 de 3")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Destinatários" })).toBeVisible();
+  expect(screen.getByText("Olá Ana")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Inserir vencimento" }));
+  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Olá {{nome_inquilino}}{{vencimento}}");
+  expect(screen.getByText("Olá Ana10/08/2026")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByRole("heading", { name: "Revisar envio" })).toBeVisible();
+  expect(screen.getByText("2 destinatários")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Mensagem" }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
 });
 
 it("validates and normalizes communication content before sending", async () => {
@@ -433,8 +472,7 @@ it("validates and normalizes communication content before sending", async () => 
     }
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  const subject = await screen.findByLabelText("Assunto");
-  const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  const { body, subject } = await composeGoToMessage();
   fireEvent.change(subject, { target: { value: "😀".repeat(999) } });
   expect(subject).toHaveValue("😀".repeat(998));
   expect(body).not.toHaveAttribute("maxlength");
@@ -1018,13 +1056,13 @@ it("shows a blocking send error without navigating", async () => {
     }
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await composeGoToReview();
   await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
-  expect(
-    await screen.findAllByText("A mensagem contém conteúdo não permitido e não pode ser enviada.")
-  ).toHaveLength(2);
+  await waitFor(() => expect(
+    screen.getAllByText("A mensagem contém conteúdo não permitido e não pode ser enviada.")
+  ).toHaveLength(2));
   expect(sendBody).toMatchObject({ acknowledge_warning: false, save_scope: "billing" });
   expect(screen.getByTestId("location")).toHaveTextContent(
     "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose"
@@ -1045,11 +1083,12 @@ it("resets compose resources when route parameters change", async () => {
     "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" })
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await composeGoToMessage();
   await user.type(screen.getByLabelText("Assunto"), " temporário");
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
 
   expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Segunda cobrança");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Corpo da segunda");
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
@@ -1106,7 +1145,7 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
     }
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await composeGoToReview();
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
   fireEvent.submit(document.getElementById("comm-form")!);
@@ -1142,10 +1181,6 @@ it("requires recipients and focuses subject and body API errors", async () => {
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await screen.findByRole("heading", { name: "Enviar fatura" });
-  await user.clear(screen.getByLabelText("Assunto"));
-  await user.type(screen.getByLabelText("Assunto"), "Novo assunto");
-  await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
-  await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), "Novo corpo");
   await user.click(screen.getByLabelText("Ana <ana@example.com>"));
   await user.click(screen.getByLabelText("Destinatário protegido"));
   fireEvent.submit(document.getElementById("comm-form")!);
@@ -1154,15 +1189,22 @@ it("requires recipients and focuses subject and body API errors", async () => {
   expect(sends).toBe(0);
 
   await user.click(screen.getByLabelText("Ana <ana@example.com>"));
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  await composeGoToMessage();
+  await user.clear(screen.getByLabelText("Assunto"));
+  await user.type(screen.getByLabelText("Assunto"), "Novo assunto");
+  await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
+  await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), "Novo corpo");
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Assunto obrigatório.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Assunto")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Corpo obrigatório.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Destinatário desatualizado.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Ana <ana@example.com>")).toHaveFocus());
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
   await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(await screen.findByText("Modelo indisponível.")).toBeVisible();
@@ -1201,6 +1243,7 @@ it("renders the payment-receipt variant with an empty template and capability-dr
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=payment_receipt", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   expect(await screen.findByRole("heading", { name: "Enviar recibo de pagamento" })).toBeVisible();
   expect(screen.getByText(/Cada destinatário recebe.*recibo anexado/)).toBeVisible();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("");
   expect(screen.queryByRole("option", { name: /minha conta|organização/ })).not.toBeInTheDocument();
@@ -1222,6 +1265,7 @@ it("blocks unavailable recibos and shows the user-owner template scope", async (
     "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill)
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+  await composeGoToReview();
   expect(await screen.findByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
 });
