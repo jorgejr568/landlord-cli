@@ -23,8 +23,8 @@ test("populated detail and theme grids collapse to one column on mobile", async 
   await installApiMocks(page, { pendingInviteCount: 0 });
   await mockJson(page, "/billings/billing-responsive", {
     capabilities: {
-      can_create_bills: false,
-      can_create_exports: false,
+      can_create_bills: true,
+      can_create_exports: true,
       can_delete: false,
       can_edit: false,
       can_manage_bills: false,
@@ -47,7 +47,7 @@ test("populated detail and theme grids collapse to one column on mobile", async 
     pix_key: "ana@example.com",
     pix_merchant_city: "SAO PAULO",
     pix_merchant_name: "ANA SILVA",
-    pix_needs_setup: false,
+    pix_needs_setup: true,
     recipients: [],
     reply_to: [],
     stats: {
@@ -89,6 +89,11 @@ test("populated detail and theme grids collapse to one column on mobile", async 
   await page.goto("/billings/billing-responsive");
   await expect(page.getByRole("heading", { name: "Itens da cobrança" })).toBeVisible();
   await expectSingleColumn(page, ".billing-workspace__body");
+  const identityBox = await page.locator(".bill-workspace__identity").boundingBox();
+  const toolbarBox = await page.locator(".bill-workspace__toolbar").boundingBox();
+  expect(identityBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  expect(toolbarBox!.y).toBeGreaterThanOrEqual(identityBox!.y + identityBox!.height - 1);
 
   await page.goto("/organizations/org-responsive");
   await expect(page.getByRole("heading", { name: "Membros" })).toBeVisible();

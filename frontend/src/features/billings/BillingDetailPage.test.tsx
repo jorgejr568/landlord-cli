@@ -59,7 +59,7 @@ afterEach(() => {
   cleanup(); analytics.pushAnalyticsFromResponse.mockReset(); vi.unstubAllGlobals();
 });
 
-function LocationProbe() { const location = useLocation(); return <output data-testid="location">{location.pathname}</output>; }
+function LocationProbe() { const location = useLocation(); return <output data-testid="location">{location.pathname}{location.search}</output>; }
 function RouteSwitcher() {
   const navigate = useNavigate();
   return <button onClick={() => navigate("/billings/billing-second")} type="button">Trocar cobrança</button>;
@@ -76,8 +76,8 @@ function dataResponse(key: string, currentBilling = billing, currentBills = bill
   if (key === "GET /api/v1/organizations") return jsonResponse({ items: currentOrganizations });
   throw new Error(`Unexpected request: ${key}`);
 }
-function renderPage() {
-  return render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
+function renderPage(path = "/billings/billing-public") {
+  return render(<MemoryRouter initialEntries={[path]}><Routes>
     <Route element={<><BillingDetailPage /><LocationProbe /></>} path="/billings/:billingUuid" />
     <Route element={<LocationProbe />} path="/billings/" />
   </Routes></MemoryRouter>);
@@ -97,8 +97,8 @@ it("renders the populated billing workspace with PIX warning and every available
   expect(screen.getByText("Carregando cobrança...")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Apartamento 302" })).toHaveClass("pagehead__title");
   expect(screen.getByText("Inquilino atual")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Gerar fatura" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Gerar fatura" })).toHaveAttribute("title", "Configure os dados do PIX primeiro");
+  expect(screen.getByRole("link", { name: "Configurar PIX" })).toHaveAttribute("href", "/security");
+  expect(screen.queryByRole("button", { name: "Gerar fatura" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Tema da cobrança" })).toHaveAttribute("href", "/themes/billing/billing-public");
   expect(screen.getByRole("link", { name: "Editar cobrança" })).toHaveAttribute("href", "/billings/billing-public/edit");
   expect(screen.getByRole("alert")).toHaveTextContent("PIX pendente");
@@ -110,6 +110,10 @@ it("renders the populated billing workspace with PIX warning and every available
   expect(screen.getByRole("heading", { name: "Itens da cobrança" }).closest(".billing-workspace__body")).not.toBeNull();
   for (const status of ["Rascunho", "Publicado", "Enviado", "Pago", "Cancelado", "Pag. Atrasado"]) expect(screen.getByText(status)).toBeVisible();
   expect(screen.getByText("6 geradas")).toBeVisible();
+  const invoiceFlow = screen.getByRole("group", { name: "Fluxo das faturas no ano" });
+  expect(within(invoiceFlow).getByText("Recebido").nextSibling).toHaveTextContent("R$ 3.000,00");
+  expect(within(invoiceFlow).getByText("Pendente").nextSibling).toHaveTextContent("R$ 5.000,00");
+  expect(within(invoiceFlow).getByText("Em atraso").nextSibling).toHaveTextContent("R$ 1.000,00");
   await showTab(user, /^Despesas/);
   expect(screen.getByText("Recebido (ano)").nextSibling).toHaveTextContent("R$ 3.000,00");
   expect(screen.getByText("IPTU 2026")).toBeVisible();
@@ -129,13 +133,15 @@ it("presents the billing as one workspace with compact actions and tabbed record
   renderPage();
 
   const workspace = await screen.findByRole("article", { name: "Cobrança Apartamento 302" });
-  expect(within(workspace).getByRole("button", { name: "Gerar fatura" })).toHaveClass("btn--sm");
+  expect(within(workspace).getByRole("link", { name: "Configurar PIX" })).toHaveClass("btn--sm");
   const actions = within(workspace).getByRole("button", { name: "Ações da cobrança" });
   expect(actions).toHaveClass("btn--sm");
   await user.click(actions);
   expect(within(workspace).getByRole("link", { name: "Tema da cobrança" })).toHaveAttribute("href", "/themes/billing/billing-public");
   expect(within(workspace).getByRole("link", { name: "Editar cobrança" })).toHaveAttribute("href", "/billings/billing-public/edit");
   expect(within(workspace).getByRole("button", { name: "Excluir cobrança" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Exportar faturas em CSV" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Exportar faturas em Excel" })).toBeVisible();
   fireEvent.keyDown(document, { key: "ArrowDown" });
   expect(actions).toHaveAttribute("aria-expanded", "true");
   fireEvent.keyDown(document, { key: "Escape" });
@@ -180,6 +186,25 @@ it("presents the billing as one workspace with compact actions and tabbed record
   fireEvent.keyDown(documentsTab, { key: "Tab" });
   expect(documentsTab).toHaveAttribute("aria-selected", "true");
   expect(screen.queryByRole("heading", { name: "Zona de perigo" })).not.toBeInTheDocument();
+});
+
+it("keeps the selected record section in the URL for reloads and sharing", async () => {
+  const user = userEvent.setup();
+  installFetch((key) => dataResponse(key));
+  renderPage("/billings/billing-public?tab=documents");
+
+  const documentsTab = await screen.findByRole("tab", { name: "Documentos 1" });
+  expect(documentsTab).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByText("Contrato")).toBeVisible();
+  expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public?tab=documents");
+
+  await user.click(screen.getByRole("tab", { name: "Despesas 1" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("?tab=expenses");
+  expect(screen.getByText("IPTU 2026")).toBeVisible();
+
+  await user.click(screen.getByRole("tab", { name: "Faturas 6" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public");
+  expect(screen.getByTestId("location")).not.toHaveTextContent("?tab=");
 });
 
 it("renders configured personal PIX fallbacks, first-invoice action, partial overrides and singular history", async () => {
@@ -250,9 +275,9 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
     throw new Error(`Unexpected request: ${key}`);
   });
   renderPage();
-  await user.click(await screen.findByRole("button", { name: "Exportar CSV" }));
+  await user.click(await screen.findByRole("button", { name: "Exportar faturas em CSV" }));
   expect(await screen.findByText("Exportação CSV solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Exportar Excel" }));
+  await user.click(screen.getByRole("button", { name: "Exportar faturas em Excel" }));
   expect(await screen.findByText("Exportação XLSX solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
   await showTab(user, /^Despesas 1$/);
   expect(screen.getByText("IPTU 2026")).toBeVisible();
@@ -389,7 +414,7 @@ it("reports export, expense-removal and transfer failures without forwarding ana
     return dataResponse(key);
   });
   renderPage();
-  await user.click(await screen.findByRole("button", { name: "Exportar CSV" }));
+  await user.click(await screen.findByRole("button", { name: "Exportar faturas em CSV" }));
   expect(await screen.findByText("Não foi possível solicitar a exportação.")).toBeVisible();
   await showTab(user, /^Despesas 1$/);
   await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
@@ -500,7 +525,7 @@ it("requests and renders each billing domain only when its precise capability al
   expect(screen.getByRole("link", { name: "Tema da cobrança" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Faturas" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Despesas" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Exportar faturas em CSV" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Adicionar despesa" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Transferir para organização" })).not.toBeInTheDocument();
 
@@ -531,7 +556,7 @@ it("requests and renders each billing domain only when its precise capability al
   expect(await screen.findByRole("heading", { name: "Apartamento 302" })).toBeVisible();
   expect(requests).toEqual(["GET /api/v1/billings/billing-public"]);
   expect(screen.getByRole("link", { name: "Gerar fatura" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Exportar faturas em CSV" })).toBeVisible();
   await showTab(user, /^Despesas 0$/);
   expect(screen.getByRole("button", { name: "Adicionar despesa" })).toBeVisible();
   expect(screen.queryByRole("link", { name: "Baixar" })).not.toBeInTheDocument();
@@ -608,7 +633,7 @@ it("hides route A immediately and rejects its late load after navigating to rout
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(screen.getByText("Carregando cobrança...")).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Apartamento 302" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Exportar faturas em CSV" })).not.toBeInTheDocument();
 
   resolveSecondBilling?.(jsonResponse(secondBilling));
   expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
@@ -635,7 +660,7 @@ it("aborts a route A mutation and ignores its response after route B becomes act
   </Routes></MemoryRouter>);
 
   await screen.findByRole("heading", { name: "Apartamento 302" });
-  await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+  await user.click(screen.getByRole("button", { name: "Exportar faturas em CSV" }));
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
   expect(exportSignal).toBeDefined();
@@ -697,7 +722,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
     return dataResponse(key);
   });
   renderPage();
-  await screen.findByRole("button", { name: "Exportar CSV" });
+  await screen.findByRole("button", { name: "Exportar faturas em CSV" });
   await showTab(user, /^Despesas 1$/);
   fireEvent.change(screen.getByLabelText("Descrição da despesa"), { target: { value: "Pintura" } });
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
@@ -708,16 +733,16 @@ it("deduplicates exports and disables every domain mutation while one is pending
   fireEvent.click(screen.getByRole("button", { name: "Transferir" }));
   fireEvent.click(screen.getByRole("button", { name: "Excluir cobrança" }));
   await showTab(user, /^Faturas 6$/);
-  const exportCsv = screen.getByRole("button", { name: "Exportar CSV" });
-  const exportXlsx = screen.getByRole("button", { name: "Exportar Excel" });
+  const exportCsv = screen.getByRole("button", { name: "Exportar faturas em CSV" });
+  const exportXlsx = screen.getByRole("button", { name: "Exportar faturas em Excel" });
   act(() => {
     exportCsv.click();
     exportXlsx.click();
   });
 
   await waitFor(() => expect(exportCalls).toBe(1));
-  expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Exportar Excel" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Exportar faturas em CSV" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Exportar faturas em Excel" })).toBeDisabled();
   await showTab(user, /^Despesas 1$/);
   expect(screen.getByRole("button", { name: "Adicionar despesa" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Remover despesa IPTU 2026" })).toBeDisabled();
@@ -732,7 +757,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
     resolveExport?.(jsonResponse({ format: "csv", status: "queued" }, 202));
   });
   await showTab(user, /^Faturas 6$/);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Exportar faturas em CSV" })).toBeEnabled());
 });
 
 it("ignores an expense creation response after the billing route changes", async () => {
@@ -928,7 +953,7 @@ const staleMutationFailures: Array<{
     endpoint: "POST /api/v1/billings/billing-public/exports",
     errorText: "Não foi possível solicitar a exportação.",
     mutation: "export",
-    run: async (user) => { await user.click(screen.getByRole("button", { name: "Exportar CSV" })); }
+    run: async (user) => { await user.click(screen.getByRole("button", { name: "Exportar faturas em CSV" })); }
   },
   {
     endpoint: "POST /api/v1/billings/billing-public/expenses",

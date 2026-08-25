@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronLeft, QrCode } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
@@ -12,6 +12,8 @@ import { formatBrl, formatMonth, parseBrl } from "../../lib/format";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
+
+import "./BillingDetailPage.css";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
 type Bill = components["schemas"]["BillResponse"];
@@ -67,6 +69,7 @@ function StatusTag({ status }: { status: string }) {
 export function BillingDetailPage() {
   const billingUuid = useParams<{ billingUuid: string }>().billingUuid!;
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const routeUuidRef = useRef(billingUuid);
   const mutationControllersRef = useRef(new Set<AbortController>());
   const activeActionRef = useRef<ActionToken | null>(null);
@@ -88,7 +91,6 @@ export function BillingDetailPage() {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [organizationUuid, setOrganizationUuid] = useState("");
   const [activeAction, setActiveAction] = useState<DetailAction | null>(null);
-  const [activeTab, setActiveTab] = useState<BillingTab>("bills");
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const beginAction = (action: DetailAction): ActionToken | null => {
@@ -161,7 +163,6 @@ export function BillingDetailPage() {
     setPendingDelete(false);
     setOrganizationUuid("");
     setNotice("");
-    setActiveTab("bills");
     setActionsOpen(false);
     void load(billingUuid, controller.signal);
     return () => {
@@ -298,7 +299,14 @@ export function BillingDetailPage() {
     }
   };
 
-  const changeTab = (tab: BillingTab) => setActiveTab(tab);
+  const requestedTab = searchParams.get("tab");
+  const activeTab: BillingTab = requestedTab === "documents" || requestedTab === "expenses" ? requestedTab : "bills";
+  const changeTab = (tab: BillingTab) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (tab === "bills") nextParams.delete("tab");
+    else nextParams.set("tab", tab);
+    setSearchParams(nextParams, { replace: true });
+  };
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tab: BillingTab, tabs: BillingTab[]) => {
     const currentIndex = tabs.indexOf(tab);
     let nextIndex: number;
@@ -308,7 +316,7 @@ export function BillingDetailPage() {
     else if (event.key === "End") nextIndex = tabs.length - 1;
     else return;
     event.preventDefault();
-    setActiveTab(tabs[nextIndex]);
+    changeTab(tabs[nextIndex]);
     tabRefs.current[nextIndex]?.focus();
   };
 
@@ -324,15 +332,16 @@ export function BillingDetailPage() {
     billing.capabilities.can_read_attachments ? "documents" : null
   ].filter((tab): tab is BillingTab => tab !== null);
   const selectedTab = availableTabs.includes(activeTab) ? activeTab : availableTabs[0];
-  const hasActions = billing.capabilities.can_read_theme || billing.capabilities.can_edit
+  const hasActions = billing.capabilities.can_create_exports || billing.capabilities.can_read_theme || billing.capabilities.can_edit
     || (billing.capabilities.can_transfer && organizations.length > 0) || billing.capabilities.can_delete;
+  const pixSettingsPath = ownerIsOrganization ? "/organizations/" : "/security";
 
   return (
     <>
       <Link className="crumb" to="/billings/"><ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />Minhas Cobranças</Link>
       {mutationError ? <div className="toast toast--error" role="alert">{mutationError} <button className="btn btn--sm" onClick={() => void load(billingUuid)} type="button">Tentar novamente</button></div> : null}
       {notice ? <div className="toast toast--success" role="status">{notice}</div> : null}
-      <article aria-label={`Cobrança ${billing.name}`} className="bill-workspace billing-workspace">
+      <article aria-label={`Cobrança ${billing.name}`} className="bill-workspace billing-workspace billing-detail-workspace">
         <header className="bill-workspace__header">
           <div className="bill-workspace__identity">
             <div className="bill-workspace__title-row"><h1 className="pagehead__title">{billing.name}</h1>{ownerIsOrganization ? <span className="tag tag--fixed">Organização</span> : null}</div>
@@ -340,7 +349,7 @@ export function BillingDetailPage() {
           </div>
           <div className="bill-workspace__toolbar">
             {billing.capabilities.can_create_bills ? billing.pix_needs_setup
-              ? <button className="btn btn--primary btn--sm" disabled title="Configure os dados do PIX primeiro" type="button">Gerar fatura</button>
+              ? <Link className="btn btn--primary btn--sm" to={pixSettingsPath}>Configurar PIX</Link>
               : <Link className="btn btn--primary btn--sm" to={`/billings/${billingUuid}/bills/generate`}>Gerar fatura</Link> : null}
             {hasActions ? <div className={`btn-dropdown bill-action-menu billing-action-menu${actionsOpen ? " open" : ""}`}>
               <button aria-controls="billing-actions-menu" aria-expanded={actionsOpen} aria-label="Ações da cobrança" className="btn btn--sm btn-dropdown-toggle" onClick={(event) => { event.stopPropagation(); setActionsOpen((open) => !open); }} ref={actionsButtonRef} type="button">Ações <ChevronDown aria-hidden="true" size={14} /></button>
@@ -348,6 +357,7 @@ export function BillingDetailPage() {
                 {(billing.capabilities.can_read_theme || billing.capabilities.can_edit) ? <span className="bill-action-menu__label">Configuração</span> : null}
                 {billing.capabilities.can_read_theme ? <Link className="btn-dropdown-item" onClick={() => setActionsOpen(false)} to={`/themes/billing/${billingUuid}`}>Tema da cobrança</Link> : null}
                 {billing.capabilities.can_edit ? <Link className="btn-dropdown-item" onClick={() => setActionsOpen(false)} to={`/billings/${billingUuid}/edit`}>Editar cobrança</Link> : null}
+                {billing.capabilities.can_create_exports ? <><span className="bill-action-menu__label">Dados das faturas</span><button aria-label="Exportar faturas em CSV" className="btn-dropdown-item" disabled={activeAction !== null} onClick={() => { setActionsOpen(false); void exportBills("csv"); }} type="button">Exportar CSV</button><button aria-label="Exportar faturas em Excel" className="btn-dropdown-item" disabled={activeAction !== null} onClick={() => { setActionsOpen(false); void exportBills("xlsx"); }} type="button">Exportar Excel</button></> : null}
                 {billing.capabilities.can_transfer && organizations.length ? <div className="billing-action-menu__transfer">
                   <label className="bill-action-menu__label" htmlFor="billing-transfer-owner">Transferir propriedade</label>
                   <select aria-label="Organização de destino" className="select" id="billing-transfer-owner" onChange={(event) => setOrganizationUuid(event.target.value)} required value={organizationUuid}><option value="">Escolha a organização</option>{organizations.map((organization) => <option key={organization.uuid} value={organization.uuid}>{organization.name}</option>)}</select>
@@ -386,7 +396,7 @@ export function BillingDetailPage() {
           </div>
 
           {selectedTab === "bills" ? <div aria-labelledby="billing-bills-tab" className="bill-records__panel billing-records__panel--flush" id="billing-bills-panel" role="tabpanel">
-            <div className="billing-tab-toolbar"><div><h2>Faturas</h2>{billing.capabilities.can_read_bills ? <span>{bills.length} {bills.length === 1 ? "gerada" : "geradas"}</span> : null}</div>{billing.capabilities.can_create_exports ? <div><button className="btn btn--sm" disabled={activeAction !== null} onClick={() => void exportBills("csv")} title="Enviar as faturas em CSV para o seu e-mail" type="button">Exportar CSV</button><button className="btn btn--sm" disabled={activeAction !== null} onClick={() => void exportBills("xlsx")} title="Enviar as faturas em Excel para o seu e-mail" type="button">Exportar Excel</button></div> : null}</div>
+            <div className="billing-tab-toolbar"><div><h2>Faturas</h2>{billing.capabilities.can_read_bills ? <span>{bills.length} {bills.length === 1 ? "gerada" : "geradas"}</span> : null}</div>{bills.length ? <dl aria-label="Fluxo das faturas no ano" className="billing-invoice-flow" role="group"><div><dt>Recebido</dt><dd>{formatBrl(billing.stats.received)}</dd><small>{billing.stats.paid_count} {billing.stats.paid_count === 1 ? "paga" : "pagas"}</small></div><div><dt>Pendente</dt><dd>{formatBrl(billing.stats.pending)}</dd><small>{billing.stats.pending_count} {billing.stats.pending_count === 1 ? "aberta" : "abertas"}</small></div><div className="billing-invoice-flow__overdue"><dt>Em atraso</dt><dd>{formatBrl(billing.stats.overdue)}</dd><small>{billing.stats.overdue_count} {billing.stats.overdue_count === 1 ? "vencida" : "vencidas"}</small></div></dl> : null}</div>
             {billing.capabilities.can_read_bills ? bills.length ? <div className="table-wrap"><table className="table"><thead><tr><th>Referência</th><th className="num">Total</th><th className="center">Vencimento</th><th className="center">Status</th><th /></tr></thead><tbody>{bills.map((bill) => <tr key={bill.uuid}><td className="table__primary"><Link to={`/billings/${billingUuid}/bills/${bill.uuid}`}>{formatMonth(bill.reference_month)}</Link></td><td className="num">{formatBrl(bill.total_amount)}</td><td className="center mono">{bill.due_date || "Sem data"}</td><td className="center"><StatusTag status={bill.status} /></td><td className="num"><Link className="btn btn--sm" to={`/billings/${billingUuid}/bills/${bill.uuid}`}>Ver</Link></td></tr>)}</tbody></table></div> : <div className="empty-state billing-tab-empty"><p>Nenhuma fatura gerada para este imóvel.</p>{billing.capabilities.can_create_bills && !billing.pix_needs_setup ? <Link className="btn btn--primary btn--sm" to={`/billings/${billingUuid}/bills/generate`}>Gerar primeira fatura</Link> : null}</div> : null}
           </div> : null}
 
