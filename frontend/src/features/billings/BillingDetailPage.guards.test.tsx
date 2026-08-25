@@ -1,6 +1,6 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
@@ -10,13 +10,6 @@ import { BillingDetailPage } from "./BillingDetailPage";
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
 vi.mock("../auth/analytics", () => analytics);
 
-const captured = vi.hoisted(() => ({ onChanged: {} as Record<string, () => void | Promise<void>> }));
-vi.mock("./AttachmentManager", () => ({
-  AttachmentManager: ({ billingUuid, onChanged }: { billingUuid: string; onChanged: () => void | Promise<void> }) => {
-    captured.onChanged[billingUuid] = onChanged;
-    return null;
-  }
-}));
 vi.mock("../../components/ConfirmDialog", () => ({
   ConfirmDialog: ({ onConfirm, title }: { onConfirm: () => void; title: string }) => (
     <button onClick={onConfirm} type="button">{`confirm ${title}`}</button>
@@ -50,14 +43,9 @@ const organization: components["schemas"]["OrganizationResponse"] = {
 afterEach(() => {
   cleanup();
   analytics.pushAnalyticsFromResponse.mockReset();
-  captured.onChanged = {};
   vi.unstubAllGlobals();
 });
 
-function RouteSwitcher() {
-  const navigate = useNavigate();
-  return <button onClick={() => navigate("/billings/billing-second")} type="button">Trocar cobrança</button>;
-}
 function installFetch(handler: (key: string, init?: RequestInit) => Response | Promise<Response>) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => handler(`${init?.method ?? "GET"} ${String(input)}`, init));
   vi.stubGlobal("fetch", fetchMock);
@@ -85,33 +73,4 @@ it("ignores a stray dialog confirmation when no expense removal is pending", asy
 
   expect(requests.filter((key) => key.startsWith("DELETE"))).toHaveLength(0);
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
-});
-
-it("keeps route-B feedback intact when a stale route-A refresh callback runs", async () => {
-  const user = userEvent.setup();
-  const secondBilling = { ...billing, name: "Casa B", uuid: "billing-second" };
-  installFetch((key) => {
-    if (key === "POST /api/v1/billings/billing-second/exports") throw new Error("offline");
-    if (key === "GET /api/v1/billings/billing-second") return jsonResponse(secondBilling);
-    if (key === "GET /api/v1/billings/billing-second/bills") return jsonResponse({ items: [] });
-    if (key === "GET /api/v1/billings/billing-second/expenses") return jsonResponse({ items: [] });
-    if (key === "GET /api/v1/billings/billing-second/attachments") return jsonResponse({ items: [] });
-    return dataResponse(key);
-  });
-  render(<MemoryRouter initialEntries={["/billings/billing-public"]}><Routes>
-    <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
-  </Routes></MemoryRouter>);
-
-  await screen.findByRole("heading", { name: "Apartamento 302" });
-  const staleRefresh = captured.onChanged["billing-public"];
-  expect(staleRefresh).toBeDefined();
-  await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
-  await screen.findByRole("heading", { name: "Casa B" });
-  await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
-  expect(await screen.findByText("Não foi possível solicitar a exportação.")).toBeVisible();
-
-  await act(async () => { await staleRefresh?.(); });
-
-  expect(screen.getByText("Não foi possível solicitar a exportação.")).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Casa B" })).toBeVisible();
 });

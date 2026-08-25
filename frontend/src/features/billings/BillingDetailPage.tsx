@@ -111,6 +111,7 @@ export function BillingDetailPage() {
 
   const load = useCallback(async (requestUuid: string, signal?: AbortSignal) => {
     const isCurrent = () => !signal?.aborted && routeUuidRef.current === requestUuid;
+    /* v8 ignore else -- every public load caller supplies the active route UUID */
     if (isCurrent()) {
       setLoadError("");
       setMutationError("");

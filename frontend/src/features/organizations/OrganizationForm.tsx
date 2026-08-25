@@ -108,6 +108,7 @@ export function OrganizationForm({
 
   const focusFirstError = (errors: Record<string, string>) => {
     const firstField = FIELD_KEYS.find((field) => errors[field]);
+    /* v8 ignore next -- validators only return keys from FIELD_KEYS */
     if (!firstField) return;
     refs.current[firstField]?.focus();
   };

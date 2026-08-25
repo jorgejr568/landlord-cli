@@ -136,18 +136,54 @@ it("presents the billing as one workspace with compact actions and tabbed record
   expect(within(workspace).getByRole("link", { name: "Tema da cobrança" })).toHaveAttribute("href", "/themes/billing/billing-public");
   expect(within(workspace).getByRole("link", { name: "Editar cobrança" })).toHaveAttribute("href", "/billings/billing-public/edit");
   expect(within(workspace).getByRole("button", { name: "Excluir cobrança" })).toBeVisible();
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  expect(actions).toHaveFocus();
 
-  expect(within(workspace).getByRole("tab", { name: "Faturas 6" })).toHaveAttribute("aria-selected", "true");
-  await user.click(within(workspace).getByRole("tab", { name: "Despesas 1" }));
+  await user.click(actions);
+  const themeLink = within(workspace).getByRole("link", { name: "Tema da cobrança" });
+  themeLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  await user.click(themeLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  const editLink = within(workspace).getByRole("link", { name: "Editar cobrança" });
+  editLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  await user.click(editLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  fireEvent.click(document.body);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+
+  const billsTab = within(workspace).getByRole("tab", { name: "Faturas 6" });
+  const expensesTab = within(workspace).getByRole("tab", { name: "Despesas 1" });
+  const documentsTab = within(workspace).getByRole("tab", { name: "Documentos 1" });
+  expect(billsTab).toHaveAttribute("aria-selected", "true");
+  await user.click(expensesTab);
   expect(within(workspace).getByText("IPTU 2026")).toBeVisible();
   expect(within(workspace).getByRole("button", { name: "Adicionar despesa" })).toBeVisible();
-  await user.click(within(workspace).getByRole("tab", { name: "Documentos 1" }));
+  fireEvent.keyDown(expensesTab, { key: "Tab" });
+  expect(expensesTab).toHaveAttribute("aria-selected", "true");
+  await user.click(documentsTab);
   expect(within(workspace).getByText("Contrato")).toBeVisible();
   expect(within(workspace).getByRole("link", { name: "Baixar" })).toBeVisible();
+  fireEvent.keyDown(documentsTab, { key: "ArrowRight" });
+  expect(billsTab).toHaveAttribute("aria-selected", "true");
+  expect(billsTab).toHaveFocus();
+  fireEvent.keyDown(billsTab, { key: "ArrowLeft" });
+  expect(documentsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(documentsTab, { key: "Home" });
+  expect(billsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(billsTab, { key: "End" });
+  expect(documentsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(documentsTab, { key: "Tab" });
+  expect(documentsTab).toHaveAttribute("aria-selected", "true");
   expect(screen.queryByRole("heading", { name: "Zona de perigo" })).not.toBeInTheDocument();
 });
 
 it("renders configured personal PIX fallbacks, first-invoice action, partial overrides and singular history", async () => {
+  const user = userEvent.setup();
   const configured: Billing = {
     ...billing,
     description: "",
@@ -163,6 +199,9 @@ it("renders configured personal PIX fallbacks, first-invoice action, partial ove
   expect(screen.getByRole("link", { name: "Gerar primeira fatura" })).toBeVisible();
   expect(screen.getByText("Sem dados específicos nesta cobrança. O PIX usa a configuração do proprietário (sua conta).")).toBeVisible();
   expect(screen.getByText("PIX configurado")).toHaveClass("tag--paid");
+  await showTab(user, /^Documentos 0$/);
+  expect(screen.getByText("Nenhum documento anexado.")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Anexar documento" })).toHaveAttribute("href", "/billings/billing-public/edit");
 
   cleanup();
   const partial = { ...configured, pix_merchant_name: "MARIA" };
@@ -497,6 +536,57 @@ it("requests and renders each billing domain only when its precise capability al
   expect(screen.getByRole("button", { name: "Adicionar despesa" })).toBeVisible();
   expect(screen.queryByRole("link", { name: "Baixar" })).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Tema da cobrança" })).not.toBeInTheDocument();
+
+  cleanup();
+  const deleteOnly: Billing = {
+    ...restricted,
+    capabilities: {
+      ...restricted.capabilities,
+      can_delete: true,
+      can_read_attachments: false,
+      can_read_theme: false
+    }
+  };
+  requests.length = 0;
+  installFetch((key) => {
+    requests.push(key);
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(deleteOnly);
+    throw new Error(`Unexpected request: ${key}`);
+  });
+
+  renderPage();
+
+  expect(await screen.findByRole("heading", { name: "Apartamento 302" })).toBeVisible();
+  expect(requests).toEqual(["GET /api/v1/billings/billing-public"]);
+  expect(screen.queryByRole("region", { name: "Registros da cobrança" })).not.toBeInTheDocument();
+  const deleteActions = screen.getByRole("button", { name: "Ações da cobrança" });
+  await user.click(deleteActions);
+  expect(screen.queryByText("Configuração")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Excluir cobrança" })).toBeVisible();
+
+  cleanup();
+  const transferWithoutDestinations: Billing = {
+    ...restricted,
+    capabilities: {
+      ...restricted.capabilities,
+      can_read_attachments: false,
+      can_read_theme: false,
+      can_transfer: true
+    }
+  };
+  requests.length = 0;
+  installFetch((key) => {
+    requests.push(key);
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(transferWithoutDestinations);
+    if (key === "GET /api/v1/organizations") return jsonResponse({ items: [] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+
+  renderPage();
+
+  expect(await screen.findByRole("heading", { name: "Apartamento 302" })).toBeVisible();
+  expect(requests).toEqual(["GET /api/v1/billings/billing-public", "GET /api/v1/organizations"]);
+  expect(screen.queryByRole("button", { name: "Ações da cobrança" })).not.toBeInTheDocument();
 });
 
 it("hides route A immediately and rejects its late load after navigating to route B", async () => {

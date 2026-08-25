@@ -159,6 +159,8 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("deny an organization outside an integration key grant", async () => {
     await page.goto("/organizations/create");
     await page.getByLabel("Nome da organização", { exact: true }).fill(`Organização ${unique}`);
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Criar organização" }).click();
     await expect(page).toHaveURL(new RegExp(`/organizations/${ULID_PATH_SEGMENT}$`));
     organizationUuid = new URL(page.url()).pathname.split("/").filter(Boolean).at(-1)!;
@@ -251,22 +253,30 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("create a billing and its first real invoice", async () => {
     await page.goto("/billings/create");
     await page.getByLabel("Nome do imóvel").fill(`Apartamento ${unique}`);
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByLabel("Descrição do item 1").fill("Aluguel");
+    await page.getByLabel("Valor do item 1 (R$)").fill("1.250,00");
+    await page.getByRole("button", { name: "Continuar" }).click();
     // The billing form inherits the owner's PIX unless this opt-in is checked,
     // which is what reveals the override fields below.
     await page.getByLabel("Usar PIX personalizado").check();
     await page.getByLabel("Chave PIX").fill(email);
     await page.getByLabel("Nome do recebedor").fill("RENTIVO RELEASE");
     await page.getByLabel("Cidade do recebedor").fill("SALVADOR");
-    await page.getByLabel("Descrição do item 1").fill("Aluguel");
-    await page.getByLabel("Valor do item 1 (R$)").fill("1.250,00");
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Criar cobrança" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/billings/${ULID_PATH_SEGMENT}$`));
     await expect(page.getByText("Nenhuma fatura gerada para este imóvel.")).toBeVisible();
     await page.getByRole("link", { name: "Gerar primeira fatura" }).click();
     await page.getByLabel("Mês de Referência").fill("2030-12");
+    await page.getByRole("button", { name: "Continuar" }).click();
     // Native date control — it only accepts the ISO value, not the pt-BR display format.
     await page.getByLabel("Vencimento").fill("2030-12-10");
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Gerar Fatura" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/billings/${ULID_PATH_SEGMENT}/bills/${ULID_PATH_SEGMENT}$`));

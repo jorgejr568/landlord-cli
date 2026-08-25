@@ -88,7 +88,7 @@ test("populated detail and theme grids collapse to one column on mobile", async 
 
   await page.goto("/billings/billing-responsive");
   await expect(page.getByRole("heading", { name: "Itens da cobrança" })).toBeVisible();
-  await expectSingleColumn(page, ".billing-detail-grid");
+  await expectSingleColumn(page, ".billing-workspace__body");
 
   await page.goto("/organizations/org-responsive");
   await expect(page.getByRole("heading", { name: "Membros" })).toBeVisible();

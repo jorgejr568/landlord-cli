@@ -96,8 +96,31 @@ it("guides organization creation through identity, optional PIX, and review", as
   expect(screen.getByText("Ribeiro Imóveis")).toBeVisible();
   expect(screen.getByText(/PIX configurado/)).toBeVisible();
   expect(screen.getByText("Admin")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Recebimento PIX" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /^Identidade/ }));
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
   await user.click(screen.getByRole("button", { name: "Editar Nome da organização" }));
   expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+});
+
+it("returns a direct invalid create submission to the relevant wizard step", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+
+  fireEvent.submit(document.getElementById("organization-create-form")!);
+
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(await screen.findByText("Informe a chave PIX.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Chave PIX")).toHaveFocus());
 });
 
 function LocationProbe() {

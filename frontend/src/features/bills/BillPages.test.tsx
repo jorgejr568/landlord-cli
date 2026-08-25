@@ -186,6 +186,17 @@ it("presents invoice details as one workspace with compact actions and switchabl
   expect(receiptsTab).toHaveAttribute("aria-selected", "true");
   expect(within(workspace).getByText("Nenhum comprovante anexado.")).toBeVisible();
   expect(within(workspace).queryByText("Ana <ana@example.com>")).not.toBeInTheDocument();
+  fireEvent.keyDown(receiptsTab, { key: "ArrowRight" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  expect(communicationsTab).toHaveFocus();
+  fireEvent.keyDown(communicationsTab, { key: "ArrowLeft" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(receiptsTab, { key: "Home" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(communicationsTab, { key: "End" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(receiptsTab, { key: "Tab" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
 });
 
 it("toggles the unified action dropdown and returns focus when Escape closes it", async () => {
@@ -206,6 +217,10 @@ it("toggles the unified action dropdown and returns focus when Escape closes it"
   await user.click(actions);
   expect(dropdown).toHaveClass("open");
   expect(actions).toHaveAttribute("aria-expanded", "true");
+  await user.click(actions);
+  expect(dropdown).not.toHaveClass("open");
+  await user.click(actions);
+  expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "ArrowDown" });
   expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "Escape" });
@@ -215,6 +230,36 @@ it("toggles the unified action dropdown and returns focus when Escape closes it"
   await user.click(actions);
   fireEvent.click(document.body);
   expect(dropdown).not.toHaveClass("open");
+});
+
+it("keeps a transition-only action menu free of unavailable controls", async () => {
+  const user = userEvent.setup();
+  const transitionOnly: Bill = {
+    ...bill,
+    available_transitions: [{ label: "Publicar fatura", requires_confirmation: false, style: "primary", target: "published" }],
+    capabilities: {
+      can_compose: false, can_delete: false, can_delete_receipts: false,
+      can_download_invoice: false, can_download_recibo: false, can_open_recibo: false,
+      can_edit: false, can_regenerate: false, can_reorder_receipts: false,
+      can_send_invoice: false, can_send_recibo: false, can_transition: true,
+      can_upload_receipts: false
+    },
+    status: "draft"
+  };
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(transitionOnly)
+  });
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const actions = await screen.findByRole("button", { name: "Ações da fatura" });
+  await user.click(actions);
+
+  expect(screen.getByText("Alterar status")).toBeVisible();
+  expect(screen.queryByRole("link", { name: "Editar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
 });
 
 it.each([
