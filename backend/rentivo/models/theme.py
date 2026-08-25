@@ -11,13 +11,13 @@ class Theme(BaseModel):
     owner_type: str = "user"  # "user", "organization", or "billing"
     owner_id: int = 0
     name: str = ""
-    header_font: str = "Montserrat"
-    text_font: str = "Montserrat"
-    primary: str = "#8A4C94"
-    primary_light: str = "#EEE4F1"
-    secondary: str = "#6EAFAE"
-    secondary_dark: str = "#357B7C"
-    text_color: str = "#282830"
+    header_font: str = "Space Grotesk"
+    text_font: str = "Hanken Grotesk"
+    primary: str = "#007D53"
+    primary_light: str = "#DBF6E7"
+    secondary: str = "#F5F2EB"
+    secondary_dark: str = "#1B1D29"
+    text_color: str = "#1B1D29"
     text_contrast: str = "#FFFFFF"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -28,6 +28,16 @@ DEFAULT_THEME = Theme(name="Padrão")
 
 
 AVAILABLE_FONTS: dict[str, dict[str, str]] = {
+    "Space Grotesk": {
+        "regular": "SpaceGrotesk-Regular.ttf",
+        "bold": "SpaceGrotesk-Bold.ttf",
+        "semibold": "SpaceGrotesk-Medium.ttf",
+    },
+    "Hanken Grotesk": {
+        "regular": "HankenGrotesk-Regular.ttf",
+        "bold": "HankenGrotesk-Bold.ttf",
+        "semibold": "HankenGrotesk-SemiBold.ttf",
+    },
     "Montserrat": {
         "regular": "Montserrat-Regular.ttf",
         "bold": "Montserrat-Bold.ttf",

@@ -65,3 +65,18 @@ class TestReciboPDF:
         ):
             result = ReciboPDF().generate(self._make_bill(), billing_name="Apt 101", **kwargs)
             assert len(pypdf.PdfReader(io.BytesIO(result)).pages) == 1
+
+    def test_default_receipt_carries_the_rentivo_wordmark(self):
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+
+        text = pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text()
+        assert "rentivo" in text

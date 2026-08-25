@@ -43,7 +43,7 @@ def derive_colors(theme: Theme) -> dict[str, tuple[int, int, int]]:
         "text_contrast": _hex_to_rgb(theme.text_contrast),
         "muted_text": _shift(text_color, 68),
         "row_alt": _shift(primary_light, 6),
-        "border_color": _shift(primary_light, -28),
+        "border_color": text_color,
     }
 
 
@@ -64,6 +64,94 @@ class PdfDocument:
     page_w: float
 
 
+def draw_box(
+    doc: PdfDocument,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    *,
+    fill: tuple[int, int, int],
+    border: tuple[int, int, int] | None = None,
+    radius: float = 3.0,
+    shadow: bool = True,
+    shadow_offset: float = 1.4,
+) -> None:
+    """Draw a softly rounded panel with Rentivo's offset hard shadow."""
+    pdf = doc.pdf
+    border = border or doc.colors["border_color"]
+
+    if shadow:
+        pdf.set_fill_color(*doc.colors["border_color"])
+        pdf.rect(
+            x + shadow_offset,
+            y + shadow_offset,
+            w,
+            h,
+            style="F",
+            round_corners=True,
+            corner_radius=radius,
+        )
+
+    pdf.set_fill_color(*fill)
+    pdf.set_draw_color(*border)
+    pdf.set_line_width(0.65)
+    pdf.rect(x, y, w, h, style="DF", round_corners=True, corner_radius=radius)
+    pdf.set_line_width(0.2)
+
+
+def draw_wordmark(doc: PdfDocument, x: float, y: float, *, inverted: bool = False) -> None:
+    """Draw the compact Rentivo mark used by every generated document."""
+    pdf = doc.pdf
+    c = doc.colors
+    mark_size = 7.5
+    ink = c["text_contrast"] if inverted else c["text_color"]
+
+    pdf.set_fill_color(*c["primary"])
+    pdf.set_draw_color(*ink)
+    pdf.set_line_width(0.45)
+    pdf.rect(x, y, mark_size, mark_size, style="DF", round_corners=True, corner_radius=1.4)
+    pdf.set_xy(x, y + 0.5)
+    pdf.set_font(doc.header_font, "B", 6.5)
+    pdf.set_text_color(*c["text_contrast"])
+    pdf.cell(mark_size, mark_size - 0.5, "R", align="C")
+
+    pdf.set_xy(x + mark_size + 2.2, y - 0.1)
+    pdf.set_font(doc.header_font, "B", 9.5)
+    pdf.set_text_color(*ink)
+    pdf.cell(28, mark_size, "rentivo")
+    pdf.set_line_width(0.2)
+
+
+def draw_document_header(doc: PdfDocument, *, title: str, subtitle: str) -> None:
+    """Draw the shared Rentivo masthead and advance below it."""
+    pdf = doc.pdf
+    c = doc.colors
+    x = pdf.l_margin
+    y = pdf.get_y()
+    header_h = 40.0
+
+    draw_box(doc, x, y, doc.page_w, header_h, fill=c["secondary_dark"], radius=4.0)
+    pdf.set_draw_color(*c["primary"])
+    pdf.set_line_width(2.4)
+    pdf.line(x + 4, y + 3.3, x + doc.page_w - 4, y + 3.3)
+    pdf.set_line_width(0.2)
+
+    draw_wordmark(doc, x + 7, y + 7.5, inverted=True)
+
+    pdf.set_xy(x + 7, y + 20)
+    pdf.set_font(doc.header_font, "B", 25)
+    pdf.set_text_color(*c["text_contrast"])
+    pdf.cell(doc.page_w - 14, 12, title)
+
+    pdf.set_xy(x + 7, y + 32)
+    pdf.set_font(doc.text_font, "", 8.5)
+    pdf.set_text_color(218, 220, 225)
+    pdf.cell(doc.page_w - 14, 5, subtitle)
+
+    pdf.set_y(y + header_h + 12)
+
+
 def new_document(theme: Theme | None, *, semibold: bool = True) -> PdfDocument:
     """Open a single-page document themed by ``theme`` (the default when None).
 
@@ -75,8 +163,8 @@ def new_document(theme: Theme | None, *, semibold: bool = True) -> PdfDocument:
     theme = theme or DEFAULT_THEME
 
     # Resolve font families
-    header_info = AVAILABLE_FONTS.get(theme.header_font, AVAILABLE_FONTS["Montserrat"])
-    text_info = AVAILABLE_FONTS.get(theme.text_font, AVAILABLE_FONTS["Montserrat"])
+    header_info = AVAILABLE_FONTS.get(theme.header_font, AVAILABLE_FONTS[DEFAULT_THEME.header_font])
+    text_info = AVAILABLE_FONTS.get(theme.text_font, AVAILABLE_FONTS[DEFAULT_THEME.text_font])
 
     hf = theme.header_font.replace(" ", "")
     hf_sb = hf + "SB"
@@ -131,10 +219,10 @@ def draw_footer(
         pdf.set_auto_page_break(False)
     pdf.set_y(offset)
     pdf.set_draw_color(*c["border_color"])
-    pdf.set_line_width(0.3)
+    pdf.set_line_width(0.55)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.l_margin + doc.page_w, y)
     pdf.ln(gap)
     pdf.set_font(doc.text_font, "", 7)
     pdf.set_text_color(*c["muted_text"])
-    pdf.cell(0, 5, "Documento gerado automaticamente", align="C")
+    pdf.cell(0, 5, f"rentivo  |  Documento gerado automaticamente  |  Página {pdf.page_no()}", align="C")

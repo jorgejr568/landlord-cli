@@ -9,7 +9,7 @@ from rentivo.constants import TYPE_LABELS, format_month
 from rentivo.models import format_brl
 from rentivo.models.bill import Bill
 from rentivo.observability import traced
-from rentivo.pdf.document import PdfDocument, draw_footer, new_document
+from rentivo.pdf.document import PdfDocument, draw_box, draw_document_header, draw_footer, new_document
 
 if TYPE_CHECKING:
     from rentivo.models.theme import Theme
@@ -60,33 +60,6 @@ class InvoicePDF:
         )
         return output
 
-    def _draw_info_card(
-        self,
-        doc: PdfDocument,
-        x: float,
-        y: float,
-        w: float,
-        h: float,
-        label: str,
-        value: str,
-    ) -> None:
-        """Draw a single info card with accent bar, label, and value."""
-        pdf = doc.pdf
-        c = doc.colors
-        pdf.set_fill_color(*c["primary_light"])
-        pdf.rect(x, y, w, h, "F")
-        pdf.set_fill_color(*c["secondary_dark"])
-        pdf.rect(x, y, 3, h, "F")
-
-        pdf.set_xy(x + 10, y + 3)
-        pdf.set_font(doc.text_font_sb, "", 7)
-        pdf.set_text_color(*c["muted_text"])
-        pdf.cell(w - 14, 5, label, new_x="LEFT", new_y="NEXT")
-        pdf.set_x(x + 10)
-        pdf.set_font(doc.text_font, "B", 13)
-        pdf.set_text_color(*c["text_color"])
-        pdf.cell(w - 14, 9, value)
-
     def _draw_header(
         self,
         doc: PdfDocument,
@@ -98,66 +71,34 @@ class InvoicePDF:
         c = doc.colors
         page_w = doc.page_w
         x = pdf.l_margin
-        y = pdf.get_y()
+        draw_document_header(doc, title="FATURA", subtitle="Documento de cobran\u00e7a")
 
-        # Header banner
-        pdf.set_fill_color(*c["primary"])
-        pdf.rect(x, y, page_w, 40, "F")
-
-        # Title
-        pdf.set_y(y + 10)
-        pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(doc.header_font, "B", 28)
-        pdf.cell(0, 14, "FATURA", align="C", new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_font(doc.text_font, "", 9)
-        pdf.set_text_color(210, 195, 215)
-        pdf.cell(
-            0,
-            8,
-            "Documento de cobran\u00e7a",
-            align="C",
-            new_x="LMARGIN",
-            new_y="NEXT",
-        )
-
-        pdf.ln(10)
-
-        # Info cards
-        pdf.set_text_color(*c["text_color"])
-        card_h = 24
-        card_y = pdf.get_y()
-
+        fields = [("COBRAN\u00c7A", billing_name), ("REFER\u00caNCIA", format_month(reference_month))]
         if due_date:
-            self._draw_info_card(doc, x, card_y, page_w, card_h, "COBRAN\u00c7A", billing_name)
+            fields.append(("VENCIMENTO", due_date))
 
-            row2_y = card_y + card_h + 6
-            card_w = page_w / 2 - 3
-            self._draw_info_card(
-                doc,
-                x,
-                row2_y,
-                card_w,
-                card_h,
-                "REFER\u00caNCIA",
-                format_month(reference_month),
-            )
-            self._draw_info_card(doc, x + card_w + 6, row2_y, card_w, card_h, "VENCIMENTO", due_date)
-            card_y = row2_y
-        else:
-            card_w = page_w / 2 - 3
-            self._draw_info_card(doc, x, card_y, card_w, card_h, "COBRAN\u00c7A", billing_name)
-            self._draw_info_card(
-                doc,
-                x + card_w + 6,
-                card_y,
-                card_w,
-                card_h,
-                "REFER\u00caNCIA",
-                format_month(reference_month),
-            )
+        widths = [page_w * 0.50, page_w * 0.25, page_w * 0.25] if due_date else [page_w * 0.62, page_w * 0.38]
+        card_y = pdf.get_y()
+        card_h = 28.0
+        draw_box(doc, x, card_y, page_w, card_h, fill=c["text_contrast"])
 
-        pdf.set_y(card_y + card_h + 14)
+        field_x = x
+        for index, ((label, value), field_w) in enumerate(zip(fields, widths, strict=True)):
+            if index:
+                pdf.set_draw_color(*c["border_color"])
+                pdf.set_line_width(0.45)
+                pdf.line(field_x, card_y + 4, field_x, card_y + card_h - 4)
+            pdf.set_xy(field_x + 7, card_y + 5)
+            pdf.set_font(doc.text_font_sb, "", 7)
+            pdf.set_text_color(*c["muted_text"])
+            pdf.cell(field_w - 12, 5, label)
+            pdf.set_xy(field_x + 7, card_y + 12)
+            pdf.set_font(doc.header_font, "B", 12)
+            pdf.set_text_color(*c["text_color"])
+            pdf.multi_cell(field_w - 12, 5.5, value, max_line_height=5.5)
+            field_x += field_w
+
+        pdf.set_y(card_y + card_h + 15)
 
     def _draw_table(self, doc: PdfDocument, bill: Bill) -> None:
         pdf = doc.pdf
@@ -166,120 +107,93 @@ class InvoicePDF:
         col_desc = page_w * 0.50
         col_type = page_w * 0.22
         col_amount = page_w * 0.28
-        line_h = 11
+        line_h = 11.5
 
-        # Section label
-        pdf.set_font(doc.header_font, "B", 11)
-        pdf.set_text_color(*c["primary"])
-        pdf.cell(0, 8, "ITENS DA FATURA", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
-
-        # Accent underline
-        pdf.set_draw_color(*c["secondary"])
-        pdf.set_line_width(0.8)
-        y = pdf.get_y()
-        pdf.line(pdf.l_margin, y, pdf.l_margin + 30, y)
-        pdf.ln(6)
-
-        # Table header
-        pdf.set_fill_color(*c["primary"])
-        pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(doc.text_font_sb, "", 9)
-
-        pdf.cell(col_desc, line_h, "  Descri\u00e7\u00e3o", border=0, fill=True)
-        pdf.cell(col_type, line_h, "Tipo", border=0, fill=True, align="C")
-        pdf.cell(
-            col_amount,
-            line_h,
-            "Valor  ",
-            border=0,
-            fill=True,
-            align="R",
-            new_x="LMARGIN",
-            new_y="NEXT",
-        )
-
-        # Table rows
+        pdf.set_font(doc.header_font, "B", 12)
         pdf.set_text_color(*c["text_color"])
-        pdf.set_font(doc.text_font, "", 10)
+        pdf.cell(page_w * 0.70, 8, "ITENS DA FATURA")
+        pdf.set_font(doc.text_font_sb, "", 7)
+        pdf.set_text_color(*c["muted_text"])
+        pdf.cell(page_w * 0.30, 8, f"{len(bill.line_items)} ITENS", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
 
-        for i, item in enumerate(bill.line_items):
-            if i % 2 == 0:
-                pdf.set_fill_color(*c["row_alt"])
-            else:
-                pdf.set_fill_color(*c["text_contrast"])
+        table_x = pdf.l_margin
+        table_y = pdf.get_y()
+        table_h = line_h * (len(bill.line_items) + 1)
+        draw_box(doc, table_x, table_y, page_w, table_h, fill=c["text_contrast"])
 
-            pdf.cell(col_desc, line_h, f"  {item.description}", border=0, fill=True)
+        pdf.set_fill_color(*c["primary_light"])
+        pdf.rect(table_x + 0.65, table_y + 0.65, page_w - 1.3, line_h - 0.65, style="F")
+        pdf.set_xy(table_x, table_y)
+        pdf.set_font(doc.text_font_sb, "", 8)
+        pdf.set_text_color(*c["text_color"])
+        pdf.cell(col_desc, line_h, "  DESCRI\u00c7\u00c3O")
+        pdf.cell(col_type, line_h, "TIPO", align="C")
+        pdf.cell(col_amount, line_h, "VALOR  ", align="R", new_x="LMARGIN", new_y="NEXT")
 
-            type_label = TYPE_LABELS.get(item.item_type, item.item_type)
-            pdf.set_font(doc.text_font, "", 9)
-            pdf.cell(col_type, line_h, type_label, border=0, fill=True, align="C")
-            pdf.set_font(doc.text_font_sb, "", 10)
+        for item in bill.line_items:
+            row_y = pdf.get_y()
+            pdf.set_draw_color(*c["border_color"])
+            pdf.set_line_width(0.25)
+            pdf.line(table_x + 4, row_y, table_x + page_w - 4, row_y)
+
+            pdf.set_font(doc.text_font, "", 9.5)
+            pdf.set_text_color(*c["text_color"])
+            pdf.cell(col_desc, line_h, f"  {item.description}")
+            pdf.set_font(doc.text_font, "", 8.5)
+            pdf.cell(col_type, line_h, TYPE_LABELS.get(item.item_type, item.item_type), align="C")
+            pdf.set_font(doc.text_font_sb, "", 9.5)
             pdf.cell(
                 col_amount,
                 line_h,
                 f"{format_brl(item.amount)}  ",
-                border=0,
-                fill=True,
                 align="R",
                 new_x="LMARGIN",
                 new_y="NEXT",
             )
-            pdf.set_font(doc.text_font, "", 10)
 
-        # Bottom border
-        pdf.set_draw_color(*c["border_color"])
-        pdf.set_line_width(0.3)
-        y = pdf.get_y()
-        pdf.line(pdf.l_margin, y, pdf.l_margin + page_w, y)
+        pdf.set_y(table_y + table_h + 5)
 
     def _draw_total(self, doc: PdfDocument, total_amount: int) -> None:
         pdf = doc.pdf
         c = doc.colors
-        pdf.ln(4)
+        total_w = doc.page_w * 0.54
+        total_h = 18.0
+        x = pdf.l_margin + doc.page_w - total_w
+        y = pdf.get_y()
 
-        col_label = doc.page_w * 0.72
-        col_amount = doc.page_w * 0.28
-        total_h = 14
-
-        pdf.set_fill_color(*c["secondary_dark"])
+        draw_box(doc, x, y, total_w, total_h, fill=c["primary"], radius=3.0)
+        pdf.set_xy(x + 7, y + 4)
+        pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(doc.text_font_sb, "", 12)
-        pdf.cell(col_label, total_h, "TOTAL  ", border=0, fill=True, align="R")
-        pdf.set_font(doc.header_font, "B", 14)
-        pdf.cell(
-            col_amount,
-            total_h,
-            f"{format_brl(total_amount)}  ",
-            border=0,
-            fill=True,
-            align="R",
-            new_x="LMARGIN",
-            new_y="NEXT",
-        )
+        pdf.cell(total_w * 0.36, 10, "TOTAL")
+        pdf.set_font(doc.header_font, "B", 15.5)
+        pdf.cell(total_w * 0.54, 10, format_brl(total_amount), align="R")
+        pdf.set_y(y + total_h + 2)
 
     def _draw_notes(self, doc: PdfDocument, notes: str) -> None:
         pdf = doc.pdf
         c = doc.colors
         page_w = doc.page_w
-        pdf.ln(14)
+        pdf.ln(12)
 
-        pdf.set_font(doc.text_font_sb, "", 8)
-        pdf.set_text_color(*c["muted_text"])
-        pdf.cell(0, 6, "OBSERVA\u00c7ÕES", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
+        pdf.set_font(doc.header_font, "B", 11)
+        pdf.set_text_color(*c["text_color"])
+        pdf.cell(0, 7, "OBSERVA\u00c7ÕES", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
 
         x = pdf.l_margin
         y = pdf.get_y()
 
-        pdf.set_fill_color(*c["secondary"])
-        pdf.rect(x, y, 3, 20, "F")
-        pdf.set_fill_color(*c["primary_light"])
-        pdf.rect(x + 3, y, page_w - 3, 20, "F")
-        pdf.set_xy(x + 12, y + 6)
+        pdf.set_font(doc.text_font, "", 9.5)
+        lines = pdf.multi_cell(page_w - 16, 5.5, notes, dry_run=True, output="LINES")
+        notes_h = max(20.0, len(lines) * 5.5 + 10)
+        draw_box(doc, x, y, page_w, notes_h, fill=c["primary_light"], shadow=False)
+        pdf.set_xy(x + 8, y + 5)
         pdf.set_text_color(*c["text_color"])
-        pdf.set_font(doc.text_font, "", 10)
-        pdf.multi_cell(page_w - 18, 6, notes)
+        pdf.set_font(doc.text_font, "", 9.5)
+        pdf.multi_cell(page_w - 16, 5.5, notes)
+        pdf.set_y(y + notes_h)
 
     def _draw_pix_page(
         self,
@@ -293,74 +207,54 @@ class InvoicePDF:
         c = doc.colors
         page_w = doc.page_w
         x = pdf.l_margin
+        draw_document_header(doc, title="PAGUE COM PIX", subtitle="Pagamento seguro pelo aplicativo do seu banco")
 
-        # Header banner
-        y = pdf.get_y()
-        pdf.set_fill_color(*c["primary"])
-        pdf.rect(x, y, page_w, 30, "F")
-
-        pdf.set_y(y + 8)
-        pdf.set_text_color(*c["text_contrast"])
-        pdf.set_font(doc.header_font, "B", 22)
-        pdf.cell(0, 12, "PAGAMENTO VIA PIX", align="C", new_x="LMARGIN", new_y="NEXT")
-
-        pdf.ln(16)
-
-        # QR code
-        qr_size = 55
-        qr_x = x + (page_w - qr_size) / 2
+        qr_panel = 72.0
         qr_y = pdf.get_y()
-
+        draw_box(doc, x, qr_y, qr_panel, qr_panel, fill=c["text_contrast"], radius=4.0)
+        qr_size = 56.0
+        qr_x = x + (qr_panel - qr_size) / 2
         buf = BytesIO(qrcode_png)
-        pdf.image(buf, x=qr_x, y=qr_y, w=qr_size, h=qr_size)
-        pdf.set_y(qr_y + qr_size + 6)
+        pdf.image(buf, x=qr_x, y=qr_y + (qr_panel - qr_size) / 2, w=qr_size, h=qr_size)
 
-        # Instruction text
-        pdf.set_font(doc.text_font, "", 10)
+        aside_x = x + qr_panel + 10
+        aside_w = page_w - qr_panel - 10
+        amount_h = 28.0
+        draw_box(doc, aside_x, qr_y, aside_w, amount_h, fill=c["primary"], radius=3.0)
+        pdf.set_xy(aside_x + 7, qr_y + 5)
+        pdf.set_font(doc.text_font_sb, "", 7.5)
+        pdf.set_text_color(*c["text_contrast"])
+        pdf.cell(aside_w - 14, 5, "VALOR A PAGAR")
+        pdf.set_xy(aside_x + 7, qr_y + 12)
+        pdf.set_font(doc.header_font, "B", 17)
+        pdf.cell(aside_w - 14, 10, format_brl(total_amount))
+
+        pdf.set_xy(aside_x + 2, qr_y + amount_h + 9)
+        pdf.set_font(doc.header_font, "B", 10.5)
+        pdf.set_text_color(*c["text_color"])
+        pdf.cell(aside_w - 2, 6, "COMO PAGAR")
+        pdf.set_xy(aside_x + 2, qr_y + amount_h + 18)
+        pdf.set_font(doc.text_font, "", 8.5)
         pdf.set_text_color(*c["muted_text"])
-        pdf.cell(
-            0,
-            6,
-            "Escaneie o QR Code ou copie o c\u00f3digo abaixo",
-            align="C",
-            new_x="LMARGIN",
-            new_y="NEXT",
+        pdf.multi_cell(
+            aside_w - 2,
+            5.5,
+            "1. Abra o aplicativo do seu banco.\n2. Escolha pagar com PIX.\n3. Escaneie o QR Code ao lado.",
         )
 
-        pdf.ln(10)
-
-        # Amount card
-        card_h = 22
-        card_y = pdf.get_y()
-        pdf.set_fill_color(*c["secondary_dark"])
-        pdf.rect(x, card_y, page_w, card_h, "F")
-
-        pdf.set_xy(x + 10, card_y + 3)
-        pdf.set_font(doc.text_font_sb, "", 8)
-        pdf.set_text_color(180, 220, 220)
-        pdf.cell(0, 5, "VALOR A PAGAR")
-        pdf.set_xy(x + 10, card_y + 10)
-        pdf.set_font(doc.header_font, "B", 18)
-        pdf.set_text_color(*c["text_contrast"])
-        pdf.cell(0, 10, format_brl(total_amount))
-
-        pdf.set_y(card_y + card_h + 12)
+        pdf.set_y(qr_y + qr_panel + 15)
 
         # PIX key info card
         if pix_key:
-            pdf.set_font(doc.text_font_sb, "", 8)
-            pdf.set_text_color(*c["muted_text"])
-            pdf.cell(0, 5, "CHAVE PIX", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(2)
+            pdf.set_font(doc.header_font, "B", 10.5)
+            pdf.set_text_color(*c["text_color"])
+            pdf.cell(0, 6, "CHAVE PIX", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
 
             key_y = pdf.get_y()
-            key_h = 14
-            pdf.set_fill_color(*c["primary_light"])
-            pdf.rect(x, key_y, page_w, key_h, "F")
-            pdf.set_fill_color(*c["secondary_dark"])
-            pdf.rect(x, key_y, 3, key_h, "F")
-
-            pdf.set_xy(x + 10, key_y + 3)
+            key_h = 16
+            draw_box(doc, x, key_y, page_w, key_h, fill=c["primary_light"], shadow=False)
+            pdf.set_xy(x + 7, key_y + 3.5)
             pdf.set_font(doc.text_font, "B", 11)
             pdf.set_text_color(*c["text_color"])
             pdf.cell(0, 8, pix_key)
@@ -369,29 +263,32 @@ class InvoicePDF:
 
         # Pix Copia e Cola
         if pix_payload:
-            pdf.set_font(doc.text_font_sb, "", 8)
-            pdf.set_text_color(*c["muted_text"])
-            pdf.cell(0, 5, "PIX COPIA E COLA", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(2)
+            pdf.set_font(doc.header_font, "B", 10.5)
+            pdf.set_text_color(*c["text_color"])
+            pdf.cell(0, 6, "PIX COPIA E COLA", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
 
             payload_y = pdf.get_y()
-            payload_cell_w = page_w - 12
+            payload_cell_w = page_w - 14
 
             pdf.set_font(doc.text_font, "", 7)
-            result = pdf.multi_cell(payload_cell_w, 4, pix_payload, dry_run=True, output="LINES")
+            result = pdf.multi_cell(
+                payload_cell_w,
+                4,
+                pix_payload,
+                align="L",
+                wrapmode="CHAR",
+                dry_run=True,
+                output="LINES",
+            )
             text_h = len(result) * 4
-            payload_h = text_h + 8
+            payload_h = text_h + 10
+            draw_box(doc, x, payload_y, page_w, payload_h, fill=c["primary_light"], shadow=False)
 
-            pdf.set_fill_color(*c["row_alt"])
-            pdf.rect(x, payload_y, page_w, payload_h, "F")
-            pdf.set_draw_color(*c["border_color"])
-            pdf.set_line_width(0.3)
-            pdf.rect(x, payload_y, page_w, payload_h, "D")
-
-            pdf.set_xy(x + 6, payload_y + 4)
+            pdf.set_xy(x + 7, payload_y + 5)
             pdf.set_font(doc.text_font, "", 7)
             pdf.set_text_color(*c["text_color"])
-            pdf.multi_cell(payload_cell_w, 4, pix_payload)
+            pdf.multi_cell(payload_cell_w, 4, pix_payload, align="L", wrapmode="CHAR")
 
             pdf.set_y(payload_y + payload_h + 4)
 

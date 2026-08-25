@@ -1,3 +1,7 @@
+import io
+
+import pypdf
+
 from rentivo.models.bill import Bill, BillLineItem
 from rentivo.models.billing import ItemType
 from rentivo.pdf.invoice import InvoicePDF
@@ -103,6 +107,12 @@ class TestInvoicePDF:
         bill = self._make_bill()
         result = pdf_gen.generate(bill, "Apt 101", theme=DEFAULT_THEME)
         assert result[:5] == b"%PDF-"
+
+    def test_default_invoice_carries_the_rentivo_wordmark(self):
+        result = InvoicePDF().generate(self._make_bill(), "Apt 101")
+
+        text = "\n".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages)
+        assert "rentivo" in text
 
     def test_generate_pix_no_key_no_payload(self):
         """Cover branches 362->383 and 383->exit: pix page without key or payload."""
