@@ -1,4 +1,4 @@
-import { Building2, QrCode } from "lucide-react";
+import { Building2, QrCode, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
@@ -53,6 +53,7 @@ export function OrganizationForm({
   const [visitedStep, setVisitedStep] = useState(0);
   const [customPix, setCustomPix] = useState(Boolean(values.pix_key || values.pix_merchant_name || values.pix_merchant_city));
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
+  const pendingServerFocus = useRef<(typeof FIELD_KEYS)[number] | null>(null);
   const createMode = mode === "create";
   const allFieldErrors = useMemo(
     () => ({ ...Object.fromEntries(Object.entries(fieldErrors).filter(([field]) => !ignoredServerFields.includes(field))), ...localFieldErrors }),
@@ -62,15 +63,24 @@ export function OrganizationForm({
   useEffect(() => setIgnoredServerFields([]), [fieldErrors]);
 
   useEffect(() => {
-    if (!error && !Object.keys(allFieldErrors).length) return;
-    const key = FIELD_KEYS.find((field) => allFieldErrors[field]) ?? "name";
+    if (!error && !Object.keys(fieldErrors).length) return;
+    const key = FIELD_KEYS.find((field) => fieldErrors[field]) ?? "name";
     if (createMode) {
+      pendingServerFocus.current = key;
       const step = stepForField(key);
       setActiveStep(step);
       setVisitedStep((current) => Math.max(current, step));
+    } else {
+      refs.current[key]?.focus();
     }
+  }, [createMode, error, fieldErrors]);
+
+  useEffect(() => {
+    const key = pendingServerFocus.current;
+    if (!createMode || !key || stepForField(key) !== activeStep) return;
+    pendingServerFocus.current = null;
     refs.current[key]?.focus();
-  }, [activeStep, allFieldErrors, createMode, error]);
+  }, [activeStep, createMode]);
 
   const update = (key: keyof OrganizationValues, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -82,7 +92,13 @@ export function OrganizationForm({
       return remaining;
     });
   };
-  const describedBy = (key: keyof OrganizationValues) => allFieldErrors[key] ? `${key}-error` : undefined;
+  const setPixTiming = (configureNow: boolean) => {
+    setCustomPix(configureNow);
+    setIsDirty(true);
+    setLocalFieldErrors({});
+    setIgnoredServerFields((current) => [...new Set([...current, "pix_key", "pix_merchant_name", "pix_merchant_city"])]);
+  };
+  const describedBy = (key: keyof OrganizationValues, hintId?: string) => [allFieldErrors[key] ? `${key}-error` : "", hintId ?? ""].filter(Boolean).join(" ") || undefined;
   const inputClass = createMode ? "input" : "field-input";
   const labelClass = createMode ? "field__label" : "field-label";
   const cancelUrl = createMode ? "/organizations/" : `/organizations/${organizationUuid}`;
@@ -139,8 +155,10 @@ export function OrganizationForm({
         const step = stepForField(firstField);
         setActiveStep(step);
         setVisitedStep((current) => Math.max(current, step));
+        requestAnimationFrame(() => refs.current[firstField]?.focus());
+      } else {
+        refs.current[firstField]?.focus();
       }
-      requestAnimationFrame(() => refs.current[firstField]?.focus());
       return;
     }
     setLocalFieldErrors({});
@@ -156,42 +174,57 @@ export function OrganizationForm({
   if (createMode) {
     const identityStep = (
       <>
-        <div className="organization-wizard__intro"><Building2 aria-hidden="true" size={24} /><div><strong>O espaço da sua equipe</strong><p>Use um nome que todos reconheçam. Você poderá convidar membros e criar cobranças logo depois.</p></div></div>
+        <div className="organization-wizard__intro"><Building2 aria-hidden="true" size={24} /><div><strong>Comece pelo nome do espaço</strong><p>Use o nome que sua equipe reconhece. Convites e cobranças entram depois da criação.</p></div></div>
         <div className="field mb-0">
           <label className={labelClass} htmlFor="name">Nome da organização</label>
-          <input aria-describedby={describedBy("name")} autoFocus className={inputClass} id="name" name="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Imóveis" ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
+          <input aria-describedby={describedBy("name", "name-hint")} autoComplete="organization" autoFocus className={inputClass} id="name" name="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Imóveis…" ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
           <FieldError id="name-error" message={allFieldErrors.name} />
-          <span className="field__hint">Você entra como administrador e poderá ajustar a equipe depois.</span>
+          <span className="field__hint" id="name-hint">Você será o administrador inicial e poderá ajustar os acessos depois.</span>
         </div>
       </>
     );
     const pixStep = (
       <>
-        <div className="organization-wizard__intro"><QrCode aria-hidden="true" size={24} /><div><strong>Receba por PIX nas cobranças</strong><p>Esses dados geram o QR Code das faturas emitidas pela organização.</p></div></div>
-        <label className="organization-pix-choice" htmlFor="organization_custom_pix">
-          <input aria-label="Configurar PIX agora" checked={customPix} id="organization_custom_pix" name="organization_custom_pix" onChange={(event) => { setCustomPix(event.target.checked); setIsDirty(true); setLocalFieldErrors({}); }} type="checkbox" />
-          <span><strong>Configurar PIX agora</strong><small>Você também pode pular e configurar quando estiver pronto para emitir a primeira fatura.</small></span>
-        </label>
+        <div className="organization-wizard__intro"><QrCode aria-hidden="true" size={24} /><div><strong>Decida quando ativar o PIX</strong><p>Ao configurar agora, as faturas da organização já saem com QR Code para pagamento.</p></div></div>
+        <fieldset className="organization-pix-choice">
+          <legend>Quando configurar o PIX</legend>
+          <div className="organization-pix-choice__options">
+            <label htmlFor="organization_pix_later">
+              <input checked={!customPix} id="organization_pix_later" name="organization_pix_timing" onChange={() => setPixTiming(false)} type="radio" value="later" />
+              <span><strong>Configurar depois</strong><small>Crie o espaço agora e ative o PIX antes da primeira fatura.</small></span>
+            </label>
+            <label htmlFor="organization_pix_now">
+              <input checked={customPix} id="organization_pix_now" name="organization_pix_timing" onChange={() => setPixTiming(true)} type="radio" value="now" />
+              <span><strong>Configurar agora</strong><small>Informe os dados que aparecerão no QR Code das faturas.</small></span>
+            </label>
+          </div>
+        </fieldset>
         {customPix ? <div className="organization-pix-fields">
-          <div className="field field--full"><label className={labelClass} htmlFor="pix_key">Chave PIX</label><input aria-describedby={describedBy("pix_key")} className={`${inputClass} mono`} id="pix_key" name="pix_key" onChange={(event) => update("pix_key", event.target.value)} placeholder="e-mail, CPF/CNPJ, telefone (+55) ou aleatória" ref={(element) => { refs.current.pix_key = element; }} type="text" value={form.pix_key} /><FieldError id="pix_key-error" message={allFieldErrors.pix_key} /></div>
-          <div className="field"><label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={describedBy("pix_merchant_name")} className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} placeholder="Até 25 caracteres" ref={(element) => { refs.current.pix_merchant_name = element; }} type="text" value={form.pix_merchant_name} /><FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} /></div>
-          <div className="field"><label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={describedBy("pix_merchant_city")} className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} placeholder="SEM ACENTOS" ref={(element) => { refs.current.pix_merchant_city = element; }} type="text" value={form.pix_merchant_city} /><FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} /></div>
-        </div> : <div className="organization-pix-skip" role="status"><strong>Sem problema.</strong><span>A organização será criada sem PIX e você poderá completar isso depois.</span></div>}
+          <div className="field field--full"><label className={labelClass} htmlFor="pix_key">Chave PIX</label><input aria-describedby={describedBy("pix_key", "pix_key-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_key" name="pix_key" onChange={(event) => update("pix_key", limitApiCharacters(event.target.value, 320))} placeholder="E-mail, CPF/CNPJ, telefone (+55) ou chave aleatória…" ref={(element) => { refs.current.pix_key = element; }} spellCheck={false} type="text" value={form.pix_key} /><FieldError id="pix_key-error" message={allFieldErrors.pix_key} /><span className="field__hint" id="pix_key-hint">Para celular, inclua o código +55.</span></div>
+          <div className="field"><label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={describedBy("pix_merchant_name", "pix_merchant_name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: RIBEIRO IMOVEIS…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} /><FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} /><span className="field__hint organization-character-count" id="pix_merchant_name-hint">{form.pix_merchant_name.length} de 25 caracteres</span></div>
+          <div className="field"><label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={describedBy("pix_merchant_city", "pix_merchant_city-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: SAO PAULO…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} /><FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} /><span className="field__hint organization-character-count" id="pix_merchant_city-hint">{form.pix_merchant_city.length} de 15 caracteres, sem acentos</span></div>
+        </div> : <div aria-live="polite" className="organization-pix-skip" role="status"><strong>PIX fica para depois.</strong><span>A organização será criada normalmente e esta configuração continuará disponível.</span></div>}
       </>
     );
     const reviewStep = (
-      <dl className="review-list">
-        <WizardReviewRow label="Nome da organização" onEdit={() => setActiveStep(0)} value={form.name || "Não informado"} />
-        <WizardReviewRow label="Seu papel" value="Admin" />
-        <WizardReviewRow label="Recebimento PIX" onEdit={() => setActiveStep(1)} value={customPix ? <>PIX configurado · <span className="mono">{form.pix_key}</span></> : "Configurar depois"} />
-      </dl>
+      <>
+        <dl className="review-list">
+          <WizardReviewRow label="Nome da organização" onEdit={() => setActiveStep(0)} value={form.name || "Não informado"} />
+          <WizardReviewRow label="Seu acesso" value="Administrador" />
+          <WizardReviewRow label="Recebimento PIX" onEdit={() => setActiveStep(1)} value={customPix ? <>Configurado para <span className="mono">{form.pix_key}</span></> : "Configurar depois"} />
+        </dl>
+        <div className="organization-review-note">
+          <ShieldCheck aria-hidden="true" size={22} />
+          <div><strong>Acessos continuam sob seu controle</strong><p>Depois de criar, você poderá convidar a equipe e exigir autenticação em 2 etapas nas configurações de segurança.</p></div>
+        </div>
+      </>
     );
     const content = [identityStep, pixStep, reviewStep][activeStep];
     return (
-      <form id="organization-create-form" onSubmit={submit}>
+      <form className="organization-create-form" id="organization-create-form" onSubmit={submit}>
         <DirtyFormGuard isDirty={isDirty && !saving} />
         {error ? <div className="toast toast--danger" role="alert">{error}</div> : null}
-        <FormWizard activeStep={activeStep} busy={saving} cancelAction={<Link className="btn btn--ghost" to={cancelUrl}>Cancelar</Link>} finalLabel="Criar organização" onBack={() => setActiveStep((current) => Math.max(0, current - 1))} onNext={continueWizard} onStepChange={setActiveStep} steps={ORGANIZATION_STEPS} visitedStep={visitedStep}>{content}</FormWizard>
+        <FormWizard activeStep={activeStep} busy={saving} busyLabel="Criando…" cancelAction={<Link className="btn btn--ghost" to={cancelUrl}>Cancelar</Link>} finalLabel="Criar organização" onBack={() => setActiveStep((current) => Math.max(0, current - 1))} onNext={continueWizard} onStepChange={setActiveStep} steps={ORGANIZATION_STEPS} visitedStep={visitedStep}>{content}</FormWizard>
       </form>
     );
   }
@@ -215,7 +248,7 @@ export function OrganizationForm({
           <p className="field-hint mb-1">Estes dados são usados para gerar o QR Code nas faturas das cobranças desta organização. Todos os três campos são obrigatórios para gerar faturas.</p>
           <div className="field">
             <label className={labelClass} htmlFor="pix_key">Chave PIX</label>
-            <input aria-describedby={describedBy("pix_key")} className={inputClass} id="pix_key" onChange={(event) => update("pix_key", event.target.value)} ref={(element) => { refs.current.pix_key = element; }} type="text" value={form.pix_key} />
+            <input aria-describedby={describedBy("pix_key")} className={inputClass} id="pix_key" onChange={(event) => update("pix_key", limitApiCharacters(event.target.value, 320))} ref={(element) => { refs.current.pix_key = element; }} type="text" value={form.pix_key} />
             <FieldError id="pix_key-error" message={allFieldErrors.pix_key} />
             <span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span>
           </div>

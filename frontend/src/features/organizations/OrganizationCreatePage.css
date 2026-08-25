@@ -1,0 +1,414 @@
+.organization-create-page {
+    width: min(100%, 1120px);
+    margin: 0 auto;
+}
+
+.organization-create-page__head {
+    margin-bottom: 1.25rem;
+}
+
+.organization-create-page__head .pagehead__sub {
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+.organization-create-form .wizard {
+    display: grid;
+    grid-template-columns: minmax(228px, 260px) minmax(0, 1fr);
+    gap: 0;
+    min-height: 520px;
+    overflow: clip;
+    border: var(--bw-bold) solid var(--ink);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: var(--sh);
+}
+
+.organization-create-form .wizard__rail {
+    position: static;
+    min-width: 0;
+    overflow: visible;
+    border: 0;
+    border-right: var(--bw) solid var(--ink);
+    border-radius: 0;
+    background: var(--paper-2);
+    box-shadow: none;
+}
+
+.organization-create-form .wizard-progress {
+    padding: 1.35rem 1.25rem 1.1rem;
+    border-bottom: 1.5px solid var(--line);
+    background: transparent;
+}
+
+.organization-create-form .wizard-progress > span {
+    margin-bottom: 0.7rem;
+    color: var(--ink);
+}
+
+.organization-create-form .wizard-progress__track {
+    gap: 0.4rem;
+}
+
+.organization-create-form .wizard-progress__track i {
+    height: 6px;
+}
+
+.organization-create-form .wizard-steps {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.85rem;
+}
+
+.organization-create-form .wizard-step + .wizard-step {
+    margin-top: 0;
+}
+
+.organization-create-form .wizard-step > button,
+.organization-create-form .wizard-step > div {
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.85rem;
+    border: 1.5px solid transparent;
+    border-radius: 12px;
+}
+
+.organization-create-form .wizard-step > button:hover {
+    background: var(--surface);
+}
+
+.organization-create-form .wizard-step[data-state="current"] > button {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--accent-pale);
+}
+
+.organization-create-form .wizard-step__mark {
+    flex-basis: 30px;
+    width: 30px;
+    height: 30px;
+}
+
+.organization-create-form .wizard-step__copy strong {
+    font-size: 0.88rem;
+}
+
+.organization-create-form .wizard-step__copy small {
+    margin-top: 0.25rem;
+    font-size: 0.74rem;
+    line-height: 1.42;
+}
+
+.organization-create-form .wizard__stage {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: 100%;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: none;
+}
+
+.organization-create-form .wizard__stage-head {
+    padding: 1.3rem 2rem 1.05rem;
+    border-bottom: 1.5px solid var(--line);
+    background: var(--surface);
+}
+
+.organization-create-form .wizard__stage-head h2 {
+    margin-top: 0.25rem;
+    font-size: clamp(1.35rem, 2.4vw, 1.7rem);
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+}
+
+.organization-create-form .wizard__stage-head p {
+    max-width: 58ch;
+    margin-top: 0.45rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    text-wrap: pretty;
+}
+
+.organization-create-form .wizard__content {
+    align-self: start;
+    width: 100%;
+    max-width: 760px;
+    padding: 1.45rem 2rem 1.5rem;
+}
+
+.organization-create-form .organization-wizard__intro {
+    gap: 1rem;
+    margin-bottom: 1.1rem;
+}
+
+.organization-create-form .organization-wizard__intro > svg {
+    padding: 0.65rem;
+    border-width: 2px;
+    border-radius: 13px;
+    box-shadow: none;
+}
+
+.organization-create-form .organization-wizard__intro strong {
+    font-size: 1rem;
+}
+
+.organization-create-form .organization-wizard__intro p {
+    margin-top: 0.3rem;
+    font-size: 0.84rem;
+}
+
+.organization-create-form .input {
+    min-height: 52px;
+    border-radius: 11px;
+}
+
+.organization-create-form .organization-pix-choice {
+    display: block;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    cursor: default;
+}
+
+.organization-create-form .organization-pix-choice:has(input:checked) {
+    background: transparent;
+    box-shadow: none;
+}
+
+.organization-create-form .organization-pix-choice legend {
+    margin-bottom: 0.55rem;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.organization-pix-choice__options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: var(--bw) solid var(--ink);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.organization-pix-choice__options label {
+    display: flex;
+    min-width: 0;
+    gap: 0.7rem;
+    align-items: flex-start;
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    transition: background-color var(--t), box-shadow var(--t);
+}
+
+.organization-pix-choice__options label + label {
+    border-left: 1.5px solid var(--line);
+}
+
+.organization-pix-choice__options label:has(input:checked) {
+    background: var(--accent-pale);
+    box-shadow: inset 0 -4px 0 var(--accent);
+}
+
+.organization-pix-choice__options label:focus-within {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+}
+
+.organization-pix-choice__options input {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin: 0.12rem 0 0;
+    accent-color: var(--accent);
+}
+
+.organization-pix-choice__options span {
+    display: grid;
+    min-width: 0;
+    gap: 0.2rem;
+}
+
+.organization-pix-choice__options strong {
+    font-size: 0.86rem;
+}
+
+.organization-pix-choice__options small {
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    text-wrap: pretty;
+}
+
+.organization-create-form .organization-pix-fields {
+    gap: 0 1rem;
+    margin-top: 1rem;
+}
+
+.organization-create-form .organization-pix-fields .field {
+    margin-bottom: 0.8rem;
+}
+
+.organization-create-form .organization-pix-skip {
+    align-items: flex-start;
+    margin-top: 1rem;
+    padding: 0.85rem 0 0;
+}
+
+.organization-character-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.organization-review-note {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+    border-top: 1.5px solid var(--line);
+}
+
+.organization-create-form .review-row dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.organization-review-note > svg {
+    flex: 0 0 auto;
+    color: var(--accent-dark);
+}
+
+.organization-review-note strong {
+    font-size: 0.88rem;
+}
+
+.organization-review-note p {
+    max-width: 58ch;
+    margin: 0.3rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    text-wrap: pretty;
+}
+
+.organization-create-form .wizard__actions {
+    min-height: 74px;
+    padding: 0.9rem 2rem;
+    border-top: 1.5px solid var(--line);
+    background: var(--paper-2);
+}
+
+.organization-create-form .wizard__actions .btn {
+    min-width: 116px;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+    .organization-create-form .wizard {
+        grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+    }
+
+    .organization-create-form .wizard__stage-head,
+    .organization-create-form .wizard__content,
+    .organization-create-form .wizard__actions {
+        padding-right: 1.4rem;
+        padding-left: 1.4rem;
+    }
+
+    .organization-pix-choice__options {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .organization-pix-choice__options label + label {
+        border-top: 1.5px solid var(--line);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    .organization-create-page__head {
+        margin-bottom: 1rem;
+    }
+
+    .organization-create-form .wizard {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 0;
+        border-radius: 15px;
+    }
+
+    .organization-create-form .wizard__rail {
+        border-right: 0;
+        border-bottom: 1.5px solid var(--line);
+    }
+
+    .organization-create-form .wizard-steps {
+        display: none;
+    }
+
+    .organization-create-form .wizard-progress {
+        display: grid;
+        grid-template-columns: auto minmax(120px, 1fr);
+        gap: 1rem;
+        align-items: center;
+        padding: 1rem 1.2rem;
+        border-bottom: 0;
+    }
+
+    .organization-create-form .wizard-progress > span {
+        margin: 0;
+    }
+
+    .organization-create-form .wizard__stage {
+        min-height: 470px;
+    }
+
+    .organization-create-form .wizard__actions {
+        position: static;
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 520px) {
+    .organization-create-form .wizard__stage-head {
+        padding: 1.25rem 1.15rem 1.05rem;
+    }
+
+    .organization-create-form .wizard__content {
+        padding: 1.25rem 1.15rem 1.5rem;
+    }
+
+    .organization-create-form .wizard__actions {
+        gap: 0.6rem;
+        min-height: 68px;
+        padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0));
+    }
+
+    .organization-create-form .wizard__actions .btn {
+        min-width: 0;
+    }
+
+    .organization-create-form .organization-wizard__intro > svg {
+        padding: 0.55rem;
+    }
+
+    .organization-create-form .organization-pix-skip {
+        display: grid;
+        gap: 0.25rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .organization-pix-choice__options label {
+        transition: none;
+    }
+}

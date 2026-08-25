@@ -71,6 +71,30 @@ it("caps organization names at the backend limit", () => {
   expect(name).toHaveValue("😀".repeat(255));
 });
 
+it("makes the optional PIX timing an explicit mutually exclusive choice", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  const later = screen.getByRole("radio", { name: /Configurar depois/ });
+  const now = screen.getByRole("radio", { name: /Configurar agora/ });
+  expect(screen.getByRole("group", { name: "Quando configurar o PIX" })).toBeVisible();
+  expect(later).toBeChecked();
+  expect(now).not.toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+
+  await user.click(now);
+  expect(now).toBeChecked();
+  expect(later).not.toBeChecked();
+  expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+
+  await user.click(later);
+  expect(later).toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+});
+
 it("guides organization creation through identity, optional PIX, and review", async () => {
   const user = userEvent.setup();
   renderCreate();
@@ -82,7 +106,7 @@ it("guides organization creation through identity, optional PIX, and review", as
 
   expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
   expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+  await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
   expect(screen.getByLabelText("Chave PIX")).toBeVisible();
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
@@ -90,14 +114,16 @@ it("guides organization creation through identity, optional PIX, and review", as
   await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
   await user.type(screen.getByLabelText("Nome do recebedor"), "RIBEIRO IMOVEIS");
   await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
 
   expect(screen.getByRole("heading", { name: "Revisão" })).toBeVisible();
   expect(screen.getByText("Ribeiro Imóveis")).toBeVisible();
-  expect(screen.getByText(/PIX configurado/)).toBeVisible();
-  expect(screen.getByText("Admin")).toBeVisible();
+  expect(screen.getByText("+5571999999999", { exact: false })).toBeVisible();
+  expect(screen.getByText("Administrador")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Editar Recebimento PIX" }));
   expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   await user.click(screen.getByRole("button", { name: "Voltar" }));
   expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
@@ -114,7 +140,7 @@ it("returns a direct invalid create submission to the relevant wizard step", asy
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
-  await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+  await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
 
   fireEvent.submit(document.getElementById("organization-create-form")!);
 
@@ -159,7 +185,7 @@ function renderCreate() {
 async function advanceCreateToReview(user: ReturnType<typeof userEvent.setup>, pix?: { city: string; key: string; name: string }) {
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   if (pix) {
-    await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+    await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
     await user.type(screen.getByLabelText("Chave PIX"), pix.key);
     await user.type(screen.getByLabelText("Nome do recebedor"), pix.name);
     await user.type(screen.getByLabelText("Cidade do recebedor"), pix.city);
@@ -246,7 +272,7 @@ it("deduplicates create submissions before the saving state rerenders", async ()
   });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-  expect(screen.getByRole("button", { name: "Criando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Criando…" })).toBeDisabled();
   await act(async () => {
     create.resolve(jsonResponse({
       capabilities: { can_create_billing: true, can_invite: true, can_manage: true, can_view_billing_stats: true },
