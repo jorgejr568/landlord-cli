@@ -94,6 +94,30 @@ it("guides billing configuration through validated desktop steps and review edit
   expect(onSubmit).not.toHaveBeenCalled();
 });
 
+it("offers explicit owner and custom PIX choices", async () => {
+  const user = userEvent.setup();
+  renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={emptyBillingValues()} />);
+
+  await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento 302");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+
+  const ownerPix = screen.getByRole("radio", { name: /^Usar PIX do proprietário/ });
+  const customPix = screen.getByRole("radio", { name: /^Usar PIX exclusivo/ });
+  expect(ownerPix).toBeChecked();
+  expect(customPix).not.toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+
+  await user.click(customPix);
+  expect(customPix).toBeChecked();
+  expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+
+  await user.click(ownerPix);
+  expect(ownerPix).toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+});
+
 it("preserves the create form structure and filters owners by capability instead of role", async () => {
   const user = userEvent.setup();
   const onSubmit = vi.fn();
@@ -140,7 +164,7 @@ it("preserves the create form structure and filters owners by capability instead
   await user.click(screen.getByRole("button", { name: "Remover item 2" }));
   expect(screen.queryByLabelText("Descrição do item 2")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await user.click(screen.getByLabelText("Usar PIX personalizado"));
+  await user.click(screen.getByRole("radio", { name: /^Usar PIX exclusivo/ }));
   await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
   await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
   await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");

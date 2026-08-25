@@ -10,6 +10,7 @@ import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
 import type { components } from "../../lib/api/schema";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { RecipientFormset, type ContactValue } from "./RecipientFormset";
+import "./BillingForm.css";
 
 type Organization = components["schemas"]["OrganizationResponse"];
 
@@ -253,6 +254,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
         <div className="field field--full">
           <label className="field__label" htmlFor="owner">Proprietário</label>
           <select
+            autoComplete="off"
             className="select"
             id="owner"
             name="owner"
@@ -282,12 +284,12 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
       <div className="form-grid">
         <div className="field field--full">
           <label className="field__label" htmlFor="name">Nome do imóvel</label>
-          <input aria-describedby={allFieldErrors.name ? "name-error" : undefined} autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Apartamento 302 — Ed. Aurora" required type="text" value={form.name} />
+          <input aria-describedby={allFieldErrors.name ? "name-error" : undefined} autoComplete="off" autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Apartamento 302, Ed. Aurora…" required type="text" value={form.name} />
           <FieldError id="name-error" message={allFieldErrors.name} />
         </div>
         <div className="field field--full">
           <label className="field__label" htmlFor="description">Descrição</label>
-          <input aria-describedby={allFieldErrors.description ? "description-error" : undefined} className="input" id="description" name="description" onChange={(event) => setField("description", limitApiCharacters(event.target.value, 2000))} placeholder="Inquilino, endereço ou nota interna" type="text" value={form.description} />
+          <input aria-describedby={allFieldErrors.description ? "description-error" : undefined} autoComplete="off" className="input" id="description" name="description" onChange={(event) => setField("description", limitApiCharacters(event.target.value, 2000))} placeholder="Inquilino, endereço ou nota interna…" type="text" value={form.description} />
           <FieldError id="description-error" message={allFieldErrors.description} />
         </div>
       </div>
@@ -314,7 +316,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                 <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
                   <div className="field mb-0">
                     <label className="field__label" htmlFor={`${item.id}-description`}>Descrição</label>
-                    <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && allFieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: limitApiCharacters(event.target.value, 255) })} placeholder={index === 0 ? "Ex.: Aluguel" : "Ex.: Condomínio"} required type="text" value={item.description} />
+                    <input aria-describedby={[descriptionError ? `${item.id}-description-error` : "", uuidError ? `${item.id}-uuid-error` : "", index === 0 && allFieldErrors.items ? "items-error" : ""].filter(Boolean).join(" ") || undefined} aria-label={`Descrição do item ${index + 1}`} autoComplete="off" className="input" id={`${item.id}-description`} name={`items-${index}-description`} onChange={(event) => updateItem(index, { description: limitApiCharacters(event.target.value, 255) })} placeholder={index === 0 ? "Ex.: Aluguel…" : "Ex.: Condomínio…"} required type="text" value={item.description} />
                     <FieldError id={`${item.id}-description-error`} message={descriptionError} />
                     <FieldError id={`${item.id}-uuid-error`} message={uuidError} />
                   </div>
@@ -328,7 +330,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                   {item.itemType === "fixed" ? (
                     <div className="field mb-0">
                       <label className="field__label" htmlFor={`${item.id}-amount`}>Valor (R$)</label>
-                      <input aria-describedby={amountError ? `${item.id}-amount-error` : undefined} aria-label={`Valor do item ${index + 1} (R$)`} className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00" type="text" value={item.amount} />
+                      <input aria-describedby={amountError ? `${item.id}-amount-error` : undefined} aria-label={`Valor do item ${index + 1} (R$)`} autoComplete="off" className="input mono" id={`${item.id}-amount`} inputMode="decimal" name={`items-${index}-amount`} onChange={(event) => updateItem(index, { amount: event.target.value })} placeholder="0,00…" type="text" value={item.amount} />
                       <FieldError id={`${item.id}-amount-error`} message={amountError} />
                     </div>
                   ) : null}
@@ -347,23 +349,30 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
 
   const pixStep = (
     <>
-      <div className="between mb-2"><div><strong>Como esta cobrança recebe?</strong><p className="text-muted text-sm mt-0">Use o PIX já configurado no proprietário ou informe dados exclusivos para este imóvel.</p></div><QrCode aria-hidden="true" size={24} /></div>
-      <div className="field">
-        <label className="field__label" htmlFor="use_custom_pix"><input checked={customPix} id="use_custom_pix" name="use_custom_pix" onChange={(event) => { setCustomPix(event.target.checked); setIsDirty(true); }} type="checkbox" /> Usar PIX personalizado</label>
-        <span className="field__hint">Desmarcado, este imóvel usa o PIX configurado no proprietário.</span>
-      </div>
+      <div className="billing-pix-heading"><div><strong>Como esta cobrança recebe?</strong><p>Escolha a chave padrão do proprietário ou cadastre uma chave exclusiva para este imóvel.</p></div><QrCode aria-hidden="true" size={24} /></div>
+      <fieldset className="billing-pix-choice">
+        <legend className="sr-only">Origem da chave PIX</legend>
+        <label>
+          <input checked={!customPix} name="pix_source" onChange={() => { setCustomPix(false); setIsDirty(true); }} type="radio" value="owner" />
+          <span><strong>Usar PIX do proprietário</strong><small>Reaproveita a chave já configurada.</small></span>
+        </label>
+        <label>
+          <input checked={customPix} name="pix_source" onChange={() => { setCustomPix(true); setIsDirty(true); }} type="radio" value="custom" />
+          <span><strong>Usar PIX exclusivo</strong><small>Define outra chave só para este imóvel.</small></span>
+        </label>
+      </fieldset>
       {showCustomPix ? <>
         <div className="field">
           <label className="field__label" htmlFor="pix_key">Chave PIX</label>
-          <input aria-describedby="pix-key-hint pix-key-error" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder="e-mail, CPF/CNPJ, telefone (+55) ou aleatória" type="text" value={form.pixKey} />
+          <input aria-describedby="pix-key-hint pix-key-error" autoComplete="off" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder="E-mail, CPF/CNPJ, telefone (+55) ou chave aleatória…" spellCheck={false} type="text" value={form.pixKey} />
           <span className="field__hint" id="pix-key-hint">Para celular inclua +55, caso contrário 11 dígitos são tratados como CPF.</span>
           <FieldError id="pix-key-error" message={allFieldErrors.pix_key} />
         </div>
         <div className="form-grid">
-          <div className="field"><label className="field__label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_name ? "pix-name-error" : undefined} className="input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", limitApiCharacters(event.target.value, 25))} placeholder="Até 25 caracteres" type="text" value={form.pixMerchantName} /><span className="field__hint">Até 25 caracteres.</span><FieldError id="pix-name-error" message={allFieldErrors.pix_merchant_name} /></div>
-          <div className="field"><label className="field__label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_city ? "pix-city-error" : undefined} className="input mono" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", limitApiCharacters(event.target.value, 15))} placeholder="SEM ACENTOS" type="text" value={form.pixMerchantCity} /><span className="field__hint">Até 15 caracteres, sem acentos.</span><FieldError id="pix-city-error" message={allFieldErrors.pix_merchant_city} /></div>
+          <div className="field"><label className="field__label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_name ? "pix-name-error" : undefined} autoComplete="off" className="input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: Maria da Silva…" type="text" value={form.pixMerchantName} /><span className="field__hint">Até 25 caracteres.</span><FieldError id="pix-name-error" message={allFieldErrors.pix_merchant_name} /></div>
+          <div className="field"><label className="field__label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_city ? "pix-city-error" : undefined} autoComplete="off" className="input mono" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: SAO PAULO…" spellCheck={false} type="text" value={form.pixMerchantCity} /><span className="field__hint">Até 15 caracteres, sem acentos.</span><FieldError id="pix-city-error" message={allFieldErrors.pix_merchant_city} /></div>
         </div>
-      </> : <div className="toast toast--warning" role="status">PIX herdado do proprietário.</div>}
+      </> : <div className="billing-pix-inherited" role="status"><strong>PIX do proprietário selecionado</strong><span>A cobrança usa a chave já cadastrada no perfil do proprietário.</span></div>}
     </>
   );
 
@@ -386,7 +395,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   const stepContent = [essentialsStep, itemsStep, pixStep, communicationStep, reviewStep][activeStep];
 
   return (
-    <form id="billing-form" onSubmit={submit}>
+    <form className={`billing-form billing-form--${mode}`} id="billing-form" onSubmit={submit}>
       <DirtyFormGuard isDirty={isDirty && !saving} />
       {error ? <div className="toast toast--error" role="alert">{error}</div> : null}
       <FormWizard

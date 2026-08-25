@@ -90,7 +90,7 @@ it("creates an integer-centavo personal billing while omitting untouched contact
   document.title = "Anterior";
   const view = renderPage();
 
-  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  expect(screen.getByText("Carregando formulário…")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Nova cobrança" })).toHaveClass("pagehead__title");
   expect(screen.getByRole("link", { name: "Minhas Cobranças" })).toHaveClass("crumb");
   expect(document.title).toBe("Nova cobrança - Rentivo");
@@ -243,7 +243,7 @@ it("ignores organization load settlements after the page unmounts", async () => 
     "GET /api/v1/organizations": () => new Promise<Response>((resolve) => { resolveOrganizations = resolve; })
   });
   const view = renderPage();
-  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  expect(screen.getByText("Carregando formulário…")).toBeVisible();
   await waitFor(() => expect(resolveOrganizations).toBeDefined());
   view.unmount();
   await act(async () => { resolveOrganizations?.(jsonResponse(organizationList)); });
@@ -254,7 +254,7 @@ it("ignores organization load settlements after the page unmounts", async () => 
     "GET /api/v1/organizations": () => new Promise<Response>((_resolve, reject) => { rejectOrganizations = reject; })
   });
   const second = renderPage();
-  expect(screen.getByText("Carregando formulário...")).toBeVisible();
+  expect(screen.getByText("Carregando formulário…")).toBeVisible();
   await waitFor(() => expect(rejectOrganizations).toBeDefined());
   second.unmount();
   await act(async () => { rejectOrganizations?.(new Error("late failure")); });

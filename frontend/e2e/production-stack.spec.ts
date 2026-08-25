@@ -259,7 +259,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.getByRole("button", { name: "Continuar" }).click();
     // The billing form inherits the owner's PIX unless this opt-in is checked,
     // which is what reveals the override fields below.
-    await page.getByLabel("Usar PIX personalizado").check();
+    await page.getByRole("radio", { name: /^Usar PIX exclusivo/ }).check();
     await page.getByLabel("Chave PIX").fill(email);
     await page.getByLabel("Nome do recebedor").fill("RENTIVO RELEASE");
     await page.getByLabel("Cidade do recebedor").fill("SALVADOR");
