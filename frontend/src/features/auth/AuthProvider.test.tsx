@@ -85,6 +85,9 @@ function installFetch({
         ? jsonResponse(AUTHENTICATED_RESPONSE)
         : problemResponse();
     }
+    if (url === "/api/v1/auth/csrf") {
+      return jsonResponse({ csrf_token: AUTHENTICATED_RESPONSE.bootstrap.csrf_token });
+    }
     if (url === "/api/v1/auth/logout") {
       return new Response(null, {
         headers: { "X-Rentivo-Analytics-Event": "rentivo_logout" },

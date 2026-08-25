@@ -27,6 +27,9 @@ function installSessionSequence(...sessions: typeof AUTHENTICATED_RESPONSE[]) {
       sessionIndex += 1;
       return jsonResponse(session);
     }
+    if (url === "/api/v1/auth/csrf") {
+      return jsonResponse({ csrf_token: AUTHENTICATED_RESPONSE.bootstrap.csrf_token });
+    }
     throw new Error(`Unexpected request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -44,6 +47,9 @@ function installTotpCompletionFlow(
       const session = sessions[Math.min(sessionIndex, sessions.length - 1)];
       sessionIndex += 1;
       return session instanceof Response ? session : jsonResponse(session);
+    }
+    if (url === "/api/v1/auth/csrf") {
+      return jsonResponse({ csrf_token: AUTHENTICATED_RESPONSE.bootstrap.csrf_token });
     }
     if (url === "/api/v1/security/totp/setup") {
       return jsonResponse({

@@ -41,8 +41,11 @@ const PUBLIC_AUTH_PATHS = new Set([
   "/api/v1/auth/signup"
 ]);
 const SESSION_INVALID_CODES = new Set(["authentication_required", "invalid_credentials"]);
+const CSRF_PATH = "/api/v1/auth/csrf";
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 
 let csrfToken = "";
+let csrfRefresh: Promise<Response | null> | null = null;
 let unauthorizedHandler: UnauthorizedHandler = null;
 
 export class ApiError extends Error {
@@ -87,6 +90,53 @@ class SameOriginRequest extends Request {
   }
 }
 
+function isProtectedMutation(url: URL, method: string): boolean {
+  return !SAFE_METHODS.has(method) && !PUBLIC_AUTH_PATHS.has(url.pathname);
+}
+
+async function refreshCsrfToken(): Promise<Response | null> {
+  if (!csrfRefresh) {
+    csrfRefresh = globalThis.fetch(CSRF_PATH, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      method: "GET"
+    }).then(async (response) => {
+      if (!response.ok) {
+        return response;
+      }
+      const payload = await response.clone().json().catch(() => null) as {
+        csrf_token?: unknown;
+      } | null;
+      if (!payload || typeof payload.csrf_token !== "string" || !payload.csrf_token) {
+        return new Response(
+          JSON.stringify({
+            code: "csrf_refresh_failed",
+            detail: "Não foi possível atualizar a proteção do formulário. Tente novamente.",
+            status: 502
+          }),
+          {
+            headers: { "Content-Type": "application/problem+json" },
+            status: 502
+          }
+        );
+      }
+      setCsrfToken(payload.csrf_token);
+      return null;
+    }).finally(() => {
+      csrfRefresh = null;
+    });
+  }
+  return csrfRefresh;
+}
+
+async function isCsrfFailure(response: Response): Promise<boolean> {
+  if (response.status !== 403) {
+    return false;
+  }
+  const problem = asProblemDetails(await response.clone().json().catch(() => undefined));
+  return problem?.code === "csrf_failed";
+}
+
 async function sameOriginFetch(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const canHaveBody = request.method !== "GET" && request.method !== "HEAD";
@@ -98,13 +148,34 @@ async function sameOriginFetch(request: Request): Promise<Response> {
   if (body instanceof FormData) {
     headers.delete("Content-Type");
   }
-  return globalThis.fetch(`${url.pathname}${url.search}`, {
-    body,
-    credentials: "same-origin",
-    headers: Object.fromEntries(headers.entries()),
-    method: request.method,
-    signal: (request as SameOriginRequest).sourceSignal
-  });
+  const protectedMutation = isProtectedMutation(url, request.method);
+  if (protectedMutation && csrfToken) {
+    const refreshFailure = await refreshCsrfToken();
+    if (refreshFailure) {
+      return refreshFailure;
+    }
+    headers.set("X-CSRF-Token", csrfToken);
+  }
+  const send = () => globalThis.fetch(
+    `${url.pathname}${url.search}`,
+    {
+      body,
+      credentials: "same-origin",
+      headers: Object.fromEntries(headers.entries()),
+      method: request.method,
+      signal: (request as SameOriginRequest).sourceSignal
+    }
+  );
+  const response = await send();
+  if (!protectedMutation || !await isCsrfFailure(response)) {
+    return response;
+  }
+  const refreshFailure = await refreshCsrfToken();
+  if (refreshFailure) {
+    return refreshFailure;
+  }
+  headers.set("X-CSRF-Token", csrfToken);
+  return send();
 }
 
 function hasBinaryValue(body: unknown): body is Record<string, unknown> {

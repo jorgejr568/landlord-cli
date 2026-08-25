@@ -45,6 +45,12 @@ export function renderAuth(
         ? jsonResponse(AUTHENTICATED_RESPONSE)
         : problemResponse();
     }
+    if (url === "/api/v1/auth/csrf") {
+      const handler = handlers[url];
+      return handler
+        ? handler(init)
+        : jsonResponse({ csrf_token: AUTHENTICATED_RESPONSE.bootstrap.csrf_token });
+    }
     const handler = handlers[url];
     if (handler) {
       return handler(init);
