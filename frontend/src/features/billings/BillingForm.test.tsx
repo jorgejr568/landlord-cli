@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -43,6 +43,46 @@ function renderForm(element: React.ReactNode) {
   return render(<MemoryRouter>{element}</MemoryRouter>);
 }
 
+async function moveToItems(user: ReturnType<typeof userEvent.setup>, name = "Apartamento") {
+  const nameInput = screen.getByLabelText("Nome do imóvel");
+  if (!(nameInput as HTMLInputElement).value) await user.type(nameInput, name);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Itens recorrentes" });
+}
+
+it("guides billing configuration through validated desktop steps and review edits", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={organizations} saving={false} values={emptyBillingValues()} />);
+
+  expect(screen.getByRole("heading", { name: "Essenciais" })).toBeVisible();
+  expect(screen.getByText("Etapa 1 de 5")).toBeVisible();
+  expect(screen.queryByLabelText("Descrição do item 1")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus());
+
+  await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento 302");
+  await user.type(screen.getByRole("textbox", { name: /^Descrição$/ }), "Inquilino atual");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Itens recorrentes" })).toHaveFocus();
+  await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.850,00");
+  expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 2.850,00");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Comunicação" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+
+  expect(screen.getByRole("heading", { name: "Revisar cobrança" })).toHaveFocus();
+  expect(screen.getByText("Apartamento 302")).toBeVisible();
+  expect(screen.getByText("1 item · R$ 2.850,00 fixos")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Itens recorrentes" }));
+  expect(screen.getByRole("heading", { name: "Itens recorrentes" })).toHaveFocus();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
 it("preserves the create form structure and filters owners by capability instead of role", async () => {
   const user = userEvent.setup();
   const onSubmit = vi.fn();
@@ -51,47 +91,50 @@ it("preserves the create form structure and filters owners by capability instead
 
   const billingName = screen.getByLabelText("Nome do imóvel");
   const billingDescription = screen.getByRole("textbox", { name: /^Descrição$/ });
-  const itemDescription = screen.getByLabelText("Descrição do item 1");
   expect(billingName).toHaveFocus();
   fireEvent.change(billingName, { target: { value: "😀".repeat(256) } });
   fireEvent.change(billingDescription, { target: { value: "😀".repeat(2001) } });
-  fireEvent.change(itemDescription, { target: { value: "😀".repeat(256) } });
   expect(billingName).toHaveValue("😀".repeat(255));
   expect(billingDescription).toHaveValue("😀".repeat(2000));
-  expect(itemDescription).toHaveValue("😀".repeat(255));
   await user.clear(billingName);
   await user.clear(billingDescription);
-  await user.clear(itemDescription);
-  expect(screen.getByRole("heading", { name: "Detalhes" }).closest(".panel")).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "Essenciais" })).toBeVisible();
   expect(screen.getByRole("option", { name: "Minha conta" })).toBeVisible();
   expect(screen.getByRole("option", { name: "Permitida por capability" })).toBeVisible();
   expect(screen.queryByRole("option", { name: "Negada por capability" })).not.toBeInTheDocument();
-  expect(screen.getByText("R$ 0,00")).toHaveAttribute("id", "fixed-subtotal");
+  expect(screen.getByRole("complementary", { name: "Resumo da cobrança" }).querySelector("#fixed-subtotal")).toHaveTextContent("R$ 0,00");
 
   await user.type(billingName, "Apartamento 302");
   await user.type(billingDescription, "Inquilino atual");
-  await user.click(screen.getByLabelText("Usar PIX personalizado"));
-  await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
-  await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
-  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
-  await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
+  await user.selectOptions(screen.getByLabelText("Proprietário"), "");
+  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  const itemDescription = screen.getByLabelText("Descrição do item 1");
+  fireEvent.change(itemDescription, { target: { value: "😀".repeat(256) } });
+  expect(itemDescription).toHaveValue("😀".repeat(255));
+  await user.clear(itemDescription);
+  await user.type(itemDescription, "Aluguel");
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.850,00");
-  expect(screen.getByText("R$ 2.850,00")).toBeVisible();
+  expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 2.850,00");
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
   expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
-  expect(screen.getByText("R$ 0,00")).toBeVisible();
+  expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 0,00");
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "fixed");
   expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("");
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
   expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
-
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   expect(screen.getByLabelText("Descrição do item 2")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Remover item 2" }));
   expect(screen.queryByLabelText("Descrição do item 2")).not.toBeInTheDocument();
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByLabelText("Usar PIX personalizado"));
+  await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
+  await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
+  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
 
   expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
@@ -119,13 +162,16 @@ it("renders field and form errors, focuses normalized controls and supports edit
 
   expect(screen.getByText("Falha geral.")).toHaveAttribute("role", "alert");
   expect(screen.getByText("Nome inválido.")).toBeVisible();
-  expect(screen.getByText("Valor inválido.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus());
   expect(screen.queryByLabelText("Proprietário")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Salvando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
 
   view.rerender(<MemoryRouter><BillingForm error="" fieldErrors={{ "items.0.amount": "Valor inválido." }} mode="edit" onSubmit={onSubmit} organizations={[]} saving={false} values={values} /></MemoryRouter>);
-  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus();
+  expect(await screen.findByText("Valor inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus());
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(onSubmit).toHaveBeenCalled();
 });
@@ -135,8 +181,9 @@ it("keeps invalid currency visible and prevents removing the final item row", as
   const onSubmit = vi.fn();
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={emptyBillingValues()} />);
 
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "abc");
-  expect(screen.getByText("R$ 0,00")).toBeVisible();
+  expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 0,00");
   expect(screen.getByRole("button", { name: "Remover item 1" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   expect(screen.getByRole("button", { name: "Remover item 1" })).toBeEnabled();
@@ -152,18 +199,19 @@ it("rejects invalid amounts and fixed subtotals beyond the persistence limit", a
   values.items[0] = { ...values.items[0], amount: "21.474.836,47", description: "Aluguel" };
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
 
+  await moveToItems(user);
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   await user.type(screen.getByLabelText("Descrição do item 2"), "Condomínio");
   await user.type(screen.getByLabelText("Valor do item 2 (R$)"), "0,01");
-  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(screen.getByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
-  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveFocus());
   expect(onSubmit).not.toHaveBeenCalled();
 
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "valor inválido");
-  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.getByText("Informe um valor válido.")).toBeVisible();
   expect(onSubmit).not.toHaveBeenCalled();
 
@@ -177,37 +225,52 @@ it("blocks invalid required, money, PIX, recipient, and reply-to values locally"
   values.pixMerchantName = "M".repeat(26);
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
 
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByText("Este campo é obrigatório.")).toBeVisible();
+  expect(screen.getByText("Informe no máximo 2000 caracteres.")).toBeVisible();
+  await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento");
+  await user.clear(screen.getByRole("textbox", { name: /^Descrição$/ }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "invalido");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByText("Informe um valor válido.")).toBeVisible();
+  await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
+  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "1.000,00");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByText("Informe no máximo 25 caracteres.")).toBeVisible();
+  expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
+  expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
+  await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
+  await user.clear(screen.getByLabelText("Nome do recebedor"));
+  await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
+  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Adicionar destinatário" }));
   await user.type(screen.getByLabelText("E-mail do destinatário 1"), "invalido");
   await user.click(screen.getByRole("button", { name: "Adicionar Reply-To" }));
   await user.type(screen.getByLabelText("E-mail do Reply-To 1"), "invalido");
-  await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "invalido");
-  fireEvent.submit(screen.getByRole("button", { name: "Criar cobrança" }).closest("form")!);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(onSubmit).not.toHaveBeenCalled();
-  expect(screen.getAllByText("Este campo é obrigatório.").length).toBeGreaterThanOrEqual(3);
   expect(screen.getAllByText("Informe um e-mail válido.")).toHaveLength(2);
-  expect(screen.getByText("Informe no máximo 2000 caracteres.")).toBeVisible();
-  expect(screen.getByText("Informe no máximo 25 caracteres.")).toBeVisible();
-  expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
-  expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
-  expect(screen.getByText("Informe um valor válido.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Nome do destinatário 1")).toHaveFocus());
 });
 
-it("renders an aggregate items error and focuses the first item description", () => {
+it("renders an aggregate items error and focuses the first item description", async () => {
   renderForm(<BillingForm error="" fieldErrors={{ items: "Adicione pelo menos um item." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={emptyBillingValues()} />);
 
   expect(screen.getByText("Adicione pelo menos um item.")).toBeVisible();
-  expect(screen.getByLabelText("Descrição do item 1")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Descrição do item 1")).toHaveFocus());
 });
 
-it("focuses the add action for an aggregate items error without rows and describes row errors", () => {
+it("focuses the add action for an aggregate items error without rows and describes row errors", async () => {
   const valuesWithoutItems = emptyBillingValues();
   valuesWithoutItems.items = [];
   const view = renderForm(<BillingForm error="" fieldErrors={{ items: "Adicione pelo menos um item." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={valuesWithoutItems} />);
 
-  expect(screen.getByRole("button", { name: "Adicionar item" })).toHaveFocus();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Adicionar item" })).toHaveFocus());
   view.unmount();
 
   renderForm(<BillingForm error="" fieldErrors={{ "items.0.description": "Informe a descrição." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={emptyBillingValues()} />);
@@ -215,11 +278,12 @@ it("focuses the add action for an aggregate items error without rows and describ
   expect(screen.getByLabelText("Descrição do item 1")).toHaveAttribute("aria-describedby", expect.stringContaining("description-error"));
 });
 
-it("focuses PIX and contact fields when their server errors change", () => {
+it("focuses PIX and contact fields when their server errors change", async () => {
   const view = render(<Harness fieldErrors={{ pix_key: "PIX inválido." }} />);
-  expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Chave PIX")).toHaveFocus());
   view.rerender(<Harness fieldErrors={{ "recipients.0.email": "E-mail inválido." }} />);
   expect(screen.getByText("E-mail inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("E-mail do destinatário 1")).toHaveFocus());
   view.rerender(<Harness fieldErrors={{ "recipients.0.name": "Nome inválido." }} />);
   expect(screen.getByText("Nome inválido.")).toBeVisible();
   view.rerender(<Harness fieldErrors={{ description: "Descrição inválida." }} />);
@@ -249,7 +313,7 @@ it("blocks internal navigation after a form change until discarding is confirmed
   const cleanUnload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(cleanUnload);
   expect(cleanUnload.defaultPrevented).toBe(false);
-  await user.click(screen.getByLabelText("Usar PIX personalizado"));
+  await user.type(screen.getByLabelText("Nome do imóvel"), "Alterado");
   const dirtyUnload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(dirtyUnload);
   expect(dirtyUnload.defaultPrevented).toBe(true);
