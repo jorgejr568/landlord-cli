@@ -1,7 +1,6 @@
 import {
   ClipboardList,
   FileText,
-  Github,
   Paperclip,
   QrCode,
   ShieldCheck,
@@ -9,6 +8,22 @@ import {
 } from "lucide-react";
 
 import { LandingMetadata } from "./LandingMetadata";
+
+function GitHubIcon({ size = 24 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="currentColor"
+      focusable="false"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+    </svg>
+  );
+}
 
 function PixelQr({ compact = false }: { compact?: boolean }) {
   return (
@@ -67,7 +82,7 @@ export function LandingPage() {
             </div>
           </div>
         </section>
-        <div className="trust"><div className="wrapper trust__inner"><span className="trust__item"><ShieldCheck aria-hidden="true" size={18} />Padrão EMV · Banco Central</span><span className="trust__item"><span className="mono">PDF</span> Faturas profissionais</span><span className="trust__item"><span className="mono">BRL</span> Valores em centavos, sem erro</span><span className="trust__item"><Github aria-hidden="true" size={18} />Código aberto · GPL-3.0</span></div></div>
+        <div className="trust"><div className="wrapper trust__inner"><span className="trust__item"><ShieldCheck aria-hidden="true" size={18} />Padrão EMV · Banco Central</span><span className="trust__item"><span className="mono">PDF</span> Faturas profissionais</span><span className="trust__item"><span className="mono">BRL</span> Valores em centavos, sem erro</span><span className="trust__item"><GitHubIcon size={18} />Código aberto · GPL-3.0</span></div></div>
         <section className="features" id="features"><div className="wrapper"><div className="sec-head"><div className="sec-head__eyebrow">Recursos</div><h2 className="sec-head__title">Tudo que um locador precisa</h2><p className="sec-head__sub">Do modelo de cobrança ao comprovante de pagamento, num fluxo só.</p></div><div className="features__grid">
           {featureCards.map(([Icon, heading, copy, accented]) => <div className={`fcard${accented ? " fcard--accent" : ""}`} key={heading}><div className="fcard__icon"><Icon aria-hidden="true" size={22} /></div><h3>{heading}</h3><p>{copy}</p></div>)}
         </div></div></section>
@@ -80,7 +95,7 @@ export function LandingPage() {
           <div className="show-row"><div className="show-vis"><div className="panel"><div className="panel__head"><h4>Status dos pagamentos</h4><span className="panel__title-eyebrow">Maio</span></div><div className="panel__body" style={{ paddingBottom: "0.5rem", paddingTop: "0.5rem" }}><div className="between" style={{ borderBottom: "1.5px solid var(--line)", padding: "0.6rem 0" }}><span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Apartamento 302</span><span className="tag tag--pending"><span className="dot" />Pendente</span></div><div className="between" style={{ borderBottom: "1.5px solid var(--line)", padding: "0.6rem 0" }}><span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Casa Acácias 47</span><span className="tag tag--overdue"><span className="dot" />Atrasado</span></div><div className="between" style={{ padding: "0.6rem 0" }}><span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Kitnet Centro</span><span className="tag tag--paid"><span className="dot" />Pago</span></div></div></div></div><div className="show-text"><h2>Você sempre sabe quem pagou</h2><p>Acompanhe o status de cada fatura em tempo real. Marque pagamentos com um clique e identifique atrasos antes que virem problema.</p><ul className="checklist"><li>Status claro: pago, pendente, enviado, atrasado</li><li>Histórico mês a mês por imóvel</li><li>Painel com total a receber, recebido e em atraso</li></ul></div></div>
           <div className="show-row show-row--rev"><div className="show-vis"><div className="panel"><div className="panel__head"><h4>Fatura gerada</h4><span className="tag tag--solid">PDF</span></div><div className="panel__body flex gap" style={{ alignItems: "center" }}><PixelQr compact /><div><div className="mono" style={{ color: "var(--muted)", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Total a pagar</div><div style={{ fontFamily: "var(--font-display)", fontSize: "1.7rem", fontWeight: 700 }}>R$ 3.517,00</div><div className="muted" style={{ fontSize: "0.82rem" }}>Vencimento 10/05/2026</div></div></div></div></div><div className="show-text"><h2>Um PDF que parece de banco</h2><p>Faturas com layout limpo, itens detalhados e QR Code PIX embutido. O inquilino abre, lê o valor e paga sem digitar nada.</p><ul className="checklist"><li>QR Code PIX no padrão oficial EMV</li><li>Comprovantes mesclados ao PDF final</li><li>Armazenamento local ou em S3</li></ul></div></div>
         </div></section>
-        <section className="cta-sec"><div className="wrapper"><div className="cta"><h2>Comece a cobrar melhor hoje</h2><p>Sem cartão, sem limite, sem pegadinha. O Rentivo é 100% gratuito e de código aberto.</p><div className="btn-row"><a className="btn btn--primary btn--lg" href="/signup">Criar conta gratuita</a><a className="btn btn--lg btn--ink" href="https://github.com/jorgejr568/rentivo" rel="noopener" target="_blank"><Github aria-hidden="true" size={18} />GitHub</a></div></div></div></section>
+        <section className="cta-sec"><div className="wrapper"><div className="cta"><h2>Comece a cobrar melhor hoje</h2><p>Sem cartão, sem limite, sem pegadinha. O Rentivo é 100% gratuito e de código aberto.</p><div className="btn-row"><a className="btn btn--primary btn--lg" href="/signup">Criar conta gratuita</a><a className="btn btn--lg btn--ink" href="https://github.com/jorgejr568/rentivo" rel="noopener" target="_blank"><GitHubIcon size={18} />GitHub</a></div></div></div></section>
       </main>
       <footer className="foot"><div className="wrapper foot__inner"><div><a className="topbar-brand" href="/" style={{ color: "var(--ink)" }}><span className="brand__mark">R</span><span style={{ color: "var(--ink)" }}>rent<em>ivo</em></span></a><p className="muted" style={{ fontSize: "0.85rem", margin: "0.5rem 0 0" }}>Gestão de cobranças para imóveis.<br />Gratuito e de código aberto.</p></div><div className="foot__links"><a href="/login">Entrar</a><a href="/signup">Criar conta</a><a href="/privacy">Privacidade</a><a href="/terms">Termos</a><a href="/support">Suporte</a><a href="https://github.com/jorgejr568/rentivo" rel="noopener" target="_blank">GitHub</a></div></div></footer>
     </>

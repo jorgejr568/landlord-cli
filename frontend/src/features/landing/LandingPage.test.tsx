@@ -13,10 +13,13 @@ it("renders the public landing content and its primary paths", () => {
     "href",
     "/signup"
   );
-  expect(screen.getAllByRole("link", { name: "GitHub" })[0]).toHaveAttribute(
+  const githubLink = screen.getAllByRole("link", { name: "GitHub" })[0];
+  expect(githubLink).toHaveAttribute(
     "href",
     "https://github.com/jorgejr568/rentivo"
   );
+  expect(githubLink.querySelector("svg")).toHaveAttribute("fill", "currentColor");
+  expect(githubLink.querySelector("svg")).not.toHaveAttribute("stroke");
   expect(screen.getByRole("link", { name: "Privacidade" })).toHaveAttribute(
     "href",
     "/privacy"
