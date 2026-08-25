@@ -78,6 +78,17 @@ it("guides billing configuration through validated desktop steps and review edit
   expect(screen.getByRole("heading", { name: "Revisar cobrança" })).toHaveFocus();
   expect(screen.getByText("Apartamento 302")).toBeVisible();
   expect(screen.getByText("1 item · R$ 2.850,00 fixos")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Essenciais" }));
+  expect(screen.getByRole("heading", { name: "Essenciais" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Revisar cobrança/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Recebimento PIX" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar cobrança/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Comunicação" }));
+  expect(screen.getByRole("heading", { name: "Comunicação" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar cobrança/ }));
   await user.click(screen.getByRole("button", { name: "Editar Itens recorrentes" }));
   expect(screen.getByRole("heading", { name: "Itens recorrentes" })).toHaveFocus();
   expect(onSubmit).not.toHaveBeenCalled();
@@ -225,8 +236,10 @@ it("blocks invalid required, money, PIX, recipient, and reply-to values locally"
   values.pixMerchantName = "M".repeat(26);
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
 
+  fireEvent.submit(document.getElementById("billing-form")!);
+  expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
+  expect(onSubmit).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.getByText("Este campo é obrigatório.")).toBeVisible();
   expect(screen.getByText("Informe no máximo 2000 caracteres.")).toBeVisible();
   await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento");
   await user.clear(screen.getByRole("textbox", { name: /^Descrição$/ }));
@@ -271,6 +284,10 @@ it("focuses the add action for an aggregate items error without rows and describ
   const view = renderForm(<BillingForm error="" fieldErrors={{ items: "Adicione pelo menos um item." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={valuesWithoutItems} />);
 
   await waitFor(() => expect(screen.getByRole("button", { name: "Adicionar item" })).toHaveFocus());
+  fireEvent.submit(document.getElementById("billing-form")!);
+  expect(screen.getByText("Este campo é obrigatório.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /Itens recorrentes/ }));
+  expect(screen.getByText("Adicione pelo menos um item.")).toBeVisible();
   view.unmount();
 
   renderForm(<BillingForm error="" fieldErrors={{ "items.0.description": "Informe a descrição." }} mode="create" onSubmit={vi.fn()} organizations={[]} saving={false} values={emptyBillingValues()} />);
@@ -289,6 +306,7 @@ it("focuses PIX and contact fields when their server errors change", async () =>
   view.rerender(<Harness fieldErrors={{ description: "Descrição inválida." }} />);
   expect(screen.getByText("Descrição inválida.")).toBeVisible();
   view.rerender(<Harness fieldErrors={{ unexpected: "Erro inesperado." }} />);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 });
 
 it("renders organization-owned billing owners and their fallback label as read-only", () => {
@@ -297,7 +315,8 @@ it("renders organization-owned billing owners and their fallback label as read-o
 
   expect(screen.getByLabelText("Proprietário")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Proprietário")).toBeDisabled();
-  view.rerender(<MemoryRouter><BillingForm error="" fieldErrors={{}} mode="edit" onSubmit={vi.fn()} organizations={organizations} saving={false} values={values} /></MemoryRouter>);
+  view.unmount();
+  renderForm(<BillingForm error="" fieldErrors={{}} mode="edit" onSubmit={vi.fn()} organizations={organizations} saving={false} values={{ ...values, ownerUuid: "missing" }} />);
   expect(screen.getByLabelText("Proprietário")).toHaveValue("Organização");
 });
 

@@ -220,6 +220,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
     if (!validation.normalized) {
       setLocalFieldErrors(validation.errors);
       const firstField = Object.keys(validation.errors)[0];
+      /* v8 ignore else -- a null normalized value always has at least one validation error */
       if (firstField) requestFieldFocus(firstField);
       return;
     }
@@ -294,12 +295,12 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
   );
 
   const itemsStep = (
-    <div className="panel">
-      <div className="panel__head">
-        <div><h3>Itens da cobrança</h3><p className="panel__desc">Fixos têm valor definido. Variáveis como água e luz são preenchidas a cada fatura.</p></div>
+    <section className="wizard-section">
+      <div className="wizard-section__head">
+        <div><h3>Itens da cobrança</h3><p>Fixos têm valor definido. Variáveis como água e luz são preenchidas a cada fatura.</p></div>
         <button aria-label="Adicionar item" className="btn btn--sm btn--primary" name="items-add" onClick={() => setField("items", [...form.items, newItem()])} type="button">+ Adicionar <span className="sr-only">item</span></button>
       </div>
-      <div className="panel__body">
+      <div>
         <FieldError id="items-error" message={allFieldErrors.items} />
         <input id="id_items-TOTAL_FORMS" name="items-TOTAL_FORMS" type="hidden" value={form.items.length} />
         <div id="items-container">
@@ -309,7 +310,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
             const typeError = allFieldErrors[`items.${index}.item_type`];
             const amountError = allFieldErrors[`items.${index}.amount`];
             return (
-              <div className="formset-row" id={`items-row-${index}`} key={item.id}>
+              <div className="formset-row formset-row--flat" id={`items-row-${index}`} key={item.id}>
                 <div className={`item-grid${item.itemType === "variable" ? " item-grid--variable" : ""}`}>
                   <div className="field mb-0">
                     <label className="field__label" htmlFor={`${item.id}-description`}>Descrição</label>
@@ -341,7 +342,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           })}
         </div>
       </div>
-    </div>
+    </section>
   );
 
   const pixStep = (

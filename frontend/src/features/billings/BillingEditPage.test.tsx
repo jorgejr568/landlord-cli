@@ -53,6 +53,14 @@ function renderPage() {
   </Routes></MemoryRouter>);
 }
 
+type TestUser = ReturnType<typeof userEvent.setup>;
+
+async function continueTo(user: TestUser, step: string) {
+  while (!screen.queryByRole("heading", { level: 2, name: step })) {
+    await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  }
+}
+
 it("preserves opaque recipient references while explicitly replacing a fully visible reply-to collection", async () => {
   const user = userEvent.setup();
   let attachmentGets = 0;
@@ -82,21 +90,24 @@ it("preserves opaque recipient references while explicitly replacing a fully vis
   expect(screen.getByText("Carregando cobrança...")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Editar cobrança" })).toHaveClass("pagehead__title");
   expect(screen.getByLabelText("Nome do imóvel")).toHaveValue("Apartamento 302");
+  await waitFor(() => expect(document.title).toBe("Editar Apartamento 302 - Rentivo"));
+  await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar" }));
+  expect(await screen.findByText("Contrato")).toBeVisible();
+  await continueTo(user, "Itens recorrentes");
+  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("2.850,00");
+  expect(screen.queryByLabelText("Valor do item 2 (R$)")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Adicionar item" }));
+  await user.type(screen.getByLabelText("Descrição do item 3"), "Garagem");
+  await user.type(screen.getByLabelText("Valor do item 3 (R$)"), "500,00");
+  await continueTo(user, "Comunicação");
   expect(screen.getAllByLabelText(/Nome do destinatário/)).toHaveLength(1);
   expect(screen.getByLabelText("Nome do destinatário 1")).toBeDisabled();
   expect(screen.getByText("Alguns destinatários estão ocultos. Esta lista não pode ser alterada com segurança.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Adicionar destinatário" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Remover destinatário 1" })).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("2.850,00");
-  expect(screen.queryByLabelText("Valor do item 2 (R$)")).not.toBeInTheDocument();
-  await waitFor(() => expect(document.title).toBe("Editar Apartamento 302 - Rentivo"));
-  await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
-  await user.click(screen.getByRole("button", { name: "Enviar" }));
-  expect(await screen.findByText("Contrato")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Adicionar item" }));
-  await user.type(screen.getByLabelText("Descrição do item 3"), "Garagem");
-  await user.type(screen.getByLabelText("Valor do item 3 (R$)"), "500,00");
   await user.click(screen.getByRole("button", { name: "Remover Reply-To 1" }));
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public"));
   const requestKeys = fetchMock.mock.calls.map(([input, init]) => `${init?.method ?? "GET"} ${String(input)}`);
@@ -136,20 +147,25 @@ it("retries loading, normalizes edit errors, focuses controls and handles offlin
   renderPage();
   expect(await screen.findByText("Não foi possível carregar a cobrança.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  await screen.findByLabelText("Chave PIX");
+  await screen.findByLabelText("Nome do imóvel");
+  await continueTo(user, "Itens recorrentes");
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "abc");
-  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
   expect(patches).toBe(0);
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.500,00");
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Chave PIX inválida.")).toBeVisible();
-  expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Chave PIX")).toHaveFocus());
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Cobrança recusada.")).toBeVisible();
+  await continueTo(user, "Itens recorrentes");
   await user.clear(screen.getByLabelText("Valor do item 1 (R$)"));
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a cobrança.")).toBeVisible();
   expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
@@ -182,6 +198,8 @@ it("edits without requesting attachments and hides file controls when file scope
   renderPage();
 
   expect(await screen.findByRole("heading", { name: "Editar cobrança" })).toBeVisible();
+  const user = userEvent.setup();
+  await continueTo(user, "Revisar cobrança");
   expect(screen.getByRole("button", { name: "Salvar alterações" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Documentos" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Arquivo")).not.toBeInTheDocument();
@@ -298,9 +316,12 @@ it("omits an opaque reply-to collection while preserving editable recipients", a
   });
   renderPage();
 
-  expect(await screen.findByText("Alguns endereços Reply-To estão ocultos. Esta lista não pode ser alterada com segurança.")).toBeVisible();
+  await screen.findByLabelText("Nome do imóvel");
+  await continueTo(user, "Comunicação");
+  expect(screen.getByText("Alguns endereços Reply-To estão ocultos. Esta lista não pode ser alterada com segurança.")).toBeVisible();
   expect(screen.getByLabelText("Nome do Reply-To 1")).toBeDisabled();
   expect(screen.getByLabelText("Nome do destinatário 1")).toBeEnabled();
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public"));
 });
@@ -328,7 +349,9 @@ it("aborts a pending save and ignores its late response after switching billing 
     <Route element={<LocationProbe />} path="/billings/:billingUuid" />
   </Routes></MemoryRouter>);
 
-  const saveButton = await screen.findByRole("button", { name: "Salvar alterações" });
+  await screen.findByLabelText("Nome do imóvel");
+  await continueTo(user, "Revisar cobrança");
+  const saveButton = screen.getByRole("button", { name: "Salvar alterações" });
   act(() => {
     saveButton.click();
     saveButton.click();
@@ -361,7 +384,9 @@ it("ignores a late save failure after switching billing routes", async () => {
     <Route element={<><BillingEditPage /><RouteSwitcher /></>} path="/billings/:billingUuid/edit" />
   </Routes></MemoryRouter>);
 
-  await user.click(await screen.findByRole("button", { name: "Salvar alterações" }));
+  await screen.findByLabelText("Nome do imóvel");
+  await continueTo(user, "Revisar cobrança");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(await screen.findByDisplayValue("Casa 2")).toBeVisible();
   await act(async () => { rejectPatch?.(new Error("late failure")); });
@@ -476,9 +501,11 @@ it("normalizes item UUID errors, renders them in the row and focuses that row", 
   });
   renderPage();
 
-  await user.click(await screen.findByRole("button", { name: "Salvar alterações" }));
+  await screen.findByLabelText("Nome do imóvel");
+  await continueTo(user, "Revisar cobrança");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Este item foi alterado ou removido.")).toBeVisible();
-  expect(screen.getByLabelText("Descrição do item 2")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Descrição do item 2")).toHaveFocus());
   expect(screen.getByLabelText("Descrição do item 2")).toHaveAccessibleDescription("Este item foi alterado ou removido.");
 });
 

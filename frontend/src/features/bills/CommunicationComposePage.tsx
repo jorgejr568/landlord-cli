@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
@@ -73,6 +73,22 @@ function personalizeContent(content: string, billing: Billing, bill: Bill, recip
     "{{total}}": formatBrl(bill.total_amount)
   };
   return Object.entries(values).reduce((result, [variable, value]) => result.replaceAll(variable, value), content);
+}
+
+function renderInlineMarkdown(content: string): ReactNode[] {
+  return content.split(/(\*\*[^*\n]+\*\*)/g).filter(Boolean).map((part, index) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={`${index}-${part}`}>{part.slice(2, -2)}</strong>
+      : <Fragment key={`${index}-${part}`}>{part}</Fragment>
+  );
+}
+
+function MessagePreviewBody({ content }: { content: string }) {
+  return <div className="message-preview__body">{content.split(/\n{2,}/).map((paragraph, paragraphIndex) => (
+    <p key={`${paragraphIndex}-${paragraph}`}>{paragraph.split("\n").map((line, lineIndex) => (
+      <Fragment key={`${lineIndex}-${line}`}>{lineIndex > 0 ? <br /> : null}{renderInlineMarkdown(line)}</Fragment>
+    ))}</p>
+  ))}</div>;
 }
 
 export function CommunicationComposePage() {
@@ -167,7 +183,7 @@ export function CommunicationComposePage() {
       if (key?.startsWith("recipient_uuids")) recipientRef.current?.focus();
       else if (key === "subject") subjectRef.current?.focus();
       else if (key === "body") bodyRef.current?.focus();
-      else if (key === "save_scope") saveScopeRef.current?.focus();
+      else saveScopeRef.current?.focus();
     };
     if (activeStep === step) {
       focusTarget();
@@ -291,7 +307,7 @@ export function CommunicationComposePage() {
       <div className="message-preview">
         <span className="message-preview__to">Para {previewRecipientName}</span>
         <strong>{previewSubject || "Assunto da mensagem"}</strong>
-        <p>{previewBody || "A mensagem aparecerá aqui enquanto você escreve."}</p>
+        <MessagePreviewBody content={previewBody || "A mensagem aparecerá aqui enquanto você escreve."} />
         <span className="message-preview__attachment">{isRecibo ? "Recibo" : "Fatura"} · PDF anexado</span>
       </div>
     </WizardSummary>
@@ -334,8 +350,8 @@ export function CommunicationComposePage() {
             {activeStep === 2 ? (
               <>
                 <dl className="review-list">
-                  <WizardReviewRow label="Destinatários" onEdit={() => setActiveStep(0)} value={`${selectedRecipients.length} destinatários`} />
-                  <WizardReviewRow label="Mensagem" onEdit={() => setActiveStep(1)} value={subject || "Sem assunto"} />
+                  <WizardReviewRow label="Destinatários" onEdit={() => setActiveStep(0)} value={`${selectedRecipients.length} ${selectedRecipients.length === 1 ? "destinatário" : "destinatários"}`} />
+                  <WizardReviewRow label="Mensagem" onEdit={() => setActiveStep(1)} value={subject} />
                   <WizardReviewRow label="Documento" value={`${isRecibo ? "Recibo" : "Fatura"} em PDF`} />
                 </dl>
                 <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-label="Salvar modelo" className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>

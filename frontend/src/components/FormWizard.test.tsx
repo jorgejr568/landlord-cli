@@ -143,3 +143,23 @@ it("focuses the active step heading after progression and renders contextual sum
   expect(screen.getByText("Apartamento 302")).toBeVisible();
   expect(screen.getByRole("button", { name: "Editar Imóvel" })).toBeVisible();
 });
+
+it("supports steps without descriptions and a neutral busy label", () => {
+  render(
+    <FormWizard
+      activeStep={0}
+      busy
+      finalLabel="Finalizar"
+      onBack={vi.fn()}
+      onNext={vi.fn()}
+      onStepChange={vi.fn()}
+      steps={[{ id: "finish", label: "Finalização" }]}
+      visitedStep={0}
+    >
+      <p>Última etapa</p>
+    </FormWizard>
+  );
+
+  expect(screen.getByRole("button", { name: "Processando..." })).toBeDisabled();
+  expect(screen.getByRole("heading", { name: "Finalização" })).toBeVisible();
+});

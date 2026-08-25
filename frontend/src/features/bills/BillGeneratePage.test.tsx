@@ -78,22 +78,22 @@ function renderPage() {
 }
 
 async function moveToItems(user: ReturnType<typeof userEvent.setup>, referenceMonth = "2026-07", dueDate = "") {
-  await screen.findByRole("heading", { name: "Competência" });
+  await screen.findByRole("heading", { name: "Competência" }, { timeout: 5_000 });
   if (!screen.getByLabelText("Mês de Referência").getAttribute("value")) {
     await user.type(screen.getByLabelText("Mês de Referência"), referenceMonth);
   }
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   if (dueDate) fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: dueDate } });
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await screen.findByRole("heading", { name: "Itens" });
+  await screen.findByRole("heading", { name: "Itens" }, { timeout: 5_000 });
 }
 
 async function moveFromItemsToReview(user: ReturnType<typeof userEvent.setup>, notes = "") {
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await screen.findByRole("heading", { name: "Observações e comprovantes" });
+  await screen.findByRole("heading", { name: "Observações e comprovantes" }, { timeout: 5_000 });
   if (notes) await user.type(screen.getByLabelText("Observações"), notes);
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  await screen.findByRole("heading", { name: "Revisar fatura" });
+  await screen.findByRole("heading", { name: "Revisar fatura" }, { timeout: 5_000 });
 }
 
 it("guides invoice generation through validated desktop steps and a review", async () => {
@@ -106,11 +106,13 @@ it("guides invoice generation through validated desktop steps and a review", asy
   expect(await screen.findByRole("heading", { name: "Competência" })).toBeVisible();
   expect(screen.queryByLabelText("Vencimento")).not.toBeInTheDocument();
   expect(screen.getByText("Etapa 1 de 5")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.submit(screen.getByRole("button", { name: /Continuar/ }).closest("form")!);
   expect(await screen.findByText("Informe o mês de referência.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await waitFor(() => expect(screen.getByLabelText("Mês de Referência")).toHaveFocus());
 
   await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  expect(screen.queryByText("Informe o mês de referência.")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
   fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: "2026-08-10" } });
@@ -121,13 +123,32 @@ it("guides invoice generation through validated desktop steps and a review", asy
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
   await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
+  await user.upload(screen.getByLabelText("Anexar comprovantes"), [
+    new File(["one"], "primeiro.pdf", { type: "application/pdf" }),
+    new File(["two"], "segundo.pdf", { type: "application/pdf" })
+  ]);
   await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(screen.getByRole("heading", { name: "Revisar fatura" })).toHaveFocus();
   expect(screen.getAllByText("Julho/2026").length).toBeGreaterThanOrEqual(1);
   expect(screen.getByText("Pagar até o vencimento")).toBeVisible();
+  expect(screen.getByText("2 arquivos")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Competência" }));
+  expect(screen.getByRole("heading", { name: "Competência" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Vencimento" }));
+  expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Observações" }));
+  expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Comprovantes" }));
+  expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
   await user.click(screen.getByRole("button", { name: "Editar Itens e valores" }));
   expect(screen.getByRole("heading", { name: "Itens" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
 });
 
 it("generates a typed invoice with variable values, extras, dates, notes, and receipt files", async () => {
@@ -188,6 +209,7 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
 it("normalizes body field errors, focuses the invalid input, and retries a failed load", async () => {
   const user = userEvent.setup();
   let loads = 0;
+  let posts = 0;
   installFetch({
     "GET /api/v1/billings/billing-public-uuid": () => {
       loads += 1;
@@ -196,11 +218,16 @@ it("normalizes body field errors, focuses the invalid input, and retries a faile
         title: "Indisponível", type: "problem"
       }) : jsonResponse(billing);
     },
-    "POST /api/v1/billings/billing-public-uuid/bills": () => problemResponse({
-      code: "validation_error", detail: "Confira os campos.",
-      fields: { "body.reference_month": "Mês inválido.", [`body.variable_amounts.${VARIABLE_ITEM_UUID}`]: "Informe o valor." },
-      request_id: "req", status: 422, title: "Dados inválidos", type: "problem"
-    })
+    "POST /api/v1/billings/billing-public-uuid/bills": () => {
+      posts += 1;
+      return problemResponse({
+        code: "validation_error", detail: "Confira os campos.",
+        fields: posts === 1
+          ? { "body.reference_month": "Mês inválido.", [`body.variable_amounts.${VARIABLE_ITEM_UUID}`]: "Informe o valor." }
+          : { "body.due_date": "Vencimento inválido." },
+        request_id: "req", status: 422, title: "Dados inválidos", type: "problem"
+      });
+    }
   });
   renderPage();
 
@@ -215,6 +242,10 @@ it("normalizes body field errors, focuses the invalid input, and retries a faile
   await waitFor(() => expect(screen.getByLabelText("Mês de Referência")).toHaveFocus());
   await user.click(screen.getByRole("button", { name: /Itens/ }));
   expect(screen.getByText("Informe o valor.")).toBeVisible();
+  await moveFromItemsToReview(user);
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  expect(await screen.findByText("Vencimento inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Vencimento")).toHaveFocus());
 });
 
 it("renders backend-denied and fresh-template nested states", async () => {
@@ -291,6 +322,8 @@ it("rejects invalid receipt files before generating a bill", async () => {
 
   expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
   await waitFor(() => expect(input).toHaveFocus());
+  fireEvent.submit(input.closest("form")!);
+  expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
 });
 
@@ -324,18 +357,22 @@ it("validates extras locally, removes rows, and focuses nested API errors", asyn
   fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
 
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
-  await user.clear(screen.getByLabelText("Descrição da despesa extra 1"));
-  await user.clear(screen.getByLabelText("Valor da despesa extra 1"));
-  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Seguro");
-  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "10,00");
-  await user.type(screen.getByLabelText("Descrição da despesa extra 2"), "Limpeza");
-  await user.type(screen.getByLabelText("Valor da despesa extra 2"), "20,00");
+  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 1"), { target: { value: "Seguro" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
+  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 2"), { target: { value: "Limpeza" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 2"), { target: { value: "20,00" } });
+  expect(screen.getByLabelText("Água")).toHaveValue("10,00");
+  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveValue("Seguro");
+  expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveValue("10,00");
+  expect(screen.getByLabelText("Descrição da despesa extra 2")).toHaveValue("Limpeza");
+  expect(screen.getByLabelText("Valor da despesa extra 2")).toHaveValue("20,00");
   await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Descrição já utilizada.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveFocus());
 
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
+  expect(screen.queryByText("Descrição já utilizada.")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
   expect(screen.getByText("Nenhuma despesa extra.")).toBeVisible();
   await moveFromItemsToReview(user);

@@ -64,6 +64,14 @@ function renderPage() {
   );
 }
 
+type TestUser = ReturnType<typeof userEvent.setup>;
+
+async function continueTo(user: TestUser, step: string) {
+  while (!screen.queryByRole("heading", { level: 2, name: step })) {
+    await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  }
+}
+
 it("creates an integer-centavo personal billing while omitting untouched contact collections", async () => {
   const user = userEvent.setup();
   const fetchMock = installFetch({
@@ -87,8 +95,10 @@ it("creates an integer-centavo personal billing while omitting untouched contact
   expect(screen.getByRole("link", { name: "Minhas Cobranças" })).toHaveClass("crumb");
   expect(document.title).toBe("Nova cobrança - Rentivo");
   await user.type(screen.getByLabelText("Nome do imóvel"), "Apartamento 302");
+  await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.850,00");
+  await continueTo(user, "Revisar cobrança");
   const createButton = screen.getByRole("button", { name: "Criar cobrança" });
   act(() => {
     createButton.click();
@@ -126,17 +136,20 @@ it("selects an organization and sends populated recipient, reply-to, fixed and v
   await screen.findByLabelText("Nome do imóvel");
   await user.type(screen.getByLabelText("Nome do imóvel"), "Casa");
   await user.selectOptions(screen.getByLabelText("Proprietário"), "org-public");
+  await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Água");
   await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   await user.type(screen.getByLabelText("Descrição do item 2"), "Condomínio");
   await user.type(screen.getByLabelText("Valor do item 2 (R$)"), "1.000,50");
+  await continueTo(user, "Comunicação");
   await user.click(screen.getByRole("button", { name: "Adicionar destinatário" }));
   await user.type(screen.getByLabelText("Nome do destinatário 1"), "João");
   await user.type(screen.getByLabelText("E-mail do destinatário 1"), "joao@example.com");
   await user.click(screen.getByRole("button", { name: "Adicionar Reply-To" }));
   await user.type(screen.getByLabelText("Nome do Reply-To 1"), "Ana");
   await user.type(screen.getByLabelText("E-mail do Reply-To 1"), "ana@example.com");
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-org"));
 });
@@ -170,17 +183,22 @@ it("retries organization loading and normalizes body field errors with focus", a
   expect(await screen.findByText("Não foi possível carregar as organizações.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await user.type(await screen.findByLabelText("Nome do imóvel"), "Casa");
+  await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "10,00");
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   expect(await screen.findByText("Nome inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus());
+  await user.click(screen.getByRole("button", { name: /Itens recorrentes/ }));
   expect(screen.getByText("Valor inválido.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   expect(await screen.findByText("Cobrança recusada.")).toBeVisible();
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   expect(await screen.findByText("Não foi possível criar a cobrança.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus());
 });
 
 it("aborts a pending create and ignores its late response after cancellation", async () => {
@@ -203,11 +221,13 @@ it("aborts a pending create and ignores its late response after cancellation", a
   </Routes></MemoryRouter>);
 
   await user.type(await screen.findByLabelText("Nome do imóvel"), "Casa");
+  await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "10,00");
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
   await waitFor(() => expect(createCalls).toBe(1));
-  await user.click(screen.getByRole("link", { name: "Cancelar" }));
+  await user.click(screen.getByRole("link", { name: "Minhas Cobranças" }));
 
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/");
   expect(createSignal).toBeDefined();
@@ -254,9 +274,11 @@ it("ignores a late create failure after the page unmounts", async () => {
   </Routes></MemoryRouter>);
 
   await user.type(await screen.findByLabelText("Nome do imóvel"), "Casa");
+  await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Aluguel");
+  await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Criar cobrança" }));
-  await user.click(screen.getByRole("link", { name: "Cancelar" }));
+  await user.click(screen.getByRole("link", { name: "Minhas Cobranças" }));
   await act(async () => { rejectCreate?.(new Error("late failure")); });
 
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/");

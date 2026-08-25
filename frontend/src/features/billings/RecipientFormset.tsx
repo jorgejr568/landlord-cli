@@ -40,17 +40,17 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
   };
 
   return (
-    <div className="panel">
-      <div className="panel__head">
+    <section className="wizard-section contact-section">
+      <div className="wizard-section__head">
         <div>
           <h3>{heading}</h3>
-          <p className="panel__desc">{description}</p>
+          <p>{description}</p>
         </div>
         {!locked ? <button aria-label={`Adicionar ${singular}`} className="btn btn--sm btn--primary" onClick={() => onChange([...values, newContact()])} type="button">
           + Adicionar <span className="sr-only">{singular}</span>
         </button> : null}
       </div>
-      <div className="panel__body">
+      <div>
         {locked ? <div className="toast toast--warning" role="status">{lockedMessage}</div> : null}
         <input id={`id_${kind}-TOTAL_FORMS`} name={`${kind}-TOTAL_FORMS`} type="hidden" value={values.length} />
         <div id={`${kind}-container`}>
@@ -59,8 +59,8 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
             const emailError = fieldErrors[`${kind}.${index}.email`];
             const rowLabel = isRecipient ? `destinatário ${index + 1}` : `Reply-To ${index + 1}`;
             return (
-              <div className="formset-row" id={`${kind}-row-${index}`} key={contact.id}>
-                <div className="item-grid">
+              <div className="formset-row formset-row--flat" id={`${kind}-row-${index}`} key={contact.id}>
+                <div className="item-grid contact-grid">
                   <div className="field mb-0">
                     <label className="field__label" htmlFor={`${kind}-${contact.id}-name`}>Nome</label>
                     <input
@@ -111,6 +111,6 @@ export function RecipientFormset({ fieldErrors = {}, kind, locked = false, onCha
           })}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

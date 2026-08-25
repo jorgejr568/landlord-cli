@@ -450,16 +450,47 @@ it("guides communication through recipients, personalized message preview, and r
   expect(await screen.findByText("Etapa 1 de 3")).toBeVisible();
   expect(screen.getByRole("heading", { name: "Destinatários" })).toBeVisible();
   expect(screen.getByText("Olá Ana")).toBeVisible();
+  await user.click(screen.getByLabelText("Destinatário protegido"));
+  await user.click(screen.getByLabelText("Ana <ana@example.com>"));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Selecione ao menos um destinatário.")).toBeVisible();
+  expect(screen.getByLabelText("Ana <ana@example.com>")).toHaveFocus();
+  await user.click(screen.getByLabelText("Ana <ana@example.com>"));
 
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Inserir vencimento" }));
-  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Olá {{nome_inquilino}}{{vencimento}}");
-  expect(screen.getByText("Olá Ana10/08/2026")).toBeVisible();
+  const messageBody = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  screen.getByLabelText("Assunto").focus();
+  await user.click(screen.getByRole("button", { name: "Inserir total" }));
+  expect(messageBody).toHaveValue("Olá {{nome_inquilino}}{{total}}");
+  fireEvent.change(messageBody, { target: { value: "Olá **{{nome_inquilino}}**\nVence em {{vencimento}}" } });
+  await waitFor(() => expect(messageBody).toHaveValue("Olá **{{nome_inquilino}}**\nVence em {{vencimento}}"));
+  messageBody.focus();
+  const messageEnd = (messageBody as HTMLTextAreaElement).value.length;
+  (messageBody as HTMLTextAreaElement).setSelectionRange(messageEnd, messageEnd);
+  expect(screen.getByText("Ana", { selector: "strong" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Inserir vencimento" }));
+  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Olá **{{nome_inquilino}}**\nVence em {{vencimento}}{{vencimento}}");
+  expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "Olá AnaVence em 10/08/202610/08/2026")).toBeVisible();
+
+  await user.clear(screen.getByLabelText("Assunto"));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Informe o assunto.")).toBeVisible();
+  await user.type(screen.getByLabelText("Assunto"), "Fatura de julho");
+  await user.clear(messageBody);
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Informe o corpo da mensagem.")).toBeVisible();
+  await user.type(messageBody, "Mensagem final");
 
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(await screen.findByRole("heading", { name: "Revisar envio" })).toBeVisible();
-  expect(screen.getByText("2 destinatários")).toBeVisible();
+  expect(screen.getByText("1 destinatário")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Destinatários" }));
+  expect(await screen.findByRole("heading", { name: "Destinatários" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Revisar envio/ }));
   await user.click(screen.getByRole("button", { name: "Editar Mensagem" }));
   expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
 });
@@ -570,6 +601,23 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
   expect(screen.queryByRole("link", { name: "Enviar comunicação" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Observações" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Gerenciar fatura" })).not.toBeInTheDocument();
+});
+
+it("explains when an invoice document has not become available", async () => {
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_download_invoice: false },
+      has_invoice: false,
+      pdf_render_status: null
+    })
+  });
+
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  expect(await screen.findByRole("heading", { name: "Documento indisponível" })).toBeVisible();
+  expect(screen.getByText("O PDF será liberado quando a geração for concluída.")).toBeVisible();
 });
 
 it("regenerates and deletes from detail using backend capabilities", async () => {
@@ -1241,7 +1289,7 @@ it("renders the payment-receipt variant with an empty template and capability-dr
       communication_templates: billing.communication_templates.filter((item) => item.comm_type !== "payment_receipt"),
       owner: { type: "user", uuid: null }
     }),
-    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({ ...bill, due_date: null }),
     "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "", mild: [], severe: [] })
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=payment_receipt", "/billings/:billingUuid/bills/:billUuid/communications/compose");
@@ -1250,6 +1298,11 @@ it("renders the payment-receipt variant with an empty template and capability-dr
   await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("");
+  fireEvent.change(screen.getByLabelText("Assunto"), { target: { value: "Recibo disponível" } });
+  fireEvent.change(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), { target: { value: "Vencimento: {{vencimento}}" } });
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Recibo em PDF")).toBeVisible();
+  expect(screen.getByText("Vencimento: sem vencimento")).toBeVisible();
   expect(screen.queryByRole("option", { name: /minha conta|organização/ })).not.toBeInTheDocument();
   expect(document.title).toBe("Enviar recibo de pagamento - Rentivo");
 });

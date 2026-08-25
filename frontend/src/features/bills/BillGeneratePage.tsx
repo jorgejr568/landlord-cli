@@ -65,6 +65,7 @@ export function BillGeneratePage() {
   const [focusRequest, setFocusRequest] = useState<{ field: string; sequence: number } | null>(null);
   const nextExtraKey = useRef(0);
   const referenceRef = useRef<HTMLInputElement>(null);
+  const dueDateRef = useRef<HTMLInputElement>(null);
   const receiptRef = useRef<HTMLInputElement>(null);
   const variableRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const extraRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -134,10 +135,29 @@ export function BillGeneratePage() {
     return 3;
   };
 
+  const clearFieldError = (...keys: string[]) => {
+    setFieldErrors((current) => {
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  };
+
+  const removeExtra = (key: number) => {
+    setExtras((rows) => rows.filter((row) => row.key !== key));
+    setFieldErrors((current) => Object.fromEntries(
+      Object.entries(current).filter(([field]) => !field.startsWith("extras."))
+    ));
+    setFocusRequest(null);
+    extraRefs.current = {};
+    setIsDirty(true);
+  };
+
   const focusError = (key: string | undefined) => {
     /* v8 ignore next -- callers only invoke focus after resolving a field key */
     if (!key) return;
     if (key === "reference_month") referenceRef.current?.focus();
+    else if (key === "due_date") dueDateRef.current?.focus();
     else if (key.startsWith("variable_amounts.")) {
       const input = variableRefs.current[key.slice("variable_amounts.".length)];
       if (input) input.focus();
@@ -191,6 +211,7 @@ export function BillGeneratePage() {
     if (step === 0) return referenceMonth ? {} : { reference_month: "Informe o mês de referência." };
     if (step === 1) {
       const parsedDate = parseDateInput(dueDate);
+      /* v8 ignore next -- native date inputs cannot retain malformed non-empty values */
       return parsedDate === undefined ? { due_date: "Informe uma data válida." } : {};
     }
     if (step === 2) return parsedItemValues().errors;
@@ -325,7 +346,7 @@ export function BillGeneratePage() {
     if (activeStep === 0) return (
       <div className="field mb-0">
         <label className="field-label field__label" htmlFor="reference_month">Mês de Referência</label>
-        <input aria-describedby={fieldErrors.reference_month ? "reference_month-error" : undefined} className="field-input input" id="reference_month" onChange={(event) => setReferenceMonth(event.target.value)} ref={referenceRef} required type="month" value={referenceMonth} />
+        <input aria-describedby={fieldErrors.reference_month ? "reference_month-error" : undefined} autoComplete="off" className="field-input input" id="reference_month" name="reference_month" onChange={(event) => { setReferenceMonth(event.target.value); clearFieldError("reference_month"); }} ref={referenceRef} required type="month" value={referenceMonth} />
         <span className="field__hint">Este período aparece na fatura e organiza o histórico da cobrança.</span>
         <FieldError id="reference_month-error" message={fieldErrors.reference_month} />
       </div>
@@ -333,25 +354,25 @@ export function BillGeneratePage() {
     if (activeStep === 1) return (
       <div className="field mb-0">
         <label className="field-label field__label" htmlFor="due_date">Vencimento</label>
-        <input aria-describedby={/* v8 ignore next -- native date controls exclude malformed non-empty values */ fieldErrors.due_date ? "due_date-error" : undefined} className="field-input input" id="due_date" onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} />
+        <input aria-describedby={/* v8 ignore next -- native date controls exclude malformed non-empty values */ fieldErrors.due_date ? "due_date-error" : undefined} autoComplete="off" className="field-input input" id="due_date" name="due_date" onChange={(event) => { setDueDate(event.target.value); clearFieldError("due_date"); }} ref={dueDateRef} type="date" value={dueDate} />
         <span className="field__hint">Você pode deixar em branco para publicar a fatura sem data de vencimento.</span>
         <FieldError id="due_date-error" message={fieldErrors.due_date} />
       </div>
     );
     if (activeStep === 2) return (
       <>
-        <div className="panel">
-          <div className="panel-head panel__head"><h5>Itens recorrentes</h5><span className="panel__title-eyebrow">{billing.items.length} {billing.items.length === 1 ? "item" : "itens"}</span></div>
-          <div className="panel-body panel__body">
+        <section className="wizard-section">
+          <div className="wizard-section__head"><div><h3>Itens recorrentes</h3><p>Valores definidos na configuração desta cobrança.</p></div><span className="panel__title-eyebrow">{billing.items.length} {billing.items.length === 1 ? "item" : "itens"}</span></div>
+          <div>
             {billing.items.map((item) => {
               const key = `variable_amounts.${item.uuid}`;
               return (
-                <div className="formset-row" key={item.uuid}>
+                <div className="formset-row formset-row--flat" key={item.uuid}>
                   <div className="generate-item-grid">
                     <div><strong>{item.description}</strong> <span className={`tag tag--${item.item_type}`}>{item.item_type === "fixed" ? "Fixo" : "Variável"}</span></div>
                     <div>{item.item_type === "fixed"
                       ? <input aria-label={`${item.description} (fixo)`} className="field-input" disabled value={formatBrlInput(item.amount)} />
-                      : <><input aria-describedby={fieldErrors[key] ? `${key}-error` : undefined} aria-label={item.description} className="field-input" inputMode="decimal" onChange={(event) => setVariableAmounts((values) => ({ ...values, [item.uuid]: event.target.value }))} placeholder="0,00" ref={(node) => { variableRefs.current[item.uuid] = node; }} required value={variableAmounts[item.uuid]} /><FieldError id={`${key}-error`} message={fieldErrors[key]} /></>}
+                      : <><input aria-describedby={fieldErrors[key] ? `${key}-error` : undefined} aria-label={item.description} autoComplete="off" className="field-input" inputMode="decimal" name={key} onChange={(event) => { setVariableAmounts((values) => ({ ...values, [item.uuid]: event.target.value })); clearFieldError(key); }} placeholder="0,00" ref={(node) => { variableRefs.current[item.uuid] = node; }} required value={variableAmounts[item.uuid]} /><FieldError id={`${key}-error`} message={fieldErrors[key]} /></>}
                     </div>
                     <div className="text-muted text-mono">{item.item_type === "fixed" ? formatBrl(item.amount) : ""}</div>
                   </div>
@@ -359,31 +380,31 @@ export function BillGeneratePage() {
               );
             })}
           </div>
-        </div>
-        <div className="panel">
-          <div className="panel-head panel__head"><div><h5>Despesas extras</h5><p className="panel__desc">Valores que pertencem apenas a esta fatura.</p></div><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => { setExtras((rows) => [...rows, { amount: "", description: "", key: nextExtraKey.current++ }]); setIsDirty(true); }} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div>
-          <div className="panel-body panel__body">
+        </section>
+        <section className="wizard-section">
+          <div className="wizard-section__head"><div><h3>Despesas extras</h3><p>Valores que pertencem apenas a esta fatura.</p></div><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => { setExtras((rows) => [...rows, { amount: "", description: "", key: nextExtraKey.current++ }]); setIsDirty(true); }} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div>
+          <div>
             {extras.length === 0 && <p className="text-muted">Nenhuma despesa extra.</p>}
             {extras.map((extra, index) => (
               <div className="extras-grid" key={extra.key}>
-                <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} className="field-input" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row))} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
-                <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} className="field-input" inputMode="decimal" onChange={(event) => setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row))} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
-                <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => { setExtras((rows) => rows.filter((row) => row.key !== extra.key)); setIsDirty(true); }} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
+                <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} autoComplete="off" className="field-input" name={`extras.${index}.description`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row)); clearFieldError(`extras.${index}.description`); }} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
+                <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} autoComplete="off" className="field-input" inputMode="decimal" name={`extras.${index}.amount`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row)); clearFieldError(`extras.${index}.amount`); }} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
+                <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => removeExtra(extra.key)} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       </>
     );
     if (activeStep === 3) return (
       <>
-        <div className="field"><label className="field-label field__label" htmlFor="notes">Observações</label><textarea className="field-textarea input" id="notes" onChange={(event) => setNotes(event.target.value)} rows={5} value={notes} /><span className="field__hint">Este texto aparece na fatura. Não inclua informações internas.</span><FieldError id="notes-error" message={fieldErrors.notes} /></div>
-        {billing.capabilities.can_upload_bill_receipts ? <div className="field mb-0"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" aria-describedby={fileError ? "generate-receipt-files-error" : undefined} className="field-input input" id="generate_receipt_files" multiple onChange={(event) => { setFiles(Array.from(event.currentTarget.files!)); setFileError(""); }} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small><FieldError id="generate-receipt-files-error" message={fileError} /></div> : null}
+        <div className="field"><label className="field-label field__label" htmlFor="notes">Observações</label><textarea className="field-textarea input" id="notes" name="notes" onChange={(event) => { setNotes(event.target.value); clearFieldError("notes"); }} rows={5} value={notes} /><span className="field__hint">Este texto aparece na fatura. Não inclua informações internas.</span><FieldError id="notes-error" message={fieldErrors.notes} /></div>
+        {billing.capabilities.can_upload_bill_receipts ? <div className="field mb-0"><label className="field-label field__label" htmlFor="generate_receipt_files">Anexar comprovantes</label><input accept=".pdf,.jpg,.jpeg,.png" aria-describedby={fileError ? "generate-receipt-files-error" : undefined} className="field-input input" id="generate_receipt_files" multiple name="receipt_files" onChange={(event) => { setFiles(Array.from(event.currentTarget.files!)); setFileError(""); clearFieldError("receipt_files"); }} ref={receiptRef} type="file" /><small className="text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</small><FieldError id="generate-receipt-files-error" message={fileError} /></div> : null}
       </>
     );
     return (
       <dl className="review-list">
-        <WizardReviewRow label="Competência" onEdit={() => setActiveStep(0)} value={referenceMonth ? formatMonth(referenceMonth) : "Não informada"} />
+        <WizardReviewRow label="Competência" onEdit={() => setActiveStep(0)} value={referenceMonth ? formatMonth(referenceMonth) : /* v8 ignore next -- review requires a reference month */ "Não informada"} />
         <WizardReviewRow label="Vencimento" onEdit={() => setActiveStep(1)} value={dueDateLabel} />
         <WizardReviewRow label="Itens e valores" onEdit={() => setActiveStep(2)} value={`${billing.items.length + extras.length} itens · ${formatBrl(itemValues.total)}`} />
         <WizardReviewRow label="Observações" onEdit={() => setActiveStep(3)} value={notes || "Nenhuma observação"} />
