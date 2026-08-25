@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CalendarDays, FileText, Mail, Paperclip, Users } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -14,6 +14,7 @@ import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
+import "./CommunicationComposePage.css";
 
 type CommType = components["schemas"]["CommunicationSendRequest"]["comm_type"];
 const MAX_COMMUNICATION_SUBJECT_LENGTH = 998;
@@ -303,23 +304,44 @@ export function CommunicationComposePage() {
   const previewBody = personalizeContent(body, billing, bill, previewRecipientName);
   const bodyBytes = new TextEncoder().encode(body).length;
   const preview = (
-    <WizardSummary title="Prévia personalizada">
+    <WizardSummary title="Prévia do e-mail">
       <div className="message-preview">
-        <span className="message-preview__to">Para {previewRecipientName}</span>
-        <strong>{previewSubject || "Assunto da mensagem"}</strong>
+        <div className="message-preview__address">
+          <span>Para</span>
+          <span className="message-preview__recipient">{previewRecipientName}</span>
+        </div>
+        <strong className="message-preview__subject">{previewSubject || "Assunto da mensagem"}</strong>
         <MessagePreviewBody content={previewBody || "A mensagem aparecerá aqui enquanto você escreve."} />
-        <span className="message-preview__attachment">{isRecibo ? "Recibo" : "Fatura"} · PDF anexado</span>
+        <span className="message-preview__attachment"><Paperclip aria-hidden="true" size={15} /> Arquivo PDF anexado</span>
       </div>
     </WizardSummary>
   );
 
   return (
-    <>
+    <article aria-label={`Envio ${isRecibo ? "do recibo de pagamento" : "da fatura"} de ${formatMonth(bill.reference_month)}`} className="communication-workspace">
       <DirtyFormGuard isDirty={isDirty && !sending} />
       <Link className="crumb" to={`/billings/${billingUuid}/bills/${billUuid}`}><ArrowLeft aria-hidden="true" size={16} /> Fatura {formatMonth(bill.reference_month)}</Link>
-      <div className="pagehead"><div><h1 className="pagehead__title">Enviar {commLabel}</h1><p className="pagehead__sub">{billing.name} · {formatMonth(bill.reference_month)}. Cada destinatário recebe um e-mail separado com o {isRecibo ? "recibo" : "PDF da fatura"} anexado.</p></div></div>
+      <header className="communication-workspace__header">
+        <div>
+          <span className="communication-workspace__kicker">Envio de documento</span>
+          <h1 className="pagehead__title">Enviar {commLabel}</h1>
+          <p className="pagehead__sub">{billing.name} · {formatMonth(bill.reference_month)}. Cada destinatário recebe um e-mail separado com o {isRecibo ? "recibo" : "PDF da fatura"} anexado.</p>
+        </div>
+        <div aria-label="Documento anexado" className="communication-workspace__document">
+          <FileText aria-hidden="true" size={22} />
+          <span><small>Documento pronto</small><strong>{isRecibo ? "Recibo anexado" : "Fatura anexada"}</strong></span>
+        </div>
+      </header>
+      <section aria-label="Resumo do envio" className="communication-facts">
+        <dl>
+          <div><dt><Users aria-hidden="true" size={15} /> Destinatários</dt><dd aria-live="polite">{selectedRecipients.length} selecionado{selectedRecipients.length === 1 ? "" : "s"}</dd></div>
+          <div><dt><Mail aria-hidden="true" size={15} /> Entrega</dt><dd>1 e-mail por destinatário</dd></div>
+          <div><dt><FileText aria-hidden="true" size={15} /> Total</dt><dd>{formatBrl(bill.total_amount)}</dd></div>
+          <div><dt><CalendarDays aria-hidden="true" size={15} /> Vencimento</dt><dd>{bill.due_date ? formatIsoDate(bill.due_date) : "Sem vencimento"}</dd></div>
+        </dl>
+      </section>
       {billing.recipients.length === 0 ? <div className="panel"><div className="panel__body"><p className="text-muted">Nenhum destinatário cadastrado. <Link to={`/billings/${billingUuid}/edit`}>Adicione destinatários</Link> na cobrança antes de enviar.</p></div></div> : (
-        <form id="comm-form" onChange={() => setIsDirty(true)} onSubmit={(event) => void send(event)}>
+        <form className="communication-compose-form" id="comm-form" onChange={() => setIsDirty(true)} onSubmit={(event) => void send(event)}>
           {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
           <FormWizard
             activeStep={activeStep}
@@ -334,17 +356,19 @@ export function CommunicationComposePage() {
             visitedStep={visitedStep}
           >
             {activeStep === 0 ? (
-              <div className="recipient-picker">{billing.recipients.map((recipient, index) => {
+              <div className="recipient-picker">
+                {billing.recipients.length > 1 ? <div className="recipient-picker__toolbar"><span>{selectedRecipients.length} de {billing.recipients.length} selecionados</span><div><button onClick={() => setSelectedRecipients(billing.recipients.map((recipient) => recipient.uuid))} type="button">Selecionar todos</button><button onClick={() => setSelectedRecipients([])} type="button">Limpar seleção</button></div></div> : null}
+                {billing.recipients.map((recipient, index) => {
                 const label = isFullContact(recipient) ? `${recipient.name} <${recipient.email}>` : "Destinatário protegido";
-                return <label className="recipient-option" key={recipient.uuid}><input aria-describedby={index === 0 && fieldErrors.recipient_uuids ? "recipient_uuids-error" : undefined} aria-label={label} checked={selectedRecipients.includes(recipient.uuid)} onChange={(event) => setSelectedRecipients((current) => event.target.checked ? [...current, recipient.uuid] : current.filter((uuid) => uuid !== recipient.uuid))} ref={index === 0 ? recipientRef : undefined} type="checkbox" value={recipient.uuid} /><span aria-hidden="true"><strong>{label}</strong><small>{isFullContact(recipient) ? "Receberá um e-mail individual" : "Dados protegidos pela organização"}</small></span></label>;
+                return <label className="recipient-option" key={recipient.uuid}><input aria-describedby={index === 0 && fieldErrors.recipient_uuids ? "recipient_uuids-error" : undefined} aria-label={label} checked={selectedRecipients.includes(recipient.uuid)} name="recipient_uuids" onChange={(event) => setSelectedRecipients((current) => event.target.checked ? [...current, recipient.uuid] : current.filter((uuid) => uuid !== recipient.uuid))} ref={index === 0 ? recipientRef : undefined} type="checkbox" value={recipient.uuid} /><span aria-hidden="true" className="recipient-option__identity"><span className="recipient-option__name">{isFullContact(recipient) ? recipient.name : label}</span>{isFullContact(recipient) ? <span className="recipient-option__email">{recipient.email}</span> : null}<small>{isFullContact(recipient) ? "Receberá um e-mail individual com o PDF" : "Dados protegidos pela organização"}</small></span></label>;
               })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div>
             ) : null}
 
             {activeStep === 1 ? (
-              <>
-                <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
-                <div className="field"><div className="field-label-row"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><span className={bodyBytes > MAX_COMMUNICATION_BODY_BYTES * 0.9 ? "byte-count byte-count--warning" : "byte-count"} id="body-byte-count">{bodyBytes} / 4096 bytes</span></div><textarea aria-describedby={["body-byte-count", fieldErrors.body ? "body-error" : ""].filter(Boolean).join(" ")} className="input" id="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><div aria-label="Variáveis da mensagem" className="variable-toolbar">{TEMPLATE_VARIABLES.map((variable) => <button aria-label={`Inserir ${variable.label}`} key={variable.value} onClick={() => insertVariable(variable.value)} onMouseDown={(event) => event.preventDefault()} type="button">{variable.label}</button>)}</div><FieldError id="body-error" message={fieldErrors.body} /></div>
-              </>
+              <div className="message-composer">
+                <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} autoComplete="off" className="input" id="subject" name="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
+                <div className="field"><div className="field-label-row"><label className="field__label" htmlFor="body">Corpo da mensagem</label><span className={bodyBytes > MAX_COMMUNICATION_BODY_BYTES * 0.9 ? "byte-count byte-count--warning" : "byte-count"} id="body-byte-count">{bodyBytes} / 4096 bytes</span></div><span className="field__help" id="body-format-help">Markdown aceito. HTML não permitido.</span><textarea aria-describedby={["body-format-help", "body-byte-count", fieldErrors.body ? "body-error" : ""].filter(Boolean).join(" ")} aria-label="Corpo (Markdown — HTML não é permitido)" autoComplete="off" className="input" id="body" name="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><div aria-label="Variáveis da mensagem" className="variable-toolbar">{TEMPLATE_VARIABLES.map((variable) => <button aria-label={`Inserir ${variable.label}`} key={variable.value} onClick={() => insertVariable(variable.value)} onMouseDown={(event) => event.preventDefault()} type="button">{variable.label}</button>)}</div><FieldError id="body-error" message={fieldErrors.body} /></div>
+              </div>
             ) : null}
 
             {activeStep === 2 ? (
@@ -354,12 +378,12 @@ export function CommunicationComposePage() {
                   <WizardReviewRow label="Mensagem" onEdit={() => setActiveStep(1)} value={subject} />
                   <WizardReviewRow label="Documento" value={`${isRecibo ? "Recibo" : "Fatura"} em PDF`} />
                 </dl>
-                <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-label="Salvar modelo" className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>
+                <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-label="Salvar modelo" autoComplete="off" className="select" id="save_scope" name="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>
               </>
             ) : null}
           </FormWizard>
         </form>
       )}
-    </>
+    </article>
   );
 }
