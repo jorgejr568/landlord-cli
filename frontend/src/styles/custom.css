@@ -1041,6 +1041,29 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .wizard__content { padding: 1.35rem; }
 .wizard__content > .panel { margin-bottom: 1rem; box-shadow: none; }
 .wizard__content > .panel:last-child { margin-bottom: 0; }
+.organization-wizard__intro { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1.25rem; }
+.organization-wizard__intro > svg {
+    flex: 0 0 auto; box-sizing: content-box; padding: 0.55rem; border: var(--bw) solid var(--ink);
+    border-radius: 10px; background: var(--accent-pale); color: var(--accent-dark); box-shadow: 2px 2px 0 var(--ink);
+}
+.organization-wizard__intro strong { font-size: 0.92rem; }
+.organization-wizard__intro p { max-width: 58ch; margin: 0.22rem 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+.organization-pix-choice {
+    display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.9rem;
+    border: var(--bw) solid var(--ink); border-radius: 10px; background: var(--paper-2); cursor: pointer;
+}
+.organization-pix-choice:has(input:checked) { background: var(--accent-pale); box-shadow: inset 4px 0 0 var(--accent); }
+.organization-pix-choice input { margin-top: 0.15rem; accent-color: var(--accent); }
+.organization-pix-choice span { display: grid; gap: 0.15rem; }
+.organization-pix-choice strong { font-size: 0.86rem; }
+.organization-pix-choice small { color: var(--muted); font-size: 0.75rem; line-height: 1.45; }
+.organization-pix-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 0.85rem; margin-top: 1rem; }
+.organization-pix-fields .field--full { grid-column: 1 / -1; }
+.organization-pix-skip {
+    display: flex; align-items: baseline; gap: 0.45rem; margin-top: 1rem; padding-top: 0.8rem;
+    border-top: 1.5px solid var(--line); color: var(--muted); font-size: 0.8rem;
+}
+.organization-pix-skip strong { color: var(--ink); }
 .wizard-section__head {
     display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
     padding-bottom: 1rem; border-bottom: 1.5px solid var(--line);
@@ -1137,6 +1160,8 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     .wizard__aside { order: 2; }
     .wizard__stage { order: 1; }
     .wizard__actions { position: sticky; bottom: 0; z-index: 10; }
+    .organization-pix-fields { grid-template-columns: minmax(0, 1fr); }
+    .organization-pix-fields .field--full { grid-column: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }

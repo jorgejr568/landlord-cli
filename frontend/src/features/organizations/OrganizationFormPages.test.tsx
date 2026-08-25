@@ -71,6 +71,35 @@ it("caps organization names at the backend limit", () => {
   expect(name).toHaveValue("😀".repeat(255));
 });
 
+it("guides organization creation through identity, optional PIX, and review", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+  expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
+
+  await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
+  await user.type(screen.getByLabelText("Nome do recebedor"), "RIBEIRO IMOVEIS");
+  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  expect(screen.getByRole("heading", { name: "Revisão" })).toBeVisible();
+  expect(screen.getByText("Ribeiro Imóveis")).toBeVisible();
+  expect(screen.getByText(/PIX configurado/)).toBeVisible();
+  expect(screen.getByText("Admin")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Nome da organização" }));
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+});
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}</output>;
@@ -102,6 +131,17 @@ function renderCreate() {
       </Routes>
     </MemoryRouter>
   );
+}
+
+async function advanceCreateToReview(user: ReturnType<typeof userEvent.setup>, pix?: { city: string; key: string; name: string }) {
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  if (pix) {
+    await user.click(screen.getByRole("checkbox", { name: "Configurar PIX agora" }));
+    await user.type(screen.getByLabelText("Chave PIX"), pix.key);
+    await user.type(screen.getByLabelText("Nome do recebedor"), pix.name);
+    await user.type(screen.getByLabelText("Cidade do recebedor"), pix.city);
+  }
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
 }
 
 function renderEdit() {
@@ -155,9 +195,7 @@ it("creates an organization from the exact legacy form and forwards analytics", 
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await waitFor(() => expect(document.title).toBe("Nova organização - Rentivo"));
   await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
-  await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
-  await user.type(screen.getByLabelText("Nome do recebedor"), "Ribeiro");
-  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  await advanceCreateToReview(user, { city: "SALVADOR", key: "+5571999999999", name: "Ribeiro" });
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/organizations/created-org-uuid"));
@@ -176,6 +214,7 @@ it("deduplicates create submissions before the saving state rerenders", async ()
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   const form = screen.getByRole("button", { name: "Criar organização" }).closest("form") as HTMLFormElement;
 
   act(() => {
@@ -212,10 +251,11 @@ it("aborts create on navigation and ignores its late response", async () => {
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   await waitFor(() => expect(createSignal).toBeDefined());
 
-  await user.click(screen.getByRole("link", { name: "Cancelar" }));
+  await user.click(screen.getByRole("link", { name: "Organizações" }));
 
   expect(screen.getByTestId("location")).toHaveTextContent("/organizations/");
   expect(createSignal?.aborted).toBe(true);
@@ -255,14 +295,16 @@ it("normalizes realistic body field errors and focuses the create control", asyn
   renderCreate();
 
   await user.type(screen.getByLabelText("Nome da organização"), " ");
-  await user.click(screen.getByRole("button", { name: "Criar organização" }));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
   expect(attempts).toBe(0);
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Nome é obrigatório.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Não foi possível criar a organização.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
@@ -283,6 +325,7 @@ it("surfaces a create API problem without field errors", async () => {
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Já existe uma organização com este nome.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
