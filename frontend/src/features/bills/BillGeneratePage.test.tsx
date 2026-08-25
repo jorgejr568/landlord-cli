@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -151,6 +151,27 @@ it("guides invoice generation through validated desktop steps and a review", asy
   expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
 });
 
+it("shows every charge and the final total in the review before generation", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+
+  await moveToItems(user);
+  await user.type(screen.getByLabelText("Água"), "123,45");
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Condomínio");
+  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "315,90");
+  await moveFromItemsToReview(user);
+
+  const breakdown = screen.getByRole("region", { name: "Itens da fatura" });
+  expect(within(breakdown).getByText("Aluguel")).toBeVisible();
+  expect(within(breakdown).getByText("Água")).toBeVisible();
+  expect(within(breakdown).getByText("Condomínio")).toBeVisible();
+  expect(within(breakdown).getByText("R$ 2.939,35")).toBeVisible();
+});
+
 it("generates a typed invoice with variable values, extras, dates, notes, and receipt files", async () => {
   const user = userEvent.setup();
   const receipt = new File(["receipt"], "comprovante.pdf", { type: "application/pdf" });
@@ -178,12 +199,12 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
   const view = renderPage();
 
   expect(screen.getByText("Carregando cobrança...")).toBeVisible();
-  expect(await screen.findByRole("heading", { name: "Gerar Fatura" })).toHaveClass("mb-1");
+  expect(await screen.findByRole("heading", { name: "Gerar Fatura" })).toHaveClass("bill-generate-page__title");
   await moveToItems(user, "2026-07", "2026-08-10");
   expect(screen.getByDisplayValue("2.500,00")).toBeDisabled();
   await user.type(screen.getByLabelText("Água"), "123,45");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
-  await user.type(screen.getByPlaceholderText("Descrição"), "Gás");
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Gás");
   await user.type(screen.getByLabelText("Valor da despesa extra 1"), "12,11");
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
@@ -374,7 +395,7 @@ it("validates extras locally, removes rows, and focuses nested API errors", asyn
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
   expect(screen.queryByText("Descrição já utilizada.")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
-  expect(screen.getByText("Nenhuma despesa extra.")).toBeVisible();
+  expect(screen.getByText("Nenhuma despesa extra nesta fatura.")).toBeVisible();
   await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Não foi possível gerar a fatura.")).toBeVisible();

@@ -15,6 +15,7 @@ import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Billing } from "./billSupport";
 import { multipartBodySerializer } from "./billSupport";
+import "./BillGeneratePage.css";
 import { receiptFileError } from "./receiptFiles";
 
 interface ExtraRow {
@@ -331,13 +332,17 @@ export function BillGeneratePage() {
     : "Sem vencimento definido";
   const invoiceSummary = (
     <WizardSummary title="Resumo da fatura">
+      <div className="bill-generate-summary__total" aria-live="polite">
+        <span>Total até agora</span>
+        <strong>{formatBrl(itemValues.total)}</strong>
+        <small>{billing.items.length + extras.length} {billing.items.length + extras.length === 1 ? "item" : "itens"}</small>
+      </div>
       <dl className="summary-list">
         <div><dt>Cobrança</dt><dd>{billing.name}</dd></div>
         <div><dt>Competência</dt><dd>{referenceMonth ? formatMonth(referenceMonth) : "A definir"}</dd></div>
         <div><dt>Vencimento</dt><dd>{dueDateLabel}</dd></div>
         <div><dt>Itens fixos</dt><dd>{formatBrl(fixedSubtotal)}</dd></div>
         <div><dt>Variáveis e extras</dt><dd>{formatBrl(variableSubtotal + extrasSubtotal)}</dd></div>
-        <div className="summary-list__total"><dt>Total</dt><dd>{formatBrl(itemValues.total)}</dd></div>
       </dl>
     </WizardSummary>
   );
@@ -361,20 +366,20 @@ export function BillGeneratePage() {
     );
     if (activeStep === 2) return (
       <>
-        <section className="wizard-section">
-          <div className="wizard-section__head"><div><h3>Itens recorrentes</h3><p>Valores definidos na configuração desta cobrança.</p></div><span className="panel__title-eyebrow">{billing.items.length} {billing.items.length === 1 ? "item" : "itens"}</span></div>
-          <div>
+        <section className="wizard-section bill-generate-items" aria-labelledby="recurring-items-title">
+          <div className="wizard-section__head"><div><h3 id="recurring-items-title">Itens recorrentes</h3><p>Os itens fixos já estão prontos. Preencha apenas o que varia neste mês.</p></div><span className="panel__title-eyebrow">{billing.items.length} {billing.items.length === 1 ? "item" : "itens"}</span></div>
+          <div className="bill-generate-items__list">
             {billing.items.map((item) => {
               const key = `variable_amounts.${item.uuid}`;
               return (
-                <div className="formset-row formset-row--flat" key={item.uuid}>
-                  <div className="generate-item-grid">
-                    <div><strong>{item.description}</strong> <span className={`tag tag--${item.item_type}`}>{item.item_type === "fixed" ? "Fixo" : "Variável"}</span></div>
-                    <div>{item.item_type === "fixed"
-                      ? <input aria-label={`${item.description} (fixo)`} className="field-input" disabled value={formatBrlInput(item.amount)} />
-                      : <><input aria-describedby={fieldErrors[key] ? `${key}-error` : undefined} aria-label={item.description} autoComplete="off" className="field-input" inputMode="decimal" name={key} onChange={(event) => { setVariableAmounts((values) => ({ ...values, [item.uuid]: event.target.value })); clearFieldError(key); }} placeholder="0,00" ref={(node) => { variableRefs.current[item.uuid] = node; }} required value={variableAmounts[item.uuid]} /><FieldError id={`${key}-error`} message={fieldErrors[key]} /></>}
-                    </div>
-                    <div className="text-muted text-mono">{item.item_type === "fixed" ? formatBrl(item.amount) : ""}</div>
+                <div className="bill-generate-item" key={item.uuid}>
+                  <div className="bill-generate-item__identity">
+                    <strong>{item.description}</strong>
+                    <span className={`tag tag--${item.item_type}`}>{item.item_type === "fixed" ? "Fixo" : "Variável"}</span>
+                  </div>
+                  <div className="bill-generate-item__amount">{item.item_type === "fixed"
+                    ? <><span className="bill-generate-item__value-label">Valor definido</span><input aria-label={`${item.description} (fixo)`} className="field-input" disabled value={formatBrlInput(item.amount)} /></>
+                    : <><label className="bill-generate-item__value-label" htmlFor={key}>Valor deste mês</label><div className="input-prefix"><span aria-hidden="true" className="pfx">R$</span><input aria-describedby={fieldErrors[key] ? `${key}-error` : undefined} aria-label={item.description} autoComplete="off" className="field-input" id={key} inputMode="decimal" name={key} onChange={(event) => { setVariableAmounts((values) => ({ ...values, [item.uuid]: event.target.value })); clearFieldError(key); }} placeholder="0,00" ref={(node) => { variableRefs.current[item.uuid] = node; }} required value={variableAmounts[item.uuid]} /></div><FieldError id={`${key}-error`} message={fieldErrors[key]} /></>}
                   </div>
                 </div>
               );
@@ -384,13 +389,14 @@ export function BillGeneratePage() {
         <section className="wizard-section">
           <div className="wizard-section__head"><div><h3>Despesas extras</h3><p>Valores que pertencem apenas a esta fatura.</p></div><button aria-label="Adicionar despesa extra" className="btn btn--sm btn--primary" onClick={() => { setExtras((rows) => [...rows, { amount: "", description: "", key: nextExtraKey.current++ }]); setIsDirty(true); }} type="button"><Plus aria-hidden="true" size={14} /> Adicionar</button></div>
           <div>
-            {extras.length === 0 && <p className="text-muted">Nenhuma despesa extra.</p>}
+            {extras.length === 0 && <p className="bill-generate-empty-extra">Nenhuma despesa extra nesta fatura.</p>}
             {extras.map((extra, index) => (
-              <div className="extras-grid" key={extra.key}>
-                <div className="field mb-0"><input aria-label={`Descrição da despesa extra ${index + 1}`} autoComplete="off" className="field-input" name={`extras.${index}.description`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row)); clearFieldError(`extras.${index}.description`); }} placeholder="Descrição" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
-                <div className="field mb-0"><input aria-label={`Valor da despesa extra ${index + 1}`} autoComplete="off" className="field-input" inputMode="decimal" name={`extras.${index}.amount`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row)); clearFieldError(`extras.${index}.amount`); }} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
-                <div><button aria-label={`Remover despesa extra ${index + 1}`} className="btn btn--sm btn--danger" onClick={() => removeExtra(extra.key)} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button></div>
-              </div>
+              <fieldset className="bill-generate-extra" key={extra.key}>
+                <legend className="sr-only">Despesa extra {index + 1}</legend>
+                <div className="field mb-0"><label className="field-label" htmlFor={`extra-description-${extra.key}`}>Descrição <span className="sr-only">da despesa extra {index + 1}</span></label><input autoComplete="off" className="field-input" id={`extra-description-${extra.key}`} name={`extras.${index}.description`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, description: limitApiCharacters(event.target.value, 255) } : row)); clearFieldError(`extras.${index}.description`); }} placeholder="Ex.: Condomínio…" ref={(node) => { extraRefs.current[`extras.${index}.description`] = node; }} value={extra.description} /><FieldError id={`extras.${index}.description-error`} message={fieldErrors[`extras.${index}.description`]} /></div>
+                <div className="field mb-0"><label className="field-label" htmlFor={`extra-amount-${extra.key}`}>Valor <span className="sr-only">da despesa extra {index + 1}</span></label><div className="input-prefix"><span aria-hidden="true" className="pfx">R$</span><input autoComplete="off" className="field-input" id={`extra-amount-${extra.key}`} inputMode="decimal" name={`extras.${index}.amount`} onChange={(event) => { setExtras((rows) => rows.map((row) => row.key === extra.key ? { ...row, amount: event.target.value } : row)); clearFieldError(`extras.${index}.amount`); }} placeholder="0,00" ref={(node) => { extraRefs.current[`extras.${index}.amount`] = node; }} value={extra.amount} /></div><FieldError id={`extras.${index}.amount-error`} message={fieldErrors[`extras.${index}.amount`]} /></div>
+                <div className="bill-generate-extra__remove"><button aria-label={`Remover despesa extra ${index + 1}`} className="icon-btn" onClick={() => removeExtra(extra.key)} title="Remover despesa" type="button"><Trash2 aria-hidden="true" size={17} /></button></div>
+              </fieldset>
             ))}
           </div>
         </section>
@@ -403,21 +409,48 @@ export function BillGeneratePage() {
       </>
     );
     return (
-      <dl className="review-list">
-        <WizardReviewRow label="Competência" onEdit={() => setActiveStep(0)} value={referenceMonth ? formatMonth(referenceMonth) : /* v8 ignore next -- review requires a reference month */ "Não informada"} />
-        <WizardReviewRow label="Vencimento" onEdit={() => setActiveStep(1)} value={dueDateLabel} />
-        <WizardReviewRow label="Itens e valores" onEdit={() => setActiveStep(2)} value={`${billing.items.length + extras.length} itens · ${formatBrl(itemValues.total)}`} />
-        <WizardReviewRow label="Observações" onEdit={() => setActiveStep(3)} value={notes || "Nenhuma observação"} />
-        <WizardReviewRow label="Comprovantes" onEdit={() => setActiveStep(3)} value={files.length ? `${files.length} ${files.length === 1 ? "arquivo" : "arquivos"}` : "Nenhum arquivo"} />
-      </dl>
+      <div className="bill-generate-review">
+        <dl className="bill-generate-review__facts">
+          <WizardReviewRow label="Competência" onEdit={() => setActiveStep(0)} value={referenceMonth ? formatMonth(referenceMonth) : /* v8 ignore next -- review requires a reference month */ "Não informada"} />
+          <WizardReviewRow label="Vencimento" onEdit={() => setActiveStep(1)} value={dueDateLabel} />
+        </dl>
+        <section aria-labelledby="bill-review-items-title" className="bill-generate-review__items">
+          <div className="bill-generate-review__section-head">
+            <div><h3 id="bill-review-items-title">Itens da fatura</h3><p>Confira cada valor antes de gerar o rascunho.</p></div>
+            <button aria-label="Editar Itens e valores" className="review-row__edit" onClick={() => setActiveStep(2)} type="button">Editar</button>
+          </div>
+          <ul className="bill-generate-review__line-items">
+            {billing.items.map((item) => (
+              <li key={item.uuid}>
+                <span><strong>{item.description}</strong><small>{item.item_type === "fixed" ? "Fixo" : "Variável"}</small></span>
+                <output>{formatBrl(item.item_type === "fixed" ? item.amount : (itemValues.variables[item.uuid] ?? 0))}</output>
+              </li>
+            ))}
+            {itemValues.extras.map((extra) => (
+              <li key={extra.key}><span><strong>{extra.description}</strong><small>Extra</small></span><output>{formatBrl(extra.amount ?? 0)}</output></li>
+            ))}
+          </ul>
+          <div className="bill-generate-review__grand-total"><span>Total da fatura</span><strong>{formatBrl(itemValues.total)}</strong></div>
+        </section>
+        <dl className="bill-generate-review__facts">
+          <WizardReviewRow label="Observações" onEdit={() => setActiveStep(3)} value={notes || "Nenhuma observação"} />
+          <WizardReviewRow label="Comprovantes" onEdit={() => setActiveStep(3)} value={files.length ? `${files.length} ${files.length === 1 ? "arquivo" : "arquivos"}` : "Nenhum arquivo"} />
+        </dl>
+      </div>
     );
   };
 
   return (
-    <>
+    <div className="bill-generate-page">
       <DirtyFormGuard isDirty={isDirty && !submitting} />
-      <h2 className="mb-1">Gerar Fatura</h2>
-      <p className="text-muted">Cobrança: <strong>{billing.name}</strong></p>
+      <header className="bill-generate-page__header">
+        <div>
+          <span className="bill-generate-page__eyebrow">Nova fatura</span>
+          <h1 className="bill-generate-page__title">Gerar Fatura</h1>
+          <p>Prepare a cobrança de <strong>{billing.name}</strong> com os valores deste período.</p>
+        </div>
+        <span className="bill-generate-page__status">Rascunho em preparo</span>
+      </header>
       {billing.items.length === 0 && (
         <EmptyState
           action={<Link className="btn btn--primary" to={`/billings/${billingUuid}/edit`}>Cadastrar itens</Link>}
@@ -426,7 +459,7 @@ export function BillGeneratePage() {
         />
       )}
       {billing.items.length > 0 && (
-        <form encType="multipart/form-data" onChange={() => setIsDirty(true)} onSubmit={(event) => void submit(event)}>
+        <form className="bill-generate-form" encType="multipart/form-data" onChange={() => setIsDirty(true)} onSubmit={(event) => void submit(event)}>
           {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}
           <FormWizard
             activeStep={activeStep}
@@ -444,6 +477,6 @@ export function BillGeneratePage() {
           </FormWizard>
         </form>
       )}
-    </>
+    </div>
   );
 }
