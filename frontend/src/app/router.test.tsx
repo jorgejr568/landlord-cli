@@ -327,7 +327,7 @@ it("renders the fresh-account billing state instead of an authenticated catch-al
   const view = render(<RouterProvider router={router} />);
 
   expect(await screen.findByRole("heading", { name: "Minhas Cobranças" })).toBeVisible();
-  expect(screen.getByText("Nenhuma cobrança cadastrada.")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
   expect(screen.getByRole("main")).toContainElement(
     screen.getByRole("heading", { name: "Minhas Cobranças" })
   );

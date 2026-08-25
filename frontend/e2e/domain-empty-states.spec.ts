@@ -49,8 +49,8 @@ test("a fresh account has complete authenticated destination pages", async ({ is
   await page.goto("/");
   await expectPath(page, "/billings/");
   await expect(page.getByRole("heading", { level: 1, name: "Minhas Cobranças" })).toBeVisible();
-  await expect(page.getByText("Nenhuma cobrança cadastrada.")).toBeVisible();
-  const createBilling = page.getByRole("link", { name: "Criar primeira cobrança" });
+  await expect(page.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
+  const createBilling = page.getByRole("link", { name: "Cadastrar imóvel" });
   await expect(createBilling).toHaveAttribute("href", "/billings/create");
   await createBilling.click();
   await expectPath(page, "/billings/create");

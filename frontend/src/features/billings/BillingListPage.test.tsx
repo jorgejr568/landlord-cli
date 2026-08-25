@@ -50,9 +50,11 @@ it("shows loading and the exact fresh-account empty state with its first action"
   const view = renderPage();
 
   expect(screen.getByText("Carregando cobranças...")).toBeVisible();
-  expect(await screen.findByText("Nenhuma cobrança cadastrada.")).toBeVisible();
-  expect(screen.getByRole("link", { name: "Criar primeira cobrança" })).toHaveAttribute("href", "/billings/create");
-  expect(screen.getByText("0 imóveis cadastrados")).toBeVisible();
+  expect(screen.getByRole("status", { name: "Carregando painel de cobranças" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "Cadastrar imóvel" })).toHaveAttribute("href", "/billings/create");
+  expect(screen.getByText("Nenhum imóvel em cobrança")).toBeVisible();
+  expect(screen.getAllByRole("link", { name: "Cadastrar imóvel" })).toHaveLength(1);
   expect(screen.queryByText(/Faturado/)).not.toBeInTheDocument();
   expect(document.title).toBe("Minhas Cobranças - Rentivo");
 
@@ -95,19 +97,23 @@ it("retries a failed load and renders stats, PIX warnings, owners and current in
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
 
   expect(await screen.findByRole("heading", { name: "Minhas Cobranças" })).toHaveClass("pagehead__title");
-  expect(screen.getByText("2 imóveis cadastrados")).toBeVisible();
-  expect(screen.getByText("Faturado · 2026")).toBeVisible();
+  expect(screen.getByText("2 imóveis em cobrança")).toBeVisible();
+  expect(screen.getByRole("region", { name: "Resumo financeiro de 2026" })).toBeVisible();
+  expect(screen.getByText("Faturado em 2026")).toBeVisible();
   expect(screen.getByText("R$ 9.000,00")).toBeVisible();
   expect(screen.getByText("R$ 3.000,00")).toBeVisible();
   expect(screen.getByText("R$ 5.000,00")).toBeVisible();
   expect(screen.getByText("R$ 1.000,00")).toBeVisible();
-  expect(screen.getByText("Você ainda não configurou seus dados de PIX.")).toBeVisible();
+  expect(screen.getByRole("region", { name: "Pendências de configuração" })).toBeVisible();
+  expect(screen.getByText("PIX da conta pendente")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Configurar PIX" })).toHaveAttribute("href", "/security");
   expect(screen.getAllByRole("link", { name: "Apartamento 302" })).toHaveLength(2);
   expect(screen.getAllByRole("link", { name: "Apartamento 302" })[1]).toHaveAttribute("href", "/billings/billing-personal");
   expect(screen.getByText("Org")).toHaveClass("tag--solid");
   expect(screen.getByText("Enviado")).toHaveClass("tag--sent");
   expect(screen.getByText("Sem fatura")).toHaveClass("tag--draft");
-  expect(screen.getByText("As cobranças a seguir não podem gerar faturas até que a chave PIX, o nome e a cidade do recebedor sejam preenchidos (na sua conta ou na organização, ou diretamente na cobrança):")).toBeVisible();
+  expect(screen.getByText("1 cobrança sem dados de recebimento")).toBeVisible();
+  expect(screen.getByRole("table", { name: "Imóveis e faturas atuais" })).toBeVisible();
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
@@ -159,13 +165,13 @@ it("uses the owner-only PIX warning copy and singular billing count", async () =
   installFetch([jsonResponse(payload)]);
   renderPage();
 
-  expect(await screen.findByText("3 imóveis cadastrados")).toBeVisible();
+  expect(await screen.findByText("3 imóveis em cobrança")).toBeVisible();
   expect(screen.getByText("1 fatura no ano")).toBeVisible();
   expect(screen.getByText("1 fatura paga")).toBeVisible();
   expect(screen.getByText("2 vencidas")).toBeVisible();
   expect(screen.getByText("Pago")).toHaveClass("tag--paid");
   expect(screen.getByText("Pag. Atrasado")).toHaveClass("tag--delayed");
   expect(screen.getByText("Rascunho")).toHaveClass("tag--draft");
-  expect(screen.getByText("As cobranças a seguir não podem gerar faturas até que a chave PIX, o nome e a cidade do recebedor sejam preenchidos (no proprietário ou na própria cobrança):")).toBeVisible();
+  expect(screen.getByText("1 cobrança sem dados de recebimento")).toBeVisible();
   await waitFor(() => expect(document.title).toBe("Minhas Cobranças - Rentivo"));
 });

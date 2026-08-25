@@ -131,7 +131,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.getByRole("button", { name: "Criar Conta" }).click();
 
     await expect(page).toHaveURL(/\/billings\/$/);
-    await expect(page.getByText("Nenhuma cobrança cadastrada.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
 
     await page.goto("/organizations/");
     await expect(page.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
