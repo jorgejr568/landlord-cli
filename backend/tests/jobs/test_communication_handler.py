@@ -83,6 +83,7 @@ def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
     with engine.connect() as c:
         repo = SQLAlchemyCommunicationRepository(c, Base64Backend())
         assert repo.get_by_id(comm.id).status == "sent"
+        assert c.execute(text("SELECT status FROM bills WHERE id = 5")).scalar_one() == "sent"
 
 
 def test_handler_sends_a_batch_and_skips_an_already_sent_member(engine, monkeypatch):
@@ -231,6 +232,8 @@ def test_handler_attaches_recibo_for_payment_receipt(engine, monkeypatch):
     assert sent["key"] == "k/recibo.pdf"
     assert sent["msg"].attachments[0].content == b"%PDF-1.4 recibo"
     assert sent["msg"].attachments[0].filename == "recibo-2026-05.pdf"
+    with engine.connect() as c:
+        assert c.execute(text("SELECT status FROM bills WHERE id = 5")).scalar_one() == "published"
 
 
 def test_handler_permanent_error_when_recibo_missing(engine, monkeypatch):
