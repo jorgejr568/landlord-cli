@@ -42,7 +42,11 @@ function RouteSwitcher() {
   return <button onClick={() => navigate("/billings/billing-second/edit")} type="button">Trocar cobrança</button>;
 }
 function installFetch(handler: (key: string, init?: RequestInit) => Response | Promise<Response>) {
-  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => handler(`${init?.method ?? "GET"} ${String(input)}`, init));
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const key = `${init?.method ?? "GET"} ${String(input)}`;
+    if (key === "GET /api/v1/auth/csrf") return jsonResponse({ csrf_token: "csrf-token" });
+    return handler(key, init);
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -60,6 +64,30 @@ async function continueTo(user: TestUser, step: string) {
     await user.click(screen.getByRole("button", { name: /Continuar/ }));
   }
 }
+
+async function openDocuments(user: TestUser) {
+  const trigger = await screen.findByRole("button", { name: /Gerenciar documentos/ });
+  if (trigger.getAttribute("aria-expanded") === "false") await user.click(trigger);
+}
+
+it("keeps document management secondary until the landlord requests it", async () => {
+  const user = userEvent.setup();
+  installFetch((key) => {
+    if (key === "GET /api/v1/billings/billing-public") return jsonResponse(billing);
+    if (key === "GET /api/v1/billings/billing-public/attachments") return jsonResponse({ items: [attachment] });
+    throw new Error(`Unexpected request: ${key}`);
+  });
+
+  renderPage();
+
+  const documentsButton = await screen.findByRole("button", { name: "Gerenciar documentos, 1 anexo" });
+  expect(documentsButton).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("region", { name: "Documentos da cobrança" })).not.toBeInTheDocument();
+  await user.click(documentsButton);
+  expect(documentsButton).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("region", { name: "Documentos da cobrança" })).toBeVisible();
+  expect(screen.getByText("Contrato")).toBeVisible();
+});
 
 it("preserves opaque recipient references while explicitly replacing a fully visible reply-to collection", async () => {
   const user = userEvent.setup();
@@ -91,6 +119,7 @@ it("preserves opaque recipient references while explicitly replacing a fully vis
   expect(await screen.findByRole("heading", { name: "Editar cobrança" })).toHaveClass("pagehead__title");
   expect(screen.getByLabelText("Nome do imóvel")).toHaveValue("Apartamento 302");
   await waitFor(() => expect(document.title).toBe("Editar Apartamento 302 - Rentivo"));
+  await openDocuments(user);
   await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));
   expect(await screen.findByText("Contrato")).toBeVisible();
@@ -168,7 +197,7 @@ it("retries loading, normalizes edit errors, focuses controls and handles offlin
   await continueTo(user, "Revisar cobrança");
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a cobrança.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Nome do imóvel")).toHaveFocus());
 });
 
 it("hides the edit form from a role-looking payload when capability denies editing", async () => {
@@ -207,6 +236,7 @@ it("edits without requesting attachments and hides file controls when file scope
 });
 
 it("shows readable attachments without upload or delete controls when files are read-only", async () => {
+  const user = userEvent.setup();
   installFetch((key) => {
     if (key === "GET /api/v1/billings/billing-public") return jsonResponse({
       ...billing,
@@ -218,6 +248,7 @@ it("shows readable attachments without upload or delete controls when files are 
 
   renderPage();
 
+  await openDocuments(user);
   expect(await screen.findByText("Contrato")).toBeVisible();
   expect(screen.getByRole("link", { name: "Ver" })).toBeVisible();
   expect(screen.queryByLabelText("Arquivo")).not.toBeInTheDocument();
@@ -241,6 +272,7 @@ it("uploads with files:write without attempting a forbidden attachment read", as
 
   renderPage();
 
+  await openDocuments(user);
   await user.upload(await screen.findByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));
 
@@ -287,6 +319,7 @@ it("keeps generic attachment errors out of billing-form focus handling", async (
     throw new Error(`Unexpected request: ${key}`);
   });
   renderPage();
+  await openDocuments(user);
   await screen.findByLabelText("Arquivo");
 
   await user.upload(screen.getByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
@@ -419,6 +452,7 @@ it("aborts an attachment refresh and rejects its late route-A payload on route B
     <Route element={<><BillingEditPage /><RouteSwitcher /></>} path="/billings/:billingUuid/edit" />
   </Routes></MemoryRouter>);
 
+  await openDocuments(user);
   await user.upload(await screen.findByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));
   await waitFor(() => expect(attachmentGets).toBe(2));
@@ -476,6 +510,7 @@ it("swallows a late attachment refresh failure after switching billing routes", 
     <Route element={<><BillingEditPage /><RouteSwitcher /></>} path="/billings/:billingUuid/edit" />
   </Routes></MemoryRouter>);
 
+  await openDocuments(user);
   await user.upload(await screen.findByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));
   await waitFor(() => expect(attachmentGets).toBe(2));
@@ -524,6 +559,7 @@ it("reports an attachment refresh failure while the edit route remains current",
   });
   renderPage();
 
+  await openDocuments(user);
   await user.upload(await screen.findByLabelText("Arquivo"), new File(["pdf"], "contrato.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar" }));
 

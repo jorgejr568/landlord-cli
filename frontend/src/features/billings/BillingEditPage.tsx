@@ -1,4 +1,4 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronDown, ChevronLeft, FileText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
@@ -11,6 +11,7 @@ import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { AttachmentManager } from "./AttachmentManager";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
+import "./BillingEditPage.css";
 
 type Attachment = components["schemas"]["AttachmentResponse"];
 type Billing = components["schemas"]["BillingResponse"];
@@ -70,6 +71,7 @@ export function BillingEditPage() {
   const [error, setError] = useState("");
   const [attachmentError, setAttachmentError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const lockedContacts: LockedContacts = {
     recipients: billing?.recipients.some((contact) => !("name" in contact && "email" in contact)) ?? false,
     replyTo: billing?.reply_to.some((contact) => !("name" in contact && "email" in contact)) ?? false
@@ -123,6 +125,7 @@ export function BillingEditPage() {
     const controller = new AbortController();
     const requestControllers = requestControllersRef.current;
     setSaving(false);
+    setDocumentsOpen(false);
     saveControllerRef.current = null;
     void load(controller.signal);
     return () => {
@@ -162,5 +165,36 @@ export function BillingEditPage() {
   if (loadError) return <LoadError message={loadError} onRetry={() => void load()} />;
   if (!billing) return <LoadingState label="Carregando cobrança..." />;
   if (!billing.capabilities.can_edit) return <div className="panel"><div className="empty-state"><p>Você não tem permissão para editar esta cobrança.</p><Link className="btn" to={`/billings/${billingUuid}`}>Voltar</Link></div></div>;
-  return <><Link className="crumb" to={`/billings/${billingUuid}`}><ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />{billing.name}</Link><div className="pagehead"><div><h1 className="pagehead__title">Editar cobrança</h1><p className="pagehead__sub">Atualize o modelo recorrente. As mudanças valem para as próximas faturas.</p></div></div><BillingForm cancelTo={`/billings/${billingUuid}`} error={error} fieldErrors={fieldErrors} lockedContacts={lockedContacts} mode="edit" onSubmit={(values) => void submit(values)} organizations={[]} ownerName={billing.owner.name} saving={saving} values={valuesFor(billing)} />{attachmentError ? <div className="toast toast--error" role="alert">{attachmentError}</div> : null}{billing.capabilities.can_read_attachments || billing.capabilities.can_write_attachments ? <AttachmentManager attachments={attachments} billingUuid={billingUuid} canEdit={billing.capabilities.can_write_attachments} mode="edit" onChanged={billing.capabilities.can_read_attachments ? refreshAttachments : () => {}} onError={setAttachmentError} /> : null}</>;
+  const canUseDocuments = billing.capabilities.can_read_attachments || billing.capabilities.can_write_attachments;
+  const attachmentCount = `${attachments.length} ${attachments.length === 1 ? "anexo" : "anexos"}`;
+  return (
+    <div className="billing-edit-page">
+      <div className="billing-edit-page__topline">
+        <Link className="crumb" to={`/billings/${billingUuid}`}><ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />{billing.name}</Link>
+        <span className="billing-edit-page__impact">Válido para as próximas faturas</span>
+      </div>
+      <div className="pagehead billing-edit-page__head">
+        <div>
+          <h1 className="pagehead__title">Editar cobrança</h1>
+          <p className="pagehead__sub">Ajuste o imóvel, os itens recorrentes e o envio sem alterar faturas já emitidas.</p>
+        </div>
+        {canUseDocuments ? (
+          <button aria-controls="billing-edit-documents" aria-expanded={documentsOpen} aria-label={`Gerenciar documentos, ${attachmentCount}`} className="billing-edit-page__documents-trigger" onClick={() => setDocumentsOpen((current) => !current)} type="button">
+            <FileText aria-hidden="true" size={18} />
+            <span><strong id="billing-edit-documents-title">Documentos</strong><small>{attachmentCount}</small></span>
+            <ChevronDown aria-hidden="true" className={documentsOpen ? "is-open" : ""} size={17} />
+          </button>
+        ) : null}
+      </div>
+      <section aria-label="Editor da cobrança" className="billing-edit-page__workspace">
+        <BillingForm cancelTo={`/billings/${billingUuid}`} error={error} fieldErrors={fieldErrors} lockedContacts={lockedContacts} mode="edit" onSubmit={(values) => void submit(values)} organizations={[]} ownerName={billing.owner.name} saving={saving} values={valuesFor(billing)} />
+        {attachmentError ? <div className="toast toast--error" role="alert">{attachmentError}</div> : null}
+        {canUseDocuments && documentsOpen ? (
+          <section aria-label="Documentos da cobrança" className="billing-edit-page__documents" id="billing-edit-documents">
+            <AttachmentManager attachments={attachments} billingUuid={billingUuid} canEdit={billing.capabilities.can_write_attachments} mode="edit" onChanged={billing.capabilities.can_read_attachments ? refreshAttachments : () => {}} onError={setAttachmentError} />
+          </section>
+        ) : null}
+      </section>
+    </div>
+  );
 }
