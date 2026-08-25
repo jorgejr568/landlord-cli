@@ -1,4 +1,4 @@
-import { ArrowLeft, Edit3, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, Edit3, FileCheck2, FileClock, FileWarning, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
@@ -10,6 +10,7 @@ import { formatBrl, formatDateTime, formatIsoDate, formatMonth } from "../../lib
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { BillStatusActions } from "./BillStatusActions";
+import { BillLifecycle } from "./InvoiceLifecycle";
 import { ReceiptManager } from "./ReceiptManager";
 import type { Bill, Billing } from "./billSupport";
 
@@ -21,6 +22,19 @@ const STATUS_META: Record<string, { className: string; label: string }> = {
   published: { className: "tag--published", label: "Publicado" },
   sent: { className: "tag--sent", label: "Enviado" }
 };
+
+function DocumentFeedback({ ready, status }: { ready: boolean; status: string | null }) {
+  if (status === "pending") {
+    return <div aria-live="polite" className="document-feedback document-feedback--pending"><FileClock aria-hidden="true" /><div><h3>Gerando documento</h3><p>Estamos montando o PDF e o QR Code. Esta página atualiza automaticamente.</p></div></div>;
+  }
+  if (status === "failed") {
+    return <div aria-live="polite" className="document-feedback document-feedback--failed"><FileWarning aria-hidden="true" /><div><h3>Falha ao gerar o documento</h3><p>Os dados da fatura estão salvos. Tente regenerar o PDF na área de gerenciamento.</p></div></div>;
+  }
+  if (ready) {
+    return <div className="document-feedback document-feedback--ready"><FileCheck2 aria-hidden="true" /><div><h3>Documento pronto</h3><p>O PDF com QR Code está disponível para abrir, baixar ou enviar.</p></div></div>;
+  }
+  return <div className="document-feedback"><FileClock aria-hidden="true" /><div><h3>Documento indisponível</h3><p>O PDF será liberado quando a geração for concluída.</p></div></div>;
+}
 
 export function BillDetailPage() {
   const { billingUuid = "", billUuid = "" } = useParams<{ billingUuid: string; billUuid: string }>();
@@ -234,7 +248,7 @@ export function BillDetailPage() {
           </div>}
           {bill.capabilities.can_edit && <Link className="btn" to={`/billings/${billingUuid}/bills/${bill.uuid}/edit`}><Edit3 aria-hidden="true" size={16} /> Editar</Link>}
           {bill.capabilities.can_compose && <div className={`btn-dropdown${openDropdown === "communication" ? " open" : ""}`}>
-            <button aria-controls="bill-communication-menu" aria-expanded={openDropdown === "communication"} className="btn btn--primary btn-dropdown-toggle" onClick={(event) => { event.stopPropagation(); setOpenDropdown((current) => current === "communication" ? null : "communication"); }} ref={communicationButtonRef} type="button">Enviar comunicação <span aria-hidden="true" className="btn-dropdown-caret">▾</span></button>
+            <button aria-controls="bill-communication-menu" aria-expanded={openDropdown === "communication"} className="btn btn-dropdown-toggle" onClick={(event) => { event.stopPropagation(); setOpenDropdown((current) => current === "communication" ? null : "communication"); }} ref={communicationButtonRef} type="button">Enviar comunicação <span aria-hidden="true" className="btn-dropdown-caret">▾</span></button>
             <div className="btn-dropdown-menu" id="bill-communication-menu">
               {bill.capabilities.can_send_invoice
                 ? <Link className="btn-dropdown-item" to={`/billings/${billingUuid}/bills/${bill.uuid}/communications/compose?type=bill_ready`}>Enviar fatura</Link>
@@ -245,6 +259,15 @@ export function BillDetailPage() {
             </div>
           </div>}
         </div>
+      </div>
+
+      <div className="tracking-panel">
+        <div className="tracking-panel__lifecycle">
+          <span className="tracking-panel__eyebrow">Acompanhamento</span>
+          <h2>Andamento da fatura</h2>
+          <BillLifecycle status={bill.status} />
+        </div>
+        <DocumentFeedback ready={bill.capabilities.can_download_invoice} status={bill.pdf_render_status} />
       </div>
 
       <div className="panel" style={{ boxShadow: "var(--sh-lg)" }}>

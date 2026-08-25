@@ -711,6 +711,51 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .panel--menu-host > .panel__head {
     border-radius: calc(var(--r) - var(--bw-bold)) calc(var(--r) - var(--bw-bold)) 0 0;
 }
+.status-menu__separator { height: 1.5px; margin: 0.35rem 0; background: var(--line); }
+
+/* Invoice progress and document feedback */
+.tracking-panel {
+    display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, 0.85fr); gap: 1rem;
+    margin-bottom: 1.25rem; padding: 1.1rem; border: var(--bw-bold) solid var(--ink);
+    border-radius: var(--r); background: var(--surface); box-shadow: var(--sh-sm);
+}
+.tracking-panel__eyebrow {
+    color: var(--accent-dark); font-family: var(--font-mono); font-size: 0.64rem;
+    font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.tracking-panel__lifecycle > h2 { margin: 0.2rem 0 1rem; font-size: 1.05rem; }
+.bill-lifecycle__track { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 0; padding: 0; list-style: none; }
+.bill-lifecycle__track li { position: relative; display: grid; justify-items: start; gap: 0.4rem; color: var(--muted); font-size: 0.75rem; font-weight: 800; }
+.bill-lifecycle__track li:not(:last-child)::after {
+    content: ""; position: absolute; top: 14px; right: 6px; left: 34px; height: 2px; background: var(--line);
+}
+.bill-lifecycle__track li[data-state="complete"]::after { background: var(--accent); }
+.bill-lifecycle__mark {
+    position: relative; z-index: 1; display: grid; width: 29px; height: 29px; place-items: center;
+    border: 2px solid var(--ink); border-radius: 50%; background: var(--surface); color: var(--ink);
+    font-family: var(--font-mono); font-size: 0.65rem;
+}
+.bill-lifecycle__track li[data-state="complete"], .bill-lifecycle__track li[data-state="current"] { color: var(--ink); }
+.bill-lifecycle__track li[data-state="complete"] .bill-lifecycle__mark,
+.bill-lifecycle__track li[data-state="current"] .bill-lifecycle__mark { background: var(--accent); color: #fff; }
+.bill-lifecycle__track li[data-state="current"] .bill-lifecycle__mark { box-shadow: 0 0 0 4px var(--accent-pale); }
+.bill-lifecycle__branch {
+    display: flex; width: fit-content; gap: 0.4rem; align-items: center; margin-top: 0.8rem; padding: 0.4rem 0.6rem;
+    border: 1.5px solid var(--ink); border-radius: var(--r-sm); font-size: 0.74rem; font-weight: 800;
+}
+.bill-lifecycle__branch--delayed_payment { background: var(--overdue-pale); color: var(--overdue); }
+.bill-lifecycle__branch--cancelled { margin-top: 0; background: var(--paper-2); color: var(--muted); }
+.document-feedback {
+    display: flex; gap: 0.8rem; align-items: flex-start; padding: 1rem; border: var(--bw) solid var(--ink);
+    border-radius: var(--r-sm); background: var(--paper-2);
+}
+.document-feedback > svg { flex: 0 0 auto; margin-top: 0.05rem; color: var(--muted); }
+.document-feedback h3 { margin: 0; font-size: 0.9rem; }
+.document-feedback p { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.45; }
+.document-feedback--ready { background: var(--accent-pale); }
+.document-feedback--ready > svg { color: var(--accent-dark); }
+.document-feedback--failed { background: var(--overdue-pale); }
+.document-feedback--failed > svg { color: var(--overdue); }
 
 /* ============================================================
    Guided forms
@@ -834,10 +879,13 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .review-save-scope { margin-top: 1rem; }
 
 @media (max-width: 1050px) {
+    .tracking-panel { grid-template-columns: minmax(0, 1fr); }
     .wizard--with-aside { grid-template-columns: minmax(180px, 210px) minmax(0, 1fr); }
     .wizard--with-aside .wizard__aside { position: static; grid-column: 2; }
 }
 @media (max-width: 760px) {
+    .bill-lifecycle__track li { font-size: 0.66rem; }
+    .bill-lifecycle__track li:not(:last-child)::after { right: 4px; left: 32px; }
     .wizard, .wizard--with-aside { grid-template-columns: minmax(0, 1fr); }
     .wizard__rail, .wizard__aside { position: static; }
     .wizard-steps { display: none; }

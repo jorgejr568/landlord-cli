@@ -137,6 +137,9 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
 
   expect(screen.getByText("Carregando fatura...")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Fatura · Julho/2026" })).toHaveClass("pagehead__title");
+  const lifecycle = screen.getByRole("region", { name: "Progresso da fatura" });
+  expect(within(lifecycle).getByText("Pago").closest("li")).toHaveAttribute("data-state", "current");
+  expect(screen.getByRole("heading", { name: "Documento pronto" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Residencial Sol" })).toHaveClass("crumb");
   expect(screen.getAllByText("R$ 2.512,50")).toHaveLength(2);
   expect(screen.getByText("Extra")).toHaveClass("tag--extra");
@@ -327,6 +330,7 @@ it("uses communication capabilities directly and keeps a paid rendering receipt 
   expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
   expect(screen.getByText("Baixar recibo")).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByText("Baixar recibo")).toHaveAttribute("title", "O recibo ainda está sendo gerado.");
+  expect(screen.getByRole("heading", { name: "Gerando documento" })).toBeVisible();
   expect(screen.queryByRole("link", { name: "Baixar recibo" })).not.toBeInTheDocument();
   expect(screen.getByText("Enviar recibo")).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByText("Enviar recibo")).toHaveAttribute("title", "O recibo ainda está sendo gerado.");

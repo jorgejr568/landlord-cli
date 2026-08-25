@@ -5,6 +5,7 @@ import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
+import { groupBillTransitions } from "./billLifecycle";
 import type { Bill } from "./billSupport";
 
 type Transition = components["schemas"]["AvailableTransitionResponse"];
@@ -126,7 +127,8 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
     }
   };
 
-  const [primary, ...others] = bill.available_transitions;
+  const { destructive, primary, secondary } = groupBillTransitions(bill.status, bill.available_transitions);
+  const others = [...secondary, ...destructive];
   const renderButton = (transition: Transition, primaryButton: boolean) => (
     <button
       className={primaryButton ? "btn btn--primary" : `status-menu__item${transition.style === "danger" ? " status-menu__item--danger" : ""}`}
@@ -143,12 +145,14 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
   return (
     <>
       <div className="btn-row">
-        {renderButton(primary, true)}
+        {primary ? renderButton(primary, true) : null}
         {others.length > 0 && (
           <details className="status-menu">
-            <summary className="btn">Alterar status</summary>
+            <summary className="btn">Mais ações</summary>
             <div className="status-menu__panel" role="menu">
-              {others.map((transition) => renderButton(transition, false))}
+              {secondary.map((transition) => renderButton(transition, false))}
+              {secondary.length > 0 && destructive.length > 0 ? <div className="status-menu__separator" role="separator" /> : null}
+              {destructive.map((transition) => renderButton(transition, false))}
             </div>
           </details>
         )}
@@ -161,7 +165,7 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
         onConfirm={() => { if (selected) void changeStatus(selected); }}
         open={Boolean(selected)}
         title={confirmation?.title ?? "Alterar status da fatura?"}
-        variant={selected?.style === "primary" ? "primary" : "danger"}
+        variant={selected?.style === "danger" ? "danger" : "primary"}
       />
     </>
   );
