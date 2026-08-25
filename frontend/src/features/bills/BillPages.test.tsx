@@ -145,11 +145,10 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
   expect(screen.getByText("Extra")).toHaveClass("tag--extra");
   expect(screen.getByRole("link", { name: "Abrir PDF com QR" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice");
   expect(screen.getByRole("link", { name: "Baixar recibo" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/recibo/download");
-  expect(screen.getByRole("button", { name: /Baixar/ })).toHaveClass("btn-dropdown-toggle");
-  expect(screen.getByRole("button", { name: /Enviar comunicação/ })).toHaveClass("btn-dropdown-toggle");
+  expect(screen.getByRole("button", { name: "Ações da fatura" })).toHaveClass("btn-dropdown-toggle", "btn--sm");
   expect(screen.getByRole("link", { name: "Enviar fatura" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready");
   expect(screen.getByRole("link", { name: "Enviar recibo" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=payment_receipt");
-  expect(screen.getByRole("link", { name: "Editar" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/edit");
+  expect(screen.getByRole("link", { name: "Editar fatura" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/edit");
   expect(screen.getByText("Ana <ana@example.com>")).toBeVisible();
   expect(screen.getByText("Dados do destinatário protegidos")).toBeVisible();
   expect(screen.getByText("Falhou")).toHaveClass("tag--cancelled");
@@ -158,54 +157,64 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
   expect(document.title).toBe("Anterior");
 });
 
-it("toggles one legacy action dropdown at a time and closes it accessibly", async () => {
+it("presents invoice details as one workspace with compact actions and switchable records", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
+  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(2);
+  expect(within(workspace).getByRole("link", { name: "Abrir PDF" })).toHaveAttribute(
+    "href",
+    "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice"
+  );
+  expect(screen.queryByRole("heading", { name: "Gerenciar fatura" })).not.toBeInTheDocument();
+
+  const actions = within(workspace).getByRole("button", { name: "Ações da fatura" });
+  expect(actions).toHaveClass("btn--sm");
+  await user.click(actions);
+  expect(within(workspace).getByRole("link", { name: "Editar fatura" })).toBeVisible();
+  expect(within(workspace).getByRole("link", { name: "Enviar fatura" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Regenerar PDF" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Excluir fatura" })).toBeVisible();
+
+  const communicationsTab = within(workspace).getByRole("tab", { name: "Comunicações 3" });
+  const receiptsTab = within(workspace).getByRole("tab", { name: "Comprovantes 0" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  expect(within(workspace).getByText("Ana <ana@example.com>")).toBeVisible();
+  await user.click(receiptsTab);
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  expect(within(workspace).getByText("Nenhum comprovante anexado.")).toBeVisible();
+  expect(within(workspace).queryByText("Ana <ana@example.com>")).not.toBeInTheDocument();
+});
+
+it("toggles the unified action dropdown and returns focus when Escape closes it", async () => {
   const user = userEvent.setup();
   installFetch(detailHandlers());
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
   await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
 
-  const download = screen.getByRole("button", { name: /Baixar/ });
-  const communication = screen.getByRole("button", { name: /Enviar comunicação/ });
-  const downloadDropdown = download.closest(".btn-dropdown")!;
-  const communicationDropdown = communication.closest(".btn-dropdown")!;
-  expect(download).toHaveAttribute("aria-expanded", "false");
-  expect(download).toHaveAttribute("aria-controls", "bill-download-menu");
-  expect(download).not.toHaveAttribute("aria-haspopup");
-  expect(communication).not.toHaveAttribute("aria-haspopup");
+  const actions = screen.getByRole("button", { name: "Ações da fatura" });
+  const dropdown = actions.closest(".btn-dropdown")!;
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  expect(actions).toHaveAttribute("aria-controls", "bill-actions-menu");
+  expect(actions).not.toHaveAttribute("aria-haspopup");
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Baixar fatura" })).toBeInTheDocument();
 
-  await user.click(download);
-  expect(downloadDropdown).toHaveClass("open");
-  expect(download).toHaveAttribute("aria-expanded", "true");
+  await user.click(actions);
+  expect(dropdown).toHaveClass("open");
+  expect(actions).toHaveAttribute("aria-expanded", "true");
   fireEvent.keyDown(document, { key: "ArrowDown" });
-  expect(downloadDropdown).toHaveClass("open");
-  await user.click(download);
-  expect(downloadDropdown).not.toHaveClass("open");
-  await user.click(download);
+  expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(downloadDropdown).not.toHaveClass("open");
-  expect(download).toHaveFocus();
+  expect(dropdown).not.toHaveClass("open");
+  expect(actions).toHaveFocus();
 
-  await user.click(download);
-  await user.click(communication);
-  expect(downloadDropdown).not.toHaveClass("open");
-  expect(download).toHaveAttribute("aria-expanded", "false");
-  expect(communicationDropdown).toHaveClass("open");
-  expect(communication).toHaveAttribute("aria-expanded", "true");
-  await user.click(communication);
-  expect(communicationDropdown).not.toHaveClass("open");
-  await user.click(communication);
-
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(communicationDropdown).not.toHaveClass("open");
-  expect(communication).toHaveAttribute("aria-expanded", "false");
-  expect(communication).toHaveFocus();
-
-  await user.click(download);
+  await user.click(actions);
   fireEvent.click(document.body);
-  expect(downloadDropdown).not.toHaveClass("open");
+  expect(dropdown).not.toHaveClass("open");
 });
 
 it.each([
@@ -594,11 +603,13 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByText("Falha no PDF")).toBeVisible();
   expect(screen.getByText("Variável")).toHaveClass("tag--variable");
+  await user.click(screen.getByRole("tab", { name: "Comprovantes 0" }));
   expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+  await user.click(screen.getByRole("tab", { name: "Comunicações 0" }));
   expect(screen.getByText("Nenhuma comunicação enviada.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Baixar" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Editar" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Enviar comunicação" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Ações da fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Editar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Observações" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Gerenciar fatura" })).not.toBeInTheDocument();
 });
@@ -637,6 +648,7 @@ it("regenerates and deletes from detail using backend capabilities", async () =>
   });
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
   await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
+  await user.click(screen.getByRole("tab", { name: "Comprovantes 0" }));
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "detail.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
   expect(await screen.findByText("detail.pdf")).toBeVisible();
@@ -679,7 +691,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     await flush();
 
     expect(screen.getByText("Renderizando…")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Abrir PDF" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
     expect(billLoads).toBe(1);
 
@@ -696,7 +708,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     await advance(3_000);
     expect(billLoads).toBe(3);
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Baixar/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Abrir PDF" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
 
     await advance(20_000);
@@ -791,6 +803,7 @@ it("reloads the bill after a receipt change so a server-side render turns into a
     });
     renderAt(<BillDetailPage />, detailPath, detailRoute);
     await flush();
+    fireEvent.click(screen.getByRole("tab", { name: "Comprovantes 1" }));
     expect(screen.getByText("recibo.pdf")).toBeVisible();
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
     expect(billLoads).toBe(1);
@@ -802,7 +815,7 @@ it("reloads the bill after a receipt change so a server-side render turns into a
 
     expect(billLoads).toBe(2);
     expect(screen.getByText("Renderizando…")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Abrir PDF" })).not.toBeInTheDocument();
 
     await advance(3_000);
     expect(billLoads).toBe(3);
