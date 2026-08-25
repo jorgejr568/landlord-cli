@@ -83,7 +83,13 @@ function renderPage() {
   </Routes></MemoryRouter>);
 }
 
-it("renders the populated legacy detail with PIX warning, every status, stats, expenses and downloads", async () => {
+async function showTab(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  const tab = await screen.findByRole("tab", { name });
+  if (tab.getAttribute("aria-selected") !== "true") await user.click(tab);
+}
+
+it("renders the populated billing workspace with PIX warning and every available record", async () => {
+  const user = userEvent.setup();
   installFetch((key) => dataResponse(key));
   document.title = "Anterior";
   const view = renderPage();
@@ -93,26 +99,52 @@ it("renders the populated legacy detail with PIX warning, every status, stats, e
   expect(screen.getByText("Inquilino atual")).toBeVisible();
   expect(screen.getByRole("button", { name: "Gerar fatura" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Gerar fatura" })).toHaveAttribute("title", "Configure os dados do PIX primeiro");
-  expect(screen.getByRole("link", { name: "Tema" })).toHaveAttribute("href", "/themes/billing/billing-public");
-  expect(screen.getByRole("link", { name: "Editar" })).toHaveAttribute("href", "/billings/billing-public/edit");
-  expect(screen.getByText(/Os dados do PIX não estão configurados/)).toBeVisible();
+  expect(screen.getByRole("link", { name: "Tema da cobrança" })).toHaveAttribute("href", "/themes/billing/billing-public");
+  expect(screen.getByRole("link", { name: "Editar cobrança" })).toHaveAttribute("href", "/billings/billing-public/edit");
+  expect(screen.getByRole("alert")).toHaveTextContent("PIX pendente");
   expect(screen.getByRole("link", { name: "Segurança" })).toHaveAttribute("href", "/security");
   expect(screen.getAllByText("R$ 2.850,00")).toHaveLength(2);
   expect(screen.getByText("por fatura")).toBeVisible();
   expect(screen.getByText("pix@example.com")).toBeVisible();
   expect(screen.getByText("PIX pendente")).toHaveClass("tag--draft");
-  expect(screen.getByRole("heading", { name: "Itens da cobrança" }).closest(".billing-detail-grid")).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "Itens da cobrança" }).closest(".billing-workspace__body")).not.toBeNull();
   for (const status of ["Rascunho", "Publicado", "Enviado", "Pago", "Cancelado", "Pag. Atrasado"]) expect(screen.getByText(status)).toBeVisible();
   expect(screen.getByText("6 geradas")).toBeVisible();
+  await showTab(user, /^Despesas/);
   expect(screen.getByText("Recebido (ano)").nextSibling).toHaveTextContent("R$ 3.000,00");
   expect(screen.getByText("IPTU 2026")).toBeVisible();
   expect(screen.getByText("IPTU", { selector: "td" })).toBeVisible();
+  await showTab(user, /^Documentos 1$/);
   expect(screen.getByRole("link", { name: "Baixar" })).toHaveAttribute("href", "/api/v1/billings/billing-public/attachments/attachment-public");
-  expect(screen.getByRole("heading", { name: "Transferir para organização" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Zona de perigo" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Ações da cobrança" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Zona de perigo" })).not.toBeInTheDocument();
   await waitFor(() => expect(document.title).toBe("Apartamento 302 - Rentivo"));
   view.unmount();
   expect(document.title).toBe("Anterior");
+});
+
+it("presents the billing as one workspace with compact actions and tabbed records", async () => {
+  const user = userEvent.setup();
+  installFetch((key) => dataResponse(key));
+  renderPage();
+
+  const workspace = await screen.findByRole("article", { name: "Cobrança Apartamento 302" });
+  expect(within(workspace).getByRole("button", { name: "Gerar fatura" })).toHaveClass("btn--sm");
+  const actions = within(workspace).getByRole("button", { name: "Ações da cobrança" });
+  expect(actions).toHaveClass("btn--sm");
+  await user.click(actions);
+  expect(within(workspace).getByRole("link", { name: "Tema da cobrança" })).toHaveAttribute("href", "/themes/billing/billing-public");
+  expect(within(workspace).getByRole("link", { name: "Editar cobrança" })).toHaveAttribute("href", "/billings/billing-public/edit");
+  expect(within(workspace).getByRole("button", { name: "Excluir cobrança" })).toBeVisible();
+
+  expect(within(workspace).getByRole("tab", { name: "Faturas 6" })).toHaveAttribute("aria-selected", "true");
+  await user.click(within(workspace).getByRole("tab", { name: "Despesas 1" }));
+  expect(within(workspace).getByText("IPTU 2026")).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Adicionar despesa" })).toBeVisible();
+  await user.click(within(workspace).getByRole("tab", { name: "Documentos 1" }));
+  expect(within(workspace).getByText("Contrato")).toBeVisible();
+  expect(within(workspace).getByRole("link", { name: "Baixar" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Zona de perigo" })).not.toBeInTheDocument();
 });
 
 it("renders configured personal PIX fallbacks, first-invoice action, partial overrides and singular history", async () => {
@@ -129,7 +161,7 @@ it("renders configured personal PIX fallbacks, first-invoice action, partial ove
   expect(await screen.findByText("Modelo de cobrança recorrente")).toBeVisible();
   expect(screen.getByRole("link", { name: "Gerar fatura" })).toHaveAttribute("href", "/billings/billing-public/bills/generate");
   expect(screen.getByRole("link", { name: "Gerar primeira fatura" })).toBeVisible();
-  expect(screen.getByText("Sem override nesta cobrança — usa a configuração do proprietário (sua conta).")).toBeVisible();
+  expect(screen.getByText("Sem dados específicos nesta cobrança. O PIX usa a configuração do proprietário (sua conta).")).toBeVisible();
   expect(screen.getByText("PIX configurado")).toHaveClass("tag--paid");
 
   cleanup();
@@ -139,14 +171,14 @@ it("renders configured personal PIX fallbacks, first-invoice action, partial ove
   expect(await screen.findByText("1 gerada")).toBeVisible();
   expect(screen.queryByText("Chave PIX (override)")).not.toBeInTheDocument();
   expect(screen.getByText("MARIA")).toBeVisible();
-  expect(screen.getByText("Cidade").parentElement).toHaveTextContent("—");
+  expect(screen.getByText("Cidade").parentElement).toHaveTextContent("Não informada");
 
   cleanup();
   const keyOnly = { ...configured, pix_key: "pix@example.com" };
   installFetch((key) => dataResponse(key, keyOnly, [], [], [], []));
   renderPage();
   expect(await screen.findByText("pix@example.com")).toBeVisible();
-  expect(screen.getByText("Recebedor").parentElement).toHaveTextContent("—");
+  expect(screen.getByText("Recebedor").parentElement).toHaveTextContent("Não informado");
 });
 
 it("exports, creates and removes centavo expenses, forwards analytics and refreshes domain data", async () => {
@@ -179,16 +211,17 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
     throw new Error(`Unexpected request: ${key}`);
   });
   renderPage();
-  await screen.findByText("IPTU 2026");
+  await user.click(await screen.findByRole("button", { name: "Exportar CSV" }));
+  expect(await screen.findByText("Exportação CSV solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Exportar Excel" }));
+  expect(await screen.findByText("Exportação XLSX solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
+  await showTab(user, /^Despesas 1$/);
+  expect(screen.getByText("IPTU 2026")).toBeVisible();
   const expenseDescription = screen.getByLabelText("Descrição da despesa");
   fireEvent.change(expenseDescription, { target: { value: "😀".repeat(2001) } });
   expect(expenseDescription).toHaveValue("😀".repeat(2000));
   fireEvent.change(expenseDescription, { target: { value: "" } });
 
-  await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
-  expect(await screen.findByText("Exportação CSV solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Exportar Excel" }));
-  expect(await screen.findByText("Exportação XLSX solicitada. O arquivo será enviado para o seu e-mail.")).toBeVisible();
   await user.type(expenseDescription, "Pintura");
   await user.selectOptions(screen.getByLabelText("Categoria da despesa"), "manutencao");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
@@ -232,7 +265,8 @@ it("rejects a whitespace-only expense description before calling the API", async
     return dataResponse(key);
   });
   renderPage();
-  const description = await screen.findByLabelText("Descrição da despesa");
+  await showTab(userEvent.setup(), /^Despesas 1$/);
+  const description = screen.getByLabelText("Descrição da despesa");
   fireEvent.change(description, { target: { value: "   " } });
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
   fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
@@ -316,10 +350,9 @@ it("reports export, expense-removal and transfer failures without forwarding ana
     return dataResponse(key);
   });
   renderPage();
-  await screen.findByText("IPTU 2026");
-
-  await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+  await user.click(await screen.findByRole("button", { name: "Exportar CSV" }));
   expect(await screen.findByText("Não foi possível solicitar a exportação.")).toBeVisible();
+  await showTab(user, /^Despesas 1$/);
   await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
   await user.click(screen.getByRole("button", { name: "Remover" }));
   expect(await screen.findByText("Não foi possível remover a despesa.")).toBeVisible();
@@ -366,7 +399,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
   renderPage();
   expect(await screen.findByText("Não foi possível carregar a cobrança.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  await screen.findByLabelText("Valor da despesa (R$)");
+  await showTab(user, /^Despesas 0$/);
   await user.type(screen.getByLabelText("Descrição da despesa"), "Pintura");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
   await user.type(screen.getByLabelText("Valor da despesa (R$)"), "10,00");
@@ -378,15 +411,19 @@ it("retries loading, focuses expense field errors, and honors every denied capab
   expect(await screen.findByText("Não foi possível adicionar a despesa.")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  expect(await screen.findByText("Modelo de cobrança recorrente · Organização")).toBeVisible();
-  expect(screen.getByText("Sem override nesta cobrança — usa a configuração do proprietário (organização).")).toBeVisible();
+  expect(await screen.findByText("Modelo de cobrança recorrente")).toBeVisible();
+  expect(screen.getByText("Organização")).toBeVisible();
+  expect(screen.getByText("Sem dados específicos nesta cobrança. O PIX usa a configuração do proprietário (organização).")).toBeVisible();
+  await showTab(user, /^Faturas 0$/);
   expect(screen.getByText("Nenhuma fatura gerada para este imóvel.")).toBeVisible();
+  await showTab(user, /^Despesas 1$/);
   expect(screen.getByText("IPTU 2026")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Remover despesa IPTU 2026" })).not.toBeInTheDocument();
+  await showTab(user, /^Documentos 0$/);
   expect(screen.getByText("Nenhum documento anexado.")).toBeVisible();
   expect(screen.queryByRole("link", { name: "Gerar primeira fatura" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Tema" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Editar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Tema da cobrança" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Editar cobrança" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Adicionar despesa" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Transferir para organização" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Zona de perigo" })).not.toBeInTheDocument();
@@ -394,6 +431,7 @@ it("retries loading, focuses expense field errors, and honors every denied capab
 });
 
 it("requests and renders each billing domain only when its precise capability allows it", async () => {
+  const user = userEvent.setup();
   const restricted: Billing = {
     ...billing,
     capabilities: {
@@ -420,7 +458,7 @@ it("requests and renders each billing domain only when its precise capability al
     "GET /api/v1/billings/billing-public/attachments"
   ]);
   expect(screen.getByRole("link", { name: "Baixar" })).toBeVisible();
-  expect(screen.getByRole("link", { name: "Tema" })).toBeVisible();
+  expect(screen.getByRole("link", { name: "Tema da cobrança" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Faturas" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Despesas" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Exportar CSV" })).not.toBeInTheDocument();
@@ -455,9 +493,10 @@ it("requests and renders each billing domain only when its precise capability al
   expect(requests).toEqual(["GET /api/v1/billings/billing-public"]);
   expect(screen.getByRole("link", { name: "Gerar fatura" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeVisible();
+  await showTab(user, /^Despesas 0$/);
   expect(screen.getByRole("button", { name: "Adicionar despesa" })).toBeVisible();
   expect(screen.queryByRole("link", { name: "Baixar" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Tema" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Tema da cobrança" })).not.toBeInTheDocument();
 });
 
 it("hides route A immediately and rejects its late load after navigating to route B", async () => {
@@ -557,6 +596,7 @@ it("does not navigate or emit analytics when a transfer resolves after the route
 });
 
 it("deduplicates exports and disables every domain mutation while one is pending", async () => {
+  const user = userEvent.setup();
   let exportCalls = 0;
   let resolveExport: ((response: Response) => void) | undefined;
   installFetch((key) => {
@@ -568,7 +608,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
   });
   renderPage();
   await screen.findByRole("button", { name: "Exportar CSV" });
-
+  await showTab(user, /^Despesas 1$/);
   fireEvent.change(screen.getByLabelText("Descrição da despesa"), { target: { value: "Pintura" } });
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
   fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
@@ -577,6 +617,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
   fireEvent.change(screen.getByLabelText("Organização de destino"), { target: { value: "org-public" } });
   fireEvent.click(screen.getByRole("button", { name: "Transferir" }));
   fireEvent.click(screen.getByRole("button", { name: "Excluir cobrança" }));
+  await showTab(user, /^Faturas 6$/);
   const exportCsv = screen.getByRole("button", { name: "Exportar CSV" });
   const exportXlsx = screen.getByRole("button", { name: "Exportar Excel" });
   act(() => {
@@ -587,6 +628,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
   await waitFor(() => expect(exportCalls).toBe(1));
   expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Exportar Excel" })).toBeDisabled();
+  await showTab(user, /^Despesas 1$/);
   expect(screen.getByRole("button", { name: "Adicionar despesa" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Remover despesa IPTU 2026" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Transferir" })).toBeDisabled();
@@ -599,6 +641,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
   await act(async () => {
     resolveExport?.(jsonResponse({ format: "csv", status: "queued" }, 202));
   });
+  await showTab(user, /^Faturas 6$/);
   await waitFor(() => expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeEnabled());
 });
 
@@ -618,7 +661,7 @@ it("ignores an expense creation response after the billing route changes", async
     <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
   </Routes></MemoryRouter>);
 
-  await screen.findByRole("button", { name: "Adicionar despesa" });
+  await showTab(user, /^Despesas 1$/);
   fireEvent.submit(screen.getByRole("button", { name: "Adicionar despesa" }).closest("form")!);
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
   expect(await screen.findByRole("heading", { name: "Casa B" })).toBeVisible();
@@ -644,7 +687,7 @@ it("ignores an expense removal response after the billing route changes", async 
     <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
   </Routes></MemoryRouter>);
 
-  await screen.findByRole("button", { name: "Remover despesa IPTU 2026" });
+  await showTab(user, /^Despesas 1$/);
   await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
   await user.click(screen.getByRole("button", { name: "Remover" }));
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
@@ -677,7 +720,7 @@ it("ignores an expense removal after its refresh becomes stale", async () => {
     <Route element={<><BillingDetailPage /><RouteSwitcher /></>} path="/billings/:billingUuid" />
   </Routes></MemoryRouter>);
 
-  await screen.findByRole("button", { name: "Remover despesa IPTU 2026" });
+  await showTab(user, /^Despesas 1$/);
   await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
   await user.click(screen.getByRole("button", { name: "Remover" }));
   await waitFor(() => expect(billingGets).toBe(2));
@@ -801,7 +844,8 @@ const staleMutationFailures: Array<{
     endpoint: "POST /api/v1/billings/billing-public/expenses",
     errorText: "Não foi possível adicionar a despesa.",
     mutation: "expense creation",
-    run: async () => {
+    run: async (user) => {
+      await showTab(user, /^Despesas 1$/);
       fireEvent.change(screen.getByLabelText("Descrição da despesa"), { target: { value: "Pintura" } });
       fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
       fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
@@ -813,6 +857,7 @@ const staleMutationFailures: Array<{
     errorText: "Não foi possível remover a despesa.",
     mutation: "expense removal",
     run: async (user) => {
+      await showTab(user, /^Despesas 1$/);
       await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
       await user.click(screen.getByRole("button", { name: "Remover" }));
     }
