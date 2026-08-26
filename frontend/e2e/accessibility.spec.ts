@@ -59,6 +59,8 @@ test("public authentication has a main landmark, labels, and a logical keyboard 
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("Senha", { exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Mostrar senha" })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Esqueceu sua senha?" })).toBeFocused();
   await expectAccessibleFundamentals(page);
 });

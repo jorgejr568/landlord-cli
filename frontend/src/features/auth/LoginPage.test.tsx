@@ -28,12 +28,23 @@ afterEach(() => {
 });
 
 describe("LoginPage", () => {
-  it("preserves the legacy PT-BR form, Google option, Turnstile, focus, and title", async () => {
+  it("exposes a focused PT-BR sign-in form with browser authentication metadata", async () => {
     renderAuth(<LoginPage />);
 
     const email = await screen.findByLabelText("E-mail");
     expect(email).toHaveFocus();
-    expect(screen.getByLabelText("Senha")).toHaveAttribute("type", "password");
+    expect(email).toHaveAttribute("autocomplete", "email");
+    expect(email).toHaveAttribute("inputmode", "email");
+    expect(email).toHaveAttribute("spellcheck", "false");
+    expect(screen.getByLabelText("Senha", { exact: true })).toHaveAttribute(
+      "autocomplete",
+      "current-password"
+    );
+    expect(screen.getByLabelText("Senha", { exact: true })).toHaveAttribute("type", "password");
+    expect(screen.getByRole("link", { name: "Ir para a página inicial do Rentivo" })).toHaveAttribute(
+      "href",
+      "/"
+    );
     expect(screen.getByRole("button", { name: "Entrar" })).toHaveClass("btn--lg");
     expect(screen.getByRole("link", { name: "Esqueceu sua senha?" })).toHaveAttribute(
       "href",
@@ -42,6 +53,29 @@ describe("LoginPage", () => {
     expect(screen.getByRole("link", { name: "Continuar com Google" })).toBeVisible();
     expect(screen.getByTestId("turnstile")).toBeVisible();
     expect(document.title).toBe("Entrar - Rentivo");
+  });
+
+  it("reveals and hides the password without clearing it", async () => {
+    const user = userEvent.setup();
+    renderAuth(<LoginPage />);
+
+    const password = await screen.findByLabelText("Senha", { exact: true });
+    await user.type(password, "senha-segura");
+
+    const reveal = screen.getByRole("button", { name: "Mostrar senha" });
+    expect(reveal).toHaveAttribute("aria-pressed", "false");
+    await user.click(reveal);
+
+    expect(password).toHaveAttribute("type", "text");
+    expect(password).toHaveValue("senha-segura");
+    expect(screen.getByRole("button", { name: "Ocultar senha" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Ocultar senha" }));
+    expect(password).toHaveAttribute("type", "password");
+    expect(password).toHaveValue("senha-segura");
   });
 
   it("shows loading and completes password login at the legacy destination", async () => {
@@ -68,7 +102,7 @@ describe("LoginPage", () => {
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.click(screen.getByRole("button", { name: "Entrar" }));
 
-    expect(screen.getByRole("button", { name: "Entrar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Entrando…" })).toBeDisabled();
     await act(async () => resolveLogin(jsonResponse(AUTHENTICATED_WITH_EVENT)));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
     expect(window.dataLayer?.at(-1)).toEqual({

@@ -58,9 +58,10 @@ it.each([
   const router = createAppRouter();
   const view = render(<RouterProvider router={router} />);
 
-  expect(await screen.findByText(expectedCopy)).toBeVisible();
+  const [copy] = await screen.findAllByText(expectedCopy);
+  expect(copy).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
-  expect(screen.getByText(expectedCopy).closest("main")).toBe(screen.getByRole("main"));
+  expect(copy.closest("main")).toBe(screen.getByRole("main"));
   view.unmount();
   router.dispose();
 });
