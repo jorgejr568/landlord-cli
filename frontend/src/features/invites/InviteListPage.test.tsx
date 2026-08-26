@@ -100,8 +100,8 @@ it("presents pending invitations as a decision-ready workspace", async () => {
   });
   renderPage();
 
-  expect(await screen.findByRole("heading", { level: 1, name: "Convites" })).toBeVisible();
-  expect(screen.getByText("2 convites aguardam sua decisão")).toBeVisible();
+  expect(screen.getByRole("heading", { level: 1, name: "Convites" })).toBeVisible();
+  expect(await screen.findByText("2 convites aguardam sua decisão")).toBeVisible();
 
   const workspace = screen.getByRole("region", { name: "Convites aguardando resposta" });
   expect(within(workspace).getByText("Gerente")).toBeVisible();
