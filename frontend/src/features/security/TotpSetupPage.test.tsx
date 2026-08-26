@@ -84,7 +84,8 @@ it("moves focus to a setup error so retry guidance is announced", async () => {
     session: "authenticated"
   });
 
-  expect(await screen.findByRole("alert")).toHaveFocus();
+  const alert = await screen.findByRole("alert");
+  await waitFor(() => expect(alert).toHaveFocus());
   expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
 });
 
