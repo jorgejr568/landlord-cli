@@ -403,7 +403,7 @@ it("loads and saves every legacy organization setting", async () => {
 
   expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("pagehead__title");
-  expect(screen.getByText("Digite nome e cidade normalmente; o PIX ajusta maiúsculas e acentos.")).toBeVisible();
+  expect(screen.getByText("Confira a chave PIX antes de emitir uma fatura.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await waitFor(() => expect(document.title).toBe("Editar Ribeiro Imóveis - Rentivo"));
