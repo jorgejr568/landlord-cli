@@ -138,18 +138,14 @@ it("populates a new-account user theme from effective defaults and previews it",
 
   const { unmount } = renderPage(<ThemePage target="user" />);
 
-  expect(screen.getByText("Carregando tema...")).toBeVisible();
+  expect(screen.getByText("Carregando tema…")).toBeVisible();
   expect(await screen.findByRole("heading", { level: 1, name: "Meu Tema" })).toHaveClass(
     "page-title"
   );
-  for (const name of ["Fontes", "Cores", "Pré-visualização"]) {
-    // jsdom resolves rem against the 16px root font size, so 0.98rem computes to 15.68px.
-    expect(screen.getByRole("heading", { level: 2, name })).toHaveStyle({
-      fontSize: "15.68px",
-      margin: "0",
-      whiteSpace: "nowrap"
-    });
-  }
+  expect(screen.getByRole("heading", { level: 2, name: "Personalize sua marca" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 2, name: "Prévia da fatura" })).toBeVisible();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Montserrat");
   expect(screen.getByLabelText("Fonte do Texto")).toHaveValue("Montserrat");
   expect(screen.getByLabelText("Primária")).toHaveValue("#8a4c94");
@@ -158,9 +154,9 @@ it("populates a new-account user theme from effective defaults and previews it",
   expect(screen.getByLabelText("Secundária Escura")).toHaveValue("#357b7c");
   expect(screen.getByLabelText("Texto")).toHaveValue("#282830");
   expect(screen.getByLabelText("Contraste")).toHaveValue("#ffffff");
-  expect(screen.getByLabelText("Primária").closest(".theme-color-grid")).not.toBeNull();
+  expect(screen.getByLabelText("Primária").closest(".theme-color-list")).not.toBeNull();
   expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Primária")).not.toHaveAttribute("aria-describedby");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-hint");
   expect(screen.getByLabelText("Fonte do Cabeçalho")).not.toHaveAttribute("aria-describedby");
   expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
     "src",
@@ -169,6 +165,99 @@ it("populates a new-account user theme from effective defaults and previews it",
   expect(createObjectURL).toHaveBeenCalledOnce();
   unmount();
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
+});
+
+it("presents the personal theme as one cohesive control and preview workspace", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="user" />);
+
+  expect(await screen.findByRole("region", { name: "Personalização do tema" })).toBeVisible();
+  expect(screen.getByRole("region", { name: "Prévia da fatura" })).toBeVisible();
+  expect(screen.getByText("Padrão Rentivo")).toBeVisible();
+  expect(screen.getByText("#8A4C94")).toBeVisible();
+  expect(screen.getByText("#EEE4F1")).toBeVisible();
+});
+
+it("lets the controls settle before generating the initial PDF preview", async () => {
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+
+  expect(previewCalls).toBe(0);
+  await waitFor(() => expect(previewCalls).toBe(1));
+});
+
+it("distinguishes instant palette feedback from the generated PDF preview", async () => {
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+  renderPage(<ThemePage target="user" />);
+  await waitFor(() => expect(previewCalls).toBe(1));
+  expect(await screen.findByText("Prévia atualizada")).toBeVisible();
+
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  expect(screen.getByText("Alterações não salvas")).toBeVisible();
+  expect(screen.getByText("Atualize o PDF para aplicar as cores")).toBeVisible();
+  expect(previewCalls).toBe(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
+
+  await waitFor(() => expect(previewCalls).toBe(2));
+  expect(await screen.findByText("Prévia atualizada")).toBeVisible();
+});
+
+it("cancels an outdated PDF preview as soon as the palette changes", async () => {
+  const pendingPreview = deferred<Response>();
+  let previewSignal: AbortSignal | undefined;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": (init) => {
+      previewSignal = init?.signal as AbortSignal;
+      return pendingPreview.promise;
+    }
+  });
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+  await waitFor(() => expect(previewSignal).toBeDefined());
+
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  expect(previewSignal?.aborted).toBe(true);
+  expect(screen.getByText("Atualize o PDF para aplicar as cores")).toBeVisible();
+  expect(screen.queryByText("Atualizando prévia…")).not.toBeInTheDocument();
+});
+
+it("warns before leaving when theme changes have not been saved", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+
+  expect(event.defaultPrevented).toBe(true);
 });
 
 const targetCases = [
@@ -350,7 +439,9 @@ it("previews color changes locally without a request, warns on weak contrast, an
   fireEvent.change(screen.getByLabelText("Secundária"), { target: { value: "#bcdefa" } });
   await new Promise((resolve) => setTimeout(resolve, 350));
   expect(previewCalls).toBe(1);
-  expect(screen.getByLabelText("Amostra local do tema")).toHaveStyle({ backgroundColor: "#abcdef" });
+  expect(screen.getByLabelText("Amostra local do tema").querySelector(
+    ".theme-local-preview__brand"
+  )).toHaveStyle({ backgroundColor: "#abcdef" });
   fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#abcdef" } });
   expect(screen.getByText(/contraste entre a cor primária/i)).toBeVisible();
   fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Lora" } });
@@ -518,7 +609,7 @@ it("preserves an explicit owner label over the theme owner name", async () => {
 
   expect(await screen.findByRole("heading", { name: "Nome injetado — Tema" })).toBeVisible();
   await waitFor(() => expect(document.title).toBe("Nome injetado — Tema - Rentivo"));
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 });
 
 it("ignores a stale theme response after route navigation", async () => {
@@ -960,14 +1051,17 @@ it("maps API field errors and reports an unexpected save failure", async () => {
   expect(await screen.findByText("Revise as cores informadas.")).toBeVisible();
   expect(screen.getByText("Cor inválida.")).toBeVisible();
   expect(screen.getByText("Fonte inválida.")).toBeVisible();
-  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-error");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute(
+    "aria-describedby",
+    "primary-hint primary-error"
+  );
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveAttribute(
     "aria-describedby",
     "header_font-error"
   );
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#abcdef" } });
   expect(screen.queryByText("Cor inválida.")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Primária")).not.toHaveAttribute("aria-describedby");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-hint");
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveAttribute(
     "aria-describedby",
     "header_font-error"

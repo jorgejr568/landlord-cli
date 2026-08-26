@@ -1,4 +1,14 @@
-import { ArrowLeft, Eye, RotateCcw, Save } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Eye,
+  FileText,
+  Palette,
+  RotateCcw,
+  Save,
+  TriangleAlert,
+  Type
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -17,6 +27,7 @@ import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
+import "./ThemePage.css";
 
 type ThemeResponse = components["schemas"]["ThemeResponse"];
 type ThemeValues = components["schemas"]["ThemeUpdateRequest"];
@@ -70,32 +81,26 @@ const TARGET_META: Record<ThemeTarget, {
   }
 };
 
-const COLOR_FIELDS: Array<{ key: ColorKey; label: string }> = [
-  { key: "primary", label: "Primária" },
-  { key: "primary_light", label: "Primária Clara" },
-  { key: "secondary", label: "Secundária" },
-  { key: "secondary_dark", label: "Secundária Escura" },
-  { key: "text_color", label: "Texto" },
-  { key: "text_contrast", label: "Contraste" }
+const COLOR_FIELDS: Array<{ hint: string; key: ColorKey; label: string }> = [
+  { hint: "Destaques e cabeçalhos", key: "primary", label: "Primária" },
+  { hint: "Fundos em destaque", key: "primary_light", label: "Primária Clara" },
+  { hint: "Superfícies da fatura", key: "secondary", label: "Secundária" },
+  { hint: "Blocos de informação", key: "secondary_dark", label: "Secundária Escura" },
+  { hint: "Conteúdo principal", key: "text_color", label: "Texto" },
+  { hint: "Texto sobre a cor primária", key: "text_contrast", label: "Contraste" }
 ];
 const COLOR_KEYS = new Set<ColorKey>(COLOR_FIELDS.map(({ key }) => key));
 
 const INITIAL_VALUES: ThemeValues = {
-  header_font: "Montserrat",
-  primary: "#8A4C94",
-  primary_light: "#EEE4F1",
-  secondary: "#6EAFAE",
-  secondary_dark: "#357B7C",
-  text_color: "#282830",
+  header_font: "Space Grotesk",
+  primary: "#007D53",
+  primary_light: "#DBF6E7",
+  secondary: "#F5F2EB",
+  secondary_dark: "#1B1D29",
+  text_color: "#1B1D29",
   text_contrast: "#FFFFFF",
-  text_font: "Montserrat"
+  text_font: "Hanken Grotesk"
 };
-
-const SECTION_HEADING_STYLE = {
-  fontSize: "0.98rem",
-  margin: 0,
-  whiteSpace: "nowrap"
-} as const;
 
 function fieldErrorId(fields: Record<string, string>, key: string): string | undefined {
   return fields[key] ? `${key}-error` : undefined;
@@ -109,6 +114,12 @@ function contrastRatio(first: string, second: string): number {
   };
   const [lighter, darker] = [luminance(first), luminance(second)].sort((left, right) => right - left);
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+function themesMatch(first: ThemeValues, second: ThemeValues): boolean {
+  return first.header_font === second.header_font
+    && first.text_font === second.text_font
+    && COLOR_FIELDS.every(({ key }) => first[key] === second[key]);
 }
 
 async function getTheme(target: ThemeTarget, uuid: string, signal: AbortSignal) {
@@ -190,6 +201,8 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState("");
   const [previewError, setPreviewError] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewStale, setPreviewStale] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentPreviewUrl = useRef("");
@@ -225,6 +238,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     previewController.current?.abort();
     const controller = new AbortController();
     previewController.current = controller;
+    setPreviewLoading(true);
     const outcome = await apiRequest(
       apiClient.POST("/api/v1/themes/preview", {
         body: nextValues,
@@ -240,6 +254,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     }
     if ("error" in outcome) {
       setPreviewError(errorMessage(outcome.error, "Não foi possível gerar a pré-visualização."));
+      setPreviewLoading(false);
       return;
     }
     const nextUrl = URL.createObjectURL(outcome.data);
@@ -249,7 +264,19 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     currentPreviewUrl.current = nextUrl;
     setPreviewUrl(nextUrl);
     setPreviewError("");
+    setPreviewLoading(false);
+    setPreviewStale(false);
   }, []);
+
+  const schedulePreview = useCallback((nextValues: ThemeValues) => {
+    if (previewTimer.current !== null) {
+      clearTimeout(previewTimer.current);
+    }
+    previewTimer.current = setTimeout(() => {
+      previewTimer.current = null;
+      void requestPreview(nextValues);
+    }, 300);
+  }, [requestPreview]);
 
   const load = useCallback(async () => {
     loadController.current?.abort();
@@ -260,6 +287,8 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     }
     setPreviewUrl("");
     setPreviewError("");
+    setPreviewLoading(false);
+    setPreviewStale(false);
     setTheme(null);
     setLoading(true);
     setLoadError("");
@@ -293,8 +322,8 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     setTheme(data);
     setValues(nextValues);
     setLoading(false);
-    void requestPreview(nextValues);
-  }, [cancelPreviewWork, meta.missing, requestPreview, target, uuid]);
+    schedulePreview(nextValues);
+  }, [cancelPreviewWork, meta.missing, schedulePreview, target, uuid]);
 
   useEffect(() => {
     cancelMutationWork();
@@ -321,20 +350,13 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     }
   }, [cancelPreviewWork]);
 
-  function schedulePreview(nextValues: ThemeValues) {
-    if (previewTimer.current !== null) {
-      clearTimeout(previewTimer.current);
-    }
-    previewTimer.current = setTimeout(() => {
-      previewTimer.current = null;
-      void requestPreview(nextValues);
-    }, 300);
-  }
-
   function updateValue<Key extends keyof ThemeValues>(key: Key, value: ThemeValues[Key]) {
+    cancelPreviewWork();
     const nextValues = { ...values, [key]: value };
     setValues(nextValues);
     setFieldErrors((current) => ({ ...current, [key]: "" }));
+    setPreviewLoading(false);
+    setPreviewStale(true);
     if (!COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
   }
 
@@ -415,27 +437,55 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     }
   }
 
+  const baselineValues = theme?.stored ?? theme?.effective ?? values;
+  const isDirty = theme !== null && !themesMatch(values, baselineValues);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [isDirty]);
+
   if (loading) {
-    return <LoadingState label="Carregando tema..." />;
+    return <LoadingState label="Carregando tema…" />;
   }
   if (!theme) {
     return <LoadError message={loadError} onRetry={() => void load()} />;
   }
 
   const resolvedBackUrl = backUrl ?? `${meta.backPrefix}${target === "user" ? "" : uuid}`;
+  const ratio = contrastRatio(values.primary, values.text_contrast);
+  const previewStatus = previewLoading
+    ? "Atualizando prévia…"
+    : previewError
+      ? "Prévia indisponível"
+      : previewStale
+      ? "Atualize o PDF para aplicar as cores"
+      : previewUrl
+        ? "Prévia atualizada"
+        : "Preparando prévia…";
 
   return (
     <>
-      <div className="page-header">
-        <div className="page-header-info">
+      <header className="theme-page-header">
+        <div className="theme-page-header__copy">
+          <span className="theme-page-header__eyebrow">Identidade visual</span>
           <h1 className="page-title">{resolvedOwnerLabel}</h1>
+          <p>Escolha a tipografia e a paleta usadas nas faturas enviadas aos seus inquilinos.</p>
         </div>
-        <div className="page-actions">
-          <Link className="btn btn--ghost" to={resolvedBackUrl}>
+        <div className="theme-page-header__actions">
+          <span className={`theme-page-header__state${theme.stored ? " is-custom" : ""}`}>
+            {theme.stored ? "Tema personalizado" : "Padrão Rentivo"}
+          </span>
+          <Link className="btn btn--ghost btn--sm" to={resolvedBackUrl}>
             <ArrowLeft aria-hidden="true" size={16} /> Voltar
           </Link>
         </div>
-      </div>
+      </header>
 
       {success ? <div className="toast toast--success" role="status">{success}</div> : null}
       {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
@@ -451,18 +501,34 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         </div>
       ) : null}
 
-      <div className="theme-editor">
-        <div className="theme-editor-form">
+      <div className="theme-workspace">
+        <section aria-label="Personalização do tema" className="theme-controls">
           <form id="theme-form" onSubmit={(event) => void saveTheme(event)}>
-            <div className="panel">
-              <div className="panel-head"><h2 style={SECTION_HEADING_STYLE}>Fontes</h2></div>
-              <div className="panel-body">
-                <div className="dates-grid">
+            <div className="theme-controls__intro">
+              <div>
+                <h2>Personalize sua marca</h2>
+                <p>A amostra responde na hora. Atualize o PDF quando quiser conferir o documento completo.</p>
+              </div>
+              <span aria-live="polite" className={`theme-draft-state${isDirty ? " is-dirty" : ""}`}>
+                {isDirty ? "Alterações não salvas" : "Tema sincronizado"}
+              </span>
+            </div>
+
+            <section aria-labelledby="theme-fonts-title" className="theme-control-section">
+              <div className="theme-control-section__heading">
+                <Type aria-hidden="true" size={19} />
+                <div>
+                  <h3 id="theme-fonts-title">Tipografia</h3>
+                  <p>Defina a hierarquia entre títulos e conteúdo.</p>
+                </div>
+              </div>
+              <div className="theme-font-grid">
                   <div className="field mb-0">
                     <label className="field-label" htmlFor="header_font">Fonte do Cabeçalho</label>
                     <select
                       aria-describedby={fieldErrorId(fieldErrors, "header_font")}
-                      className="field-select"
+                      autoComplete="off"
+                      className="field-select theme-select"
                       disabled={!theme.capabilities.can_edit}
                       id="header_font"
                       name="header_font"
@@ -480,7 +546,8 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                     <label className="field-label" htmlFor="text_font">Fonte do Texto</label>
                     <select
                       aria-describedby={fieldErrorId(fieldErrors, "text_font")}
-                      className="field-select"
+                      autoComplete="off"
+                      className="field-select theme-select"
                       disabled={!theme.capabilities.can_edit}
                       id="text_font"
                       name="text_font"
@@ -494,76 +561,139 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                     </select>
                     <FieldError id="text_font-error" message={fieldErrors.text_font} />
                   </div>
+              </div>
+            </section>
+
+            <section aria-labelledby="theme-colors-title" className="theme-control-section">
+              <div className="theme-control-section__heading">
+                <Palette aria-hidden="true" size={19} />
+                <div>
+                  <h3 id="theme-colors-title">Paleta</h3>
+                  <p>Use as cores da sua marca sem perder legibilidade.</p>
                 </div>
               </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-head"><h2 style={SECTION_HEADING_STYLE}>Cores</h2></div>
-              <div className="panel-body">
-                <div className="theme-color-grid">
-                  {COLOR_FIELDS.map(({ key, label }) => (
-                    <div className="field mb-0" key={key}>
-                      <label className="field-label" htmlFor={key}>{label}</label>
+                <div className="theme-color-list">
+                  {COLOR_FIELDS.map(({ hint, key, label }) => (
+                    <div className="theme-color-field" key={key}>
                       <input
-                        aria-describedby={fieldErrorId(fieldErrors, key)}
-                        className="field-input"
+                        aria-describedby={`${key}-hint${fieldErrors[key] ? ` ${key}-error` : ""}`}
+                        aria-label={label}
+                        className="theme-color-input"
                         disabled={!theme.capabilities.can_edit}
                         id={key}
                         name={key}
                         onChange={(event) => updateValue(key, event.target.value)}
-                        style={{ height: 42, padding: 4 }}
                         type="color"
                         value={values[key]}
                       />
+                      <label className="theme-color-field__copy" htmlFor={key}>
+                        <strong>{label}</strong>
+                        <span id={`${key}-hint`}>{hint}</span>
+                      </label>
+                      <output className="theme-color-field__value" htmlFor={key}>{values[key].toUpperCase()}</output>
                       <FieldError id={`${key}-error`} message={fieldErrors[key]} />
                     </div>
                   ))}
+              </div>
+              <div className={`theme-contrast${ratio < 4.5 ? " is-warning" : ""}`}>
+                <span className="theme-contrast__icon">
+                  {ratio < 4.5
+                    ? <TriangleAlert aria-hidden="true" size={15} />
+                    : <Check aria-hidden="true" size={15} />}
+                </span>
+                <div>
+                  <strong>{ratio < 4.5 ? "Contraste insuficiente" : "Contraste aprovado"}</strong>
+                  <span>
+                    {ratio < 4.5
+                      ? "O contraste entre a cor primária e o texto está abaixo de 4,5:1."
+                      : `${ratio.toLocaleString("pt-BR", { maximumFractionDigits: 1, minimumFractionDigits: 1 })}:1 entre a cor primária e o texto.`}
+                  </span>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className="btn-group">
-              <button className="btn btn--primary" disabled={!theme.capabilities.can_edit || saving} type="submit">
-                <Save aria-hidden="true" size={16} /> Salvar
+            <div className="theme-controls__footer">
+              <button
+                aria-label="Salvar"
+                className="btn btn--primary"
+                disabled={!theme.capabilities.can_edit || saving}
+                type="submit"
+              >
+                <Save aria-hidden="true" size={16} /> {saving ? "Salvando…" : "Salvar"}
               </button>
-              <button className="btn" disabled={saving} onClick={previewNow} type="button">
-                <Eye aria-hidden="true" size={16} /> Visualizar
-              </button>
+              {theme.capabilities.can_reset ? (
+                <button
+                  className="btn btn--ghost btn--sm theme-reset-button"
+                  disabled={resetting}
+                  onClick={() => setResetOpen(true)}
+                  type="button"
+                >
+                  <RotateCcw aria-hidden="true" size={15} /> Usar Padrão
+                </button>
+              ) : null}
             </div>
           </form>
+        </section>
 
-          {theme.capabilities.can_reset ? (
-            <div className="mt-2">
-              <button
-                className="btn btn--sm btn--danger"
-                disabled={resetting}
-                onClick={() => setResetOpen(true)}
-                type="button"
-              >
-                <RotateCcw aria-hidden="true" size={16} /> Usar Padrão
+        <section aria-label="Prévia da fatura" className="theme-preview">
+          <div className="theme-preview__header">
+            <h2><FileText aria-hidden="true" size={18} /> Prévia da fatura</h2>
+            <div className="theme-preview__actions">
+              <span aria-live="polite" className={`theme-preview__status${previewStale ? " is-stale" : ""}`}>
+                {previewStatus}
+              </span>
+              <button className="btn btn--sm" onClick={previewNow} type="button">
+                <Eye aria-hidden="true" size={15} /> Visualizar
               </button>
             </div>
-          ) : null}
-        </div>
+          </div>
 
-        <div className="theme-editor-preview">
-          <div className="panel" style={{ height: "100%" }}>
-            <div className="panel-head"><h2 style={SECTION_HEADING_STYLE}>Pré-visualização</h2></div>
-            <div aria-label="Amostra local do tema" className="theme-local-preview" style={{ backgroundColor: values.primary, color: values.text_contrast, fontFamily: values.header_font, padding: "1rem" }}>
-              <strong>Fatura Rentivo</strong><span style={{ display: "block", fontFamily: values.text_font, marginTop: "0.35rem" }}>As cores e fontes são aplicadas imediatamente nesta amostra.</span>
+          <div
+            aria-label="Amostra local do tema"
+            className="theme-local-preview"
+            style={{
+              backgroundColor: values.primary_light,
+              color: values.text_color,
+              fontFamily: values.text_font
+            }}
+          >
+            <div
+              className="theme-local-preview__brand"
+              style={{
+                backgroundColor: values.primary,
+                color: values.text_contrast,
+                fontFamily: values.header_font
+              }}
+            >
+              <span>Rentivo</span>
+              <strong>Fatura de aluguel</strong>
             </div>
-            {contrastRatio(values.primary, values.text_contrast) < 4.5 ? <div className="toast toast--warning" role="alert">O contraste entre a cor primária e o texto está abaixo de 4,5:1.</div> : null}
-            <div className="panel-body" style={{ display: "flex", flex: 1, padding: 0 }}>
+            <div className="theme-local-preview__content">
+              <span>Exemplo de cobrança</span>
+              <strong style={{ fontFamily: values.header_font }}>R$ 2.450,00</strong>
+              <small>Vencimento em 10 de setembro</small>
+            </div>
+            <span
+              className="theme-local-preview__tag"
+              style={{ backgroundColor: values.secondary_dark, color: values.text_contrast }}
+            >
+              Em aberto
+            </span>
+          </div>
+
+          <div className="theme-pdf-stage">
+            {!previewUrl && !previewError ? <div className="theme-pdf-skeleton" aria-hidden="true" /> : null}
+            {previewUrl ? (
               <iframe
+                className="theme-pdf-frame"
                 src={previewUrl || undefined}
-                style={{ border: "none", flex: 1, minHeight: 600, width: "100%" }}
                 title="Pré-visualização do tema"
               />
-            </div>
-            {previewError ? <div className="toast toast--danger" role="alert">{previewError}</div> : null}
+            ) : null}
           </div>
-        </div>
+
+          {previewError ? <div className="theme-preview__error" role="alert">{previewError}</div> : null}
+        </section>
       </div>
 
       <ConfirmDialog
