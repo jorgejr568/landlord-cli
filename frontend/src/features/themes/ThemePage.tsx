@@ -45,11 +45,11 @@ export interface ThemePageProps {
   targetUuid?: string;
 }
 
-const SOURCE_LABELS: Record<ThemeResponse["effective_source"], string> = {
-  billing: "desta cobrança",
-  default: "padrão do sistema",
-  organization: "da organização",
-  user: "do usuário"
+const BILLING_SOURCE_LABELS: Record<ThemeResponse["effective_source"], string> = {
+  billing: "Personalização exclusiva",
+  default: "Padrão Rentivo",
+  organization: "Tema da organização",
+  user: "Tema pessoal"
 };
 
 const TARGET_META: Record<ThemeTarget, {
@@ -62,7 +62,7 @@ const TARGET_META: Record<ThemeTarget, {
   billing: {
     backPrefix: "/billings/",
     missing: "Não foi possível identificar a cobrança.",
-    resetSuccess: "Tema da cobrança redefinido para o padrão.",
+    resetSuccess: "Personalização removida. A cobrança voltou a seguir o tema do proprietário.",
     saveSuccess: "Tema da cobrança salvo com sucesso!",
     title: "Tema da cobrança"
   },
@@ -192,7 +192,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     ?? (theme
       ? target === "user" || target === "organization"
         ? theme.owner_name
-        : `${theme.owner_name} — Tema`
+        : `${theme.owner_name} - Tema`
       : meta.title);
   const [values, setValues] = useState<ThemeValues>(INITIAL_VALUES);
   const [loading, setLoading] = useState(true);
@@ -325,7 +325,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     setTheme(data);
     setValues(nextValues);
     setLoading(false);
-    if (target !== "organization") schedulePreview(nextValues);
+    if (target === "user") schedulePreview(nextValues);
   }, [cancelPreviewWork, meta.missing, schedulePreview, target, uuid]);
 
   useEffect(() => {
@@ -360,7 +360,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     setFieldErrors((current) => ({ ...current, [key]: "" }));
     setPreviewLoading(false);
     setPreviewStale(true);
-    if (target !== "organization" && !COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
+    if (target === "user" && !COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
   }
 
   function previewNow() {
@@ -464,9 +464,26 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
   const ratio = contrastRatio(values.primary, values.text_contrast);
   const pageDescription = target === "organization"
     ? "Defina a identidade aplicada às faturas da organização e confira o resultado antes de salvar."
-    : "Escolha a tipografia e a paleta usadas nas faturas enviadas aos seus inquilinos.";
-  const controlsTitle = target === "organization" ? "Identidade da organização" : "Personalize sua marca";
-  const organizationPdfIdle = target === "organization"
+    : target === "billing"
+      ? "Defina a identidade usada somente nas faturas desta cobrança e confira o resultado antes de salvar."
+      : "Escolha a tipografia e a paleta usadas nas faturas enviadas aos seus inquilinos.";
+  const controlsTitle = target === "organization"
+    ? "Identidade da organização"
+    : target === "billing"
+      ? "Ajuste desta cobrança"
+      : "Personalize sua marca";
+  const controlsDescription = target === "billing"
+    ? "As mudanças ficam restritas a esta cobrança. Atualize o PDF para conferir o documento completo."
+    : "A amostra responde na hora. Atualize o PDF quando quiser conferir o documento completo.";
+  const billingSourceLabel = theme.stored
+    ? BILLING_SOURCE_LABELS.billing
+    : BILLING_SOURCE_LABELS[theme.effective_source];
+  const headerStateLabel = target === "billing"
+    ? billingSourceLabel
+    : theme.stored
+      ? "Tema personalizado"
+      : "Padrão Rentivo";
+  const scopedPdfIdle = target !== "user"
     && !previewLoading
     && !previewError
     && !previewUrl;
@@ -474,7 +491,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     ? "Atualizando prévia…"
     : previewError
       ? "Prévia indisponível"
-      : organizationPdfIdle
+      : scopedPdfIdle
         ? "PDF pronto para gerar"
       : previewStale
       ? "Atualize o PDF para aplicar as cores"
@@ -492,7 +509,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         </div>
         <div className="theme-page-header__actions">
           <span className={`theme-page-header__state${theme.stored ? " is-custom" : ""}`}>
-            {theme.stored ? "Tema personalizado" : "Padrão Rentivo"}
+            {headerStateLabel}
           </span>
           <Link className="btn btn--ghost btn--sm" to={resolvedBackUrl}>
             <ArrowLeft aria-hidden="true" size={16} /> Voltar
@@ -502,19 +519,11 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
 
       {success ? <div className="toast toast--success" role="status">{success}</div> : null}
       {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
-      {!theme.capabilities.can_edit && target !== "organization" ? (
+      {!theme.capabilities.can_edit && target === "user" ? (
         <div className="toast toast--warning" role="status">Você tem acesso somente para consulta.</div>
       ) : null}
-      {target === "billing" ? (
-        <div
-          className="toast toast--success"
-          style={{ background: "var(--paper)", borderLeftColor: "var(--charcoal)" }}
-        >
-          Tema efetivo atual: <strong>{SOURCE_LABELS[theme.effective_source]}</strong>
-        </div>
-      ) : null}
 
-      <div className={`theme-workspace${target === "organization" ? " has-organization-scope" : ""}`}>
+      <div className={`theme-workspace${target === "organization" ? " has-organization-scope" : ""}${target === "billing" ? " has-billing-scope" : ""}`}>
         {target === "organization" ? (
           <section
             aria-label="Alcance do tema da organização"
@@ -545,12 +554,45 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
             </dl>
           </section>
         ) : null}
+        {target === "billing" ? (
+          <section
+            aria-label="Alcance do tema da cobrança"
+            className="theme-billing-scope"
+          >
+            <div className="theme-billing-scope__identity">
+              <span className="theme-billing-scope__icon">
+                <FileText aria-hidden="true" size={19} />
+              </span>
+              <div>
+                <h2>Identidade desta cobrança</h2>
+                <p>{theme.owner_name}</p>
+                <span>{theme.capabilities.can_edit ? "Edição permitida" : "Somente consulta"}</span>
+              </div>
+            </div>
+            <dl className="theme-billing-scope__facts">
+              <div>
+                <dt>Alcance</dt>
+                <dd>Somente esta cobrança</dd>
+              </div>
+              <div>
+                <dt>Fonte ativa</dt>
+                <dd>{billingSourceLabel}</dd>
+              </div>
+              <div>
+                <dt>Ao salvar</dt>
+                <dd>{theme.stored
+                  ? "Atualiza a personalização exclusiva"
+                  : "Cria uma personalização exclusiva"}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
         <section aria-label="Personalização do tema" className="theme-controls">
           <form id="theme-form" onSubmit={(event) => void saveTheme(event)}>
             <div className="theme-controls__intro">
               <div>
                 <h2>{controlsTitle}</h2>
-                <p>A amostra responde na hora. Atualize o PDF quando quiser conferir o documento completo.</p>
+                <p>{controlsDescription}</p>
               </div>
               <span aria-live="polite" className={`theme-draft-state${isDirty ? " is-dirty" : ""}`}>
                 {isDirty ? "Alterações não salvas" : "Tema sincronizado"}
@@ -657,12 +699,15 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
 
             <div className="theme-controls__footer">
               <button
-                aria-label="Salvar"
                 className="btn btn--primary"
                 disabled={!theme.capabilities.can_edit || saving}
                 type="submit"
               >
-                <Save aria-hidden="true" size={16} /> {saving ? "Salvando…" : "Salvar"}
+                <Save aria-hidden="true" size={16} /> {saving
+                  ? "Salvando…"
+                  : target === "billing"
+                    ? "Salvar na cobrança"
+                    : "Salvar"}
               </button>
               {theme.capabilities.can_reset ? (
                 <button
@@ -671,7 +716,9 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                   onClick={() => setResetOpen(true)}
                   type="button"
                 >
-                  <RotateCcw aria-hidden="true" size={15} /> Usar Padrão
+                  <RotateCcw aria-hidden="true" size={15} /> {target === "billing"
+                    ? "Remover personalização"
+                    : "Usar Padrão"}
                 </button>
               ) : null}
             </div>
@@ -708,7 +755,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                 fontFamily: values.header_font
               }}
             >
-              <span>{target === "organization" ? theme.owner_name : "Rentivo"}</span>
+              <span>{target === "user" ? "Rentivo" : theme.owner_name}</span>
               <strong>Fatura de aluguel</strong>
             </div>
             <div className="theme-local-preview__content">
@@ -724,15 +771,15 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
             </span>
           </div>
 
-          <div className={`theme-pdf-stage${organizationPdfIdle ? " is-idle" : ""}`}>
-            {organizationPdfIdle ? (
+          <div className={`theme-pdf-stage${scopedPdfIdle ? " is-idle" : ""}`}>
+            {scopedPdfIdle ? (
               <div className="theme-pdf-idle">
                 <FileText aria-hidden="true" size={24} />
                 <strong>PDF completo sob demanda</strong>
                 <span>Gere o documento para conferir margens, tipografia e paginação.</span>
               </div>
             ) : null}
-            {!organizationPdfIdle && !previewUrl && !previewError ? (
+            {!scopedPdfIdle && !previewUrl && !previewError ? (
               <div className="theme-pdf-skeleton" aria-hidden="true" />
             ) : null}
             {previewUrl ? (
@@ -749,12 +796,14 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
       </div>
 
       <ConfirmDialog
-        acceptLabel="Usar padrão"
-        body="Tem certeza que deseja restaurar o tema padrão?"
+        acceptLabel={target === "billing" ? "Remover personalização" : "Usar padrão"}
+        body={target === "billing"
+          ? "A cobrança voltará a seguir o tema do proprietário ou o padrão Rentivo."
+          : "Tem certeza que deseja restaurar o tema padrão?"}
         onClose={() => setResetOpen(false)}
         onConfirm={() => void resetTheme()}
         open={resetOpen}
-        title="Restaurar o tema padrão?"
+        title={target === "billing" ? "Remover personalização da cobrança?" : "Restaurar o tema padrão?"}
       />
     </>
   );

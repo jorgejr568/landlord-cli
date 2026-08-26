@@ -307,7 +307,9 @@ it.each(targetCases)("saves the $target target through its typed API path", asyn
   );
   await user.selectOptions(await screen.findByLabelText("Fonte do Cabeçalho"), "Roboto");
   await user.selectOptions(screen.getByLabelText("Fonte do Texto"), "Roboto");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", {
+    name: target === "billing" ? "Salvar na cobrança" : "Salvar"
+  }));
 
   await waitFor(() => expect(savedBody).toEqual({
     ...customTheme.effective,
@@ -410,6 +412,7 @@ it("keeps the organization PDF local-first until it is explicitly requested", as
 });
 
 it("uses inherited effective values for a billing without a stored theme", async () => {
+  const user = userEvent.setup();
   const fetchMock = installFetch({
     "GET /api/v1/themes/billings/billing-prop": () => jsonResponse({
       ...defaultTheme,
@@ -422,28 +425,75 @@ it("uses inherited effective values for a billing without a stored theme", async
 
   renderPage(<ThemePage target="billing" targetUuid="billing-prop" />);
 
-  expect(await screen.findByRole("heading", { name: "Aluguel Direto — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Aluguel Direto — Tema - Rentivo"));
+  expect(await screen.findByRole("heading", { name: "Aluguel Direto - Tema" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Aluguel Direto - Tema - Rentivo"));
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Lora");
   expect(screen.getByLabelText("Fonte do Texto")).toHaveValue("Roboto");
-  const sourceBanner = screen.getByText("Tema efetivo atual:").closest("div");
-  expect(sourceBanner).toHaveTextContent("da organização");
-  expect(sourceBanner).toHaveStyle({
-    background: "var(--paper)",
-    borderLeftColor: "var(--charcoal)"
-  });
+  expect(screen.getAllByText("Tema da organização")).toHaveLength(2);
+  expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
+  const scope = screen.getByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByRole("heading", { name: "Identidade desta cobrança" })).toBeVisible();
+  expect(within(scope).getByText("Aluguel Direto")).toBeVisible();
+  expect(within(scope).getByText("Somente esta cobrança")).toBeVisible();
+  expect(within(scope).getByText("Tema da organização")).toBeVisible();
+  expect(within(scope).getByText("Cria uma personalização exclusiva")).toBeVisible();
+  expect(within(scope).getByText("Edição permitida")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Ajuste desta cobrança" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Salvar na cobrança" })).toBeEnabled();
+  expect(within(screen.getByLabelText("Amostra local do tema")).getByText("Aluguel Direto")).toBeVisible();
   expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute(
     "href",
     "/billings/billing-prop"
   );
   expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
+  expect(screen.getByText("PDF completo sob demanda")).toBeVisible();
+  expect(screen.getByText("PDF pronto para gerar")).toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  await user.click(screen.getByRole("button", { name: "Visualizar" }));
+
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
+    "src",
+    "blob:theme-preview-1"
+  );
   expect(fetchMock.mock.calls.map(([input, init]) => (
     `${init?.method ?? "GET"} ${String(input)}`
   ))).toEqual([
     "GET /api/v1/themes/billings/billing-prop",
     "POST /api/v1/themes/preview"
   ]);
+});
+
+it("explains and confirms removing a billing-only theme override", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/themes/billings/billing-custom": () => jsonResponse({
+      ...customTheme,
+      effective_source: "billing",
+      owner_name: "Apartamento Aurora"
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="billing" targetUuid="billing-custom" />);
+
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByText("Personalização exclusiva")).toBeVisible();
+  expect(within(scope).getByText("Atualiza a personalização exclusiva")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Remover personalização" }));
+
+  expect(screen.getByRole("dialog", { name: "Remover personalização da cobrança?" })).toBeVisible();
+  expect(screen.getByText(
+    "A cobrança voltará a seguir o tema do proprietário ou o padrão Rentivo."
+  )).toBeVisible();
+  expect(within(screen.getByRole("dialog")).getByRole(
+    "button",
+    { name: "Remover personalização" }
+  )).toBeVisible();
 });
 
 it("honors read-only capabilities while retaining preview access", async () => {
@@ -459,8 +509,10 @@ it("honors read-only capabilities while retaining preview access", async () => {
 
   renderPage(<ThemePage target="billing" targetUuid="read-only" />);
 
-  expect(await screen.findByText("Você tem acesso somente para consulta.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByText("Somente consulta")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Salvar na cobrança" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Visualizar" })).toBeEnabled();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toBeDisabled();
   expect(screen.getByLabelText("Primária")).toBeDisabled();
@@ -615,7 +667,7 @@ it.each([
     uuid: "org-title"
   },
   {
-    expected: "Aluguel — Tema - Rentivo",
+    expected: "Aluguel - Tema - Rentivo",
     ownerLabel: undefined,
     ownerName: "Aluguel",
     target: "billing",
@@ -644,7 +696,7 @@ it.each([
 
   await screen.findByRole("heading", {
     level: 1,
-    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme" : "Aluguel — Tema"
+    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme" : "Aluguel - Tema"
   });
   await waitFor(() => expect(document.title).toBe(expected));
   unmount();
@@ -784,7 +836,7 @@ it("aborts a stale save success and keeps the new organization target usable", a
 
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   await waitFor(() => expect(saveSignals).toHaveLength(1));
-  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Salvando…" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(saveSignals[0].aborted).toBe(true);
@@ -827,8 +879,8 @@ it("aborts and suppresses a stale save failure after changing target types", asy
     }
   });
   renderStrictThemeRoutes("/themes/billing/billing-a", "/themes/user");
-  await screen.findByRole("heading", { name: "Cobrança A — Tema" });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await screen.findByRole("heading", { name: "Cobrança A - Tema" });
+  await user.click(screen.getByRole("button", { name: "Salvar na cobrança" }));
   await waitFor(() => expect(saveSignal).toBeDefined());
 
   await user.click(screen.getByRole("button", { name: "Navegar" }));
@@ -889,15 +941,15 @@ it("aborts a stale reset success without reloading the previous target", async (
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(resetSignal?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Cobrança B — Tema" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Usar Padrão" })).toBeEnabled();
+  expect(await screen.findByRole("heading", { name: "Cobrança B - Tema" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Remover personalização" })).toBeEnabled();
   const settledOldGetCalls = oldGetCalls;
   await act(async () => {
     oldReset.resolve(new Response(null, { status: 204 }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(oldGetCalls).toBe(settledOldGetCalls);
-  expect(screen.getByRole("heading", { name: "Cobrança B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Cobrança B - Tema" })).toBeVisible();
   expect(screen.queryByText("Tema da organização redefinido para o padrão.")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
 });
@@ -927,8 +979,11 @@ it("aborts and suppresses a stale reset failure after changing targets", async (
     "/themes/billing/billing-a",
     "/themes/organization/org-b"
   );
-  await user.click(await screen.findByRole("button", { name: "Usar Padrão" }));
-  await user.click(screen.getByRole("button", { name: "Usar padrão" }));
+  await user.click(await screen.findByRole("button", { name: "Remover personalização" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole(
+    "button",
+    { name: "Remover personalização" }
+  ));
   await waitFor(() => expect(resetSignal).toBeDefined());
 
   await user.click(screen.getByRole("button", { name: "Navegar" }));
@@ -1063,16 +1118,24 @@ it.each(targetCases)("resets and refetches the $target target", async ({
   renderPage(
     <ThemePage target={target} targetUuid={uuid} />
   );
-  await user.click(await screen.findByRole("button", { name: "Usar Padrão" }));
-  expect(screen.getByRole("dialog", { name: "Restaurar o tema padrão?" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Usar padrão" }));
+  const resetTriggerName = target === "billing" ? "Remover personalização" : "Usar Padrão";
+  const resetDialogName = target === "billing"
+    ? "Remover personalização da cobrança?"
+    : "Restaurar o tema padrão?";
+  const resetAcceptName = target === "billing" ? "Remover personalização" : "Usar padrão";
+  await user.click(await screen.findByRole("button", { name: resetTriggerName }));
+  const resetDialog = screen.getByRole("dialog", { name: resetDialogName });
+  expect(resetDialog).toBeVisible();
+  await user.click(within(resetDialog).getByRole("button", { name: resetAcceptName }));
 
-  expect(await screen.findByText(/redefinido para o padrão\./)).toBeVisible();
+  expect(await screen.findByText(target === "billing"
+    ? "Personalização removida. A cobrança voltou a seguir o tema do proprietário."
+    : /redefinido para o padrão\./)).toBeVisible();
   expect(getCalls).toBe(2);
   if (target === "billing") {
-    expect(screen.getByText("padrão do sistema")).toBeVisible();
+    expect(screen.getAllByText("Padrão Rentivo")).toHaveLength(2);
   }
-  expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: resetTriggerName })).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 
