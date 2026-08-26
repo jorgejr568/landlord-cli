@@ -1,9 +1,11 @@
 from dataclasses import FrozenInstanceError
+from io import BytesIO
 
+import pypdf
 import pytest
 
 from rentivo.models.theme import DEFAULT_THEME, Theme
-from rentivo.pdf.document import derive_colors, new_document
+from rentivo.pdf.document import derive_colors, draw_document_header, new_document
 
 
 class TestDeriveColors:
@@ -83,3 +85,14 @@ class TestNewDocument:
         doc = new_document(None)
         with pytest.raises(FrozenInstanceError):
             doc.page_w = 1.0
+
+    def test_running_header_shortens_context_that_cannot_fit_its_column(self):
+        """Long property names must not paint outside the document masthead."""
+        doc = new_document(None)
+        subtitle = "Apartamento com uma identificação extraordinariamente longa " * 5
+
+        draw_document_header(doc, title="FATURA", subtitle=subtitle)
+
+        text = pypdf.PdfReader(BytesIO(bytes(doc.pdf.output()))).pages[0].extract_text()
+        assert subtitle not in text
+        assert "..." in text

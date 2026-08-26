@@ -76,6 +76,44 @@ class TestInvoicePDF:
         # With PIX page the PDF should be larger
         assert len(result) > 1000
 
+    def test_pix_page_keeps_the_invoice_identity_in_its_running_header(self):
+        """The payment page must read as page two of the same invoice."""
+        bill = self._make_bill()
+        pix_png = generate_pix_qrcode_png(
+            pix_key="test@pix.com",
+            merchant_name="Test",
+            merchant_city="City",
+            amount_centavos=295000,
+        )
+
+        result = InvoicePDF().generate(
+            bill,
+            "Apartamento Aurora",
+            pix_qrcode_png=pix_png,
+            pix_key="test@pix.com",
+            pix_payload="00020126...",
+        )
+
+        payment_page = pypdf.PdfReader(io.BytesIO(result)).pages[1].extract_text()
+        assert "FATURA" in payment_page
+        assert "Apartamento Aurora" in payment_page
+        assert "Março/2025" in payment_page
+        assert "PAGUE COM PIX" in payment_page
+
+    def test_total_is_visually_connected_to_the_final_invoice_item(self):
+        """The total belongs to the item ledger instead of floating as another card."""
+        result = InvoicePDF().generate(self._make_bill(), "Apartamento Aurora")
+        fragments: list[tuple[str, float]] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+
+        final_item_y = next(y for text, y in fragments if text == "Água")
+        total_y = next(y for text, y in fragments if text == "TOTAL A PAGAR")
+        assert final_item_y - total_y <= 48
+
     def test_generate_without_pix(self):
         pdf_gen = InvoicePDF()
         bill = self._make_bill()
@@ -161,6 +199,30 @@ class TestInvoicePDF:
         assert "TOTAL" in page_text[1]
         assert all("rentivo" in text for text in page_text)
 
+    def test_continuation_pages_repeat_the_invoice_identity(self):
+        """Every generated invoice page must remain identifiable on its own."""
+        line_items = [
+            BillLineItem(
+                description=f"Item de cobrança {index:02d}",
+                amount=10000 + index,
+                item_type=ItemType.VARIABLE,
+                sort_order=index,
+            )
+            for index in range(13)
+        ]
+        result = InvoicePDF().generate(
+            self._make_bill(
+                line_items=line_items,
+                total_amount=sum(item.amount for item in line_items),
+            ),
+            "Apartamento Aurora",
+        )
+
+        page_text = [page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages]
+        assert len(page_text) == 2
+        assert all("Apartamento Aurora" in text for text in page_text)
+        assert all("Março/2025" in text for text in page_text)
+
     def test_long_item_description_is_split_into_multiple_pdf_text_fragments(self):
         """Regression: a single-line description painted through the type and amount columns."""
         description = "Consumo de água da unidade conforme leitura individual homologada pela administradora"
@@ -244,14 +306,14 @@ class TestInvoicePDF:
         assert min(billing_line_y) >= items_heading_y + 18
         assert all("  " not in fragment for fragment in billing_fragments)
 
-    def test_expanded_header_moves_whole_table_to_a_labeled_continuation_page(self):
-        """A very tall metadata card must not leave an orphan table heading behind."""
+    def test_expanded_header_keeps_the_item_ledger_below_its_metadata(self):
+        """A tall billing identity must not overlap the connected item ledger."""
         billing_name = " ".join(
             [
                 "Condomínio Residencial Jardim das Palmeiras - Torre Ipê - Unidade 1204 - "
                 "Administração Patrimonial Ribeiro e Filhos"
             ]
-            * 6
+            * 8
         )
         line_item = BillLineItem(
             description="Aluguel residencial",
@@ -268,9 +330,10 @@ class TestInvoicePDF:
 
         assert len(page_text) == 2
         assert "ITENS DA FATURA" not in page_text[0]
-        assert "ITENS DA FATURA (CONTINUAÇÃO)" in page_text[1]
-        assert "Aluguel residencial" in page_text[1]
-        assert "TOTAL" in page_text[1]
+        assert "ITENS DA FATURA" in page_text[-1]
+        assert "Aluguel residencial" in page_text[-1]
+        assert "TOTAL A PAGAR" in page_text[-1]
+        assert "Condomínio Residencial" in page_text[-1]
         assert all("Documento gerado automaticamente" in text for text in page_text)
 
     def test_extraordinarily_tall_item_is_split_across_branded_table_pages(self):
@@ -318,6 +381,27 @@ class TestInvoicePDF:
 
         assert page_rows == [(item, ["Linha 0", "Linha 1", "Linha 2", "Linha 3"], False)]
         assert pending_rows == [(item, ["Linha 4"], True)]
+
+    def test_ordinary_final_row_moves_whole_when_the_summary_needs_the_page(self):
+        """A normal row never splits just to squeeze the summary onto its page."""
+        first = BillLineItem(
+            description="Primeiro item",
+            amount=10000,
+            item_type=ItemType.FIXED,
+            sort_order=0,
+        )
+        final = BillLineItem(
+            description="Último item",
+            amount=20000,
+            item_type=ItemType.VARIABLE,
+            sort_order=1,
+        )
+        pending_rows = [(first, [first.description], True), (final, [final.description], True)]
+
+        page_rows = InvoicePDF()._take_table_page(pending_rows, available_h=23)
+
+        assert page_rows == [(first, [first.description], True)]
+        assert pending_rows == [(final, [final.description], True)]
 
     def test_long_notes_repeat_observations_container_on_branded_pages(self):
         """Regression: automatic note overflow created a page without invoice furniture."""

@@ -9,7 +9,7 @@ from rentivo.constants import TYPE_LABELS, format_month
 from rentivo.models import format_brl
 from rentivo.models.bill import Bill, BillLineItem
 from rentivo.observability import traced
-from rentivo.pdf.document import PdfDocument, draw_box, draw_document_header, draw_footer, new_document
+from rentivo.pdf.document import PdfDocument, draw_document_header, draw_footer, new_document
 
 if TYPE_CHECKING:
     from rentivo.models.theme import Theme
@@ -37,17 +37,25 @@ class InvoicePDF:
         pdf = doc.pdf
 
         self._draw_header(doc, billing_name, bill.reference_month, bill.due_date)
-        self._draw_table(doc, bill)
+        self._draw_table(doc, bill, billing_name)
         self._draw_total(doc, bill.total_amount)
 
         if bill.notes:
-            self._draw_notes(doc, bill.notes)
+            self._draw_notes(doc, bill.notes, billing_name, bill.reference_month)
 
         self._draw_footer(doc)
 
         if pix_qrcode_png:
             pdf.add_page()
-            self._draw_pix_page(doc, pix_qrcode_png, bill.total_amount, pix_key, pix_payload)
+            self._draw_pix_page(
+                doc,
+                pix_qrcode_png,
+                bill.total_amount,
+                pix_key,
+                pix_payload,
+                billing_name=billing_name,
+                reference_month=bill.reference_month,
+            )
             self._draw_footer(doc)
 
         output = pdf.output()
@@ -90,29 +98,37 @@ class InvoicePDF:
             )
             for (_, value), field_w in zip(fields, widths, strict=True)
         ]
-        card_y = pdf.get_y()
-        card_h = max(28.0, max(len(lines) for lines in value_lines) * 5.5 + 17.0)
-        draw_box(doc, x, card_y, page_w, card_h, fill=c["text_contrast"])
+        metadata_y = pdf.get_y()
+        metadata_h = max(27.0, max(len(lines) for lines in value_lines) * 5.5 + 17.0)
+        pdf.set_fill_color(*c["secondary"])
+        pdf.rect(x, metadata_y, page_w, metadata_h, style="F")
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.line(x, metadata_y, x + page_w, metadata_y)
+        pdf.line(x, metadata_y + metadata_h, x + page_w, metadata_y + metadata_h)
+        pdf.set_draw_color(*c["primary"])
+        pdf.set_line_width(1.8)
+        pdf.line(x, metadata_y, x, metadata_y + metadata_h)
 
         field_x = x
         for index, ((label, value), field_w) in enumerate(zip(fields, widths, strict=True)):
             if index:
                 pdf.set_draw_color(*c["border_color"])
                 pdf.set_line_width(0.45)
-                pdf.line(field_x, card_y + 4, field_x, card_y + card_h - 4)
-            pdf.set_xy(field_x + 7, card_y + 5)
+                pdf.line(field_x, metadata_y + 4, field_x, metadata_y + metadata_h - 4)
+            pdf.set_xy(field_x + 7, metadata_y + 5)
             pdf.set_font(doc.text_font_sb, "", 7)
             pdf.set_text_color(*c["muted_text"])
             pdf.cell(field_w - 12, 5, label)
-            pdf.set_xy(field_x + 7, card_y + 12)
+            pdf.set_xy(field_x + 7, metadata_y + 12)
             pdf.set_font(doc.header_font, "B", 12)
             pdf.set_text_color(*c["text_color"])
             pdf.multi_cell(field_w - 12, 5.5, value, align="L", max_line_height=5.5)
             field_x += field_w
 
-        pdf.set_y(card_y + card_h + 15)
+        pdf.set_y(metadata_y + metadata_h + 12)
 
-    def _draw_table(self, doc: PdfDocument, bill: Bill) -> None:
+    def _draw_table(self, doc: PdfDocument, bill: Bill, billing_name: str) -> None:
         pdf = doc.pdf
         rows = self._measure_table_rows(doc, bill.line_items)
         total_rows = len(rows)
@@ -128,7 +144,7 @@ class InvoicePDF:
             fresh_rows_h = content_bottom - (pdf.t_margin + 52.0 + heading_h + header_h)
             first_row_fits_fresh = first_row_h + summary_h <= fresh_rows_h
             if not continuation and first_row_fits_fresh and pdf.get_y() + required_h > content_bottom:
-                self._start_table_continuation(doc)
+                self._start_table_continuation(doc, billing_name, bill.reference_month)
                 continuation = True
 
             self._draw_table_heading(doc, total_rows, continuation=continuation)
@@ -142,16 +158,16 @@ class InvoicePDF:
 
             page_rows = self._take_table_page(rows, available_h)
             self._draw_table_group(doc, page_rows)
-            self._start_table_continuation(doc)
+            self._start_table_continuation(doc, billing_name, bill.reference_month)
             continuation = True
 
-    def _start_table_continuation(self, doc: PdfDocument) -> None:
+    def _start_table_continuation(self, doc: PdfDocument, billing_name: str, reference_month: str) -> None:
         self._draw_footer(doc)
         doc.pdf.add_page()
         draw_document_header(
             doc,
             title="FATURA",
-            subtitle="Itens da cobrança - continuação",
+            subtitle=f"{billing_name}  ·  {format_month(reference_month)}  ·  Itens - continuação",
         )
 
     def _take_table_page(
@@ -172,11 +188,17 @@ class InvoicePDF:
                 used_h += row_h
                 continue
 
+            if row_h <= room_h and page_rows:
+                # A normal final row belongs with the summary. Move it intact
+                # instead of leaving its description on one page and values on
+                # the next.
+                break
+
             if row_h <= room_h:
                 # All content fits, but the caller already established that the
-                # summary does not. The page preflight moves ordinary final rows
-                # to a continuation page first, so this is an over-tall row: keep
-                # its final line for the fragment that owns type and value.
+                # summary does not. With no previous rows to preserve on this
+                # page, this is an over-tall row: keep its final line for the
+                # fragment that owns type and value.
                 max_lines = len(lines) - 1
                 page_rows.append((item, lines[:max_lines], False))
                 rows[0] = (item, lines[max_lines:], show_values)
@@ -251,9 +273,15 @@ class InvoicePDF:
         table_y = pdf.get_y()
         table_h = header_h + sum(self._table_row_height(lines) for _, lines, _ in rows)
 
-        draw_box(doc, table_x, table_y, page_w, table_h, fill=c["text_contrast"])
         pdf.set_fill_color(*c["primary_light"])
-        pdf.rect(table_x + 0.65, table_y + 0.65, page_w - 1.3, header_h - 0.65, style="F")
+        pdf.rect(table_x, table_y, page_w, header_h, style="F")
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.line(table_x, table_y, table_x + page_w, table_y)
+        pdf.line(table_x, table_y + table_h, table_x + page_w, table_y + table_h)
+        pdf.set_draw_color(*c["primary"])
+        pdf.set_line_width(1.8)
+        pdf.line(table_x, table_y, table_x, table_y + table_h)
         pdf.set_xy(table_x, table_y)
         pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["text_color"])
@@ -289,7 +317,7 @@ class InvoicePDF:
                 pdf.cell(col_amount, row_h, f"{format_brl(item.amount)}  ", align="R")
             row_y += row_h
 
-        pdf.set_y(table_y + table_h + 5)
+        pdf.set_y(table_y + table_h)
 
     def _summary_height(self, doc: PdfDocument, notes: str) -> float:
         height = 25.0
@@ -302,21 +330,24 @@ class InvoicePDF:
     def _draw_total(self, doc: PdfDocument, total_amount: int) -> None:
         pdf = doc.pdf
         c = doc.colors
-        total_w = doc.page_w * 0.54
-        total_h = 18.0
-        x = pdf.l_margin + doc.page_w - total_w
+        total_w = doc.page_w
+        total_h = 19.0
+        x = pdf.l_margin
         y = pdf.get_y()
 
-        draw_box(doc, x, y, total_w, total_h, fill=c["primary"], radius=3.0)
-        pdf.set_xy(x + 7, y + 4)
+        pdf.set_fill_color(*c["primary"])
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.rect(x, y, total_w, total_h, style="DF")
+        pdf.set_xy(x + 8, y + 4.5)
         pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["text_contrast"])
-        pdf.cell(total_w * 0.36, 10, "TOTAL")
+        pdf.cell(total_w * 0.45, 10, "TOTAL A PAGAR")
         pdf.set_font(doc.header_font, "B", 15.5)
-        pdf.cell(total_w * 0.54, 10, format_brl(total_amount), align="R")
-        pdf.set_y(y + total_h + 2)
+        pdf.cell(total_w * 0.47, 10, format_brl(total_amount), align="R")
+        pdf.set_y(y + total_h)
 
-    def _draw_notes(self, doc: PdfDocument, notes: str) -> None:
+    def _draw_notes(self, doc: PdfDocument, notes: str, billing_name: str, reference_month: str) -> None:
         pdf = doc.pdf
         c = doc.colors
         page_w = doc.page_w
@@ -342,7 +373,11 @@ class InvoicePDF:
             page_lines = lines[:max_lines]
             lines = lines[max_lines:]
             notes_h = max(20.0, len(page_lines) * 5.5 + 10)
-            draw_box(doc, x, y, page_w, notes_h, fill=c["primary_light"], shadow=False)
+            pdf.set_fill_color(*c["primary_light"])
+            pdf.rect(x, y, page_w, notes_h, style="F")
+            pdf.set_draw_color(*c["primary"])
+            pdf.set_line_width(1.8)
+            pdf.line(x, y, x, y + notes_h)
             pdf.set_xy(x + 8, y + 5)
             pdf.set_text_color(*c["text_color"])
             pdf.set_font(doc.text_font, "", 9.5)
@@ -355,7 +390,7 @@ class InvoicePDF:
                 draw_document_header(
                     doc,
                     title="FATURA",
-                    subtitle="Observações - continuação",
+                    subtitle=f"{billing_name}  ·  {format_month(reference_month)}  ·  Observações - continuação",
                 )
                 continuation = True
 
@@ -382,16 +417,34 @@ class InvoicePDF:
         total_amount: int,
         pix_key: str,
         pix_payload: str,
+        *,
+        billing_name: str,
+        reference_month: str,
     ) -> None:
         pdf = doc.pdf
         c = doc.colors
         page_w = doc.page_w
         x = pdf.l_margin
-        draw_document_header(doc, title="PAGUE COM PIX", subtitle="Pagamento seguro pelo aplicativo do seu banco")
+        reference = format_month(reference_month)
+        draw_document_header(doc, title="FATURA", subtitle=f"{billing_name}  ·  {reference}")
+
+        pdf.set_font(doc.header_font, "B", 16)
+        pdf.set_text_color(*c["text_color"])
+        pdf.cell(page_w * 0.62, 8, "PAGUE COM PIX")
+        pdf.set_font(doc.text_font, "", 8)
+        pdf.set_text_color(*c["muted_text"])
+        pdf.cell(page_w * 0.38, 8, "Pagamento seguro pelo seu banco", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
 
         qr_panel = 72.0
         qr_y = pdf.get_y()
-        draw_box(doc, x, qr_y, qr_panel, qr_panel, fill=c["text_contrast"], radius=4.0)
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.line(x, qr_y, x + page_w, qr_y)
+        pdf.line(x, qr_y + qr_panel, x + page_w, qr_y + qr_panel)
+        pdf.set_draw_color(*c["primary"])
+        pdf.set_line_width(1.8)
+        pdf.line(x, qr_y, x, qr_y + qr_panel)
         qr_size = 56.0
         qr_x = x + (qr_panel - qr_size) / 2
         buf = BytesIO(qrcode_png)
@@ -400,7 +453,11 @@ class InvoicePDF:
         aside_x = x + qr_panel + 10
         aside_w = page_w - qr_panel - 10
         amount_h = 28.0
-        draw_box(doc, aside_x, qr_y, aside_w, amount_h, fill=c["primary"], radius=3.0)
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.45)
+        pdf.line(aside_x - 5, qr_y, aside_x - 5, qr_y + qr_panel)
+        pdf.set_fill_color(*c["primary"])
+        pdf.rect(aside_x, qr_y, aside_w, amount_h, style="F")
         pdf.set_xy(aside_x + 7, qr_y + 5)
         pdf.set_font(doc.text_font_sb, "", 7.5)
         pdf.set_text_color(*c["text_contrast"])
@@ -433,7 +490,11 @@ class InvoicePDF:
 
             key_y = pdf.get_y()
             key_h = 16
-            draw_box(doc, x, key_y, page_w, key_h, fill=c["primary_light"], shadow=False)
+            pdf.set_fill_color(*c["primary_light"])
+            pdf.rect(x, key_y, page_w, key_h, style="F")
+            pdf.set_draw_color(*c["primary"])
+            pdf.set_line_width(1.8)
+            pdf.line(x, key_y, x, key_y + key_h)
             pdf.set_xy(x + 7, key_y + 3.5)
             pdf.set_font(doc.text_font, "B", 11)
             pdf.set_text_color(*c["text_color"])
@@ -463,7 +524,11 @@ class InvoicePDF:
             )
             text_h = len(result) * 4
             payload_h = text_h + 10
-            draw_box(doc, x, payload_y, page_w, payload_h, fill=c["primary_light"], shadow=False)
+            pdf.set_fill_color(*c["primary_light"])
+            pdf.rect(x, payload_y, page_w, payload_h, style="F")
+            pdf.set_draw_color(*c["primary"])
+            pdf.set_line_width(1.8)
+            pdf.line(x, payload_y, x, payload_y + payload_h)
 
             pdf.set_xy(x + 7, payload_y + 5)
             pdf.set_font(doc.text_font, "", 7)

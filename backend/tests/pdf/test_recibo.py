@@ -80,3 +80,26 @@ class TestReciboPDF:
 
         text = pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text()
         assert "rentivo" in text
+
+    def test_received_amount_is_connected_to_the_payment_details(self):
+        """The receipt reads as one ledger instead of a stack of detached cards."""
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+        fragments: list[tuple[str, float]] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+
+        payment_date_label_y = next(y for text, y in fragments if text == "DATA DO PAGAMENTO")
+        amount_label_y = next(y for text, y in fragments if text == "VALOR RECEBIDO")
+        assert payment_date_label_y - amount_label_y <= 65

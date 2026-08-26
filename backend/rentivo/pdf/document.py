@@ -30,6 +30,23 @@ def _shift(rgb: tuple[int, int, int], delta: int) -> tuple[int, int, int]:
     return (r, g, b)
 
 
+def _fit_single_line(pdf: FPDF, text: str, max_width: float) -> str:
+    """Shorten one line with an ASCII ellipsis before it leaves its column."""
+    if pdf.get_string_width(text) <= max_width:
+        return text
+    suffix = "..."
+    low = 0
+    high = len(text)
+    while low < high:
+        midpoint = (low + high + 1) // 2
+        candidate = text[:midpoint].rstrip() + suffix
+        if pdf.get_string_width(candidate) <= max_width:
+            low = midpoint
+        else:
+            high = midpoint - 1
+    return text[:low].rstrip() + suffix
+
+
 def derive_colors(theme: Theme) -> dict[str, tuple[int, int, int]]:
     primary_light = _hex_to_rgb(theme.primary_light)
     text_color = _hex_to_rgb(theme.text_color)
@@ -64,42 +81,6 @@ class PdfDocument:
     page_w: float
 
 
-def draw_box(
-    doc: PdfDocument,
-    x: float,
-    y: float,
-    w: float,
-    h: float,
-    *,
-    fill: tuple[int, int, int],
-    border: tuple[int, int, int] | None = None,
-    radius: float = 3.0,
-    shadow: bool = True,
-    shadow_offset: float = 1.4,
-) -> None:
-    """Draw a softly rounded panel with Rentivo's offset hard shadow."""
-    pdf = doc.pdf
-    border = border or doc.colors["border_color"]
-
-    if shadow:
-        pdf.set_fill_color(*doc.colors["border_color"])
-        pdf.rect(
-            x + shadow_offset,
-            y + shadow_offset,
-            w,
-            h,
-            style="F",
-            round_corners=True,
-            corner_radius=radius,
-        )
-
-    pdf.set_fill_color(*fill)
-    pdf.set_draw_color(*border)
-    pdf.set_line_width(0.65)
-    pdf.rect(x, y, w, h, style="DF", round_corners=True, corner_radius=radius)
-    pdf.set_line_width(0.2)
-
-
 def draw_wordmark(doc: PdfDocument, x: float, y: float, *, inverted: bool = False) -> None:
     """Draw the compact Rentivo mark used by every generated document."""
     pdf = doc.pdf
@@ -124,32 +105,34 @@ def draw_wordmark(doc: PdfDocument, x: float, y: float, *, inverted: bool = Fals
 
 
 def draw_document_header(doc: PdfDocument, *, title: str, subtitle: str) -> None:
-    """Draw the shared Rentivo masthead and advance below it."""
+    """Draw the shared flat Rentivo masthead and advance below it."""
     pdf = doc.pdf
     c = doc.colors
     x = pdf.l_margin
     y = pdf.get_y()
-    header_h = 40.0
+    header_h = 34.0
 
-    draw_box(doc, x, y, doc.page_w, header_h, fill=c["secondary_dark"], radius=4.0)
+    pdf.set_fill_color(*c["secondary_dark"])
+    pdf.rect(x, y, doc.page_w, header_h, style="F")
     pdf.set_draw_color(*c["primary"])
-    pdf.set_line_width(2.4)
-    pdf.line(x + 4, y + 3.3, x + doc.page_w - 4, y + 3.3)
+    pdf.set_line_width(2.2)
+    pdf.line(x, y + 2.2, x + doc.page_w, y + 2.2)
     pdf.set_line_width(0.2)
 
-    draw_wordmark(doc, x + 7, y + 7.5, inverted=True)
+    draw_wordmark(doc, x + 7, y + 6.5, inverted=True)
 
-    pdf.set_xy(x + 7, y + 20)
-    pdf.set_font(doc.header_font, "B", 25)
+    pdf.set_xy(x + 7, y + 18)
+    pdf.set_font(doc.header_font, "B", 19)
     pdf.set_text_color(*c["text_contrast"])
-    pdf.cell(doc.page_w - 14, 12, title)
+    pdf.cell(doc.page_w * 0.5, 10, title)
 
-    pdf.set_xy(x + 7, y + 32)
+    subtitle_w = doc.page_w * 0.45
+    pdf.set_xy(x + doc.page_w * 0.48, y + 20)
     pdf.set_font(doc.text_font, "", 8.5)
     pdf.set_text_color(218, 220, 225)
-    pdf.cell(doc.page_w - 14, 5, subtitle)
+    pdf.cell(subtitle_w, 5, _fit_single_line(pdf, subtitle, subtitle_w), align="R")
 
-    pdf.set_y(y + header_h + 12)
+    pdf.set_y(y + header_h + 9)
 
 
 def new_document(theme: Theme | None, *, semibold: bool = True) -> PdfDocument:
@@ -218,11 +201,12 @@ def draw_footer(
     if disable_page_break:
         pdf.set_auto_page_break(False)
     pdf.set_y(offset)
-    pdf.set_draw_color(*c["border_color"])
-    pdf.set_line_width(0.55)
+    pdf.set_draw_color(*c["primary"])
+    pdf.set_line_width(0.8)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.l_margin + doc.page_w, y)
     pdf.ln(gap)
     pdf.set_font(doc.text_font, "", 7)
     pdf.set_text_color(*c["muted_text"])
-    pdf.cell(0, 5, f"rentivo  |  Documento gerado automaticamente  |  Página {pdf.page_no()}", align="C")
+    pdf.cell(doc.page_w * 0.5, 5, "rentivo  |  Documento gerado automaticamente")
+    pdf.cell(doc.page_w * 0.5, 5, f"Página {pdf.page_no()}", align="R")

@@ -8,7 +8,7 @@ from rentivo.constants import format_month
 from rentivo.models import format_brl
 from rentivo.models.bill import Bill
 from rentivo.observability import traced
-from rentivo.pdf.document import PdfDocument, draw_box, draw_document_header, draw_footer, new_document
+from rentivo.pdf.document import PdfDocument, draw_document_header, draw_footer, new_document
 
 if TYPE_CHECKING:
     from rentivo.models.theme import Theme
@@ -69,7 +69,15 @@ class ReciboPDF:
         x = pdf.l_margin
         y = pdf.get_y()
         panel_h = 20.0
-        draw_box(doc, x, y, doc.page_w, panel_h, fill=c["primary_light"], shadow=False)
+        pdf.set_fill_color(*c["primary_light"])
+        pdf.rect(x, y, doc.page_w, panel_h, style="F")
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.line(x, y, x + doc.page_w, y)
+        pdf.line(x, y + panel_h, x + doc.page_w, y + panel_h)
+        pdf.set_draw_color(*c["primary"])
+        pdf.set_line_width(1.8)
+        pdf.line(x, y, x, y + panel_h)
 
         mark_x = x + 7
         mark_y = y + 5
@@ -91,7 +99,7 @@ class ReciboPDF:
         pdf.set_font(doc.header_font, "B", 12)
         pdf.set_text_color(*c["text_color"])
         pdf.cell(doc.page_w - 30, 10, "PAGAMENTO CONFIRMADO")
-        pdf.set_y(y + panel_h + 15)
+        pdf.set_y(y + panel_h + 12)
 
     def _draw_details_table(self, doc: PdfDocument, rows: list[tuple[str, str]]) -> None:
         pdf = doc.pdf
@@ -107,7 +115,16 @@ class ReciboPDF:
         pdf.ln(3)
 
         start_y = pdf.get_y()
-        draw_box(doc, x, start_y, page_w, row_h * len(rows), fill=c["text_contrast"])
+        table_h = row_h * len(rows)
+        pdf.set_fill_color(*c["secondary"])
+        pdf.rect(x, start_y, page_w, table_h, style="F")
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.line(x, start_y, x + page_w, start_y)
+        pdf.line(x, start_y + table_h, x + page_w, start_y + table_h)
+        pdf.set_draw_color(*c["primary"])
+        pdf.set_line_width(1.8)
+        pdf.line(x, start_y, x, start_y + table_h)
 
         for i, (label, value) in enumerate(rows):
             y = pdf.get_y()
@@ -125,7 +142,7 @@ class ReciboPDF:
             pdf.cell(page_w - label_w - 5, row_h, value)
             pdf.set_y(y + row_h)
 
-        pdf.set_y(start_y + row_h * len(rows) + 16)
+        pdf.set_y(start_y + table_h)
 
     def _draw_amount_box(self, doc: PdfDocument, total_centavos: int) -> None:
         """Draw the amount received as the final high-emphasis block."""
@@ -135,7 +152,10 @@ class ReciboPDF:
         box_h = 30.0
         y = pdf.get_y()
 
-        draw_box(doc, x, y, doc.page_w, box_h, fill=c["primary"], radius=4.0)
+        pdf.set_fill_color(*c["primary"])
+        pdf.set_draw_color(*c["border_color"])
+        pdf.set_line_width(0.65)
+        pdf.rect(x, y, doc.page_w, box_h, style="DF")
         pdf.set_xy(x + 10, y + 6)
         pdf.set_font(doc.text_font, "B", 8)
         pdf.set_text_color(*c["text_contrast"])
