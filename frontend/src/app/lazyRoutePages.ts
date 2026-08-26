@@ -5,7 +5,6 @@ import { routePageLoaders } from "./routePageLoaders";
 export const ForgotPasswordPage = lazy(routePageLoaders.ForgotPasswordPage);
 export const GoogleCallbackPage = lazy(routePageLoaders.GoogleCallbackPage);
 export const LoginPage = lazy(routePageLoaders.LoginPage);
-export const MobileLogoutPage = lazy(routePageLoaders.MobileLogoutPage);
 export const MfaVerifyPage = lazy(routePageLoaders.MfaVerifyPage);
 export const ResetPasswordPage = lazy(routePageLoaders.ResetPasswordPage);
 export const SignupPage = lazy(routePageLoaders.SignupPage);

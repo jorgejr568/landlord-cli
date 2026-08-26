@@ -212,16 +212,9 @@ session-expired signal — a `liveAPIClientSessionExpired` `NotificationCenter`
 post on iOS, a `sessionExpired` `Flow` on Android — which the app model observes
 to drop back to the anonymous state.
 
-Sign-out still round-trips through the browser, even for a session created
-natively: the app revokes the token, drops local state unconditionally, then
-opens `<base>/mobile-logout?state=<state>` and waits for
-`rentivo://auth/logout?state=<state>`, so the shared browser cookie jar is
-cleared alongside the local token. That round-trip is best-effort and never
-blocks the sign-out that already happened; a cancelled sheet is a silent
-outcome. Account deletion does the same, so the deleted account's web cookies
-cannot survive into the next login sheet. The browser session is deliberately
-non-ephemeral on iOS (`prefersEphemeralWebBrowserSession = false`) so login and
-logout see the same cookies as the website.
+Sign-out revokes the bearer token and clears local authentication state. It no
+longer opens a web logout page or waits for a browser callback. Account deletion
+also clears local authentication state after the backend deletes the account.
 
 ## iOS
 

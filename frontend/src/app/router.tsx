@@ -24,7 +24,6 @@ import {
   LandingPage,
   LoginPage,
   MfaVerifyPage,
-  MobileLogoutPage,
   NotFoundPage,
   OrganizationCreatePage,
   OrganizationDetailPage,
@@ -139,7 +138,6 @@ export function createAppRouter(children: RouteObject[] = []) {
         {
           children: [
             { element: <LoginPage />, path: "/login" },
-            { element: <MobileLogoutPage />, path: "/mobile-logout" },
             { element: <SignupPage />, path: "/signup" },
             { element: <MfaVerifyPage />, path: "/mfa-verify" },
             { element: <ForgotPasswordPage />, path: "/forgot-password" },

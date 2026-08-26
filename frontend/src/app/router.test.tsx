@@ -48,7 +48,6 @@ afterEach(() => {
 
 it.each([
   ["/login", "Entrar"],
-  ["/mobile-logout?state=native-state", "Sessão encerrada"],
   ["/signup", "Criar Conta"],
   ["/forgot-password", "Enviar link"],
   ["/reset-password", "Link inválido ou expirado. Solicite uma nova redefinição."],
@@ -62,6 +61,19 @@ it.each([
   expect(copy).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
   expect(copy.closest("main")).toBe(screen.getByRole("main"));
+  view.unmount();
+  router.dispose();
+});
+
+it("drops the retired mobile logout route", async () => {
+  window.history.pushState({}, "", "/mobile-logout?state=native-state");
+  const router = createAppRouter();
+  const view = render(<RouterProvider router={router} />);
+
+  expect(await screen.findByRole("heading", { name: "Entrar" })).toBeVisible();
+  expect(router.state.location.pathname).toBe("/login");
+  expect(screen.queryByText("Sessão encerrada")).not.toBeInTheDocument();
+
   view.unmount();
   router.dispose();
 });

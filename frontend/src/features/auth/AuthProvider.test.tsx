@@ -463,6 +463,25 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("path")).toHaveTextContent("/login");
   });
 
+  it("preserves public authentication progress when a later request expires", async () => {
+    const user = userEvent.setup();
+    installFetch();
+
+    render(
+      <Wrapper path="/login">
+        <Probe />
+      </Wrapper>
+    );
+
+    await screen.findByText("authenticated");
+    saveMfaChallenge({ challengeId: "challenge", methods: ["totp"] });
+    await user.click(screen.getByRole("button", { name: "expirar" }));
+
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeVisible());
+    expect(screen.getByTestId("path")).toHaveTextContent("/login");
+    expect(sessionStorage.getItem("rentivo.auth.mfa")).toContain("challenge");
+  });
+
   it("connects authenticated bootstrap data to the existing shell", async () => {
     installFetch();
 
