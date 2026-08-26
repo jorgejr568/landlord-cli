@@ -32,10 +32,65 @@ describe("MfaVerifyPage", () => {
     const code = await screen.findByLabelText("Código de autenticação");
     expect(code).toHaveFocus();
     expect(code).toHaveAttribute("autocomplete", "one-time-code");
-    expect(code).toHaveAttribute("maxlength", "8");
-    expect(screen.getByRole("button", { name: "Usar Passkey" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Passkey" })).toBeVisible();
     expect(screen.getByText("Usar código de recuperação")).toBeVisible();
     expect(document.title).toBe("Verificação MFA - Rentivo");
+  });
+
+  it("presents one focused verification method at a time", async () => {
+    const user = userEvent.setup();
+    storeChallenge();
+    renderAuth(<MfaVerifyPage />, { path: "/mfa-verify?challenge=challenge-1" });
+
+    const workspace = await screen.findByRole("region", { name: "Verificação de segurança" });
+    expect(screen.getByRole("heading", { level: 1, name: "Verificação MFA" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Método de verificação" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Aplicativo autenticador" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByRole("heading", { name: "Código do autenticador" })).toBeVisible();
+    expect(workspace).not.toHaveTextContent("Use sua passkey");
+
+    await user.click(screen.getByRole("button", { name: "Passkey" }));
+    expect(screen.getByRole("button", { name: "Passkey" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByRole("heading", { name: "Use sua passkey" })).toBeVisible();
+    expect(screen.queryByLabelText("Código de autenticação")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Usar código de recuperação" }));
+    expect(screen.getByRole("heading", { name: "Código de recuperação" })).toBeVisible();
+    expect(screen.getByLabelText("Código de recuperação")).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Aplicativo autenticador" }));
+    expect(screen.getByLabelText("Código de autenticação")).toHaveFocus();
+  });
+
+  it("offers a safe exit when a challenge has no usable verification method", async () => {
+    storeChallenge(["future-method"]);
+    renderAuth(<MfaVerifyPage />, { path: "/mfa-verify?challenge=challenge-1" });
+
+    expect(await screen.findByRole("heading", { name: "Nenhum método disponível" })).toBeVisible();
+    expect(screen.getByText("Entre novamente para iniciar uma nova verificação.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Voltar para o login" })).toHaveAttribute(
+      "href",
+      "/login"
+    );
+  });
+
+  it("keeps pasted authenticator codes numeric and paste-friendly", async () => {
+    const user = userEvent.setup();
+    storeChallenge(["totp"]);
+    renderAuth(<MfaVerifyPage />, { path: "/mfa-verify?challenge=challenge-1" });
+
+    const code = await screen.findByLabelText("Código de autenticação");
+    await user.click(code);
+    await user.paste("12 34-ab56");
+
+    expect(code).toHaveValue("123456");
+    expect(screen.getByText("6 de 6 dígitos")).toBeVisible();
   });
 
   it("verifies TOTP with the generated request and authenticates", async () => {
@@ -101,9 +156,9 @@ describe("MfaVerifyPage", () => {
 
     await screen.findByLabelText("Código de autenticação");
     await user.click(screen.getByText("Usar código de recuperação"));
-    await user.type(screen.getByPlaceholderText("Código de recuperação"), "recovery-code");
+    await user.type(screen.getByLabelText("Código de recuperação"), "recovery-code");
     await user.click(
-      screen.getByRole("button", { name: "Verificar com código de recuperação" })
+      screen.getByRole("button", { name: "Confirmar código" })
     );
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
@@ -267,7 +322,7 @@ describe("MfaVerifyPage", () => {
     const recovery = screen.getByLabelText("Código de recuperação");
     await user.type(recovery, "recovery-code");
     await user.click(
-      screen.getByRole("button", { name: "Verificar com código de recuperação" })
+      screen.getByRole("button", { name: "Confirmar código" })
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -372,15 +427,12 @@ describe("MfaVerifyPage", () => {
       path: "/mfa-verify?challenge=challenge-1"
     });
 
-    await user.click(await screen.findByText("Usar código de recuperação"));
     await user.type(screen.getByLabelText("Código de autenticação"), "123456");
     await user.click(screen.getByRole("button", { name: "Verificar" }));
 
-    expect(screen.getByRole("button", { name: "Verificar" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Usar Passkey" })).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Verificar com código de recuperação" })
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Verificando…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Passkey" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Usar código de recuperação" })).toBeDisabled();
 
     await act(async () => resolveVerification(jsonResponse(AUTHENTICATED_RESPONSE)));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
