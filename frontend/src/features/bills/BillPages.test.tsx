@@ -524,6 +524,28 @@ it("edits line items and extras then returns to the bill with success feedback",
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(2);
 });
 
+it("regenerates and deletes from the bill editor", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse({ ...bill, pdf_render_status: "pending" }, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" }),
+    "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => new Response(null, { headers: { "X-Rentivo-Analytics-Event": "rentivo_bill_deleted" }, status: 204 })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await screen.findByRole("heading", { name: "Editar fatura" });
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
+  await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
+  expect(await screen.findByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
+  await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
+
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
+  expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(2);
+});
+
 it("presents invoice editing as one workspace with a live summary and disclosed records", async () => {
   const user = userEvent.setup();
   installFetch({
