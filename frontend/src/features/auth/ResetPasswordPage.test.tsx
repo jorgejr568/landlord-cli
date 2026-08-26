@@ -17,18 +17,85 @@ describe("ResetPasswordPage", () => {
   it("shows the exact invalid-link state when the token is missing", async () => {
     renderAuth(<ResetPasswordPage />, { path: "/reset-password" });
 
+    expect(
+      await screen.findByRole("heading", { name: "Este link não pode mais ser usado" })
+    ).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Link inválido ou expirado. Solicite uma nova redefinição."
     );
-    expect(screen.getByRole("link", { name: "Pedir novo link" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Solicitar outro link" })).toHaveAttribute(
       "href",
       "/forgot-password"
+    );
+    expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
+      "href",
+      "/login"
     );
     expect(screen.queryByLabelText("Nova senha")).not.toBeInTheDocument();
     expect(document.title).toBe("Redefinir senha - Rentivo");
   });
 
-  it("renders the token form and validates password confirmation locally", async () => {
+  it("renders an accessible new-password form with live match guidance", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    renderAuth(<ResetPasswordPage />, {
+      path: "/reset-password?token=reset-token"
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "Crie uma nova senha" })
+    ).toBeInTheDocument();
+    const password = screen.getByLabelText("Nova senha");
+    const confirmation = screen.getByLabelText("Confirmar nova senha");
+    expect(password).toHaveAttribute("autocomplete", "new-password");
+    expect(confirmation).toHaveAttribute("autocomplete", "new-password");
+    expect(password).toHaveFocus();
+    expect(screen.getByRole("status", { name: "Estado das senhas" })).toHaveTextContent(
+      "As senhas ainda não coincidem."
+    );
+
+    await user.type(password, "new-password");
+    await user.type(confirmation, "new-password");
+
+    expect(screen.getByRole("status", { name: "Estado das senhas" })).toHaveTextContent(
+      "As senhas coincidem."
+    );
+  });
+
+  it("does not force focus into the password field on a narrow screen", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+    renderAuth(<ResetPasswordPage />, {
+      path: "/reset-password?token=reset-token"
+    });
+
+    expect(await screen.findByLabelText("Nova senha")).not.toHaveFocus();
+  });
+
+  it("lets the user reveal each password without changing the values", async () => {
+    const user = userEvent.setup();
+    renderAuth(<ResetPasswordPage />, {
+      path: "/reset-password?token=reset-token"
+    });
+
+    const password = await screen.findByLabelText("Nova senha");
+    const confirmation = screen.getByLabelText("Confirmar nova senha");
+    await user.type(password, "new-password");
+    await user.type(confirmation, "new-password");
+
+    await user.click(screen.getByRole("button", { name: "Mostrar nova senha" }));
+    await user.click(screen.getByRole("button", { name: "Mostrar confirmação da senha" }));
+
+    expect(password).toHaveAttribute("type", "text");
+    expect(confirmation).toHaveAttribute("type", "text");
+    expect(password).toHaveValue("new-password");
+    expect(confirmation).toHaveValue("new-password");
+    expect(screen.getByRole("button", { name: "Ocultar nova senha" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("validates password confirmation locally and focuses the field to fix", async () => {
     const user = userEvent.setup();
     const { fetchMock } = renderAuth(<ResetPasswordPage />, {
       path: "/reset-password?token=reset-token"
@@ -40,10 +107,30 @@ describe("ResetPasswordPage", () => {
     await user.click(screen.getByRole("button", { name: "Redefinir senha" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("As senhas não coincidem.");
-    expect(screen.getByLabelText("Nova senha")).toHaveFocus();
+    expect(screen.getByLabelText("Confirmar nova senha")).toHaveFocus();
+    expect(screen.getByLabelText("Confirmar nova senha")).toHaveAttribute("aria-invalid", "true");
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(
       false
     );
+
+    await user.clear(screen.getByLabelText("Confirmar nova senha"));
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "password-one");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("rejects an invalid confirmation before sending the reset request", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<ResetPasswordPage />, {
+      path: "/reset-password?token=reset-token"
+    });
+
+    await user.type(await screen.findByLabelText("Nova senha"), "new-password");
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Redefinir senha" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(screen.getByLabelText("Confirmar nova senha")).toHaveFocus();
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(false);
   });
 
   it("keeps an over-72-byte multibyte password local", async () => {
@@ -55,6 +142,31 @@ describe("ResetPasswordPage", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(false);
+  });
+
+  it("announces the in-flight state while the reset is being completed", async () => {
+    const user = userEvent.setup();
+    let resolveRequest: ((response: Response) => void) | undefined;
+    renderAuth(<ResetPasswordPage />, {
+      handlers: {
+        "/api/v1/auth/password/reset": () =>
+          new Promise<Response>((resolve) => {
+            resolveRequest = resolve;
+          })
+      },
+      path: "/reset-password?token=reset-token"
+    });
+
+    await user.type(await screen.findByLabelText("Nova senha"), "new-password");
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "new-password");
+    await user.click(screen.getByRole("button", { name: "Redefinir senha" }));
+
+    const submitting = await screen.findByRole("button", { name: "Redefinindo senha…" });
+    expect(submitting).toBeDisabled();
+    expect(submitting).toHaveAttribute("aria-busy", "true");
+
+    resolveRequest?.(new Response(null, { status: 204 }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
   });
 
   it("submits the generated contract, forwards analytics, and flashes login", async () => {

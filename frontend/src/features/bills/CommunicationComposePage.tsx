@@ -1,22 +1,39 @@
-import { ArrowLeft, Send } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowLeft, CalendarDays, FileText, Mail, Paperclip, Users } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
+import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../../components/FormWizard";
+import { ThemedSelect } from "../../components/ThemedSelect";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, firstFieldError, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
-import { formatMonth } from "../../lib/format";
+import { formatBrl, formatIsoDate, formatMonth } from "../../lib/format";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import type { Bill, Billing } from "./billSupport";
+import "./CommunicationComposePage.css";
 
 type CommType = components["schemas"]["CommunicationSendRequest"]["comm_type"];
 const MAX_COMMUNICATION_SUBJECT_LENGTH = 998;
 const MAX_COMMUNICATION_BODY_BYTES = 4_096;
+
+const COMMUNICATION_STEPS: WizardStep[] = [
+  { description: "Escolha quem receberá uma cópia individual deste documento.", id: "recipients", label: "Destinatários" },
+  { description: "Personalize o texto e confira como as variáveis serão preenchidas.", id: "message", label: "Mensagem" },
+  { description: "Revise destinatários, conteúdo e preferências antes de enviar.", id: "review", label: "Revisar envio" }
+];
+
+const TEMPLATE_VARIABLES = [
+  { label: "nome do inquilino", value: "{{nome_inquilino}}" },
+  { label: "unidade", value: "{{unidade}}" },
+  { label: "mês", value: "{{mes}}" },
+  { label: "vencimento", value: "{{vencimento}}" },
+  { label: "total", value: "{{total}}" }
+] as const;
 
 function normalizeCommunicationContent(subject: string, body: string) {
   return { subject: subject.trim(), body: body.trim() };
@@ -42,6 +59,40 @@ function isFullContact(contact: Billing["recipients"][number]): contact is Extra
   return "email" in contact;
 }
 
+function stepForCommunicationField(field: string | undefined): number | null {
+  if (field?.startsWith("recipient_uuids")) return 0;
+  if (field === "subject" || field === "body") return 1;
+  if (field === "save_scope") return 2;
+  return null;
+}
+
+function personalizeContent(content: string, billing: Billing, bill: Bill, recipientName: string): string {
+  const values: Record<string, string> = {
+    "{{nome_inquilino}}": recipientName,
+    "{{unidade}}": billing.name,
+    "{{mes}}": formatMonth(bill.reference_month),
+    "{{vencimento}}": bill.due_date ? formatIsoDate(bill.due_date) : "sem vencimento",
+    "{{total}}": formatBrl(bill.total_amount)
+  };
+  return Object.entries(values).reduce((result, [variable, value]) => result.replaceAll(variable, value), content);
+}
+
+function renderInlineMarkdown(content: string): ReactNode[] {
+  return content.split(/(\*\*[^*\n]+\*\*)/g).filter(Boolean).map((part, index) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={`${index}-${part}`}>{part.slice(2, -2)}</strong>
+      : <Fragment key={`${index}-${part}`}>{part}</Fragment>
+  );
+}
+
+function MessagePreviewBody({ content }: { content: string }) {
+  return <div className="message-preview__body">{content.split(/\n{2,}/).map((paragraph, paragraphIndex) => (
+    <p key={`${paragraphIndex}-${paragraph}`}>{paragraph.split("\n").map((line, lineIndex) => (
+      <Fragment key={`${lineIndex}-${line}`}>{lineIndex > 0 ? <br /> : null}{renderInlineMarkdown(line)}</Fragment>
+    ))}</p>
+  ))}</div>;
+}
+
 export function CommunicationComposePage() {
   const { billingUuid = "", billUuid = "" } = useParams<{ billingUuid: string; billUuid: string }>();
   const [searchParams] = useSearchParams();
@@ -64,13 +115,15 @@ export function CommunicationComposePage() {
   const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isDirty, setIsDirty] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+  const [visitedStep, setVisitedStep] = useState(0);
   const loadController = useRef<AbortController | null>(null);
   const sendController = useRef<AbortController | null>(null);
   const sendInFlight = useRef(false);
   const recipientRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const saveScopeRef = useRef<HTMLSelectElement>(null);
+  const saveScopeRef = useRef<HTMLButtonElement>(null);
 
   useDocumentTitle(`Enviar ${commLabel} - Rentivo`);
 
@@ -93,6 +146,8 @@ export function CommunicationComposePage() {
     setActionError("");
     setFieldErrors({});
     setIsDirty(false);
+    setActiveStep(0);
+    setVisitedStep(0);
     try {
       const [billingResult, billResult] = await Promise.all([
         apiRequest(apiClient.GET("/api/v1/billings/{billing_uuid}", { params: { path: { billing_uuid: billingUuid } }, signal: controller.signal })),
@@ -124,10 +179,59 @@ export function CommunicationComposePage() {
   }, [commType, load]);
 
   const focusError = (key: string | undefined) => {
-    if (key?.startsWith("recipient_uuids")) recipientRef.current?.focus();
-    else if (key === "subject") subjectRef.current?.focus();
-    else if (key === "body") bodyRef.current?.focus();
-    else if (key === "save_scope") saveScopeRef.current?.focus();
+    const step = stepForCommunicationField(key);
+    if (step === null) return;
+    const focusTarget = () => {
+      if (key?.startsWith("recipient_uuids")) recipientRef.current?.focus();
+      else if (key === "subject") subjectRef.current?.focus();
+      else if (key === "body") bodyRef.current?.focus();
+      else saveScopeRef.current?.focus();
+    };
+    if (activeStep === step) {
+      focusTarget();
+      return;
+    }
+    setActiveStep(step);
+    setVisitedStep((current) => Math.max(current, step));
+    requestAnimationFrame(() => requestAnimationFrame(focusTarget));
+  };
+
+  const continueWizard = () => {
+    setActionError("");
+    if (activeStep === 0 && selectedRecipients.length === 0) {
+      const errors = { recipient_uuids: "Selecione ao menos um destinatário." };
+      setFieldErrors(errors);
+      focusError("recipient_uuids");
+      return;
+    }
+    if (activeStep === 1) {
+      const errors = communicationContentErrors(subject, body);
+      setFieldErrors(errors);
+      const firstError = firstFieldError(errors, ["subject", "body"]);
+      if (firstError) {
+        focusError(firstError);
+        return;
+      }
+    }
+    setFieldErrors({});
+    const nextStep = Math.min(activeStep + 1, COMMUNICATION_STEPS.length - 1);
+    setActiveStep(nextStep);
+    setVisitedStep((current) => Math.max(current, nextStep));
+  };
+
+  const insertVariable = (variable: string) => {
+    const textarea = bodyRef.current;
+    const hasTextCursor = textarea && document.activeElement === textarea;
+    const start = hasTextCursor ? textarea.selectionStart : body.length;
+    const end = hasTextCursor ? textarea.selectionEnd : body.length;
+    const nextBody = `${body.slice(0, start)}${variable}${body.slice(end)}`;
+    setBody(nextBody);
+    setIsDirty(true);
+    requestAnimationFrame(() => {
+      const nextCursor = start + variable.length;
+      bodyRef.current?.focus();
+      bodyRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   const send = async (event: FormEvent) => {
@@ -137,8 +241,8 @@ export function CommunicationComposePage() {
     if (!commType) return;
     setActionError(""); setFieldErrors({});
     if (selectedRecipients.length === 0) {
-      setActionError("Selecione ao menos um destinatário.");
-      recipientRef.current?.focus();
+      setFieldErrors({ recipient_uuids: "Selecione ao menos um destinatário." });
+      focusError("recipient_uuids");
       return;
     }
     const localErrors = communicationContentErrors(subject, body);
@@ -195,30 +299,92 @@ export function CommunicationComposePage() {
     return <div className="panel"><div className="panel__body"><p className="text-muted">{isRecibo ? "O recibo ainda está sendo gerado." : "A fatura ainda está sendo gerada."}</p></div></div>;
   }
 
-  const sendDisabled = sending || selectedRecipients.length === 0;
+  const selectedPreviewRecipient = billing.recipients.filter(isFullContact).find((recipient) => selectedRecipients.includes(recipient.uuid));
+  const previewRecipientName = selectedPreviewRecipient?.name ?? "destinatário";
+  const previewSubject = personalizeContent(subject, billing, bill, previewRecipientName);
+  const previewBody = personalizeContent(body, billing, bill, previewRecipientName);
+  const bodyBytes = new TextEncoder().encode(body).length;
+  const preview = (
+    <WizardSummary title="Prévia do e-mail">
+      <div className="message-preview">
+        <div className="message-preview__address">
+          <span>Para</span>
+          <span className="message-preview__recipient">{previewRecipientName}</span>
+        </div>
+        <strong className="message-preview__subject">{previewSubject || "Assunto da mensagem"}</strong>
+        <MessagePreviewBody content={previewBody || "A mensagem aparecerá aqui enquanto você escreve."} />
+        <span className="message-preview__attachment"><Paperclip aria-hidden="true" size={15} /> Arquivo PDF anexado</span>
+      </div>
+    </WizardSummary>
+  );
 
   return (
-    <>
+    <article aria-label={`Envio ${isRecibo ? "do recibo de pagamento" : "da fatura"} de ${formatMonth(bill.reference_month)}`} className="communication-workspace">
       <DirtyFormGuard isDirty={isDirty && !sending} />
       <Link className="crumb" to={`/billings/${billingUuid}/bills/${billUuid}`}><ArrowLeft aria-hidden="true" size={16} /> Fatura {formatMonth(bill.reference_month)}</Link>
-      <div className="pagehead"><div><h1 className="pagehead__title">Enviar {commLabel}</h1><p className="pagehead__sub">{billing.name} · {formatMonth(bill.reference_month)}. Cada destinatário recebe um e-mail separado com o {isRecibo ? "recibo" : "PDF da fatura"} anexado.</p></div></div>
+      <header className="communication-workspace__header">
+        <div>
+          <span className="communication-workspace__kicker">Envio de documento</span>
+          <h1 className="pagehead__title">Enviar {commLabel}</h1>
+          <p className="pagehead__sub">{billing.name} · {formatMonth(bill.reference_month)}. Cada destinatário recebe um e-mail separado com o {isRecibo ? "recibo" : "PDF da fatura"} anexado.</p>
+        </div>
+        <div aria-label="Documento anexado" className="communication-workspace__document">
+          <FileText aria-hidden="true" size={22} />
+          <span><small>Documento pronto</small><strong>{isRecibo ? "Recibo anexado" : "Fatura anexada"}</strong></span>
+        </div>
+      </header>
+      <section aria-label="Resumo do envio" className="communication-facts">
+        <dl>
+          <div><dt><Users aria-hidden="true" size={15} /> Destinatários</dt><dd aria-live="polite">{selectedRecipients.length} selecionado{selectedRecipients.length === 1 ? "" : "s"}</dd></div>
+          <div><dt><Mail aria-hidden="true" size={15} /> Entrega</dt><dd>1 e-mail por destinatário</dd></div>
+          <div><dt><FileText aria-hidden="true" size={15} /> Total</dt><dd>{formatBrl(bill.total_amount)}</dd></div>
+          <div><dt><CalendarDays aria-hidden="true" size={15} /> Vencimento</dt><dd>{bill.due_date ? formatIsoDate(bill.due_date) : "Sem vencimento"}</dd></div>
+        </dl>
+      </section>
       {billing.recipients.length === 0 ? <div className="panel"><div className="panel__body"><p className="text-muted">Nenhum destinatário cadastrado. <Link to={`/billings/${billingUuid}/edit`}>Adicione destinatários</Link> na cobrança antes de enviar.</p></div></div> : (
-        <form id="comm-form" onChange={() => setIsDirty(true)} onSubmit={(event) => void send(event)}>
-          <div className="panel"><div className="panel__head"><h3>Destinatários</h3></div><div className="panel__body">{billing.recipients.map((recipient, index) => {
-            const label = isFullContact(recipient) ? `${recipient.name} <${recipient.email}>` : "Destinatário protegido";
-            return <label className="field" key={recipient.uuid} style={{ alignItems: "center", display: "flex", gap: ".5rem" }}><input aria-describedby={index === 0 && fieldErrors.recipient_uuids ? "recipient_uuids-error" : undefined} checked={selectedRecipients.includes(recipient.uuid)} onChange={(event) => setSelectedRecipients((current) => event.target.checked ? [...current, recipient.uuid] : current.filter((uuid) => uuid !== recipient.uuid))} ref={index === 0 ? recipientRef : undefined} type="checkbox" value={recipient.uuid} /><span>{label}</span></label>;
-          })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div></div>
+        <form className="communication-compose-form" id="comm-form" onChange={() => setIsDirty(true)} onSubmit={(event) => void send(event)}>
+          {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
+          <FormWizard
+            activeStep={activeStep}
+            aside={preview}
+            busy={sending}
+            cancelAction={<Link className="btn btn--ghost" to={`/billings/${billingUuid}/bills/${billUuid}`}>Cancelar</Link>}
+            finalLabel={`Enviar ${commLabel}`}
+            onBack={() => setActiveStep((current) => Math.max(0, current - 1))}
+            onNext={continueWizard}
+            onStepChange={setActiveStep}
+            steps={COMMUNICATION_STEPS}
+            visitedStep={visitedStep}
+          >
+            {activeStep === 0 ? (
+              <div className="recipient-picker">
+                {billing.recipients.length > 1 ? <div className="recipient-picker__toolbar"><span>{selectedRecipients.length} de {billing.recipients.length} selecionados</span><div><button onClick={() => setSelectedRecipients(billing.recipients.map((recipient) => recipient.uuid))} type="button">Selecionar todos</button><button onClick={() => setSelectedRecipients([])} type="button">Limpar seleção</button></div></div> : null}
+                {billing.recipients.map((recipient, index) => {
+                const label = isFullContact(recipient) ? `${recipient.name} <${recipient.email}>` : "Destinatário protegido";
+                return <label className="recipient-option" key={recipient.uuid}><input aria-describedby={index === 0 && fieldErrors.recipient_uuids ? "recipient_uuids-error" : undefined} aria-label={label} checked={selectedRecipients.includes(recipient.uuid)} name="recipient_uuids" onChange={(event) => setSelectedRecipients((current) => event.target.checked ? [...current, recipient.uuid] : current.filter((uuid) => uuid !== recipient.uuid))} ref={index === 0 ? recipientRef : undefined} type="checkbox" value={recipient.uuid} /><span aria-hidden="true" className="recipient-option__identity"><span className="recipient-option__name">{isFullContact(recipient) ? recipient.name : label}</span>{isFullContact(recipient) ? <span className="recipient-option__email">{recipient.email}</span> : null}<small>{isFullContact(recipient) ? "Receberá um e-mail individual com o PDF" : "Dados protegidos pela organização"}</small></span></label>;
+              })}<FieldError id="recipient_uuids-error" message={fieldErrors.recipient_uuids} /></div>
+            ) : null}
 
-          <div className="panel"><div className="panel__head"><h3>Mensagem</h3><span className="panel__title-eyebrow">Markdown</span></div><div className="panel__body">
-            <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} className="input" id="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
-            <div className="field"><label className="field__label" htmlFor="body">Corpo (Markdown — HTML não é permitido)</label><textarea aria-describedby={["body-byte-count", fieldErrors.body ? "body-error" : ""].filter(Boolean).join(" ")} className="input" id="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><span aria-live="polite" className="field__hint" id="body-byte-count">{new TextEncoder().encode(body).length} / 4096 bytes</span><span className="field__hint">Variáveis: {"{{nome_inquilino}}"}, {"{{unidade}}"}, {"{{mes}}"}, {"{{vencimento}}"}, {"{{total}}"}.</span><FieldError id="body-error" message={fieldErrors.body} /></div>
-          </div></div>
+            {activeStep === 1 ? (
+              <div className="message-composer">
+                <div className="field"><label className="field__label" htmlFor="subject">Assunto</label><input aria-describedby={fieldErrors.subject ? "subject-error" : undefined} autoComplete="off" className="input" id="subject" name="subject" onChange={(event) => setSubject(limitApiCharacters(event.target.value, MAX_COMMUNICATION_SUBJECT_LENGTH))} ref={subjectRef} required value={subject} /><FieldError id="subject-error" message={fieldErrors.subject} /></div>
+                <div className="field"><div className="field-label-row"><label className="field__label" htmlFor="body">Corpo da mensagem</label><span className={bodyBytes > MAX_COMMUNICATION_BODY_BYTES * 0.9 ? "byte-count byte-count--warning" : "byte-count"} id="body-byte-count">{bodyBytes} / 4096 bytes</span></div><span className="field__help" id="body-format-help">Markdown aceito. HTML não permitido.</span><textarea aria-describedby={["body-format-help", "body-byte-count", fieldErrors.body ? "body-error" : ""].filter(Boolean).join(" ")} aria-label="Corpo (Markdown — HTML não é permitido)" autoComplete="off" className="input" id="body" name="body" onChange={(event) => setBody(event.target.value)} ref={bodyRef} required rows={12} value={body} /><div aria-label="Variáveis da mensagem" className="variable-toolbar">{TEMPLATE_VARIABLES.map((variable) => <button aria-label={`Inserir ${variable.label}`} key={variable.value} onClick={() => insertVariable(variable.value)} onMouseDown={(event) => event.preventDefault()} type="button">{variable.label}</button>)}</div><FieldError id="body-error" message={fieldErrors.body} /></div>
+              </div>
+            ) : null}
 
-          <div className="panel"><div className="panel__head"><h3>Salvar modelo (opcional)</h3></div><div className="panel__body"><div className="field"><label className="sr-only" htmlFor="save_scope">Salvar modelo</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} className="select" id="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div></div></div>
-          {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}
-          <div className="btn-row"><Link className="btn btn--ghost" to={`/billings/${billingUuid}/bills/${billUuid}`}>Cancelar</Link><button className="btn btn--primary" disabled={sendDisabled} id="comm-send-btn" type="submit"><Send aria-hidden="true" size={16} /> {sending ? "Enviando..." : `Enviar ${commLabel}`}</button></div>
+            {activeStep === 2 ? (
+              <>
+                <dl className="review-list">
+                  <WizardReviewRow label="Destinatários" onEdit={() => setActiveStep(0)} value={`${selectedRecipients.length} ${selectedRecipients.length === 1 ? "destinatário" : "destinatários"}`} />
+                  <WizardReviewRow label="Mensagem" onEdit={() => setActiveStep(1)} value={subject} />
+                  <WizardReviewRow label="Documento" value={`${isRecibo ? "Recibo" : "Fatura"} em PDF`} />
+                </dl>
+                <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><ThemedSelect aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-invalid={Boolean(fieldErrors.save_scope)} aria-label="Salvar modelo" id="save_scope" name="save_scope" onValueChange={(value) => setSaveScope(value as typeof saveScope)} options={[{ label: "Não salvar como modelo", value: "" }, { label: "Salvar para esta cobrança", value: "billing" }, ...(billing.capabilities.can_edit ? [{ label: `Salvar para ${billing.owner.type === "organization" ? "a organização" : "minha conta"}`, value: "owner" }] : [])]} ref={saveScopeRef} value={saveScope} /><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>
+              </>
+            ) : null}
+          </FormWizard>
         </form>
       )}
-    </>
+    </article>
   );
 }

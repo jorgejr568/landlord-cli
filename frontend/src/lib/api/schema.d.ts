@@ -3168,6 +3168,8 @@ export interface components {
             /**
              * Fonts
              * @default [
+             *       "Space Grotesk",
+             *       "Hanken Grotesk",
              *       "Montserrat",
              *       "Roboto",
              *       "Lora",
@@ -3180,7 +3182,7 @@ export interface components {
              *       "Nunito"
              *     ]
              */
-            fonts: ("Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito")[];
+            fonts: ("Space Grotesk" | "Hanken Grotesk" | "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito")[];
         };
         /** ThemeResponse */
         ThemeResponse: {
@@ -3202,7 +3204,7 @@ export interface components {
              * Header Font
              * @enum {string}
              */
-            header_font: "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
+            header_font: "Space Grotesk" | "Hanken Grotesk" | "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
             /** Primary */
             primary: string;
             /** Primary Light */
@@ -3219,7 +3221,7 @@ export interface components {
              * Text Font
              * @enum {string}
              */
-            text_font: "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
+            text_font: "Space Grotesk" | "Hanken Grotesk" | "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
         };
         /** ThemeValuesResponse */
         ThemeValuesResponse: {
@@ -3227,7 +3229,7 @@ export interface components {
              * Header Font
              * @enum {string}
              */
-            header_font: "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
+            header_font: "Space Grotesk" | "Hanken Grotesk" | "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
             /** Primary */
             primary: string;
             /** Primary Light */
@@ -3244,7 +3246,7 @@ export interface components {
              * Text Font
              * @enum {string}
              */
-            text_font: "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
+            text_font: "Space Grotesk" | "Hanken Grotesk" | "Montserrat" | "Roboto" | "Lora" | "Playfair Display" | "Open Sans" | "Source Sans 3" | "Merriweather" | "Raleway" | "Oswald" | "Nunito";
         };
         /** TOTPConfirmRequest */
         TOTPConfirmRequest: {

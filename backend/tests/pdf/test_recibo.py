@@ -65,3 +65,84 @@ class TestReciboPDF:
         ):
             result = ReciboPDF().generate(self._make_bill(), billing_name="Apt 101", **kwargs)
             assert len(pypdf.PdfReader(io.BytesIO(result)).pages) == 1
+
+    def test_default_receipt_carries_the_rentivo_wordmark(self):
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+
+        text = pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text()
+        assert "rentivo" in text
+
+    def test_received_amount_is_connected_to_the_payment_details(self):
+        """The receipt reads as one ledger instead of a stack of detached cards."""
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+        fragments: list[tuple[str, float]] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+
+        payment_date_label_y = next(y for text, y in fragments if text == "DATA DO PAGAMENTO")
+        amount_label_y = next(y for text, y in fragments if text == "VALOR RECEBIDO")
+        assert payment_date_label_y - amount_label_y <= 65
+
+    def test_receipt_leads_with_confirmation_and_amount_before_details(self):
+        """A receipt should communicate the outcome before its supporting metadata."""
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+        fragments: list[tuple[str, float]] = []
+        page = pypdf.PdfReader(io.BytesIO(result)).pages[0]
+        page.extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+
+        title_y = next(y for text, y in fragments if text == "RECIBO DE PAGAMENTO")
+        confirmation_y = next(y for text, y in fragments if text == "PAGAMENTO CONFIRMADO")
+        amount_y = next(y for text, y in fragments if text == "VALOR RECEBIDO")
+        details_y = next(y for text, y in fragments if text == "DETALHES DO PAGAMENTO")
+
+        assert title_y > confirmation_y > amount_y > details_y
+
+    def test_receipt_explains_what_the_document_confirms(self):
+        """The receipt should be understandable without relying on the app context."""
+        import io
+
+        import pypdf
+
+        result = ReciboPDF().generate(
+            self._make_bill(),
+            billing_name="Apt 101",
+            issuer_name="Maria Recebedora",
+            payment_date="14/06/2026",
+        )
+        text = pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text()
+
+        assert "Este documento confirma a quitação da cobrança abaixo." in text

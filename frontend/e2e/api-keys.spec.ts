@@ -9,8 +9,8 @@ test("creates a scoped multi-workspace key, reveals it once, and revokes it", as
 
   await page.getByRole("button", { name: "Criar chave" }).click();
   await page.getByLabel("Nome", { exact: true }).fill("Aplicativo móvel");
-  await page.getByLabel("Consultar perfil").check();
-  await page.getByLabel("Consultar cobranças").check();
+  await page.getByRole("radio", { name: "Perfil: leitura" }).check();
+  await page.getByRole("radio", { name: "Cobranças: leitura" }).check();
   await page.getByRole("checkbox", { name: "Pessoal", exact: true }).check();
   await page.getByLabel("Acme Administração").check();
   await page.getByLabel("Expira em").fill("2026-10-15");

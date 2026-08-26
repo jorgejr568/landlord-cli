@@ -44,7 +44,6 @@ const PUBLIC_AUTH_PATHS = new Set([
   "/forgot-password",
   "/login",
   "/mfa-verify",
-  "/mobile-logout",
   "/reset-password",
   "/signup"
 ]);

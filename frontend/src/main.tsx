@@ -3,7 +3,6 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { App } from "./app/App";
 import "./styles/custom.css";
-import "./styles/landing.css";
 
 export function mountApp(rootElement: HTMLElement): Root {
   const root = createRoot(rootElement);

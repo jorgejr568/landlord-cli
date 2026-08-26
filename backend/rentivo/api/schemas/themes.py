@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 FontName = Literal[
+    "Space Grotesk",
+    "Hanken Grotesk",
     "Montserrat",
     "Roboto",
     "Lora",
@@ -20,6 +22,8 @@ ThemeSource = Literal["billing", "organization", "user", "default"]
 HexColor = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$")]
 
 AVAILABLE_FONT_NAMES: tuple[FontName, ...] = (
+    "Space Grotesk",
+    "Hanken Grotesk",
     "Montserrat",
     "Roboto",
     "Lora",

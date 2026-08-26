@@ -1,0 +1,258 @@
+/* Billing index: a connected rent-roll workspace with restrained neobrutalist edges. */
+.billing-overview {
+  --billing-radius: 12px;
+  --billing-control-radius: 8px;
+  gap: 1.4rem;
+}
+
+.billing-overview__head {
+  align-items: flex-end;
+  margin: 0;
+  padding: 0.25rem 0 0.4rem;
+}
+
+.billing-overview__head .pagehead__title {
+  max-width: 12ch;
+  font-size: clamp(2.25rem, 5vw, 3.35rem);
+  line-height: 0.98;
+  letter-spacing: -0.06em;
+}
+
+.billing-overview__head .pagehead__sub {
+  margin-top: 0.55rem;
+  color: var(--ink-2);
+  font-size: 0.92rem;
+}
+
+.billing-overview__actions {
+  flex-wrap: nowrap;
+}
+
+.billing-overview__actions .btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.billing-overview__setup,
+.billing-overview__empty,
+.billing-overview__ledger {
+  border-radius: var(--billing-radius);
+  box-shadow: 4px 4px 0 var(--ink);
+  animation: none;
+}
+
+.billing-overview__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.65rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+
+.billing-overview__summary-title {
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+}
+
+.billing-overview__summary-title > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.billing-overview__summary-title h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: -0.025em;
+}
+
+.billing-overview__summary-title span {
+  margin-top: 0.08rem;
+}
+
+.billing-overview__metrics {
+  overflow: hidden;
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: var(--billing-radius);
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.billing-overview__metric {
+  min-height: 112px;
+  padding: 1.1rem 1.15rem;
+}
+
+.billing-overview__metric dt {
+  color: var(--ink-2);
+}
+
+.billing-overview__metric dd {
+  margin-top: 0.35rem;
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+}
+
+.billing-overview__metric > span {
+  margin-top: 0.28rem;
+}
+
+.billing-overview__ledger-head {
+  padding: 1.15rem 1.25rem;
+  background: var(--surface);
+}
+
+.billing-overview__ledger-head h2 {
+  font-size: 1.2rem;
+}
+
+.billing-overview__table th {
+  padding: 0.72rem 1.15rem;
+  background: var(--paper-2);
+}
+
+.billing-overview__table td {
+  padding: 1rem 1.15rem;
+}
+
+.billing-overview__table tbody tr:hover,
+.billing-overview__table tbody tr:focus-within {
+  background: var(--accent-pale);
+}
+
+.billing-overview__property a {
+  font-size: 1rem;
+}
+
+.billing-overview__amount {
+  min-width: 172px;
+}
+
+.billing-overview__invoice {
+  display: grid;
+  justify-items: end;
+  gap: 0.08rem;
+}
+
+.billing-overview__invoice strong {
+  color: var(--ink);
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.billing-overview__invoice span,
+.billing-overview__not-issued {
+  color: var(--muted);
+  font-size: 0.69rem;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.billing-overview__invoice span:first-of-type {
+  color: var(--ink-2);
+  font-weight: 700;
+}
+
+.billing-overview__open a {
+  min-height: 40px;
+  padding: 0.45rem 0.55rem;
+  border: 1.5px solid transparent;
+  border-radius: var(--billing-control-radius);
+}
+
+.billing-overview__open a:hover,
+.billing-overview__open a:focus-visible {
+  border-color: var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-sm);
+}
+
+.billing-overview__open a:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.billing-overview__empty-copy {
+  background: var(--accent-pale);
+}
+
+.billing-overview__empty-icon {
+  border-radius: var(--billing-control-radius);
+}
+
+@media (max-width: 860px) {
+  .billing-overview__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .billing-overview {
+    gap: 1.1rem;
+  }
+
+  .billing-overview__head {
+    align-items: flex-start;
+  }
+
+  .billing-overview__head .pagehead__title {
+    max-width: none;
+    font-size: clamp(2.15rem, 12vw, 2.75rem);
+  }
+
+  .billing-overview__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .billing-overview__actions .btn {
+    justify-content: center;
+  }
+
+  .billing-overview__table tbody tr {
+    grid-template-areas:
+      "property status"
+      "amount amount"
+      "open open";
+    padding: 1.1rem;
+  }
+
+  .billing-overview__amount {
+    min-width: 0;
+  }
+
+  .billing-overview__invoice {
+    justify-items: start;
+    padding-top: 0.7rem;
+    border-top: 1.5px solid var(--line);
+  }
+
+  .billing-overview__open a {
+    width: 100%;
+    justify-content: space-between;
+    border-color: var(--ink);
+    background: var(--surface);
+    box-shadow: var(--sh-sm);
+  }
+}
+
+@media (max-width: 420px) {
+  .billing-overview__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .billing-overview__metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .billing-overview__metric + .billing-overview__metric {
+    border-top: 1.5px solid var(--line);
+    border-left: 0;
+  }
+}

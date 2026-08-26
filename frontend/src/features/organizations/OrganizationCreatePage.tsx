@@ -7,6 +7,7 @@ import { normalizedFieldErrors } from "../../lib/api/errors";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { OrganizationForm, type OrganizationValues } from "./OrganizationForm";
+import "./OrganizationCreatePage.css";
 
 const EMPTY_VALUES: OrganizationValues = {
   name: "",
@@ -70,18 +71,18 @@ export function OrganizationCreatePage() {
   };
 
   return (
-    <>
+    <div className="organization-create-page">
       <Link className="crumb" to="/organizations/">
         <ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />
         Organizações
       </Link>
-      <div className="pagehead">
+      <div className="pagehead organization-create-page__head">
         <div>
           <h1 className="pagehead__title">Nova organização</h1>
-          <p className="pagehead__sub">Crie um espaço compartilhado para gerenciar imóveis com sua equipe.</p>
+          <p className="pagehead__sub">Organize imóveis, cobranças e acessos da equipe em um só lugar.</p>
         </div>
       </div>
       <OrganizationForm error={error} fieldErrors={fieldErrors} mode="create" onSubmit={(values) => void submit(values)} saving={saving} values={EMPTY_VALUES} />
-    </>
+    </div>
   );
 }

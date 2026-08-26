@@ -94,12 +94,12 @@ export function ApiKeySection() {
   }
 
   return (
-    <div className="panel">
-      <div className="panel-head"><h5>Chaves de Integração</h5></div>
-      <div className="panel-body">
+    <section aria-labelledby="integration-keys-title" className="security-section security-section--api-keys">
+      <div className="security-section__heading"><div><h2 id="integration-keys-title">Chaves de integração</h2><p>Controle acessos de automações e ferramentas conectadas.</p></div></div>
+      <div className="security-api-keys__content">
         {error ? <div className="toast toast--danger" role="alert">{error}</div> : null}
         {message ? <div className="toast toast--success" role="status">{message}</div> : null}
-        {loading ? <p role="status">Carregando...</p> : null}
+        {loading ? <p role="status">Carregando chaves…</p> : null}
         {!loading && !options ? <button className="btn btn--sm" onClick={() => void load()} type="button">Tentar novamente</button> : null}
         {!loading && options ? (
           <>
@@ -108,7 +108,7 @@ export function ApiKeySection() {
             ) : (
               <>
                 <ApiKeyList items={items} onEdit={setEditing} onRevoke={setRevokeTarget} options={options} />
-                <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)} style={{ marginTop: "1rem" }} type="button">Criar chave</button>
+                <button className="btn btn--primary btn--sm" onClick={() => setCreating(true)} type="button">Criar chave</button>
               </>
             )}
           </>
@@ -116,6 +116,6 @@ export function ApiKeySection() {
       </div>
       <ConfirmDialog acceptLabel="Revogar chave" body={revokeTarget ? `A chave “${revokeTarget.name}” deixará de funcionar imediatamente.` : ""} onClose={() => setRevokeTarget(null)} onConfirm={() => void revoke()} open={revokeTarget !== null} title="Revogar chave" />
       <ApiKeySecretDialog onClose={() => { setSecret(""); setMessage("Chave de integração criada."); }} open={Boolean(secret)} secret={secret} />
-    </div>
+    </section>
   );
 }

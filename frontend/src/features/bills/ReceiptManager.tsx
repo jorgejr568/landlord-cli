@@ -262,24 +262,24 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
   };
 
   return (
-    <>
+    <div className="receipt-manager">
       {current.length > 0 ? (
-        <div className="table-wrap" style={{ marginBottom: "1rem" }}>
+        <div className="table-wrap receipt-list">
           <table className="table data-table">
             <thead><tr>{capabilities.can_reorder_receipts && <th style={{ width: "4rem" }} />}<th>Arquivo</th><th className="num">Tamanho</th><th /></tr></thead>
             <tbody id="receipt-list" ref={listRef}>
               {current.map((receipt, index) => (
-                <tr data-uuid={receipt.uuid} key={receipt.uuid}>
+                <tr className={`receipt-row${capabilities.can_reorder_receipts ? "" : " receipt-row--static"}`} data-uuid={receipt.uuid} key={receipt.uuid}>
                   {capabilities.can_reorder_receipts && (
-                    <td className="drag-handle">
+                    <td className="receipt-row__handle">
                       <button aria-keyshortcuts="ArrowUp ArrowDown" aria-label={`Reordenar ${receipt.filename}`} className="drag-handle" disabled={Boolean(busy)} onKeyDown={(event) => handleReorderKey(event, index)} title="Arrastar ou usar as setas para reordenar" type="button"><GripVertical aria-hidden="true" size={14} /></button>
                     </td>
                   )}
-                  <td className="table__primary">{receipt.filename}</td>
-                  <td className="num">{formatFileSize(receipt.file_size)}</td>
-                  <td className="num" style={{ whiteSpace: "nowrap" }}>
-                    <a aria-label={`Ver ${receipt.filename}`} className="btn btn--sm" href={`/api/v1/billings/${billingUuid}/bills/${billUuid}/receipts/${receipt.uuid}`} target="_blank"><Eye aria-hidden="true" size={14} /> Ver</a>
-                    {capabilities.can_delete_receipts && <button aria-label={`Remover ${receipt.filename}`} className="btn btn--sm btn--danger" disabled={Boolean(busy)} onClick={() => setRemoving(receipt)} type="button"><Trash2 aria-hidden="true" size={14} /> Remover</button>}
+                  <td className="table__primary receipt-row__file">{receipt.filename}</td>
+                  <td className="num receipt-row__size">{formatFileSize(receipt.file_size)}</td>
+                  <td className="receipt-row__actions">
+                    <a aria-label={`Ver ${receipt.filename}`} className="btn btn--sm" href={`/api/v1/billings/${billingUuid}/bills/${billUuid}/receipts/${receipt.uuid}`} rel="noreferrer" target="_blank"><Eye aria-hidden="true" size={14} /><span className="receipt-row__action-label">Ver</span></a>
+                    {capabilities.can_delete_receipts && <button aria-label={`Remover ${receipt.filename}`} className="btn btn--sm btn--danger" disabled={Boolean(busy)} onClick={() => setRemoving(receipt)} type="button"><Trash2 aria-hidden="true" size={14} /><span className="receipt-row__action-label">Remover</span></button>}
                   </td>
                 </tr>
               ))}
@@ -289,20 +289,23 @@ export function ReceiptManager({ billingUuid, billUuid, capabilities, onChange, 
       ) : <p className="text-muted">Nenhum comprovante anexado.</p>}
 
       {capabilities.can_upload_receipts && (
-        <form encType="multipart/form-data" onSubmit={(event) => void upload(event)}>
+        <form className="receipt-upload-form" encType="multipart/form-data" onSubmit={(event) => void upload(event)}>
           <div className="field">
             <label className="field__label field-label" htmlFor="receipt_files">Anexar comprovantes</label>
-            <input accept=".pdf,.jpg,.jpeg,.png" className="input field-input" id="receipt_files" multiple name="receipt_files" onChange={(event) => setFiles(uniqueFiles(Array.from(event.currentTarget.files ?? [])))} ref={fileRef} type="file" />
+            <div className="receipt-upload-picker">
+              <input accept=".pdf,.jpg,.jpeg,.png" className="sr-only" id="receipt_files" multiple name="receipt_files" onChange={(event) => setFiles(uniqueFiles(Array.from(event.currentTarget.files ?? [])))} ref={fileRef} type="file" />
+              <label className="btn btn--sm" htmlFor="receipt_files">Escolher arquivos</label>
+              <span aria-live="polite">{files.length === 0 ? "Nenhum arquivo selecionado." : files.length === 1 ? files[0].name : `${files.length} arquivos selecionados.`}</span>
+            </div>
             <span className="field__hint text-muted">PDF, JPG ou PNG. Máximo 10 MB cada. Você pode selecionar vários arquivos.</span>
           </div>
-          {busy === "upload" && <progress aria-label="Progresso do envio" />}
-          <button className="btn btn--sm btn--primary" disabled={Boolean(busy)} type="submit"><Upload aria-hidden="true" size={14} /> {busy === "upload" ? "Enviando..." : "Enviar comprovantes"}</button>
+          <button aria-busy={busy === "upload" || undefined} className="btn btn--sm btn--primary receipt-upload-submit" disabled={Boolean(busy)} type="submit">{busy === "upload" ? <><span aria-hidden="true" className="receipt-upload-dots"><i /><i /><i /></span>Enviando…</> : <><Upload aria-hidden="true" size={14} />Enviar comprovantes</>}</button>
         </form>
       )}
-      {error && <div className="toast toast--danger" role="alert">{error}</div>}
-      {success && <div className="toast toast--success" ref={successRef} role="status" tabIndex={-1}>{success}</div>}
+      {error && <div className="receipt-feedback toast toast--danger" role="alert">{error}</div>}
+      {success && <div className="receipt-feedback toast toast--success" ref={successRef} role="status" tabIndex={-1}>{success}</div>}
       <div aria-live="polite" className="sr-only">{reorderAnnouncement}</div>
       <ConfirmDialog acceptLabel="Remover" body="O arquivo será removido desta fatura e o PDF será atualizado." onClose={() => setRemoving(null)} onConfirm={() => void remove()} open={Boolean(removing)} title="Remover comprovante?" />
-    </>
+    </div>
   );
 }

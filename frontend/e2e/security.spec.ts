@@ -13,17 +13,17 @@ test("updates PIX and password, then reveals regenerated recovery codes once", a
   await page.getByLabel("Chave PIX").fill("financeiro@example.com");
   await page.getByLabel("Nome do recebedor").fill("FINANCEIRO ACME");
   await page.getByLabel("Cidade do recebedor").fill("CAMPINAS");
-  await page.getByRole("button", { name: "Salvar Dados PIX" }).click();
+  await page.getByRole("button", { name: "Salvar dados PIX" }).click();
   await expect(page.getByRole("status")).toContainText("Dados do PIX atualizados.");
 
   await page.getByLabel("Senha atual").fill("current-password-e2e");
   await page.getByLabel("Nova senha", { exact: true }).fill("new-password-e2e");
   await page.getByLabel("Confirmar nova senha").fill("new-password-e2e");
-  await page.getByRole("button", { name: "Alterar Senha" }).click();
+  await page.getByRole("button", { name: "Alterar senha" }).click();
   await expect(page.getByRole("status")).toContainText("Senha alterada com sucesso!");
   await expect(page.getByLabel("Senha atual")).toHaveValue("");
 
-  await page.getByRole("button", { name: "Regenerar Códigos de Recuperação" }).click();
+  await page.getByRole("button", { name: "Regenerar códigos de recuperação" }).click();
   await expect(page).toHaveURL(/\/security\/recovery-codes$/);
   await expect(
     page.getByRole("heading", { exact: true, name: "Códigos de Recuperação" })
@@ -55,9 +55,9 @@ test("completes TOTP setup and registers a passkey through browser credentials",
   await page.getByRole("button", { name: "Confirmar e Ativar" }).click();
   await expect(page.getByText("RECOVERY-BRAVO")).toBeVisible();
 
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Concluir e ir para Segurança" }).click();
   await page.getByLabel("Nome da passkey").fill("Celular E2E");
-  await page.getByRole("button", { name: "Adicionar Passkey" }).click();
+  await page.getByRole("button", { name: "Adicionar passkey" }).click();
   await expect(page.getByRole("status")).toContainText("Passkey cadastrada.");
   await expect(page.getByText("Celular E2E")).toBeVisible();
 

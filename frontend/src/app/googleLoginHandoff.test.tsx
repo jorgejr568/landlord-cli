@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { RouterProvider, type RouteObject } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -6,19 +6,31 @@ import { AUTH_CONFIG, jsonResponse, problemResponse } from "../test/auth";
 import { PUBLIC_AUTH_ROUTE_ID, createAppRouter } from "./router";
 
 const GOOGLE_START_SELECTOR = 'a[href="/api/v1/auth/google/start"]';
+let authConfigSettled: Promise<void>;
 
 beforeEach(() => {
+  let resolveAuthConfig!: () => void;
+  authConfigSettled = new Promise((resolve) => {
+    resolveAuthConfig = resolve;
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/v1/auth/config") {
-        return jsonResponse({
+        const response = jsonResponse({
           ...AUTH_CONFIG,
           analytics: { gtm_container_id: "" },
           // Production returns google_auth: true. The gate, not the flag, is
           // what must keep Google out of the app.
           feature_flags: { google_auth: true, turnstile: false, turnstile_site_key: "" }
         });
+        const readBody = response.text.bind(response);
+        response.text = async () => {
+          const body = await readBody();
+          window.setTimeout(resolveAuthConfig, 0);
+          return body;
+        };
+        return response;
       }
       // Anything else an auth page reaches for is irrelevant here; a failed
       // request still renders the page, which is all this test inspects.
@@ -80,8 +92,8 @@ it.each(publicAuthPaths)("offers no third-party login at %s inside the iOS hando
   window.history.pushState({}, "", `${path}${separator}mobile_state=native-state`);
   render(<RouterProvider router={createAppRouter()} />);
 
-  // Wait for the auth config to resolve, otherwise the assertion could pass
-  // against a page still showing its loading state.
-  await waitFor(() => expect(screen.queryByText("Carregando...")).not.toBeInTheDocument());
+  // Wait for the config response to be consumed, and let React flush the
+  // resulting ready state, before checking the Google gate.
+  await act(() => authConfigSettled);
   expect(document.querySelector(GOOGLE_START_SELECTOR)).not.toBeInTheDocument();
 });

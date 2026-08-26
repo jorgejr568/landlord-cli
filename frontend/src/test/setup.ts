@@ -11,3 +11,13 @@ class CompatibleNavigationRequest extends NativeRequest {
 }
 
 globalThis.Request = CompatibleNavigationRequest;
+
+// jsdom does not implement the pointer/scroll APIs used by Radix overlays.
+if (typeof HTMLElement !== "undefined") {
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: { configurable: true, value: () => false },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    scrollIntoView: { configurable: true, value: () => undefined },
+    setPointerCapture: { configurable: true, value: () => undefined }
+  });
+}

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -94,6 +94,38 @@ function renderPageWithAway() {
   );
 }
 
+it("presents pending invitations as a decision-ready workspace", async () => {
+  installFetch({
+    "GET /api/v1/invites": () => jsonResponse({ items: [acmeInvite, betaInvite] })
+  });
+  renderPage();
+
+  expect(screen.getByRole("heading", { level: 1, name: "Convites" })).toBeVisible();
+  expect(await screen.findByText("2 convites aguardam sua decisão")).toBeVisible();
+
+  const workspace = screen.getByRole("region", { name: "Convites aguardando resposta" });
+  expect(within(workspace).getByText("Gerente")).toBeVisible();
+  expect(within(workspace).getByText("Visualizador")).toBeVisible();
+  expect(within(workspace).getByText("MFA será exigido")).toBeVisible();
+  expect(within(workspace).getAllByText("Recebido em 18 de jul. de 2026")).toHaveLength(2);
+  expect(within(workspace).getAllByText("Aguardando resposta")).toHaveLength(2);
+});
+
+it("labels missing and malformed invitation dates without exposing invalid timestamps", async () => {
+  installFetch({
+    "GET /api/v1/invites": () => jsonResponse({
+      items: [
+        { ...acmeInvite, created_at: null },
+        { ...betaInvite, created_at: "not-a-date" }
+      ]
+    })
+  });
+  renderPage();
+
+  expect(await screen.findAllByText("Data do convite não informada")).toHaveLength(2);
+  expect(screen.queryByText(/Invalid Date/i)).not.toBeInTheDocument();
+});
+
 it("renders loading, retry, and the exact empty new-account invite state", async () => {
   const user = userEvent.setup();
   let attempts = 0;
@@ -116,14 +148,14 @@ it("renders loading, retry, and the exact empty new-account invite state", async
   document.title = "Anterior";
   const view = renderPage();
 
-  expect(screen.getByText("Carregando convites...")).toBeVisible();
+  expect(screen.getByText("Carregando convites…")).toBeVisible();
   expect(await screen.findByText("Convites indisponíveis.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByText("Não foi possível carregar os convites.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByText("Nenhum convite pendente.")).toBeVisible();
-  expect(screen.getByRole("heading", { level: 1, name: "Convites Pendentes" })).toHaveClass(
-    "page-title"
+  expect(screen.getByRole("heading", { level: 1, name: "Convites" })).toHaveClass(
+    "invite-inbox__title"
   );
   await waitFor(() => expect(document.title).toBe("Convites - Rentivo"));
   view.unmount();
@@ -143,9 +175,9 @@ it("accepts an invite, forwards analytics, and routes enforced MFA setup", async
   renderPage();
 
   expect(await screen.findByText("owner@acme.com")).toBeVisible();
-  expect(screen.getByText("MFA")).toHaveClass("tag--mfa");
-  expect(screen.getByText("manager")).toBeVisible();
-  expect(screen.getByText("viewer")).toBeVisible();
+  expect(screen.getByText("MFA será exigido")).toBeVisible();
+  expect(screen.getByText("Gerente")).toBeVisible();
+  expect(screen.getByText("Visualizador")).toBeVisible();
   await user.click(screen.getAllByRole("button", { name: "Aceitar" })[0]);
   expect(await screen.findByRole("dialog", { name: "Aceitar convite?" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Aceitar convite" }));
@@ -351,7 +383,7 @@ it("ignores an invite list load that settles after leaving the page", async () =
   });
   renderPageWithAway();
 
-  expect(screen.getByText("Carregando convites...")).toBeVisible();
+  expect(screen.getByText("Carregando convites…")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Sair da página" }));
   expect(loadSignal?.aborted).toBe(true);
   await act(async () => { load.resolve(jsonResponse({ items: [acmeInvite] })); });

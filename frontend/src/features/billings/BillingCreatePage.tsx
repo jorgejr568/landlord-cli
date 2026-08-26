@@ -88,6 +88,6 @@ export function BillingCreatePage() {
   };
 
   if (loadError) return <LoadError message={loadError} onRetry={() => void load()} />;
-  if (!organizations) return <LoadingState label="Carregando formulário..." />;
-  return <><Link className="crumb" to="/billings/"><ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />Minhas Cobranças</Link><div className="pagehead"><div><h1 className="pagehead__title">Nova cobrança</h1><p className="pagehead__sub">Monte o modelo recorrente uma vez — ele será reutilizado em cada fatura mensal.</p></div></div><BillingForm error={error} fieldErrors={fieldErrors} mode="create" onSubmit={(values) => void submit(values)} organizations={organizations} saving={saving} values={emptyBillingValues()} /></>;
+  if (!organizations) return <LoadingState label="Carregando formulário…" />;
+  return <><Link className="crumb" to="/billings/"><ChevronLeft aria-hidden="true" size={16} strokeWidth={2.5} />Minhas Cobranças</Link><div className="pagehead billing-create-pagehead"><div><h1 className="pagehead__title">Nova cobrança</h1><p className="pagehead__sub">Configure o imóvel uma vez e reutilize o modelo em cada fatura.</p></div></div><BillingForm error={error} fieldErrors={fieldErrors} mode="create" onSubmit={(values) => void submit(values)} organizations={organizations} saving={saving} values={emptyBillingValues()} /></>;
 }

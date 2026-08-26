@@ -1,0 +1,453 @@
+.recovery-codes-page {
+  width: min(100%, 980px);
+  margin: 0 auto;
+}
+
+.recovery-codes-page__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.recovery-codes-page__heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.9rem;
+}
+
+.recovery-codes-page__mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--r-soft);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--sh-sm);
+}
+
+.recovery-codes-page__heading > div {
+  min-width: 0;
+}
+
+.recovery-codes-page__heading h1 {
+  max-width: 640px;
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.recovery-codes-page__heading p {
+  max-width: 54ch;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  text-wrap: pretty;
+}
+
+.recovery-codes-page__privacy {
+  display: flex;
+  align-items: flex-start;
+  flex: 0 0 260px;
+  gap: 0.55rem;
+  color: var(--accent-dark);
+}
+
+.recovery-codes-page__privacy > svg {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+}
+
+.recovery-codes-page__privacy span,
+.recovery-codes-page__privacy strong,
+.recovery-codes-page__privacy small {
+  display: block;
+}
+
+.recovery-codes-page__privacy strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.recovery-codes-page__privacy small {
+  margin-top: 0.08rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.recovery-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.85fr);
+  overflow: hidden;
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.recovery-workspace__codes,
+.recovery-workspace__guide {
+  min-width: 0;
+  padding: clamp(1.15rem, 2.5vw, 1.75rem);
+}
+
+.recovery-workspace__codes-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 1rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1.5px solid var(--line);
+}
+
+.recovery-workspace__codes-header > div {
+  min-width: 0;
+}
+
+.recovery-workspace__codes-header h2,
+.recovery-workspace__guide h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}
+
+.recovery-workspace__codes-header p,
+.recovery-workspace__guide > p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.recovery-workspace__codes-header > span {
+  flex: 0 0 auto;
+  padding: 0.24rem 0.48rem;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--r-sm);
+  background: var(--accent-pale);
+  color: var(--accent-dark);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.recovery-code-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 1.5rem;
+  margin: 0;
+  padding: 0.75rem 0;
+  list-style: none;
+}
+
+.recovery-code-list li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  gap: 0.55rem;
+  padding: 0.65rem 0.15rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.recovery-code-list li > span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-code-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: clamp(0.78rem, 1.4vw, 0.9rem);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.015em;
+  line-height: 1.4;
+  user-select: all;
+}
+
+.recovery-workspace__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding-top: 0.2rem;
+}
+
+.recovery-workspace__tools .btn,
+.recovery-workspace__footer .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.recovery-workspace__tools .btn:focus-visible,
+.recovery-workspace__footer .btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.recovery-workspace__feedback {
+  min-height: 2.15rem;
+  padding-top: 0.65rem;
+}
+
+.recovery-workspace__feedback p {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.recovery-workspace__feedback p.is-success {
+  color: var(--accent-dark);
+}
+
+.recovery-workspace__feedback p.is-error {
+  color: var(--overdue);
+}
+
+.recovery-workspace__guide {
+  border-left: var(--bw) solid var(--ink);
+  background: var(--paper-2);
+}
+
+.recovery-workspace__guide ol {
+  display: grid;
+  gap: 0;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-workspace__guide li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+  padding: 0.8rem 0;
+}
+
+.recovery-workspace__guide li + li {
+  border-top: 1.5px solid var(--line);
+}
+
+.recovery-workspace__guide li > span {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.recovery-workspace__guide li > div {
+  min-width: 0;
+}
+
+.recovery-workspace__guide li strong {
+  display: block;
+  font-size: 0.82rem;
+}
+
+.recovery-workspace__guide li p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.recovery-workspace__footer {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 1.25rem;
+  padding: 0.95rem clamp(1.15rem, 2.5vw, 1.75rem);
+  border-top: var(--bw) solid var(--ink);
+  background: var(--accent-pale);
+}
+
+.recovery-workspace__footer > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.65rem;
+  color: var(--accent-dark);
+}
+
+.recovery-workspace__footer > div > svg {
+  flex: 0 0 auto;
+}
+
+.recovery-workspace__footer p,
+.recovery-workspace__footer strong,
+.recovery-workspace__footer span {
+  display: block;
+}
+
+.recovery-workspace__footer p {
+  min-width: 0;
+  margin: 0;
+}
+
+.recovery-workspace__footer strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.recovery-workspace__footer span {
+  margin-top: 0.05rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.recovery-workspace__refresh-error {
+  grid-column: 1 / -1;
+  padding: 0.75rem clamp(1.15rem, 2.5vw, 1.75rem);
+  border-top: var(--bw) solid var(--ink);
+  background: var(--overdue-pale);
+  color: var(--overdue);
+}
+
+.recovery-workspace__refresh-error:focus-visible {
+  outline: 3px solid var(--overdue);
+  outline-offset: -5px;
+}
+
+.recovery-workspace__refresh-error strong,
+.recovery-workspace__refresh-error span {
+  display: block;
+}
+
+.recovery-workspace__refresh-error strong {
+  font-size: 0.82rem;
+}
+
+.recovery-workspace__refresh-error span {
+  margin-top: 0.1rem;
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 760px) {
+  .recovery-codes-page__header {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .recovery-codes-page__privacy {
+    flex-basis: auto;
+    padding-left: 0.1rem;
+  }
+
+  .recovery-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recovery-workspace__guide {
+    border-top: var(--bw) solid var(--ink);
+    border-left: 0;
+  }
+
+  .recovery-workspace__footer,
+  .recovery-workspace__refresh-error {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .recovery-codes-page__heading {
+    align-items: flex-start;
+  }
+
+  .recovery-codes-page__mark {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  .recovery-codes-page__heading h1 {
+    font-size: 1.55rem;
+  }
+
+  .recovery-code-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recovery-workspace__tools,
+  .recovery-workspace__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recovery-workspace__tools .btn,
+  .recovery-workspace__footer .btn {
+    width: 100%;
+  }
+
+  .recovery-workspace__footer > div {
+    align-items: flex-start;
+  }
+}
+
+@media print {
+  body::before,
+  .topbar,
+  .nav,
+  .recovery-codes-page__privacy,
+  .recovery-workspace__tools,
+  .recovery-workspace__feedback,
+  .recovery-workspace__guide,
+  .recovery-workspace__footer,
+  .recovery-workspace__refresh-error {
+    display: none !important;
+  }
+
+  .main-content {
+    padding: 0;
+  }
+
+  .recovery-codes-page {
+    width: 100%;
+  }
+
+  .recovery-workspace {
+    display: block;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .recovery-workspace__codes {
+    padding: 0;
+  }
+
+  .recovery-code-list li {
+    break-inside: avoid;
+  }
+}

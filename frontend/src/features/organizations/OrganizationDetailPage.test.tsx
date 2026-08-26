@@ -10,6 +10,7 @@ import {
   jsonResponse,
   problemResponse
 } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { OrganizationDetailPage } from "./OrganizationDetailPage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -143,7 +144,7 @@ afterEach(() => {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{location.pathname}</output>;
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function OrganizationSwitcher() {
@@ -193,19 +194,90 @@ function renderSwitchablePage() {
   );
 }
 
-it("renders the populated legacy detail from complete organization and billing payloads", async () => {
+async function openView(user: ReturnType<typeof userEvent.setup>, view: "access" | "billings" | "team") {
+  const name = view === "access" ? "Acesso" : view === "billings" ? /^Cobranças/ : /^Equipe/;
+  await user.click(await screen.findByRole("tab", { name }));
+}
+
+it("presents one compact workspace with deep-linked operation, team and access views", async () => {
+  const user = userEvent.setup();
+  installFetch(baseHandlers());
+  renderPage();
+
+  const workspace = await screen.findByRole("article", { name: "Organização Acme Imóveis" });
+  expect(within(workspace).getByRole("heading", { name: "Acme Imóveis" })).toBeVisible();
+  expect(within(workspace).getAllByRole("link", { name: "Criar cobrança" })).toHaveLength(1);
+  expect(within(workspace).getAllByText("3 cobranças").length).toBeGreaterThan(0);
+  expect(within(workspace).getByText("3 pessoas")).toBeVisible();
+  expect(within(workspace).getByText("MFA opcional")).toBeVisible();
+
+  const actions = within(workspace).getByRole("button", { name: "Ações da organização" });
+  await user.click(actions);
+  const editLink = within(workspace).getByRole("link", { name: "Editar organização" });
+  const themeLink = within(workspace).getByRole("link", { name: "Tema da organização" });
+  expect(editLink).toHaveAttribute("href", "/organizations/org-public-uuid/edit");
+  expect(themeLink).toHaveAttribute("href", "/themes/organization/org-public-uuid");
+  await user.keyboard("x");
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  await user.keyboard("{Escape}");
+  expect(actions).toHaveFocus();
+
+  await user.click(actions);
+  fireEvent.click(document.getElementById("organization-actions-menu")!);
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  editLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  fireEvent.click(editLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  themeLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  fireEvent.click(themeLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  fireEvent.click(document.body);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+
+  const teamTab = within(workspace).getByRole("tab", { name: "Equipe 3" });
+  await user.click(teamTab);
+  expect(teamTab).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByTestId("location")).toHaveTextContent("?view=team");
+  expect(within(workspace).getByRole("heading", { name: "Pessoas e convites" })).toBeVisible();
+  expect(within(workspace).getByRole("heading", { name: "Convidar membro" })).toBeVisible();
+  expect(within(workspace).queryByRole("heading", { name: "Cobranças da organização" })).not.toBeInTheDocument();
+
+  const accessTab = within(workspace).getByRole("tab", { name: "Acesso" });
+  await user.keyboard("{ArrowRight}");
+  expect(accessTab).toHaveAttribute("aria-selected", "true");
+  expect(accessTab).toHaveFocus();
+  expect(screen.getByTestId("location")).toHaveTextContent("?view=access");
+  expect(within(workspace).getByRole("heading", { name: "Segurança da organização" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Excluir organização" })).toBeVisible();
+
+  await user.keyboard("{Home}");
+  const billingsTab = within(workspace).getByRole("tab", { name: "Cobranças 3" });
+  expect(billingsTab).toHaveFocus();
+  expect(billingsTab).toHaveAttribute("aria-selected", "true");
+  await user.keyboard("x");
+  expect(billingsTab).toHaveAttribute("aria-selected", "true");
+  await user.keyboard("{End}");
+  expect(accessTab).toHaveFocus();
+  await user.keyboard("{ArrowLeft}");
+  expect(teamTab).toHaveFocus();
+});
+
+it("renders complete organization and billing payloads inside the workspace", async () => {
+  const user = userEvent.setup();
   document.title = "Anterior";
   installFetch(baseHandlers());
   const view = renderPage();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Acme Imóveis" })).toHaveClass("pagehead__title");
-  expect(screen.getByText("3 membros · 3 cobranças · você é Admin")).toBeVisible();
-  expect(screen.getByRole("link", { name: "Tema" })).toHaveAttribute("href", "/themes/organization/org-public-uuid");
-  expect(screen.getByRole("link", { name: "Editar" })).toHaveAttribute("href", "/organizations/org-public-uuid/edit");
-  expect(screen.getAllByRole("link", { name: /Nova cobrança/ }).length).toBe(2);
+  expect(screen.getByText("3 pessoas")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Tema da organização" })).toHaveAttribute("href", "/themes/organization/org-public-uuid");
+  expect(screen.getByRole("link", { name: "Editar organização" })).toHaveAttribute("href", "/organizations/org-public-uuid/edit");
+  expect(screen.getAllByRole("link", { name: "Criar cobrança" })).toHaveLength(1);
   expect(screen.getByText("R$ 9.900,00")).toBeVisible();
-  expect(screen.getByText("Faturado · 2026")).toBeVisible();
+  expect(screen.getByText("Faturado em 2026")).toBeVisible();
   expect(screen.getByText("8 faturas no ano")).toBeVisible();
   expect(screen.getByText("4 faturas pagas")).toBeVisible();
   expect(screen.getByText("2 aguardando")).toBeVisible();
@@ -213,23 +285,25 @@ it("renders the populated legacy detail from complete organization and billing p
   expect(screen.getByText("Pago")).toHaveClass("tag--paid");
   expect(screen.getByText("Pag. Atrasado")).toHaveClass("tag--delayed");
   expect(screen.getByText("Sem fatura")).toHaveClass("tag--draft");
-  const billingPanel = screen.getByRole("heading", { name: "Cobranças da organização" }).closest(".panel");
+  const billingPanel = screen.getByRole("heading", { name: "Cobranças da organização" }).closest("[role=tabpanel]");
   expect(billingPanel).not.toBeNull();
   expect(within(billingPanel as HTMLElement).queryByText("Outra organização")).not.toBeInTheDocument();
-  expect(within(billingPanel as HTMLElement).queryByText("Cobrança pessoal")).not.toBeInTheDocument();
+  expect(within(billingPanel as HTMLElement).queryByRole("link", { name: "Cobrança pessoal" })).not.toBeInTheDocument();
+  await openView(user, "team");
   expect(screen.getByText("você")).toHaveClass("you-chip");
   expect(screen.getAllByText("Pendente").find((element) => element.classList.contains("tag--pending"))).toBeVisible();
   expect(screen.getByText("Aceito")).toHaveClass("tag--paid");
   expect(screen.getByText("Recusado")).toHaveClass("tag--overdue");
   expect(screen.getByText("manager@example.com")).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Papel de manager@example.com" })).toHaveValue("manager");
-  expect(screen.getByRole("heading", { name: "Membros" }).closest(".organization-detail-grid")).not.toBeNull();
+  expect(screen.getByRole("heading", { name: "Membros" }).closest(".organization-team__directory")).not.toBeNull();
   await waitFor(() => expect(document.title).toBe("Acme Imóveis - Rentivo"));
   view.unmount();
   expect(document.title).toBe("Anterior");
 });
 
 it("shows a truly empty organization and trusts false capabilities over an admin role", async () => {
+  const user = userEvent.setup();
   installFetch(baseHandlers({
     "GET /api/v1/billings": () => jsonResponse({ ...billings, items: [] }),
     "GET /api/v1/organizations/org-public-uuid": () => jsonResponse({
@@ -244,18 +318,20 @@ it("shows a truly empty organization and trusts false capabilities over an admin
   }));
   renderPage();
 
-  expect(await screen.findByText("Nenhuma cobrança nesta organização ainda.")).toBeVisible();
-  expect(screen.getByText("1 membros · 0 cobranças · você é Admin")).toBeVisible();
-  expect(screen.queryByRole("link", { name: /Nova cobrança/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Editar" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Nenhuma cobrança por aqui")).toBeVisible();
+  expect(screen.getByText("1 pessoa")).toBeVisible();
+  expect(screen.queryByRole("link", { name: "Criar cobrança" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Editar organização" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Convidar membro" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Excluir organização" })).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Sobre a organização" })).toBeVisible();
-  expect(screen.getByText("Sim")).toHaveClass("tag--paid");
-  expect(screen.getByText(/Como visualizador|Como gerente/)).toBeVisible();
+  await openView(user, "access");
+  expect(screen.getByRole("heading", { name: "Segurança da organização" })).toBeVisible();
+  expect(screen.getByText("Obrigatória")).toHaveClass("tag--paid");
+  expect(screen.getByText(/Seu acesso é somente leitura/)).toBeVisible();
 });
 
 it("renders read-only manager capabilities with MFA off and an empty billing action", async () => {
+  const user = userEvent.setup();
   installFetch(baseHandlers({
     "GET /api/v1/billings": () => jsonResponse({ ...billings, items: [] }),
     "GET /api/v1/organizations/org-public-uuid": () => jsonResponse({
@@ -268,10 +344,12 @@ it("renders read-only manager capabilities with MFA off and an empty billing act
     })
   }));
   renderPage();
-  expect(await screen.findByText("Nenhuma cobrança nesta organização ainda.")).toBeVisible();
-  expect(screen.getAllByRole("link", { name: /Nova cobrança/ }).length).toBe(3);
-  expect(screen.getByText("Não")).toHaveClass("tag--draft");
-  expect(screen.getByText(/Como gerente você pode criar cobranças/)).toBeVisible();
+  expect(await screen.findByText("Nenhuma cobrança por aqui")).toBeVisible();
+  expect(screen.getAllByRole("link", { name: "Criar cobrança" })).toHaveLength(1);
+  expect(screen.getByText("MFA opcional")).toBeVisible();
+  await openView(user, "access");
+  expect(screen.getByText(/Você pode criar cobranças e gerar faturas/)).toBeVisible();
+  await openView(user, "team");
   expect(screen.queryByRole("combobox", { name: "Papel de manager@example.com" })).not.toBeInTheDocument();
   expect(screen.getAllByText("Gerente").every((element) => element.classList.contains("tag--variable"))).toBe(true);
 });
@@ -304,6 +382,7 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   }));
   renderPage();
   await screen.findByText("Acme Imóveis");
+  await openView(user, "team");
   const inviteEmail = screen.getByLabelText("E-mail");
   fireEvent.change(inviteEmail, { target: { value: `${"😀".repeat(318)}@a` } });
   expect(inviteEmail).toHaveValue(`${"😀".repeat(318)}@a`);
@@ -311,7 +390,7 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   expect(inviteEmail).toHaveValue("😀".repeat(320));
   fireEvent.change(inviteEmail, { target: { value: "" } });
 
-  await user.selectOptions(screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "viewer");
+  await chooseSelectOption(user, screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "Visualizador");
   expect(await screen.findByText("Papel atualizado com sucesso!")).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Papel de manager@example.com" })).toHaveValue("viewer");
 
@@ -322,12 +401,13 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   await waitFor(() => expect(screen.getByRole("button", { name: "Remover manager@example.com" })).toHaveFocus());
 
   await user.type(inviteEmail, "NEW@EXAMPLE.COM");
-  await user.selectOptions(screen.getByLabelText("Papel do convite"), "manager");
+  await chooseSelectOption(user, screen.getByLabelText("Papel do convite"), "Gerente");
   await user.click(screen.getByRole("button", { name: "Enviar convite" }));
   expect(await screen.findByText("Convite enviado com sucesso!")).toBeVisible();
   expect(screen.getByText("new@example.com")).toBeVisible();
 
-  await user.selectOptions(screen.getByLabelText("Cobrança para transferir"), "billing-personal");
+  await openView(user, "billings");
+  await chooseSelectOption(user, screen.getByLabelText("Cobrança para transferir"), "Cobrança pessoal");
   await user.click(screen.getByRole("button", { name: "Transferir cobrança" }));
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   expect(await screen.findByText("Cobrança transferida com sucesso!")).toBeVisible();
@@ -355,12 +435,13 @@ it("focuses failed mutation controls and normalizes invite body fields", async (
     }
   }));
   renderPage();
+  await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  await user.selectOptions(role, "viewer");
+  await chooseSelectOption(user, role, "Visualizador");
   expect(await screen.findByText("A associação mudou.")).toBeVisible();
   expect(role).toHaveFocus();
-  await user.selectOptions(role, "admin");
+  await chooseSelectOption(user, role, "Admin");
   expect(await screen.findByText("Não foi possível atualizar o papel.")).toBeVisible();
   expect(role).toHaveFocus();
 
@@ -389,6 +470,7 @@ it("updates MFA policy, routes required setup, and deletes with confirmation", a
   const view = renderPage();
   await screen.findByText("Acme Imóveis");
 
+  await openView(user, "access");
   await user.click(screen.getByRole("switch", { name: "Ativar exigência de MFA" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/security/totp/setup"));
   expect(auth.refreshSession).toHaveBeenCalledOnce();
@@ -401,6 +483,7 @@ it("updates MFA policy, routes required setup, and deletes with confirmation", a
   }));
   auth.refreshSession.mockRejectedValueOnce(new Error("offline"));
   renderPage();
+  await openView(user, "access");
   await user.click(await screen.findByRole("switch", { name: "Ativar exigência de MFA" }));
   expect(await screen.findByText("Política de MFA atualizada.")).toBeVisible();
   expect(auth.refreshSession).toHaveBeenCalledTimes(2);
@@ -433,17 +516,20 @@ it("retries detail loads and surfaces delete, transfer, MFA, and member removal 
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await screen.findByText("Acme Imóveis");
 
+  await openView(user, "team");
   await user.click(screen.getByRole("button", { name: "Remover viewer@example.com" }));
   await user.click(screen.getByRole("button", { name: "Remover membro" }));
   expect(await screen.findByText("Membro já removido.")).toBeVisible();
   await waitFor(() => expect(screen.getByRole("button", { name: "Remover viewer@example.com" })).toHaveFocus());
 
-  await user.selectOptions(screen.getByLabelText("Cobrança para transferir"), "billing-personal");
+  await openView(user, "billings");
+  await chooseSelectOption(user, screen.getByLabelText("Cobrança para transferir"), "Cobrança pessoal");
   await user.click(screen.getByRole("button", { name: "Transferir cobrança" }));
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   expect(await screen.findByText("Não foi possível transferir a cobrança.")).toBeVisible();
   expect(screen.getByRole("button", { name: "Transferir cobrança" })).toHaveFocus();
 
+  await openView(user, "access");
   await user.click(screen.getByRole("switch", { name: "Ativar exigência de MFA" }));
   expect(await screen.findByText("MFA indisponível.")).toBeVisible();
   expect(screen.getByRole("switch", { name: "Ativar exigência de MFA" })).toHaveFocus();
@@ -480,12 +566,13 @@ it("clears organization data on route changes and ignores an aborted member resp
     }
   });
   renderSwitchablePage();
+  await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  await user.selectOptions(role, "viewer");
+  await chooseSelectOption(user, role, "Visualizador");
   await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(screen.queryByText("Acme Imóveis")).not.toBeInTheDocument();
   expect(roleSignal?.aborted).toBe(true);
   await act(async () => { betaLoad.resolve(jsonResponse(betaDetail)); });
@@ -494,6 +581,7 @@ it("clears organization data on route changes and ignores an aborted member resp
   await act(async () => {
     roleUpdate.resolve(jsonResponse({ ...detail.members[1], role: "viewer" }));
   });
+  await openView(user, "team");
   expect(screen.getByText("beta@example.com")).toBeVisible();
   expect(screen.queryByText("Papel atualizado com sucesso!")).not.toBeInTheDocument();
   expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-beta");
@@ -510,11 +598,12 @@ it("deduplicates and disables member, invite, and MFA mutations while each reque
     "PUT /api/v1/organizations/org-public-uuid/mfa-policy": () => mfaUpdate.promise
   }));
   renderPage();
+  await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  fireEvent.change(role, { target: { value: "viewer" } });
-  fireEvent.change(role, { target: { value: "admin" } });
+  await chooseSelectOption(user, role, "Visualizador");
   expect(role).toBeDisabled();
+  await user.click(role);
   await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/members/77"))).toHaveLength(1));
   await act(async () => { roleUpdate.resolve(jsonResponse({ ...detail.members[1], role: "viewer" })); });
 
@@ -522,7 +611,7 @@ it("deduplicates and disables member, invite, and MFA mutations while each reque
   const inviteForm = screen.getByRole("button", { name: "Enviar convite" }).closest("form") as HTMLFormElement;
   fireEvent.submit(inviteForm);
   fireEvent.submit(inviteForm);
-  expect(screen.getByRole("button", { name: "Enviar convite" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Enviando…" })).toBeDisabled();
   expect(screen.getByLabelText("E-mail")).toBeDisabled();
   await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/invites"))).toHaveLength(1));
   await act(async () => {
@@ -536,6 +625,7 @@ it("deduplicates and disables member, invite, and MFA mutations while each reque
     }, 201));
   });
 
+  await openView(user, "access");
   const mfa = screen.getByRole("switch", { name: "Ativar exigência de MFA" });
   fireEvent.click(mfa);
   fireEvent.click(mfa);
@@ -555,6 +645,7 @@ it("does not navigate when an MFA response resolves after the organization route
     "PUT /api/v1/organizations/org-public-uuid/mfa-policy": () => mfaUpdate.promise
   });
   renderSwitchablePage();
+  await openView(user, "access");
   await user.click(await screen.findByRole("switch", { name: "Ativar exigência de MFA" }));
   await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
   await screen.findByRole("heading", { name: "Beta Imóveis" });
@@ -573,6 +664,7 @@ it("focuses the members heading after removing the final manageable member", asy
     })
   }));
   renderPage();
+  await openView(user, "team");
   await user.click(await screen.findByRole("button", { name: "Remover viewer@example.com" }));
   await user.click(screen.getByRole("button", { name: "Remover membro" }));
 
@@ -591,7 +683,7 @@ it("ignores initial organization loads that settle after the page unmounts", asy
   });
   const view = renderPage();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   await waitFor(() => expect(detailSignal).toBeDefined());
   view.unmount();
   expect(detailSignal?.aborted).toBe(true);
@@ -619,6 +711,7 @@ it("does not surface errors when an MFA request fails after the organization rou
     "PUT /api/v1/organizations/org-public-uuid/mfa-policy": () => mfaUpdate.promise
   });
   renderSwitchablePage();
+  await openView(user, "access");
   await user.click(await screen.findByRole("switch", { name: "Ativar exigência de MFA" }));
   await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
   await screen.findByRole("heading", { name: "Beta Imóveis" });
@@ -640,6 +733,7 @@ it("aborts an active organization mutation when the page unmounts", async () => 
     }
   }));
   const view = renderPage();
+  await openView(user, "access");
   await user.click(await screen.findByRole("switch", { name: "Ativar exigência de MFA" }));
   await waitFor(() => expect(signal).toBeDefined());
 

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -77,6 +77,101 @@ function renderPage() {
   );
 }
 
+async function moveToItems(user: ReturnType<typeof userEvent.setup>, referenceMonth = "2026-07", dueDate = "") {
+  await screen.findByRole("heading", { name: "Competência" }, { timeout: 5_000 });
+  if (!screen.getByLabelText("Mês de Referência").getAttribute("value")) {
+    await user.type(screen.getByLabelText("Mês de Referência"), referenceMonth);
+  }
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  if (dueDate) fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: dueDate } });
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Itens" }, { timeout: 5_000 });
+}
+
+async function moveFromItemsToReview(user: ReturnType<typeof userEvent.setup>, notes = "") {
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Observações e comprovantes" }, { timeout: 5_000 });
+  if (notes) await user.type(screen.getByLabelText("Observações"), notes);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await screen.findByRole("heading", { name: "Revisar fatura" }, { timeout: 5_000 });
+}
+
+it("guides invoice generation through validated desktop steps and a review", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+
+  expect(await screen.findByRole("heading", { name: "Competência" })).toBeVisible();
+  expect(screen.queryByLabelText("Vencimento")).not.toBeInTheDocument();
+  expect(screen.getByText("Etapa 1 de 5")).toBeVisible();
+  fireEvent.submit(screen.getByRole("button", { name: /Continuar/ }).closest("form")!);
+  expect(await screen.findByText("Informe o mês de referência.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await waitFor(() => expect(screen.getByLabelText("Mês de Referência")).toHaveFocus());
+
+  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  expect(screen.queryByText("Informe o mês de referência.")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
+  fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: "2026-08-10" } });
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Itens" })).toHaveFocus();
+  await user.type(screen.getByLabelText("Água"), "123,45");
+  expect(screen.getByRole("complementary", { name: "Resumo da fatura" })).toHaveTextContent("R$ 2.623,45");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
+  await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
+  await user.upload(screen.getByLabelText("Anexar comprovantes"), [
+    new File(["one"], "primeiro.pdf", { type: "application/pdf" }),
+    new File(["two"], "segundo.pdf", { type: "application/pdf" })
+  ]);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+
+  expect(screen.getByRole("heading", { name: "Revisar fatura" })).toHaveFocus();
+  expect(screen.getAllByText("Julho/2026").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText("Pagar até o vencimento")).toBeVisible();
+  expect(screen.getByText("2 arquivos")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Competência" }));
+  expect(screen.getByRole("heading", { name: "Competência" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Vencimento" }));
+  expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Observações" }));
+  expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Comprovantes" }));
+  expect(screen.getByRole("heading", { name: "Observações e comprovantes" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: /Revisar fatura/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Itens e valores" }));
+  expect(screen.getByRole("heading", { name: "Itens" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(screen.getByRole("heading", { name: "Vencimento" })).toHaveFocus();
+});
+
+it("shows every charge and the final total in the review before generation", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing)
+  });
+  renderPage();
+
+  await moveToItems(user);
+  await user.type(screen.getByLabelText("Água"), "123,45");
+  await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Condomínio");
+  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "315,90");
+  await moveFromItemsToReview(user);
+
+  const breakdown = screen.getByRole("region", { name: "Itens da fatura" });
+  expect(within(breakdown).getByText("Aluguel")).toBeVisible();
+  expect(within(breakdown).getByText("Água")).toBeVisible();
+  expect(within(breakdown).getByText("Condomínio")).toBeVisible();
+  expect(within(breakdown).getByText("R$ 2.939,35")).toBeVisible();
+});
+
 it("generates a typed invoice with variable values, extras, dates, notes, and receipt files", async () => {
   const user = userEvent.setup();
   const receipt = new File(["receipt"], "comprovante.pdf", { type: "application/pdf" });
@@ -104,16 +199,17 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
   const view = renderPage();
 
   expect(screen.getByText("Carregando cobrança...")).toBeVisible();
-  expect(await screen.findByRole("heading", { name: "Gerar Fatura" })).toHaveClass("mb-1");
+  expect(await screen.findByRole("heading", { name: "Gerar Fatura" })).toHaveClass("bill-generate-page__title");
+  await moveToItems(user, "2026-07", "2026-08-10");
   expect(screen.getByDisplayValue("2.500,00")).toBeDisabled();
   await user.type(screen.getByLabelText("Água"), "123,45");
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
-  fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: "2026-08-10" } });
-  await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
-  await user.type(screen.getByPlaceholderText("Descrição"), "Gás");
+  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Gás");
   await user.type(screen.getByLabelText("Valor da despesa extra 1"), "12,11");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.type(screen.getByLabelText("Observações"), "Pagar até o vencimento");
   await user.upload(screen.getByLabelText("Anexar comprovantes"), receipt);
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
 
   await waitFor(() => expect(submitted).toBeInstanceOf(FormData));
@@ -134,6 +230,7 @@ it("generates a typed invoice with variable values, extras, dates, notes, and re
 it("normalizes body field errors, focuses the invalid input, and retries a failed load", async () => {
   const user = userEvent.setup();
   let loads = 0;
+  let posts = 0;
   installFetch({
     "GET /api/v1/billings/billing-public-uuid": () => {
       loads += 1;
@@ -142,23 +239,34 @@ it("normalizes body field errors, focuses the invalid input, and retries a faile
         title: "Indisponível", type: "problem"
       }) : jsonResponse(billing);
     },
-    "POST /api/v1/billings/billing-public-uuid/bills": () => problemResponse({
-      code: "validation_error", detail: "Confira os campos.",
-      fields: { "body.reference_month": "Mês inválido.", [`body.variable_amounts.${VARIABLE_ITEM_UUID}`]: "Informe o valor." },
-      request_id: "req", status: 422, title: "Dados inválidos", type: "problem"
-    })
+    "POST /api/v1/billings/billing-public-uuid/bills": () => {
+      posts += 1;
+      return problemResponse({
+        code: "validation_error", detail: "Confira os campos.",
+        fields: posts === 1
+          ? { "body.reference_month": "Mês inválido.", [`body.variable_amounts.${VARIABLE_ITEM_UUID}`]: "Informe o valor." }
+          : { "body.due_date": "Vencimento inválido." },
+        request_id: "req", status: 422, title: "Dados inválidos", type: "problem"
+      });
+    }
   });
   renderPage();
 
   expect(await screen.findByText("Sem conexão.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "0");
+  await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Mês inválido.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Mês de Referência")).toHaveFocus());
+  await user.click(screen.getByRole("button", { name: /Itens/ }));
   expect(screen.getByText("Informe o valor.")).toBeVisible();
+  await moveFromItemsToReview(user);
+  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  expect(await screen.findByText("Vencimento inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Vencimento")).toHaveFocus());
 });
 
 it("renders backend-denied and fresh-template nested states", async () => {
@@ -205,9 +313,11 @@ it("keeps bill generation available but omits receipt files without files:write"
   renderPage();
 
   expect(await screen.findByRole("heading", { name: "Gerar Fatura" })).toBeVisible();
-  expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "10,00");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
 
   await waitFor(() => expect(submitted).toBeInstanceOf(FormData));
@@ -224,14 +334,17 @@ it("rejects invalid receipt files before generating a bill", async () => {
   renderPage();
 
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "10,00");
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   const input = screen.getByLabelText("Anexar comprovantes");
   fireEvent.change(input, { target: { files: [new File(["text"], "notes.txt", { type: "text/plain" })] } });
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
-  expect(input).toHaveFocus();
+  await waitFor(() => expect(input).toHaveFocus());
+  fireEvent.submit(input.closest("form")!);
+  expect(await screen.findByText("O arquivo notes.txt deve ser PDF, JPEG ou PNG.")).toBeVisible();
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
 });
 
@@ -251,33 +364,39 @@ it("validates extras locally, removes rows, and focuses nested API errors", asyn
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "10,00");
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor maior que zero.")).toBeVisible();
   const extraDescription = screen.getByLabelText("Descrição da despesa extra 1");
-  expect(extraDescription).toHaveFocus();
+  await waitFor(() => expect(extraDescription).toHaveFocus());
 
   fireEvent.change(extraDescription, { target: { value: "😀".repeat(256) } });
   expect(extraDescription).toHaveValue("😀".repeat(255));
   fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
 
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
-  await user.clear(screen.getByLabelText("Descrição da despesa extra 1"));
-  await user.clear(screen.getByLabelText("Valor da despesa extra 1"));
-  await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Seguro");
-  await user.type(screen.getByLabelText("Valor da despesa extra 1"), "10,00");
-  await user.type(screen.getByLabelText("Descrição da despesa extra 2"), "Limpeza");
-  await user.type(screen.getByLabelText("Valor da despesa extra 2"), "20,00");
+  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 1"), { target: { value: "Seguro" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 1"), { target: { value: "10,00" } });
+  fireEvent.change(screen.getByLabelText("Descrição da despesa extra 2"), { target: { value: "Limpeza" } });
+  fireEvent.change(screen.getByLabelText("Valor da despesa extra 2"), { target: { value: "20,00" } });
+  expect(screen.getByLabelText("Água")).toHaveValue("10,00");
+  expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveValue("Seguro");
+  expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveValue("10,00");
+  expect(screen.getByLabelText("Descrição da despesa extra 2")).toHaveValue("Limpeza");
+  expect(screen.getByLabelText("Valor da despesa extra 2")).toHaveValue("20,00");
+  await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Descrição já utilizada.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Descrição da despesa extra 1")).toHaveFocus());
 
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
+  expect(screen.queryByText("Descrição já utilizada.")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Remover despesa extra 1" }));
-  expect(screen.getByText("Nenhuma despesa extra.")).toBeVisible();
+  expect(screen.getByText("Nenhuma despesa extra nesta fatura.")).toBeVisible();
+  await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Não foi possível gerar a fatura.")).toBeVisible();
 });
@@ -306,17 +425,19 @@ it("rejects an unparsable variable amount and tolerates an unknown backend UUID 
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "invalido");
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
   expect(await screen.findByText("Informe um valor válido.")).toBeVisible();
   expect(screen.getByLabelText("Água")).toHaveFocus();
   expect(attempts).toBe(0);
   await user.clear(screen.getByLabelText("Água"));
   await user.type(screen.getByLabelText("Água"), "10,00");
+  await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   expect(await screen.findByText("Valor desconhecido.")).toBeVisible();
-  expect(screen.getByLabelText("Água")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Água")).toHaveFocus());
+  await moveFromItemsToReview(user);
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
   await waitFor(() => expect(attempts).toBe(2));
   expect(payload).toEqual(expect.objectContaining({ variable_amounts: { [VARIABLE_ITEM_UUID]: 1000 } }));
@@ -329,12 +450,12 @@ it("rejects a generated bill total beyond the persistence limit", async () => {
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "21.474.836,47");
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
-  expect(screen.getByLabelText("Água")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Água")).toHaveFocus());
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
 });
 
@@ -348,14 +469,14 @@ it("focuses the first extra when an extras-only total exceeds the persistence li
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.click(screen.getByRole("button", { name: "Adicionar despesa extra" }));
   await user.type(screen.getByLabelText("Descrição da despesa extra 1"), "Reforma");
   await user.type(screen.getByLabelText("Valor da despesa extra 1"), "21.474.836,47");
-  await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
+  await user.click(screen.getByRole("button", { name: "Continuar" }));
 
   expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
-  expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveFocus();
+  await waitFor(() => expect(screen.getByLabelText("Valor da despesa extra 1")).toHaveFocus());
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
 });
 
@@ -383,20 +504,20 @@ it.each(["resolve", "reject"] as const)("resets every resource when a stale gene
   });
   renderPage();
   await screen.findByRole("heading", { name: "Gerar Fatura" });
-  await user.type(screen.getByLabelText("Mês de Referência"), "2026-07");
+  await moveToItems(user);
   await user.type(screen.getByLabelText("Água"), "10,00");
-  await user.type(screen.getByLabelText("Observações"), "Não pode vazar");
+  await moveFromItemsToReview(user, "Não pode vazar");
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
-  expect(screen.getByRole("button", { name: "Gerando..." })).toBeDisabled();
-  fireEvent.submit(screen.getByRole("button", { name: "Gerando..." }).closest("form")!);
+  expect(screen.getByRole("button", { name: "Gerando…" })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("button", { name: "Gerando…" }).closest("form")!);
   expect(generationPosts).toBe(1);
 
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
-  expect(await screen.findByText("Residencial Lua")).toBeVisible();
+  expect((await screen.findAllByText("Residencial Lua")).length).toBeGreaterThanOrEqual(1);
   expect(screen.getByLabelText("Mês de Referência")).toHaveValue("");
+  await moveToItems(user);
   expect(screen.getByLabelText("Energia")).toHaveValue("");
-  expect(screen.getByLabelText("Observações")).toHaveValue("");
-  expect(screen.getByRole("button", { name: "Gerar Fatura" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
 
   settleGeneration();
   await new Promise((resolve) => setTimeout(resolve, 0));

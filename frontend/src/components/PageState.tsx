@@ -15,7 +15,7 @@ interface EmptyStateProps {
   title: string;
 }
 
-export function LoadingState({ label = "Carregando..." }: LoadingStateProps) {
+export function LoadingState({ label = "Carregando…" }: LoadingStateProps) {
   return (
     <div aria-live="polite" className="empty-state" role="status">
       <p>{label}</p>

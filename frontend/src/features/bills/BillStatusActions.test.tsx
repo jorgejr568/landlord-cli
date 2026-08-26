@@ -65,6 +65,24 @@ it("uses backend transitions and confirms a strict compare-and-swap status chang
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
 });
 
+it("promotes the lifecycle next action and separates destructive transitions", () => {
+  render(<BillStatusActions
+    billingUuid="billing-public-uuid"
+    bill={{ ...bill, available_transitions: [
+      { label: "Cancelar fatura", requires_confirmation: true, style: "danger", target: "cancelled" },
+      { label: "Voltar para publicado", requires_confirmation: true, style: "other", target: "published" },
+      { label: "Marcar como pago", requires_confirmation: true, style: "primary", target: "paid" }
+    ] }}
+    onChange={vi.fn()}
+    onStale={vi.fn()}
+  />);
+
+  expect(screen.getByRole("button", { name: "Marcar como pago" })).toHaveClass("btn--primary");
+  expect(screen.getByText("Mais ações")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Cancelar fatura" })).toHaveClass("status-menu__item--danger");
+  expect(screen.getByRole("button", { name: "Voltar para publicado" })).not.toHaveClass("status-menu__item--danger");
+});
+
 it("refreshes on stale 409 and never reconstructs transitions when capability is absent", async () => {
   const user = userEvent.setup();
   const onStale = vi.fn();

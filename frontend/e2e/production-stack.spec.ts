@@ -128,18 +128,19 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.getByLabel("E-mail").fill(email);
     await page.getByLabel("Senha", { exact: true }).fill(password);
     await page.getByLabel("Confirmar Senha").fill(password);
+    await page.getByRole("checkbox", { name: /Li e aceito/ }).check();
     await page.getByRole("button", { name: "Criar Conta" }).click();
 
     await expect(page).toHaveURL(/\/billings\/$/);
-    await expect(page.getByText("Nenhuma cobrança cadastrada.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
 
     await page.goto("/organizations/");
-    await expect(page.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Organize sua operação em equipe" })).toBeVisible();
 
     await page.goto("/themes/user");
     await expect(page.getByRole("heading", { level: 1, name: "Meu Tema" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Fontes" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Cores" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
     // The PDF preview is delivered as a blob: URL, which the report-only
     // policy must permit through frame-src.
     await expect(page.locator('iframe[title="Pré-visualização do tema"]')).toHaveAttribute(
@@ -159,6 +160,8 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("deny an organization outside an integration key grant", async () => {
     await page.goto("/organizations/create");
     await page.getByLabel("Nome da organização", { exact: true }).fill(`Organização ${unique}`);
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Criar organização" }).click();
     await expect(page).toHaveURL(new RegExp(`/organizations/${ULID_PATH_SEGMENT}$`));
     organizationUuid = new URL(page.url()).pathname.split("/").filter(Boolean).at(-1)!;
@@ -166,7 +169,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.goto("/security");
     await page.getByRole("button", { name: "Criar chave" }).click();
     await page.getByLabel("Nome", { exact: true }).fill(`Gate ${unique}`);
-    await page.getByLabel("Consultar organizações").check();
+    await page.getByRole("radio", { name: "Organizações: leitura" }).check();
     await page.getByRole("checkbox", { name: "Pessoal", exact: true }).check();
     await page.getByRole("button", { name: "Criar chave" }).click();
 
@@ -195,6 +198,7 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("enforce organization MFA continuously and complete the exempt setup path", async () => {
     await page.goto(`/organizations/${organizationUuid}`);
     await expect(page.getByRole("heading", { level: 1, name: `Organização ${unique}` })).toBeVisible();
+    await page.getByRole("tab", { name: "Acesso" }).click();
     const policyResponsePromise = page.waitForResponse((response) =>
       response.request().method() === "PUT" &&
       new URL(response.url()).pathname === `/api/v1/organizations/${organizationUuid}/mfa-policy`
@@ -229,8 +233,7 @@ test("exercises the replacement stack without network interception", async ({ ba
       page.off("request", capturePrivateRequest);
     }
 
-    await page.getByText("Inserir manualmente", { exact: true }).click();
-    const secret = page.locator(".secret-key");
+    const secret = page.locator(".totp-enrollment__secret-row code");
     await expect(secret).toBeVisible();
     totpSecret = (await secret.innerText()).trim();
     expect(totpSecret).toMatch(/^[A-Z2-7]+$/);
@@ -239,8 +242,9 @@ test("exercises the replacement stack without network interception", async ({ ba
 
     await expect(page).toHaveURL(/\/security\/recovery-codes$/);
     await expect(page.getByRole("heading", { name: "Códigos de Recuperação", exact: true })).toBeVisible();
-    expect(await page.locator("#recovery-codes code").count()).toBeGreaterThan(0);
-    await page.getByRole("button", { name: "Continuar" }).click();
+    const recoveryCodeList = page.getByRole("list", { name: "Códigos de recuperação" });
+    await expect(recoveryCodeList.locator("code").first()).toBeVisible();
+    await page.getByRole("button", { name: "Concluir e ir para Segurança" }).click();
     await expect(page).toHaveURL(/\/security$/);
     await expect(page.getByRole("heading", { name: "Segurança" })).toBeVisible();
 
@@ -251,22 +255,30 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("create a billing and its first real invoice", async () => {
     await page.goto("/billings/create");
     await page.getByLabel("Nome do imóvel").fill(`Apartamento ${unique}`);
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByLabel("Descrição do item 1").fill("Aluguel");
+    await page.getByLabel("Valor do item 1 (R$)").fill("1.250,00");
+    await page.getByRole("button", { name: "Continuar" }).click();
     // The billing form inherits the owner's PIX unless this opt-in is checked,
     // which is what reveals the override fields below.
-    await page.getByLabel("Usar PIX personalizado").check();
+    await page.getByRole("radio", { name: /^Usar PIX exclusivo/ }).check();
     await page.getByLabel("Chave PIX").fill(email);
     await page.getByLabel("Nome do recebedor").fill("RENTIVO RELEASE");
     await page.getByLabel("Cidade do recebedor").fill("SALVADOR");
-    await page.getByLabel("Descrição do item 1").fill("Aluguel");
-    await page.getByLabel("Valor do item 1 (R$)").fill("1.250,00");
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Criar cobrança" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/billings/${ULID_PATH_SEGMENT}$`));
     await expect(page.getByText("Nenhuma fatura gerada para este imóvel.")).toBeVisible();
     await page.getByRole("link", { name: "Gerar primeira fatura" }).click();
     await page.getByLabel("Mês de Referência").fill("2030-12");
+    await page.getByRole("button", { name: "Continuar" }).click();
     // Native date control — it only accepts the ISO value, not the pt-BR display format.
     await page.getByLabel("Vencimento").fill("2030-12-10");
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("button", { name: "Gerar Fatura" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/billings/${ULID_PATH_SEGMENT}/bills/${ULID_PATH_SEGMENT}$`));
@@ -283,7 +295,7 @@ test("exercises the replacement stack without network interception", async ({ ba
 
     await page.reload();
     await expect(page.getByRole("heading", { level: 1, name: "Fatura · Dezembro/2030" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Abrir PDF com QR" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Abrir PDF" })).toBeVisible();
     const invoice = await page.request.get(`/api/v1/billings/${billingUuid}/bills/${billUuid}/invoice`);
     expect(invoice.status()).toBe(200);
     expect(invoice.headers()["content-type"]).toMatch(/^application\/pdf(?:;|$)/);

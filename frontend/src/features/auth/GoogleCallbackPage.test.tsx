@@ -5,6 +5,7 @@ import { AUTHENTICATED_RESPONSE, jsonResponse, problemResponse } from "../../tes
 import { renderAuth } from "../../test/renderAuth";
 import { loadMfaChallenge } from "./authStorage";
 import { GoogleCallbackPage } from "./GoogleCallbackPage";
+import { MobileHandoffProvider } from "./mobileHandoff";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,10 +29,15 @@ describe("GoogleCallbackPage", () => {
       path: "/auth/google/callback?code=auth-code&state=oauth-state"
     });
 
-    expect(screen.getByText("Entrando com o Google...")).toHaveAttribute("role", "status");
+    const progressHeading = screen.getByRole("heading", { name: "Confirmando seu acesso" });
+    expect(progressHeading.closest('[role="status"]')).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("list", { name: "Progresso do acesso" })).toHaveTextContent(
+      "GoogleVerificaçãoRentivo"
+    );
+    expect(await screen.findByRole("heading", { name: "Acesso confirmado" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
     expect(callbackCalls).toBe(1);
-    expect(document.title).toBe("Entrar com Google - Rentivo");
+    expect(document.title).toBe("Acesso confirmado - Rentivo");
   });
 
   it("stores the returned MFA challenge and opens verification", async () => {
@@ -61,6 +67,38 @@ describe("GoogleCallbackPage", () => {
     });
   });
 
+  it("preserves the mobile handoff when the callback requires MFA", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      {
+        handlers: {
+          "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () =>
+            jsonResponse(
+              {
+                challenge_id: "google/challenge",
+                methods: ["totp"],
+                status: "mfa_required"
+              },
+              202
+            )
+        },
+        path: "/auth/google/callback?code=auth-code&state=oauth-state&mobile_state=native%2Fstate"
+      }
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/mfa-verify?challenge=google%2Fchallenge&mobile_state=native%2Fstate"
+      )
+    );
+    expect(loadMfaChallenge("google/challenge")).toEqual({
+      challengeId: "google/challenge",
+      methods: ["totp"]
+    });
+  });
+
   it("returns callback failures to the legacy login error URL", async () => {
     renderAuth(<GoogleCallbackPage />, {
       handlers: {
@@ -86,15 +124,124 @@ describe("GoogleCallbackPage", () => {
   it("uses the same failure path for an unavailable callback request", async () => {
     renderAuth(<GoogleCallbackPage />, {
       handlers: {
-        "/api/v1/auth/google/callback?code=auth-code": () => {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => {
           throw new TypeError("network unavailable");
         }
       },
-      path: "/auth/google/callback?code=auth-code"
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
     });
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent("/login?error=google_auth_failed")
+    );
+  });
+
+  it("ignores a callback response that arrives after the handoff page closes", async () => {
+    let resolveCallback!: (response: Response) => void;
+    const callback = new Promise<Response>((resolve) => {
+      resolveCallback = resolve;
+    });
+    const view = renderAuth(<GoogleCallbackPage />, {
+      handlers: {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => callback
+      },
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
+    });
+
+    expect(screen.getByRole("heading", { name: "Confirmando seu acesso" })).toBeVisible();
+    view.unmount();
+    resolveCallback(jsonResponse(AUTHENTICATED_RESPONSE));
+    await callback;
+
+    expect(loadMfaChallenge("google/challenge")).toBeNull();
+  });
+
+  it("ignores a callback failure that arrives after the handoff page closes", async () => {
+    let rejectCallback!: (error: Error) => void;
+    const callback = new Promise<Response>((_resolve, reject) => {
+      rejectCallback = reject;
+    });
+    const view = renderAuth(<GoogleCallbackPage />, {
+      handlers: {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => callback
+      },
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
+    });
+
+    expect(screen.getByRole("heading", { name: "Confirmando seu acesso" })).toBeVisible();
+    view.unmount();
+    rejectCallback(new TypeError("network unavailable"));
+    await callback.catch(() => undefined);
+
+    expect(loadMfaChallenge("google/challenge")).toBeNull();
+  });
+
+  it("does not send an incomplete callback and gives the user safe recovery actions", () => {
+    const { fetchMock } = renderAuth(<GoogleCallbackPage />, {
+      path: "/auth/google/callback?code=auth-code"
+    });
+
+    expect(screen.getByRole("heading", { name: "Este retorno não é válido" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Inicie o acesso com Google novamente para criar uma conexão segura."
+    );
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(screen.getByRole("link", { name: "Tentar com Google novamente" })).toHaveAttribute(
+      "href",
+      "/api/v1/auth/google/start"
+    );
+    expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
+      "href",
+      "/login?error=google_auth_failed"
+    );
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/auth/google/callback"))
+    ).toBe(false);
+  });
+
+  it("keeps Google recovery hidden and threads return state inside the mobile handoff", () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      { path: "/auth/google/callback?mobile_state=native%2Fstate" }
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Tentar com Google novamente" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
+      "href",
+      "/login?error=google_auth_failed&mobile_state=native%2Fstate"
+    );
+  });
+
+  it("preserves the mobile handoff when the callback request fails", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      {
+        handlers: {
+          "/api/v1/auth/google/callback?error=access_denied&state=oauth-state": () =>
+            problemResponse({
+              code: "google_auth_failed",
+              detail: "Não foi possível entrar com o Google. Tente novamente.",
+              fields: {},
+              request_id: "request-id",
+              status: 401,
+              title: "Não autenticado",
+              type: "https://rentivo.com.br/problems/google_auth_failed"
+            })
+        },
+        path: "/auth/google/callback?error=access_denied&state=oauth-state&mobile_state=native%2Fstate"
+      }
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/login?error=google_auth_failed&mobile_state=native%2Fstate"
+      )
     );
   });
 });

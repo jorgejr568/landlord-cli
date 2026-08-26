@@ -83,6 +83,35 @@ def test_handler_sends_and_marks_sent(engine, monkeypatch, tmp_path):
     with engine.connect() as c:
         repo = SQLAlchemyCommunicationRepository(c, Base64Backend())
         assert repo.get_by_id(comm.id).status == "sent"
+        assert c.execute(text("SELECT status FROM bills WHERE id = 5")).scalar_one() == "sent"
+
+
+def test_handler_keeps_bill_status_when_another_transition_wins(engine, monkeypatch):
+    import rentivo.jobs.handlers.communication as mod
+
+    comm = _seed_comm(engine)
+    sent = []
+
+    class FakeStorage:
+        def get(self, key):
+            return b"%PDF"
+
+    class FakeBackend:
+        def send(self, message):
+            sent.append(message)
+            return "msg-1"
+
+    monkeypatch.setattr(mod, "get_engine", lambda: engine)
+    monkeypatch.setattr(mod, "get_encryption", lambda: Base64Backend())
+    monkeypatch.setattr(mod, "get_storage", lambda: FakeStorage())
+    monkeypatch.setattr(mod, "get_email_backend", lambda: FakeBackend())
+    monkeypatch.setattr(mod.SQLAlchemyBillRepository, "update_status", lambda *args, **kwargs: False)
+
+    _send({"communication_id": comm.id})
+
+    assert len(sent) == 1
+    with engine.connect() as c:
+        assert c.execute(text("SELECT status FROM bills WHERE id = 5")).scalar_one() == "published"
 
 
 def test_handler_sends_a_batch_and_skips_an_already_sent_member(engine, monkeypatch):
@@ -231,6 +260,8 @@ def test_handler_attaches_recibo_for_payment_receipt(engine, monkeypatch):
     assert sent["key"] == "k/recibo.pdf"
     assert sent["msg"].attachments[0].content == b"%PDF-1.4 recibo"
     assert sent["msg"].attachments[0].filename == "recibo-2026-05.pdf"
+    with engine.connect() as c:
+        assert c.execute(text("SELECT status FROM bills WHERE id = 5")).scalar_one() == "published"
 
 
 def test_handler_permanent_error_when_recibo_missing(engine, monkeypatch):

@@ -1,8 +1,18 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { AUTH_CONFIG } from "../../test/auth";
+
+const { useAuthMock } = vi.hoisted(() => ({ useAuthMock: vi.fn() }));
+
+vi.mock("./AuthProvider", () => ({
+  useAuth: () => useAuthMock()
+}));
 
 import {
+  AuthConfigGate,
   AuthError,
   GoogleAuthLink,
   GoogleAuthOption,
@@ -15,6 +25,7 @@ import { MobileHandoffProvider } from "./mobileHandoff";
 
 afterEach(() => {
   sessionStorage.clear();
+  useAuthMock.mockReset();
 });
 
 describe("authentication components", () => {
@@ -108,5 +119,48 @@ describe("authentication components", () => {
 
     expect(screen.queryByRole("link", { name: "Continuar com Google" })).not.toBeInTheDocument();
     expect(screen.queryByText("ou")).not.toBeInTheDocument();
+  });
+
+  it("keeps authentication forms out of the tree while configuration is loading", () => {
+    useAuthMock.mockReturnValue({
+      config: null,
+      configStatus: "loading",
+      retryConfig: vi.fn()
+    });
+
+    render(<AuthConfigGate>{() => <p>Formulário de acesso</p>}</AuthConfigGate>);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Carregando…");
+    expect(screen.queryByText("Formulário de acesso")).not.toBeInTheDocument();
+  });
+
+  it("lets the user retry when authentication configuration fails", async () => {
+    const retryConfig = vi.fn();
+    useAuthMock.mockReturnValue({ config: null, configStatus: "error", retryConfig });
+    const user = userEvent.setup();
+
+    render(<AuthConfigGate>{() => <p>Formulário de acesso</p>}</AuthConfigGate>);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Não foi possível carregar as opções de autenticação. Tente novamente."
+    );
+    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(retryConfig).toHaveBeenCalledOnce();
+  });
+
+  it("renders the form with the server configuration when it is ready", () => {
+    useAuthMock.mockReturnValue({
+      config: AUTH_CONFIG,
+      configStatus: "ready",
+      retryConfig: vi.fn()
+    });
+
+    render(
+      <AuthConfigGate>
+        {(config) => <p>{config.feature_flags.google_auth ? "Google disponível" : "Só e-mail"}</p>}
+      </AuthConfigGate>
+    );
+
+    expect(screen.getByText("Google disponível")).toBeVisible();
   });
 });

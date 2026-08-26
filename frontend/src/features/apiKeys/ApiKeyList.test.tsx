@@ -41,6 +41,7 @@ it("renders masked metadata and exposes actions only for active keys", async () 
   };
   render(<ApiKeyList items={[active, { ...active, name: "Antiga", revoked_at: "2026-07-18T10:00:00Z", uuid: "revoked" }]} onEdit={onEdit} onRevoke={onRevoke} options={options} />);
 
+  expect(screen.getByRole("table").querySelector("[style]")).not.toBeInTheDocument();
   expect(screen.getAllByText("rntv-v1-abcd••••yz")).toHaveLength(2);
   expect(screen.getAllByText(/Pessoal, Acme, Organização, Espaço indisponível/)).toHaveLength(2);
   expect(screen.getByText("Revogada")).toBeVisible();

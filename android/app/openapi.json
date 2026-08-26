@@ -4714,6 +4714,8 @@
         "properties": {
           "fonts": {
             "default": [
+              "Space Grotesk",
+              "Hanken Grotesk",
               "Montserrat",
               "Roboto",
               "Lora",
@@ -4727,6 +4729,8 @@
             ],
             "items": {
               "enum": [
+                "Space Grotesk",
+                "Hanken Grotesk",
                 "Montserrat",
                 "Roboto",
                 "Lora",
@@ -4800,6 +4804,8 @@
         "properties": {
           "header_font": {
             "enum": [
+              "Space Grotesk",
+              "Hanken Grotesk",
               "Montserrat",
               "Roboto",
               "Lora",
@@ -4846,6 +4852,8 @@
           },
           "text_font": {
             "enum": [
+              "Space Grotesk",
+              "Hanken Grotesk",
               "Montserrat",
               "Roboto",
               "Lora",
@@ -4879,6 +4887,8 @@
         "properties": {
           "header_font": {
             "enum": [
+              "Space Grotesk",
+              "Hanken Grotesk",
               "Montserrat",
               "Roboto",
               "Lora",
@@ -4925,6 +4935,8 @@
           },
           "text_font": {
             "enum": [
+              "Space Grotesk",
+              "Hanken Grotesk",
               "Montserrat",
               "Roboto",
               "Lora",

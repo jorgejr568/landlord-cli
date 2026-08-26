@@ -1,0 +1,702 @@
+.communication-workspace {
+  width: min(1280px, calc(100vw - 3.5rem));
+  margin-inline: calc((100% - min(1280px, calc(100vw - 3.5rem))) / 2);
+}
+
+.communication-workspace > .crumb {
+  margin-bottom: 1rem;
+}
+
+.communication-workspace__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1.25rem;
+}
+
+.communication-workspace__header > div:first-child {
+  min-width: 0;
+}
+
+.communication-workspace__kicker {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--accent-dark);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.communication-workspace__header .pagehead__title {
+  margin-bottom: 0.3rem;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  letter-spacing: -0.045em;
+}
+
+.communication-workspace__header .pagehead__sub {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.communication-workspace__document {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 220px;
+  padding: 0.75rem 0.9rem;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--r-soft);
+  background: var(--accent-pale);
+  box-shadow: var(--sh-sm);
+}
+
+.communication-workspace__document > svg {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+}
+
+.communication-workspace__document > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.communication-workspace__document small {
+  color: var(--accent-dark);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.communication-workspace__document strong {
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+}
+
+.communication-facts {
+  margin-bottom: 1.35rem;
+  border-block: 1.5px solid var(--line);
+}
+
+.communication-facts dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.communication-facts dl > div {
+  min-width: 0;
+  padding: 0.75rem 1rem;
+}
+
+.communication-facts dl > div:first-child {
+  padding-left: 0;
+}
+
+.communication-facts dl > div + div {
+  border-left: 1.5px solid var(--line);
+}
+
+.communication-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.communication-facts dt svg {
+  color: var(--accent-dark);
+}
+
+.communication-facts dd {
+  margin: 0.24rem 0 0;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.communication-compose-form > .toast {
+  margin-bottom: 1rem;
+}
+
+.communication-compose-form .wizard--with-aside {
+  display: grid;
+  grid-template-columns: 190px minmax(430px, 1fr) minmax(310px, 360px);
+  align-items: stretch;
+  gap: 0;
+  overflow: visible;
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.communication-compose-form .wizard__rail,
+.communication-compose-form .wizard__stage,
+.communication-compose-form .wizard__aside,
+.communication-compose-form .wizard-summary {
+  position: static;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.communication-compose-form .wizard__rail {
+  overflow: visible;
+  border-right: var(--bw) solid var(--ink);
+  background: var(--paper-2);
+}
+
+.communication-compose-form .wizard-progress {
+  padding: 1.05rem;
+  background: var(--paper-2);
+}
+
+.communication-compose-form .wizard-steps {
+  padding: 0.65rem;
+}
+
+.communication-compose-form .wizard-step + .wizard-step {
+  margin-top: 0.2rem;
+}
+
+.communication-compose-form .wizard-step > button,
+.communication-compose-form .wizard-step > div {
+  gap: 0.65rem;
+  padding: 0.72rem 0.62rem;
+  border-radius: 10px;
+}
+
+.communication-compose-form .wizard-step__copy small {
+  margin-top: 0.2rem;
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
+.communication-compose-form .wizard__stage {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  border-right: var(--bw) solid var(--ink);
+  animation: communication-stage-in 180ms cubic-bezier(0.2, 0.75, 0.35, 1) both;
+}
+
+@keyframes communication-stage-in {
+  from { opacity: 0; transform: translateX(7px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.communication-compose-form .wizard__stage-head {
+  padding: 1.35rem 1.5rem 1.15rem;
+  background: var(--surface);
+}
+
+.communication-compose-form .wizard__stage-head h2 {
+  margin-top: 0;
+  font-size: 1.42rem;
+  letter-spacing: -0.035em;
+}
+
+.communication-compose-form .wizard__stage-head p {
+  max-width: 56ch;
+  margin-top: 0.32rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.communication-compose-form .wizard__eyebrow {
+  display: none;
+}
+
+.communication-compose-form .wizard__content {
+  flex: 1;
+  overflow: visible;
+  padding: 1.4rem 1.5rem 1.6rem;
+}
+
+.communication-compose-form .wizard__actions {
+  min-height: 68px;
+  padding: 0.8rem 1.5rem;
+}
+
+.communication-compose-form .wizard__actions .btn {
+  min-height: 42px;
+  padding-inline: 1rem;
+  white-space: nowrap;
+}
+
+.communication-compose-form .wizard__aside {
+  overflow: visible;
+  background: var(--paper-2);
+}
+
+.communication-compose-form .wizard-summary > .wizard-summary__eyebrow {
+  padding: 1.2rem 1.25rem 0;
+}
+
+.communication-compose-form .wizard-summary > h3 {
+  padding: 0.25rem 1.25rem 1rem;
+  border-bottom: var(--bw) solid var(--ink);
+  font-size: 1.05rem;
+}
+
+.communication-compose-form .wizard-summary__body {
+  padding: 1.25rem;
+}
+
+.communication-compose-form .recipient-picker {
+  gap: 0.7rem;
+}
+
+.communication-compose-form .recipient-picker__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1.5px solid var(--line);
+}
+
+.communication-compose-form .recipient-picker__toolbar > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.communication-compose-form .recipient-picker__toolbar > div {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.communication-compose-form .recipient-picker__toolbar button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.communication-compose-form .recipient-picker__toolbar button:hover {
+  color: var(--accent-darker);
+}
+
+.communication-compose-form .recipient-picker__toolbar button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.communication-compose-form .recipient-option {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.95rem 1rem;
+  border-color: var(--line);
+  border-radius: 12px;
+  transition: border-color var(--t), background var(--t), transform var(--t);
+}
+
+.communication-compose-form .recipient-option:hover {
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.communication-compose-form .recipient-option:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.communication-compose-form .recipient-option:has(input:checked) {
+  border-color: var(--ink);
+  background: var(--accent-pale);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.communication-compose-form .recipient-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0.15rem 0 0;
+}
+
+.communication-compose-form .recipient-option__identity {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.communication-compose-form .recipient-option__name {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.communication-compose-form .recipient-option__email {
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.communication-compose-form .recipient-option__identity small {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.communication-compose-form .message-composer {
+  display: grid;
+  gap: 1rem;
+}
+
+.communication-compose-form .message-composer .field {
+  margin: 0;
+}
+
+.communication-compose-form .message-composer .input {
+  border-radius: 10px;
+}
+
+.communication-compose-form .message-composer textarea {
+  height: 180px;
+  min-height: 180px;
+  margin-top: 0.45rem;
+  padding: 1rem;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.communication-compose-form .field__help {
+  display: block;
+  margin-top: -0.05rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.communication-compose-form .variable-toolbar {
+  margin-top: 0.7rem;
+}
+
+.communication-compose-form .variable-toolbar button {
+  min-height: 34px;
+  padding: 0.4rem 0.62rem;
+  background: var(--surface);
+  font-size: 0.68rem;
+}
+
+.communication-compose-form .review-list {
+  border-top: 0;
+}
+
+.communication-compose-form .review-row:first-child {
+  padding-top: 0;
+}
+
+.communication-compose-form .review-row dd {
+  overflow-wrap: anywhere;
+}
+
+.communication-compose-form .review-save-scope {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1.5px solid var(--line);
+}
+
+.communication-compose-form .review-save-scope .themed-select__trigger {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 0.4rem;
+  border-radius: 10px;
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+.communication-compose-form .message-preview {
+  gap: 0;
+  min-width: 0;
+  padding: 0.95rem;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.communication-compose-form .message-preview__address {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-bottom: 0.72rem;
+  border-bottom: 1.5px solid var(--line-soft);
+}
+
+.communication-compose-form .message-preview__address span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.communication-compose-form .message-preview__recipient {
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.communication-compose-form .message-preview__subject {
+  display: block;
+  padding: 0.85rem 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+
+.communication-compose-form .message-preview__body {
+  gap: 0.65rem;
+  padding-block: 0.8rem;
+  border-block: 1.5px solid var(--line-soft);
+}
+
+.communication-compose-form .message-preview__body p {
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  line-height: 1.58;
+}
+
+.communication-compose-form .message-preview__attachment {
+  display: flex;
+  width: auto;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.7rem;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent-pale);
+  font-family: var(--font);
+  font-size: 0.72rem;
+}
+
+@media (max-width: 1100px) {
+  .communication-compose-form .wizard--with-aside {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+    height: auto;
+  }
+
+  .communication-compose-form .wizard__rail {
+    display: grid;
+    overflow: visible;
+    grid-column: 1 / -1;
+    grid-template-columns: 190px minmax(0, 1fr);
+    border-right: 0;
+    border-bottom: var(--bw) solid var(--ink);
+  }
+
+  .communication-compose-form .wizard-progress {
+    border-right: var(--bw) solid var(--ink);
+    border-bottom: 0;
+  }
+
+  .communication-compose-form .wizard-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .communication-compose-form .wizard-step + .wizard-step {
+    margin-top: 0;
+  }
+
+  .communication-compose-form .wizard-step__copy small {
+    display: none;
+  }
+
+  .communication-compose-form .wizard__stage {
+    grid-column: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  .communication-compose-form .wizard__aside {
+    grid-column: 2;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .communication-workspace {
+    width: 100%;
+    margin-inline: 0;
+  }
+
+  .communication-workspace > .crumb {
+    margin-bottom: 0.8rem;
+  }
+
+  .communication-workspace__header {
+    display: grid;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+  }
+
+  .communication-workspace__header .pagehead__title {
+    font-size: 2rem;
+  }
+
+  .communication-workspace__header .pagehead__sub {
+    font-size: 0.86rem;
+  }
+
+  .communication-workspace__document {
+    width: 100%;
+    min-width: 0;
+    box-shadow: none;
+  }
+
+  .communication-facts dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .communication-facts dl > div {
+    padding: 0.7rem 0;
+  }
+
+  .communication-facts dl > div:nth-child(even) {
+    padding-left: 0.8rem;
+    border-left: 1.5px solid var(--line);
+  }
+
+  .communication-facts dl > div:nth-child(3),
+  .communication-facts dl > div:nth-child(4) {
+    border-top: 1.5px solid var(--line);
+  }
+
+  .communication-compose-form .wizard--with-aside {
+    grid-template-columns: minmax(0, 1fr);
+    border-radius: 13px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+
+  .communication-compose-form .wizard__rail {
+    display: block;
+    grid-column: auto;
+    border-bottom: var(--bw) solid var(--ink);
+  }
+
+  .communication-compose-form .wizard-progress {
+    padding: 0.85rem 1rem;
+    border-right: 0;
+  }
+
+  .communication-compose-form .wizard-steps {
+    display: none;
+  }
+
+  .communication-compose-form .wizard__stage {
+    grid-column: auto;
+    height: auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: var(--bw) solid var(--ink);
+  }
+
+  .communication-compose-form .wizard__stage-head {
+    padding: 1.05rem 1rem 0.9rem;
+  }
+
+  .communication-compose-form .wizard__stage-head h2 {
+    font-size: 1.2rem;
+  }
+
+  .communication-compose-form .wizard__content {
+    overflow: visible;
+    padding: 1rem 1rem 1.2rem;
+  }
+
+  .communication-compose-form .wizard__actions {
+    position: static;
+    min-height: 64px;
+    padding: 0.7rem 1rem;
+  }
+
+  .communication-compose-form .wizard__actions .btn {
+    padding-inline: 0.85rem;
+  }
+
+  .communication-compose-form .wizard__aside {
+    grid-column: auto;
+  }
+
+  .communication-compose-form .wizard-summary > .wizard-summary__eyebrow {
+    padding: 1rem 1rem 0;
+  }
+
+  .communication-compose-form .wizard-summary > h3 {
+    padding: 0.2rem 1rem 0.85rem;
+  }
+
+  .communication-compose-form .wizard-summary__body {
+    padding: 1rem;
+  }
+
+  .communication-compose-form .recipient-picker__toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .communication-compose-form .recipient-option {
+    padding: 0.85rem;
+  }
+
+  .communication-compose-form .field-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .communication-compose-form .message-composer textarea {
+    height: auto;
+    min-height: 260px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .communication-compose-form .wizard__stage {
+    animation: none;
+  }
+
+  .communication-compose-form .recipient-option {
+    transition: none;
+  }
+
+  .communication-compose-form .recipient-option:hover {
+    transform: none;
+  }
+}

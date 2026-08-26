@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -7,6 +7,87 @@ import { renderAuth } from "../../test/renderAuth";
 import { TotpSetupPage } from "./TotpSetupPage";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("presents setup as one guided enrollment flow and advances its progress cue", async () => {
+  const user = userEvent.setup();
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/setup": () =>
+        jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  expect(await screen.findByRole("heading", { level: 1, name: "Configurar Autenticação TOTP" })).toBeVisible();
+  const progress = screen.getByRole("list", { name: "Progresso da configuração" });
+  const steps = within(progress).getAllByRole("listitem");
+  expect(steps).toHaveLength(3);
+  expect(steps[0]).toHaveAttribute("aria-current", "step");
+  expect(await screen.findByRole("region", { name: "Conectar aplicativo autenticador" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Escaneie no aplicativo" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Confirme o vínculo" })).toBeVisible();
+
+  await user.type(screen.getByLabelText("Código de verificação"), "123456");
+  expect(steps[1]).toHaveAttribute("aria-current", "step");
+});
+
+it("copies the visible manual setup key and announces success", async () => {
+  const user = userEvent.setup();
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/setup": () =>
+        jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Copiar chave" }));
+  expect(writeText).toHaveBeenCalledWith("SECRET");
+  expect(screen.getByText("Chave copiada.")).toBeVisible();
+});
+
+it("keeps the manual setup key available when clipboard access fails", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/setup": () =>
+        jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Copiar chave" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível copiar. Selecione a chave manualmente.");
+  expect(screen.getByText("SECRET")).toBeVisible();
+});
+
+it("moves focus to a setup error so retry guidance is announced", async () => {
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/setup": () =>
+        problemResponse({
+          code: "totp_setup",
+          detail: "Não foi possível gerar a chave.",
+          fields: {},
+          request_id: "request-1",
+          status: 503,
+          title: "Serviço indisponível",
+          type: "problem"
+        })
+    },
+    path: "/security/totp/setup",
+    session: "authenticated"
+  });
+
+  const alert = await screen.findByRole("alert");
+  await waitFor(() => expect(alert).toHaveFocus());
+  expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
+});
 
 it("starts setup with POST and routes confirmed codes to the one-time screen", async () => {
   const user = userEvent.setup();
@@ -27,6 +108,30 @@ it("starts setup with POST and routes confirmed codes to the one-time screen", a
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/v1/security/totp/setup",
     expect.objectContaining({ headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }), method: "POST" })
+  );
+});
+
+it("keeps the recovery-code handoff when the session refresh fails after activation", async () => {
+  const user = userEvent.setup();
+  let sessionRequests = 0;
+  renderAuth(<TotpSetupPage />, {
+    handlers: {
+      "/api/v1/security/totp/confirm": () => jsonResponse({ recovery_codes: ["code-one"] }),
+      "/api/v1/security/totp/setup": () =>
+        jsonResponse({ provisioning_uri: "otpauth://totp/test", qr_code_base64: "cXI=", secret: "SECRET" })
+    },
+    path: "/security/totp/setup",
+    sessionHandler: () => {
+      sessionRequests += 1;
+      if (sessionRequests === 1) return jsonResponse(AUTHENTICATED_RESPONSE);
+      throw new Error("offline");
+    }
+  });
+
+  await user.type(await screen.findByLabelText("Código de verificação"), "123456");
+  await user.click(screen.getByRole("button", { name: "Confirmar e Ativar" }));
+  await waitFor(() =>
+    expect(screen.getByTestId("location")).toHaveTextContent("/security/recovery-codes")
   );
 });
 
@@ -67,7 +172,7 @@ it("shows enforced MFA, retries setup errors, and links back to passkeys", async
   expect(await screen.findByText("TOTP já está ativado.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByText(/Sua organização exige/)).toBeVisible();
-  expect(screen.getByRole("link", { name: "Ou cadastrar uma Passkey" })).toHaveAttribute("href", "/security");
+  expect(screen.getByRole("link", { name: "Usar uma passkey" })).toHaveAttribute("href", "/security");
 });
 
 it("reports confirmation API and network failures and restores focus", async () => {

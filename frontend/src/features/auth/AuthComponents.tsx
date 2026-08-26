@@ -158,7 +158,7 @@ export function AuthConfigGate({ children }: { children: (config: AuthConfig) =>
     return (
       <StandardAuthPanel>
         <p className="muted" role="status">
-          Carregando...
+          Carregando…
         </p>
       </StandardAuthPanel>
     );

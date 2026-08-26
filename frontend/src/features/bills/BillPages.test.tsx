@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { BILLING_CAPABILITIES_ALL, jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { BillDetailPage } from "./BillDetailPage";
 import { BillEditPage } from "./BillEditPage";
 import { CommunicationComposePage } from "./CommunicationComposePage";
@@ -105,6 +106,21 @@ function renderAt(element: React.ReactElement, path: string, routePath: string) 
   );
 }
 
+async function composeGoToMessage() {
+  await screen.findByRole("heading", { name: /Enviar (fatura|recibo de pagamento)/ });
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  return {
+    body: await screen.findByLabelText("Corpo (Markdown — HTML não é permitido)"),
+    subject: screen.getByLabelText("Assunto")
+  };
+}
+
+async function composeGoToReview() {
+  await composeGoToMessage();
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  await screen.findByRole("heading", { name: "Revisar envio" });
+}
+
 const detailHandlers = () => ({
   "GET /api/v1/billings/billing-public-uuid": () => jsonResponse(billing),
   "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill)
@@ -122,16 +138,18 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
 
   expect(screen.getByText("Carregando fatura...")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Fatura · Julho/2026" })).toHaveClass("pagehead__title");
+  const lifecycle = screen.getByRole("region", { name: "Progresso da fatura" });
+  expect(within(lifecycle).getByText("Pago").closest("li")).toHaveAttribute("data-state", "current");
+  expect(screen.getByRole("heading", { name: "Documento pronto" })).toBeVisible();
   expect(screen.getByRole("link", { name: "Residencial Sol" })).toHaveClass("crumb");
-  expect(screen.getAllByText("R$ 2.512,50")).toHaveLength(2);
+  expect(screen.getAllByText("R$ 2.512,50")).toHaveLength(1);
   expect(screen.getByText("Extra")).toHaveClass("tag--extra");
-  expect(screen.getByRole("link", { name: "Abrir PDF com QR" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice");
+  expect(screen.getByRole("link", { name: "Abrir PDF" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice");
   expect(screen.getByRole("link", { name: "Baixar recibo" })).toHaveAttribute("href", "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/recibo/download");
-  expect(screen.getByRole("button", { name: /Baixar/ })).toHaveClass("btn-dropdown-toggle");
-  expect(screen.getByRole("button", { name: /Enviar comunicação/ })).toHaveClass("btn-dropdown-toggle");
+  expect(screen.getByRole("button", { name: "Ações da fatura" })).toHaveClass("btn-dropdown-toggle", "btn--sm");
   expect(screen.getByRole("link", { name: "Enviar fatura" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready");
   expect(screen.getByRole("link", { name: "Enviar recibo" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=payment_receipt");
-  expect(screen.getByRole("link", { name: "Editar" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/edit");
+  expect(screen.getByRole("link", { name: "Editar fatura" })).toHaveAttribute("href", "/billings/billing-public-uuid/bills/bill-public-uuid/edit");
   expect(screen.getByText("Ana <ana@example.com>")).toBeVisible();
   expect(screen.getByText("Dados do destinatário protegidos")).toBeVisible();
   expect(screen.getByText("Falhou")).toHaveClass("tag--cancelled");
@@ -140,54 +158,158 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
   expect(document.title).toBe("Anterior");
 });
 
-it("toggles one legacy action dropdown at a time and closes it accessibly", async () => {
+it("presents invoice details as one workspace with compact actions and switchable records", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
+  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(1);
+  expect(within(workspace).getByRole("link", { name: "Abrir PDF" })).toHaveAttribute(
+    "href",
+    "/api/v1/billings/billing-public-uuid/bills/bill-public-uuid/invoice"
+  );
+  expect(screen.queryByRole("heading", { name: "Gerenciar fatura" })).not.toBeInTheDocument();
+
+  const actions = within(workspace).getByRole("button", { name: "Ações da fatura" });
+  expect(actions).toHaveClass("btn--sm");
+  await user.click(actions);
+  expect(within(workspace).getByRole("link", { name: "Editar fatura" })).toBeVisible();
+  expect(within(workspace).getByRole("link", { name: "Enviar fatura" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Regenerar PDF" })).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Excluir fatura" })).toBeVisible();
+
+  const communicationsTab = within(workspace).getByRole("tab", { name: "Comunicações 3" });
+  const receiptsTab = within(workspace).getByRole("tab", { name: "Comprovantes 0" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  expect(within(workspace).getByText("Ana <ana@example.com>")).toBeVisible();
+  await user.click(receiptsTab);
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  expect(within(workspace).getByText("Nenhum comprovante anexado.")).toBeVisible();
+  expect(within(workspace).queryByText("Ana <ana@example.com>")).not.toBeInTheDocument();
+  fireEvent.keyDown(receiptsTab, { key: "ArrowRight" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  expect(communicationsTab).toHaveFocus();
+  fireEvent.keyDown(communicationsTab, { key: "ArrowLeft" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(receiptsTab, { key: "Home" });
+  expect(communicationsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(communicationsTab, { key: "End" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(receiptsTab, { key: "Tab" });
+  expect(receiptsTab).toHaveAttribute("aria-selected", "true");
+});
+
+it("keeps payment, document access, and records in one non-duplicated operating surface", async () => {
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
+  const summary = within(workspace).getByRole("region", { name: "Resumo da fatura" });
+  const operations = within(workspace).getByRole("complementary", { name: "Documento e registros" });
+
+  expect(within(summary).getByText("R$ 2.512,50")).toBeVisible();
+  expect(within(workspace).getAllByText("R$ 2.512,50")).toHaveLength(1);
+  expect(within(workspace).getAllByRole("link", { name: "Abrir PDF" })).toHaveLength(1);
+  expect(within(operations).getByRole("heading", { name: "Documento pronto" })).toBeVisible();
+  expect(within(operations).getByRole("tab", { name: "Comunicações 3" })).toBeVisible();
+});
+
+it("offers a route-aware way back when an invoice cannot be loaded", async () => {
+  installFetch({
+    "GET /api/v1/billings/billing-public-uuid": () => problemResponse({ code: "not_found", detail: "Recurso não encontrado.", fields: {}, request_id: "req", status: 404, title: "Não encontrado", type: "problem" }),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => problemResponse({ code: "not_found", detail: "Recurso não encontrado.", fields: {}, request_id: "req", status: 404, title: "Não encontrado", type: "problem" })
+  });
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  expect(await screen.findByRole("link", { name: "Voltar para a cobrança" })).toHaveAttribute(
+    "href",
+    "/billings/billing-public-uuid"
+  );
+});
+
+it("toggles the unified action dropdown and returns focus when Escape closes it", async () => {
   const user = userEvent.setup();
   installFetch(detailHandlers());
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
   await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
 
-  const download = screen.getByRole("button", { name: /Baixar/ });
-  const communication = screen.getByRole("button", { name: /Enviar comunicação/ });
-  const downloadDropdown = download.closest(".btn-dropdown")!;
-  const communicationDropdown = communication.closest(".btn-dropdown")!;
-  expect(download).toHaveAttribute("aria-expanded", "false");
-  expect(download).toHaveAttribute("aria-controls", "bill-download-menu");
-  expect(download).not.toHaveAttribute("aria-haspopup");
-  expect(communication).not.toHaveAttribute("aria-haspopup");
+  const actions = screen.getByRole("button", { name: "Ações da fatura" });
+  const dropdown = actions.closest(".btn-dropdown")!;
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  expect(actions).toHaveAttribute("aria-controls", "bill-actions-menu");
+  expect(actions).not.toHaveAttribute("aria-haspopup");
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Baixar fatura" })).toBeInTheDocument();
 
-  await user.click(download);
-  expect(downloadDropdown).toHaveClass("open");
-  expect(download).toHaveAttribute("aria-expanded", "true");
+  await user.click(actions);
+  expect(dropdown).toHaveClass("open");
+  expect(screen.getByRole("article", { name: "Fatura de Julho/2026" })).toHaveClass("bill-workspace--menu-open");
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  await user.click(actions);
+  expect(dropdown).not.toHaveClass("open");
+  expect(screen.getByRole("article", { name: "Fatura de Julho/2026" })).not.toHaveClass("bill-workspace--menu-open");
+  await user.click(actions);
+  expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "ArrowDown" });
-  expect(downloadDropdown).toHaveClass("open");
-  await user.click(download);
-  expect(downloadDropdown).not.toHaveClass("open");
-  await user.click(download);
+  expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(downloadDropdown).not.toHaveClass("open");
-  expect(download).toHaveFocus();
+  expect(dropdown).not.toHaveClass("open");
+  expect(actions).toHaveFocus();
 
-  await user.click(download);
-  await user.click(communication);
-  expect(downloadDropdown).not.toHaveClass("open");
-  expect(download).toHaveAttribute("aria-expanded", "false");
-  expect(communicationDropdown).toHaveClass("open");
-  expect(communication).toHaveAttribute("aria-expanded", "true");
-  await user.click(communication);
-  expect(communicationDropdown).not.toHaveClass("open");
-  await user.click(communication);
-
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(communicationDropdown).not.toHaveClass("open");
-  expect(communication).toHaveAttribute("aria-expanded", "false");
-  expect(communication).toHaveFocus();
-
-  await user.click(download);
+  await user.click(actions);
   fireEvent.click(document.body);
-  expect(downloadDropdown).not.toHaveClass("open");
+  expect(dropdown).not.toHaveClass("open");
+});
+
+it("flips the unified action dropdown above a trigger near the viewport edge", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+  await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
+
+  const actions = screen.getByRole("button", { name: "Ações da fatura" });
+  vi.stubGlobal("innerHeight", 710);
+  vi.spyOn(actions, "getBoundingClientRect").mockReturnValue(new DOMRect(980, 650, 112, 34));
+
+  await user.click(actions);
+  const menu = document.getElementById("bill-actions-menu")!;
+  Object.defineProperty(menu, "scrollHeight", { configurable: true, value: 480 });
+  fireEvent(window, new Event("resize"));
+
+  await waitFor(() => expect(menu).toHaveAttribute("data-placement", "top"));
+  expect(menu.style.getPropertyValue("--bill-action-menu-space")).toBe("630px");
+});
+
+it("keeps a transition-only action menu free of unavailable controls", async () => {
+  const user = userEvent.setup();
+  const transitionOnly: Bill = {
+    ...bill,
+    available_transitions: [{ label: "Publicar fatura", requires_confirmation: false, style: "primary", target: "published" }],
+    capabilities: {
+      can_compose: false, can_delete: false, can_delete_receipts: false,
+      can_download_invoice: false, can_download_recibo: false, can_open_recibo: false,
+      can_edit: false, can_regenerate: false, can_reorder_receipts: false,
+      can_send_invoice: false, can_send_recibo: false, can_transition: true,
+      can_upload_receipts: false
+    },
+    status: "draft"
+  };
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(transitionOnly)
+  });
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  const actions = await screen.findByRole("button", { name: "Ações da fatura" });
+  await user.click(actions);
+
+  expect(screen.getByText("Alterar status")).toBeVisible();
+  expect(screen.queryByRole("link", { name: "Editar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
 });
 
 it.each([
@@ -312,6 +434,7 @@ it("uses communication capabilities directly and keeps a paid rendering receipt 
   expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
   expect(screen.getByText("Baixar recibo")).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByText("Baixar recibo")).toHaveAttribute("title", "O recibo ainda está sendo gerado.");
+  expect(screen.getByRole("heading", { name: "Gerando documento" })).toBeVisible();
   expect(screen.queryByRole("link", { name: "Baixar recibo" })).not.toBeInTheDocument();
   expect(screen.getByText("Enviar recibo")).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByText("Enviar recibo")).toHaveAttribute("title", "O recibo ainda está sendo gerado.");
@@ -355,9 +478,10 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
 
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   expect(screen.getByLabelText("Vencimento")).toHaveValue("2026-08-10");
-  expect(screen.getAllByLabelText("Tipo")[0]).toBeDisabled();
+  expect(screen.getAllByText("Fixo")[0]).toHaveClass("tag--fixed");
+  await user.click(screen.getByRole("button", { name: "Comprovantes 0" }));
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "edit.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
   expect(await screen.findByText("edit.pdf")).toBeVisible();
@@ -368,7 +492,7 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
   const amounts = screen.getAllByLabelText("Valor (R$)");
   await user.type(descriptions.at(-1)!, "Energia");
   await user.type(amounts.at(-1)!, "50,00");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await waitFor(() => expect(patchBody).toEqual({
     due_date: "2026-08-10",
     line_items: [
@@ -379,12 +503,81 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
     notes: "Atualizado"
   }));
 
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   expect(await screen.findByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
+});
+
+it("presents invoice editing as one workspace with a live summary and disclosed records", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      line_items: [{ ...bill.line_items[0], item_type: "variable" }, bill.line_items[1]],
+      status: "delayed_payment"
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  const workspace = await screen.findByRole("article", { name: "Editor da fatura de Julho/2026" });
+  expect(within(workspace).getByRole("heading", { level: 1, name: "Editar fatura" })).toBeVisible();
+  expect(within(workspace).getByText("Pagamento atrasado")).toHaveClass("tag--delayed");
+  expect(within(workspace).getByText("Variável")).toHaveClass("tag--variable");
+  expect(within(workspace).getByRole("region", { name: "Resumo das alterações" })).toHaveTextContent("R$ 2.512,50");
+  expect(within(workspace).getByText("2 itens")).toBeVisible();
+  expect(within(workspace).getByRole("button", { name: "Salvar alterações" })).toBeDisabled();
+  const actions = within(workspace).getByRole("button", { name: "Ações da fatura" });
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  expect(actions).toHaveFocus();
+
+  const receipts = within(workspace).getByRole("button", { name: "Comprovantes 0" });
+  expect(receipts).toHaveAttribute("aria-expanded", "false");
+  expect(within(workspace).queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
+  await user.click(receipts);
+  expect(receipts).toHaveAttribute("aria-expanded", "true");
+  expect(within(workspace).getByLabelText("Anexar comprovantes")).toBeVisible();
+});
+
+it("shows only the invoice maintenance actions allowed by capabilities", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_delete: false, can_regenerate: true }
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await user.click(await screen.findByRole("button", { name: "Ações da fatura" }));
+  expect(screen.getByRole("button", { name: "Regenerar PDF" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
+
+  cleanup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_delete: true, can_regenerate: false }
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await user.click(await screen.findByRole("button", { name: "Ações da fatura" }));
+  expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Excluir fatura" })).toBeVisible();
 });
 
 it("sends selected recipients and applies templates without requesting a preview", async () => {
@@ -407,9 +600,11 @@ it("sends selected recipients and applies templates without requesting a preview
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("Ana <ana@example.com>")).toBeChecked();
   expect(screen.getByLabelText("Destinatário protegido")).toBeChecked();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Fatura de julho");
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeEnabled();
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
   await waitFor(() => expect(sendBody).toEqual({
@@ -419,6 +614,59 @@ it("sends selected recipients and applies templates without requesting a preview
   }));
   expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid/bills/bill-public-uuid");
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
+});
+
+it("guides communication through recipients, personalized message preview, and review", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
+
+  expect(await screen.findByText("Etapa 1 de 3")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Destinatários" })).toBeVisible();
+  expect(screen.getByText("Olá Ana")).toBeVisible();
+  await user.click(screen.getByLabelText("Destinatário protegido"));
+  await user.click(screen.getByLabelText("Ana <ana@example.com>"));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Selecione ao menos um destinatário.")).toBeVisible();
+  expect(screen.getByLabelText("Ana <ana@example.com>")).toHaveFocus();
+  await user.click(screen.getByLabelText("Ana <ana@example.com>"));
+
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
+  const messageBody = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  screen.getByLabelText("Assunto").focus();
+  await user.click(screen.getByRole("button", { name: "Inserir total" }));
+  expect(messageBody).toHaveValue("Olá {{nome_inquilino}}{{total}}");
+  fireEvent.change(messageBody, { target: { value: "Olá **{{nome_inquilino}}**\nVence em {{vencimento}}" } });
+  await waitFor(() => expect(messageBody).toHaveValue("Olá **{{nome_inquilino}}**\nVence em {{vencimento}}"));
+  messageBody.focus();
+  const messageEnd = (messageBody as HTMLTextAreaElement).value.length;
+  (messageBody as HTMLTextAreaElement).setSelectionRange(messageEnd, messageEnd);
+  expect(screen.getByText("Ana", { selector: "strong" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Inserir vencimento" }));
+  expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Olá **{{nome_inquilino}}**\nVence em {{vencimento}}{{vencimento}}");
+  expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "Olá AnaVence em 10/08/202610/08/2026")).toBeVisible();
+
+  await user.clear(screen.getByLabelText("Assunto"));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Informe o assunto.")).toBeVisible();
+  await user.type(screen.getByLabelText("Assunto"), "Fatura de julho");
+  await user.clear(messageBody);
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Informe o corpo da mensagem.")).toBeVisible();
+  await user.type(messageBody, "Mensagem final");
+
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByRole("heading", { name: "Revisar envio" })).toBeVisible();
+  expect(screen.getByText("1 destinatário")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Destinatários" }));
+  expect(await screen.findByRole("heading", { name: "Destinatários" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Revisar envio/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Mensagem" }));
+  expect(await screen.findByRole("heading", { name: "Mensagem" })).toBeVisible();
 });
 
 it("validates and normalizes communication content before sending", async () => {
@@ -433,8 +681,7 @@ it("validates and normalizes communication content before sending", async () => 
     }
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  const subject = await screen.findByLabelText("Assunto");
-  const body = screen.getByLabelText("Corpo (Markdown — HTML não é permitido)");
+  const { body, subject } = await composeGoToMessage();
   fireEvent.change(subject, { target: { value: "😀".repeat(999) } });
   expect(subject).toHaveValue("😀".repeat(998));
   expect(body).not.toHaveAttribute("maxlength");
@@ -521,13 +768,32 @@ it("retries invoice detail and renders denied, failed-PDF, and empty nested stat
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByText("Falha no PDF")).toBeVisible();
   expect(screen.getByText("Variável")).toHaveClass("tag--variable");
+  await user.click(screen.getByRole("tab", { name: "Comprovantes 0" }));
   expect(screen.getByText("Nenhum comprovante anexado.")).toBeVisible();
+  await user.click(screen.getByRole("tab", { name: "Comunicações 0" }));
   expect(screen.getByText("Nenhuma comunicação enviada.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Baixar" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Editar" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "Enviar comunicação" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Ações da fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Editar fatura" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Observações" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Gerenciar fatura" })).not.toBeInTheDocument();
+});
+
+it("explains when an invoice document has not become available", async () => {
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_download_invoice: false },
+      has_invoice: false,
+      pdf_render_status: null
+    })
+  });
+
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+
+  expect(await screen.findByRole("heading", { name: "Documento indisponível" })).toBeVisible();
+  expect(screen.getByText("O PDF será liberado quando a geração for concluída.")).toBeVisible();
 });
 
 it("regenerates and deletes from detail using backend capabilities", async () => {
@@ -547,6 +813,7 @@ it("regenerates and deletes from detail using backend capabilities", async () =>
   });
   renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
   await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
+  await user.click(screen.getByRole("tab", { name: "Comprovantes 0" }));
   await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "detail.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
   expect(await screen.findByText("detail.pdf")).toBeVisible();
@@ -589,7 +856,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     await flush();
 
     expect(screen.getByText("Renderizando…")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Abrir PDF" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Enviar fatura" })).not.toBeInTheDocument();
     expect(billLoads).toBe(1);
 
@@ -606,7 +873,7 @@ it("polls a rendering bill silently every five seconds and stops once the PDF is
     await advance(3_000);
     expect(billLoads).toBe(3);
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Baixar/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Abrir PDF" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Enviar fatura" })).toBeVisible();
 
     await advance(20_000);
@@ -701,6 +968,7 @@ it("reloads the bill after a receipt change so a server-side render turns into a
     });
     renderAt(<BillDetailPage />, detailPath, detailRoute);
     await flush();
+    fireEvent.click(screen.getByRole("tab", { name: "Comprovantes 1" }));
     expect(screen.getByText("recibo.pdf")).toBeVisible();
     expect(screen.queryByText("Renderizando…")).not.toBeInTheDocument();
     expect(billLoads).toBe(1);
@@ -712,7 +980,7 @@ it("reloads the bill after a receipt change so a server-side render turns into a
 
     expect(billLoads).toBe(2);
     expect(screen.getByText("Renderizando…")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Baixar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Abrir PDF" })).not.toBeInTheDocument();
 
     await advance(3_000);
     expect(billLoads).toBe(3);
@@ -816,9 +1084,9 @@ it("retries edit loading and obeys denied edit and file capabilities", async () 
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
   expect(await screen.findByText("Falha ao abrir edição.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  expect(await screen.findByText(/a última tentativa de gerar o PDF falhou/)).toBeVisible();
+  expect(await screen.findByText(/O PDF não foi gerado/)).toBeVisible();
   expect(screen.getByText("Você não possui permissão para editar esta fatura.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Salvar alterações" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Anexar comprovantes")).not.toBeInTheDocument();
@@ -842,16 +1110,18 @@ it("validates edit rows, removes extras, and focuses nested API errors", async (
     }
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   await user.click(screen.getByRole("button", { name: "Remover Gás" }));
   expect(screen.queryByDisplayValue("Gás")).not.toBeInTheDocument();
   const description = screen.getByLabelText("Descrição");
   const amount = screen.getByLabelText("Valor (R$)");
   await user.clear(description);
   await user.clear(amount);
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Informe a descrição.")).toBeVisible();
   expect(screen.getByText("Informe um valor válido.")).toBeVisible();
+  expect(description).toHaveAttribute("aria-invalid", "true");
+  expect(amount).toHaveAttribute("aria-invalid", "true");
   expect(description).toHaveFocus();
 
   fireEvent.change(description, { target: { value: "😀".repeat(256) } });
@@ -862,11 +1132,13 @@ it("validates edit rows, removes extras, and focuses nested API errors", async (
   fireEvent.change(screen.getByLabelText("Descrição"), {
     target: { value: "Aluguel" },
   });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Observação não permitida.")).toBeVisible();
   expect(screen.getByText("Vencimento não permitido.")).toBeVisible();
+  expect(screen.getByLabelText("Vencimento")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByLabelText("Observações")).toHaveAttribute("aria-invalid", "true");
   await waitFor(() => expect(screen.getByLabelText("Vencimento")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a fatura.")).toBeVisible();
 });
 
@@ -874,11 +1146,11 @@ it("rejects an edited bill total beyond the persistence limit", async () => {
   const user = userEvent.setup();
   const fetchMock = installFetch(detailHandlers());
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   const firstAmount = screen.getAllByLabelText("Valor (R$)")[0];
   await user.clear(firstAmount);
   await user.type(firstAmount, "21.474.836,47");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   expect(await screen.findByText("O valor total deve ser de no máximo R$ 21.474.836,47.")).toBeVisible();
   expect(firstAmount).toHaveFocus();
@@ -893,9 +1165,11 @@ it("reports edit regeneration and deletion failures", async () => {
     "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => problemResponse({ code: "delete_failed", detail: "Exclusão indisponível.", fields: {}, request_id: "req", status: 409, title: "Erro", type: "problem" })
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   expect(await screen.findByText("Regeneração indisponível.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   expect(await screen.findByText("Exclusão indisponível.")).toBeVisible();
@@ -921,12 +1195,13 @@ it.each(["resolve", "reject"] as const)("discards an edit save that %s after the
     }
   });
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
-  fireEvent.submit(screen.getByRole("button", { name: "Salvando..." }).closest("form")!);
+  await screen.findByRole("heading", { name: "Editar fatura" });
+  await user.type(screen.getByLabelText("Observações"), " (rascunho)");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
+  fireEvent.submit(document.getElementById("invoice-edit-form")!);
   expect(patchCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
-  await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
+  await screen.findByRole("article", { name: "Editor da fatura de Agosto/2026" });
   expect(mutation.signal?.aborted).toBe(true);
 
   settle();
@@ -964,15 +1239,17 @@ it.each([
     }
   });
   renderAt(<><BillEditPage /><BillRouteSwitch edit /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
-  await screen.findByRole("heading", { name: "Editar Fatura" });
+  await screen.findByRole("heading", { name: "Editar fatura" });
   if (action === "regenerate") {
+    await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
     await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   } else {
+    await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
     await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
   }
   await user.click(screen.getByRole("button", { name: "Trocar fatura" }));
-  await waitFor(() => expect(screen.getByText(/Referencia:/)).toHaveTextContent("Agosto/2026"));
+  await screen.findByRole("article", { name: "Editor da fatura de Agosto/2026" });
   expect(mutation.signal?.aborted).toBe(true);
 
   settle();
@@ -1018,13 +1295,13 @@ it("shows a blocking send error without navigating", async () => {
     }
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await composeGoToReview();
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
-  expect(
-    await screen.findAllByText("A mensagem contém conteúdo não permitido e não pode ser enviada.")
-  ).toHaveLength(2);
+  await waitFor(() => expect(
+    screen.getAllByText("A mensagem contém conteúdo não permitido e não pode ser enviada.")
+  ).toHaveLength(2));
   expect(sendBody).toMatchObject({ acknowledge_warning: false, save_scope: "billing" });
   expect(screen.getByTestId("location")).toHaveTextContent(
     "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose"
@@ -1045,11 +1322,12 @@ it("resets compose resources when route parameters change", async () => {
     "GET /api/v1/billings/billing-second/bills/bill-second": () => jsonResponse({ ...bill, uuid: "bill-second" })
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await composeGoToMessage();
   await user.type(screen.getByLabelText("Assunto"), " temporário");
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
 
   expect(await screen.findByText("Residencial Lua · Julho/2026. Cada destinatário recebe um e-mail separado com o PDF da fatura anexado.")).toBeVisible();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("Segunda cobrança");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("Corpo da segunda");
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
@@ -1106,9 +1384,9 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
     }
   });
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  await screen.findByRole("heading", { name: "Enviar fatura" });
+  await composeGoToReview();
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
-  expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Enviando…" })).toBeDisabled();
   fireEvent.submit(document.getElementById("comm-form")!);
   expect(sendCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
@@ -1142,10 +1420,6 @@ it("requires recipients and focuses subject and body API errors", async () => {
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await screen.findByRole("heading", { name: "Enviar fatura" });
-  await user.clear(screen.getByLabelText("Assunto"));
-  await user.type(screen.getByLabelText("Assunto"), "Novo assunto");
-  await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
-  await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), "Novo corpo");
   await user.click(screen.getByLabelText("Ana <ana@example.com>"));
   await user.click(screen.getByLabelText("Destinatário protegido"));
   fireEvent.submit(document.getElementById("comm-form")!);
@@ -1154,16 +1428,23 @@ it("requires recipients and focuses subject and body API errors", async () => {
   expect(sends).toBe(0);
 
   await user.click(screen.getByLabelText("Ana <ana@example.com>"));
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  await composeGoToMessage();
+  await user.clear(screen.getByLabelText("Assunto"));
+  await user.type(screen.getByLabelText("Assunto"), "Novo assunto");
+  await user.clear(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"));
+  await user.type(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), "Novo corpo");
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Assunto obrigatório.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Assunto")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Corpo obrigatório.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveFocus());
-  await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
+  fireEvent.submit(document.getElementById("comm-form")!);
   expect(await screen.findByText("Destinatário desatualizado.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Ana <ana@example.com>")).toHaveFocus());
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(await screen.findByText("Modelo indisponível.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Salvar modelo")).toHaveFocus());
@@ -1195,19 +1476,26 @@ it("renders the payment-receipt variant with an empty template and capability-dr
       communication_templates: billing.communication_templates.filter((item) => item.comm_type !== "payment_receipt"),
       owner: { type: "user", uuid: null }
     }),
-    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({ ...bill, due_date: null }),
     "POST /api/v1/billings/billing-public-uuid/communications/preview": () => jsonResponse({ html: "", mild: [], severe: [] })
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=payment_receipt", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   expect(await screen.findByRole("heading", { name: "Enviar recibo de pagamento" })).toBeVisible();
   expect(screen.getByText(/Cada destinatário recebe.*recibo anexado/)).toBeVisible();
+  await composeGoToMessage();
   expect(screen.getByLabelText("Assunto")).toHaveValue("");
   expect(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)")).toHaveValue("");
+  fireEvent.change(screen.getByLabelText("Assunto"), { target: { value: "Recibo disponível" } });
+  fireEvent.change(screen.getByLabelText("Corpo (Markdown — HTML não é permitido)"), { target: { value: "Vencimento: {{vencimento}}" } });
+  fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(await screen.findByText("Recibo em PDF")).toBeVisible();
+  expect(screen.getByText("Vencimento: sem vencimento")).toBeVisible();
   expect(screen.queryByRole("option", { name: /minha conta|organização/ })).not.toBeInTheDocument();
   expect(document.title).toBe("Enviar recibo de pagamento - Rentivo");
 });
 
 it("blocks unavailable recibos and shows the user-owner template scope", async () => {
+  const user = userEvent.setup();
   installFetch({
     ...detailHandlers(),
     "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({ ...bill, capabilities: { ...capabilities, can_download_recibo: true, can_send_recibo: false } })
@@ -1222,7 +1510,10 @@ it("blocks unavailable recibos and shows the user-owner template scope", async (
     "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse(bill)
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
-  expect(await screen.findByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
+  await composeGoToReview();
+  await user.click(await screen.findByLabelText("Salvar modelo"));
+  expect(screen.getByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
+  await user.keyboard("{Escape}");
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
 });
 

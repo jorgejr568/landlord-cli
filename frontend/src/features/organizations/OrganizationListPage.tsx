@@ -1,13 +1,30 @@
-import { ArrowRight, LockKeyhole } from "lucide-react";
+import { ArrowRight, Building2, LockKeyhole, Plus, ShieldCheck, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 
-import { LoadError, LoadingState } from "../../components/PageState";
+import { LoadError } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
+import "./OrganizationListPage.css";
 
 type Organization = components["schemas"]["OrganizationResponse"];
+
+const ROLE_LABELS: Record<Organization["current_role"], string> = {
+  admin: "Administrador",
+  manager: "Gerente",
+  viewer: "Visualizador"
+};
+
+function accessLabel(organization: Organization): string {
+  if (organization.capabilities.can_manage) return "Acesso completo";
+  if (organization.capabilities.can_create_billing) return "Gerencia cobranças";
+  return "Somente leitura";
+}
+
+function organizationCount(count: number): string {
+  return `${new Intl.NumberFormat("pt-BR").format(count)} ${count === 1 ? "organização" : "organizações"}`;
+}
 
 function messageFor(error: unknown): string {
   return error instanceof ApiError
@@ -36,47 +53,103 @@ export function OrganizationListPage() {
     return () => controller.abort();
   }, [load]);
 
-  if (error) return <LoadError message={error} onRetry={() => void load()} />;
-  if (!organizations) return <LoadingState label="Carregando organizações..." />;
-
   return (
-    <>
-      <div className="pagehead">
-        <div>
+    <div className="organization-index organization-list-page">
+      <div className="pagehead organization-index__pagehead">
+        <div className="organization-index__heading">
           <h1 className="pagehead__title">Organizações</h1>
-          <p className="pagehead__sub">Gerencie imóveis em equipe, com cargos e permissões.</p>
+          <p className="pagehead__sub">Entre em um espaço de trabalho ou crie uma organização para operar em equipe.</p>
         </div>
-        <div className="btn-row">
-          <Link className="btn btn--primary" to="/organizations/create">+ Nova organização</Link>
-        </div>
+        {organizations?.length ? (
+          <Link className="btn btn--primary" to="/organizations/create">
+            <Plus aria-hidden="true" size={17} />
+            Criar organização
+          </Link>
+        ) : null}
       </div>
 
-      {organizations.length ? (
-        <div className="org-grid">
-          {organizations.map((organization) => (
-            <Link className="org-card" key={organization.uuid} to={`/organizations/${organization.uuid}`}>
-              <div className="org-card__top">
-                <span className="org-card__mark">{organization.name.slice(0, 1).toUpperCase()}</span>
-                <ArrowRight aria-hidden="true" color="var(--muted)" size={20} />
-              </div>
-              <div className="org-card__name">{organization.name}</div>
-              <div className="org-card__foot">
-                <span className="org-card__mfa">
-                  <LockKeyhole aria-hidden="true" size={14} />
-                  Abrir organização
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="panel">
-          <div className="empty-state">
-            <p>Você não faz parte de nenhuma organização.</p>
-            <Link className="btn btn--primary" to="/organizations/create">Criar organização</Link>
+      {error ? (
+        <section aria-label="Falha ao carregar organizações" className="organization-index__state">
+          <LoadError message={error} onRetry={() => void load()} />
+        </section>
+      ) : !organizations ? (
+        <section aria-live="polite" className="organization-index__state organization-index__loading" role="status">
+          <div aria-hidden="true" className="organization-index__skeleton-mark" />
+          <div aria-hidden="true" className="organization-index__skeleton-lines">
+            <span />
+            <span />
           </div>
-        </div>
+          <p>Carregando organizações…</p>
+        </section>
+      ) : organizations.length ? (
+        <section aria-labelledby="organization-directory-title" className="organization-directory">
+          <header className="organization-directory__header">
+            <div>
+              <h2 id="organization-directory-title">Seus espaços de trabalho</h2>
+              <p>Veja seu papel e o nível de acesso antes de entrar.</p>
+            </div>
+            <strong>{organizationCount(organizations.length)}</strong>
+          </header>
+          <ul aria-label="Organizações disponíveis" className="organization-directory__list">
+            {organizations.map((organization) => (
+              <li key={organization.uuid}>
+                <Link className="organization-directory__row" to={`/organizations/${organization.uuid}`}>
+                  <span aria-hidden="true" className="organization-directory__mark">
+                    {organization.name.slice(0, 1).toLocaleUpperCase("pt-BR")}
+                  </span>
+                  <span className="organization-directory__identity">
+                    <strong className="organization-directory__name" title={organization.name}>{organization.name}</strong>
+                    <small>Abrir espaço de trabalho</small>
+                  </span>
+                  <span className="organization-directory__meta organization-directory__meta--role">
+                    <small>Seu papel</small>
+                    <strong>{ROLE_LABELS[organization.current_role]}</strong>
+                  </span>
+                  <span className="organization-directory__meta organization-directory__meta--access">
+                    <small>Permissões</small>
+                    <strong>{accessLabel(organization)}</strong>
+                  </span>
+                  <span className="organization-directory__security">
+                    <LockKeyhole aria-hidden="true" size={15} />
+                    {organization.enforce_mfa ? "MFA exigido" : "MFA opcional"}
+                  </span>
+                  <span aria-hidden="true" className="organization-directory__open">
+                    <ArrowRight size={19} />
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <section aria-labelledby="organization-empty-title" className="organization-index__empty">
+          <div className="organization-index__empty-intro">
+            <span aria-hidden="true" className="organization-index__empty-mark">
+              <Building2 size={28} strokeWidth={2.2} />
+            </span>
+            <h2 id="organization-empty-title">Organize sua operação em equipe</h2>
+            <p>Uma organização reúne imóveis, cobranças e pessoas em um espaço com permissões próprias.</p>
+            <Link className="btn btn--primary" to="/organizations/create">
+              <Plus aria-hidden="true" size={17} />
+              Criar organização
+            </Link>
+          </div>
+          <ul aria-label="O que uma organização reúne" className="organization-index__empty-guide">
+            <li>
+              <Building2 aria-hidden="true" size={19} />
+              <span><strong>Imóveis e cobranças</strong><small>Mantenha a operação do time no mesmo lugar.</small></span>
+            </li>
+            <li>
+              <UsersRound aria-hidden="true" size={19} />
+              <span><strong>Pessoas e papéis</strong><small>Defina quem administra, gerencia ou apenas visualiza.</small></span>
+            </li>
+            <li>
+              <ShieldCheck aria-hidden="true" size={19} />
+              <span><strong>Segurança compartilhada</strong><small>Exija MFA para proteger o acesso da equipe.</small></span>
+            </li>
+          </ul>
+        </section>
       )}
-    </>
+    </div>
   );
 }

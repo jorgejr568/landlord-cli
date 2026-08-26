@@ -40,7 +40,7 @@ it("creates an integration key and gates its one-time secret", async () => {
 
   await user.click(await screen.findByRole("button", { name: "Criar chave" }));
   await user.type(screen.getByLabelText("Nome"), "Produção");
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByLabelText("Pessoal"));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
   expect(await screen.findByText("rntv-v1-secret")).toBeVisible();
@@ -115,7 +115,7 @@ it("retries load failures and reports API and network mutation errors", async ()
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await user.click(await screen.findByRole("button", { name: "Criar chave" }));
   await user.type(screen.getByLabelText("Nome"), "Teste");
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByLabelText("Pessoal"));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
   expect(await screen.findByText("Chave inválida.")).toBeVisible();

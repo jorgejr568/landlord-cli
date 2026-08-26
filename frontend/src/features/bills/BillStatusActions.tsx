@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
+import { groupBillTransitions } from "./billLifecycle";
 import type { Bill } from "./billSupport";
 
 type Transition = components["schemas"]["AvailableTransitionResponse"];
@@ -14,6 +15,7 @@ export interface BillStatusActionsProps {
   bill: Bill;
   onChange: (bill: Bill) => void;
   onStale: () => void;
+  renderMenu?: (items: ReactNode) => ReactNode;
 }
 
 interface ConfirmationCopy {
@@ -71,7 +73,7 @@ function confirmationFor(status: string, transition: Transition): ConfirmationCo
     ?? { accept: transition.label, body: "Confirme a alteração de status desta fatura.", title: "Alterar status da fatura?" };
 }
 
-export function BillStatusActions({ billingUuid, bill, onChange, onStale }: BillStatusActionsProps) {
+export function BillStatusActions({ billingUuid, bill, onChange, onStale, renderMenu }: BillStatusActionsProps) {
   const [selected, setSelected] = useState<Transition | null>(null);
   const [busyTarget, setBusyTarget] = useState("");
   const [error, setError] = useState("");
@@ -90,8 +92,6 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
       controllerRef.current = null;
     };
   }, [billingUuid, bill.uuid]);
-
-  if (!bill.capabilities.can_transition || bill.available_transitions.length === 0) return null;
 
   const changeStatus = async (transition: Transition) => {
     /* v8 ignore next -- rendered transition controls prevent concurrent requests */
@@ -126,10 +126,12 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
     }
   };
 
-  const [primary, ...others] = bill.available_transitions;
+  const transitions = bill.capabilities.can_transition ? bill.available_transitions : [];
+  const { destructive, primary, secondary } = groupBillTransitions(bill.status, transitions);
+  const others = [...secondary, ...destructive];
   const renderButton = (transition: Transition, primaryButton: boolean) => (
     <button
-      className={primaryButton ? "btn btn--primary" : `status-menu__item${transition.style === "danger" ? " status-menu__item--danger" : ""}`}
+      className={primaryButton && !renderMenu ? "btn btn--primary" : `status-menu__item${transition.style === "danger" ? " status-menu__item--danger" : ""}`}
       disabled={Boolean(busyTarget)}
       key={transition.target}
       onClick={() => transition.requires_confirmation ? setSelected(transition) : void changeStatus(transition)}
@@ -139,20 +141,33 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
     </button>
   );
   const confirmation = selected ? confirmationFor(bill.status, selected) : null;
+  const menuItems = transitions.length ? (
+    <>
+      {[primary, ...secondary].filter((transition): transition is Transition => Boolean(transition)).map((transition) => renderButton(transition, false))}
+      {destructive.length > 0 ? <div className="status-menu__separator" role="separator" /> : null}
+      {destructive.map((transition) => renderButton(transition, false))}
+    </>
+  ) : null;
+
+  if (!renderMenu && transitions.length === 0) return null;
 
   return (
     <>
-      <div className="btn-row">
-        {renderButton(primary, true)}
-        {others.length > 0 && (
-          <details className="status-menu">
-            <summary className="btn">Alterar status</summary>
-            <div className="status-menu__panel" role="menu">
-              {others.map((transition) => renderButton(transition, false))}
-            </div>
-          </details>
-        )}
-      </div>
+      {renderMenu ? renderMenu(menuItems) : (
+        <div className="btn-row">
+          {primary ? renderButton(primary, true) : null}
+          {others.length > 0 && (
+            <details className="status-menu">
+              <summary className="btn">Mais ações</summary>
+              <div className="status-menu__panel" role="menu">
+                {secondary.map((transition) => renderButton(transition, false))}
+                {secondary.length > 0 && destructive.length > 0 ? <div className="status-menu__separator" role="separator" /> : null}
+                {destructive.map((transition) => renderButton(transition, false))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
       {error && <div className="toast toast--danger" role="alert">{error}</div>}
       <ConfirmDialog
         acceptLabel={confirmation?.accept}
@@ -161,7 +176,7 @@ export function BillStatusActions({ billingUuid, bill, onChange, onStale }: Bill
         onConfirm={() => { if (selected) void changeStatus(selected); }}
         open={Boolean(selected)}
         title={confirmation?.title ?? "Alterar status da fatura?"}
-        variant={selected?.style === "primary" ? "primary" : "danger"}
+        variant={selected?.style === "danger" ? "danger" : "primary"}
       />
     </>
   );

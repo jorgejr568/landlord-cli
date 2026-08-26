@@ -14,6 +14,7 @@ from rentivo.encryption.factory import get_encryption
 from rentivo.jobs.base import JobContext, PermanentJobError
 from rentivo.jobs.payloads import CommunicationSendPayload
 from rentivo.jobs.registry import register, register_on_fail
+from rentivo.models.bill import BillStatus
 from rentivo.models.communication import CommType
 from rentivo.repositories.sqlalchemy.bill import SQLAlchemyBillRepository
 from rentivo.repositories.sqlalchemy.billing import SQLAlchemyBillingRepository
@@ -73,7 +74,8 @@ def _handle_one_communication(communication_id: int, context: JobContext) -> Non
             logger.info("communication_send_skipped", communication_id=comm.id, status=comm.status)
             return
 
-        bill = SQLAlchemyBillRepository(conn, encryption).get_by_id(comm.bill_id)
+        bill_repo = SQLAlchemyBillRepository(conn, encryption)
+        bill = bill_repo.get_by_id(comm.bill_id)
         if bill is None:
             raise PermanentJobError(f"bill {comm.bill_id} missing")
 
@@ -130,7 +132,23 @@ def _handle_one_communication(communication_id: int, context: JobContext) -> Non
             # Unique X-Entity-Ref-ID per communication so Gmail does not thread them.
             headers=(("X-Entity-Ref-ID", comm.uuid),),
         )
-        comm_repo.mark_sent(comm.id, datetime.now(SP_TZ))
+        sent_at = datetime.now(SP_TZ)
+        comm_repo.mark_sent(comm.id, sent_at)
+        if comm.comm_type == CommType.BILL_READY.value and bill.status in {
+            BillStatus.DRAFT.value,
+            BillStatus.PUBLISHED.value,
+        }:
+            advanced = bill_repo.update_status(
+                bill.id,
+                bill.status,
+                bill.status_updated_at,
+                BillStatus.SENT.value,
+                sent_at,
+            )
+            if advanced:
+                logger.info("bill_marked_sent_after_delivery", bill_id=bill.id, communication_id=comm.id)
+            else:
+                logger.info("bill_send_status_advance_skipped", bill_id=bill.id, communication_id=comm.id)
         logger.info("communication_sent", communication_id=comm.id, bill_id=bill.id)
 
 

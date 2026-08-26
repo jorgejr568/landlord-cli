@@ -48,33 +48,46 @@ afterEach(() => {
 
 it.each([
   ["/login", "Entrar"],
-  ["/mobile-logout?state=native-state", "Sessão encerrada"],
   ["/signup", "Criar Conta"],
   ["/forgot-password", "Enviar link"],
   ["/reset-password", "Link inválido ou expirado. Solicite uma nova redefinição."],
-  ["/auth/google/callback?code=code&state=state", "Entrando com o Google..."]
+  ["/auth/google/callback?code=code&state=state", "Confirmando seu acesso"]
 ])("routes the legacy authentication URL %s outside the shell", async (path, expectedCopy) => {
   window.history.pushState({}, "", path);
   const router = createAppRouter();
   const view = render(<RouterProvider router={router} />);
 
-  expect(await screen.findByText(expectedCopy)).toBeVisible();
+  const [copy] = await screen.findAllByText(expectedCopy);
+  expect(copy).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
-  expect(screen.getByText(expectedCopy).closest("main")).toBe(screen.getByRole("main"));
+  expect(copy.closest("main")).toBe(screen.getByRole("main"));
+  view.unmount();
+  router.dispose();
+});
+
+it("drops the retired mobile logout route", async () => {
+  window.history.pushState({}, "", "/mobile-logout?state=native-state");
+  const router = createAppRouter();
+  const view = render(<RouterProvider router={router} />);
+
+  expect(await screen.findByRole("heading", { name: "Entrar" })).toBeVisible();
+  expect(router.state.location.pathname).toBe("/login");
+  expect(screen.queryByText("Sessão encerrada")).not.toBeInTheDocument();
+
   view.unmount();
   router.dispose();
 });
 
 it.each([
-  ["/privacy", "Política de Privacidade"],
-  ["/terms", "Termos de Uso"]
-])("renders the public legal page %s inside the public shell", async (path, heading) => {
+  ["/privacy", "Política de Privacidade", 1],
+  ["/terms", "Termos de Uso", 1]
+])("renders the public legal page %s inside the public shell", async (path, heading, level) => {
   window.history.pushState({}, "", path);
   const router = createAppRouter();
   const view = render(<RouterProvider router={router} />);
 
   expect(
-    await screen.findByRole("heading", { level: 2, name: heading })
+    await screen.findByRole("heading", { level, name: heading })
   ).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
 
@@ -88,7 +101,7 @@ it("renders the public support page inside the public shell", async () => {
   const view = render(<RouterProvider router={router} />);
 
   expect(
-    await screen.findByRole("heading", { level: 2, name: "Suporte" })
+    await screen.findByRole("heading", { level: 1, name: "Como podemos ajudar?" })
   ).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
 
@@ -290,7 +303,7 @@ it("renders the public landing page at the anonymous home URL without the authen
   expect(
     await screen.findByRole("heading", { level: 1, name: /cobranças de aluguel.*pix em segundos/i })
   ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Criar conta gratuita" })).toHaveAttribute("href", "/signup");
+  expect(screen.getAllByRole("link", { name: "Criar conta" })[0]).toHaveAttribute("href", "/signup");
   expect(screen.queryByRole("button", { name: "Sair" })).not.toBeInTheDocument();
 
   view.unmount();
@@ -327,7 +340,7 @@ it("renders the fresh-account billing state instead of an authenticated catch-al
   const view = render(<RouterProvider router={router} />);
 
   expect(await screen.findByRole("heading", { name: "Minhas Cobranças" })).toBeVisible();
-  expect(screen.getByText("Nenhuma cobrança cadastrada.")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
   expect(screen.getByRole("main")).toContainElement(
     screen.getByRole("heading", { name: "Minhas Cobranças" })
   );

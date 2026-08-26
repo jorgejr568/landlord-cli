@@ -71,6 +71,86 @@ it("caps organization names at the backend limit", () => {
   expect(name).toHaveValue("😀".repeat(255));
 });
 
+it("makes the optional PIX timing an explicit mutually exclusive choice", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  const later = screen.getByRole("radio", { name: /Configurar depois/ });
+  const now = screen.getByRole("radio", { name: /Configurar agora/ });
+  expect(screen.getByRole("group", { name: "Quando configurar o PIX" })).toBeVisible();
+  expect(later).toBeChecked();
+  expect(now).not.toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+
+  await user.click(now);
+  expect(now).toBeChecked();
+  expect(later).not.toBeChecked();
+  expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+
+  await user.click(later);
+  expect(later).toBeChecked();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+});
+
+it("guides organization creation through identity, optional PIX, and review", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
+  expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+  expect(screen.getByText(/Digite o nome completo\. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento\./)).toBeVisible();
+  expect(screen.getByText(/Digite normalmente, com acentos\. No PIX, “São Paulo” vira “SAO PAULO”\./)).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
+
+  await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
+  await user.type(screen.getByLabelText("Nome do recebedor"), "RIBEIRO IMOVEIS");
+  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+
+  expect(screen.getByRole("heading", { name: "Revisão" })).toBeVisible();
+  expect(screen.getByText("Ribeiro Imóveis")).toBeVisible();
+  expect(screen.getByText("+5571999999999", { exact: false })).toBeVisible();
+  expect(screen.getByText("Administrador")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Editar Recebimento PIX" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: "Voltar" }));
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /^Identidade/ }));
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("button", { name: "Editar Nome da organização" }));
+  expect(screen.getByRole("heading", { name: "Identidade" })).toBeVisible();
+});
+
+it("returns a direct invalid create submission to the relevant wizard step", async () => {
+  const user = userEvent.setup();
+  renderCreate();
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
+
+  fireEvent.submit(document.getElementById("organization-create-form")!);
+
+  expect(screen.getByRole("heading", { name: "Recebimento PIX" })).toBeVisible();
+  expect(await screen.findByText("Informe a chave PIX.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Chave PIX")).toHaveFocus());
+});
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}</output>;
@@ -102,6 +182,17 @@ function renderCreate() {
       </Routes>
     </MemoryRouter>
   );
+}
+
+async function advanceCreateToReview(user: ReturnType<typeof userEvent.setup>, pix?: { city: string; key: string; name: string }) {
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
+  if (pix) {
+    await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
+    await user.type(screen.getByLabelText("Chave PIX"), pix.key);
+    await user.type(screen.getByLabelText("Nome do recebedor"), pix.name);
+    await user.type(screen.getByLabelText("Cidade do recebedor"), pix.city);
+  }
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
 }
 
 function renderEdit() {
@@ -155,9 +246,7 @@ it("creates an organization from the exact legacy form and forwards analytics", 
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await waitFor(() => expect(document.title).toBe("Nova organização - Rentivo"));
   await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Imóveis");
-  await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
-  await user.type(screen.getByLabelText("Nome do recebedor"), "Ribeiro");
-  await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
+  await advanceCreateToReview(user, { city: "SALVADOR", key: "+5571999999999", name: "Ribeiro" });
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/organizations/created-org-uuid"));
@@ -176,6 +265,7 @@ it("deduplicates create submissions before the saving state rerenders", async ()
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   const form = screen.getByRole("button", { name: "Criar organização" }).closest("form") as HTMLFormElement;
 
   act(() => {
@@ -184,7 +274,7 @@ it("deduplicates create submissions before the saving state rerenders", async ()
   });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-  expect(screen.getByRole("button", { name: "Criando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Criando…" })).toBeDisabled();
   await act(async () => {
     create.resolve(jsonResponse({
       capabilities: { can_create_billing: true, can_invite: true, can_manage: true, can_view_billing_stats: true },
@@ -212,10 +302,11 @@ it("aborts create on navigation and ignores its late response", async () => {
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   await waitFor(() => expect(createSignal).toBeDefined());
 
-  await user.click(screen.getByRole("link", { name: "Cancelar" }));
+  await user.click(screen.getByRole("link", { name: "Organizações" }));
 
   expect(screen.getByTestId("location")).toHaveTextContent("/organizations/");
   expect(createSignal?.aborted).toBe(true);
@@ -255,14 +346,16 @@ it("normalizes realistic body field errors and focuses the create control", asyn
   renderCreate();
 
   await user.type(screen.getByLabelText("Nome da organização"), " ");
-  await user.click(screen.getByRole("button", { name: "Criar organização" }));
+  await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(await screen.findByText("Este campo é obrigatório.")).toBeVisible();
   expect(attempts).toBe(0);
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Nome é obrigatório.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Não foi possível criar a organização.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
@@ -283,6 +376,7 @@ it("surfaces a create API problem without field errors", async () => {
   });
   renderCreate();
   await user.type(screen.getByLabelText("Nome da organização"), "Acme");
+  await advanceCreateToReview(user);
   await user.click(screen.getByRole("button", { name: "Criar organização" }));
   expect(await screen.findByText("Já existe uma organização com este nome.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
@@ -307,20 +401,21 @@ it("loads and saves every legacy organization setting", async () => {
   document.title = "Anterior";
   const view = renderEdit();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
-  expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("mb-3");
-  expect(screen.getByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("pagehead__title");
+  expect(screen.getByText("Digite nome e cidade normalmente; o PIX ajusta maiúsculas e acentos.")).toBeVisible();
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await waitFor(() => expect(document.title).toBe("Editar Ribeiro Imóveis - Rentivo"));
-  await user.clear(screen.getByLabelText("Nome"));
-  await user.type(screen.getByLabelText("Nome"), "Ribeiro Gestão");
+  await user.clear(screen.getByLabelText("Nome da organização"));
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Gestão");
   await user.clear(screen.getByLabelText("Chave PIX"));
   await user.type(screen.getByLabelText("Chave PIX"), "+5571888888888");
   await user.clear(screen.getByLabelText("Nome do recebedor"));
   await user.type(screen.getByLabelText("Nome do recebedor"), "RIBEIRO GESTAO");
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
   await user.type(screen.getByLabelText("Cidade do recebedor"), "LAURO FREITAS");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
@@ -336,7 +431,7 @@ it("blocks incomplete organization PIX values locally and focuses the missing fi
   renderEdit();
   await screen.findByRole("heading", { name: "Editar Organização" });
   await user.clear(screen.getByLabelText("Chave PIX"));
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
@@ -344,7 +439,7 @@ it("blocks incomplete organization PIX values locally and focuses the missing fi
 
   fireEvent.change(screen.getByLabelText("Nome do recebedor"), { target: { value: "M".repeat(26) } });
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
-  fireEvent.submit(screen.getByRole("button", { name: "Salvar" }).closest("form")!);
+  fireEvent.submit(screen.getByRole("button", { name: "Salvar alterações" }).closest("form")!);
   expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
 });
 
@@ -381,18 +476,18 @@ it("retries edit loading, handles realistic field errors, and hides the form by 
   expect(await screen.findByText("Não foi possível carregar a organização.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await screen.findByLabelText("Cidade do recebedor");
-  await user.clear(screen.getByLabelText("Nome"));
-  await user.type(screen.getByLabelText("Nome"), "Rascunho preservado");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.clear(screen.getByLabelText("Nome da organização"));
+  await user.type(screen.getByLabelText("Nome da organização"), "Rascunho preservado");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Cidade inválida.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveValue("Rascunho preservado");
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Rascunho preservado");
   expect(screen.getByLabelText("Cidade do recebedor")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("PIX recusado.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a organização.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveFocus();
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
 
   cleanup();
   installFetch({
@@ -405,7 +500,7 @@ it("retries edit loading, handles realistic field errors, and hides the form by 
   });
   renderEdit();
   expect(await screen.findByText("Você não tem permissão para editar esta organização.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Salvar alterações" })).not.toBeInTheDocument();
 });
 
 it("edits a manageable organization whose optional settings are absent", async () => {
@@ -413,7 +508,7 @@ it("edits a manageable organization whose optional settings are absent", async (
     "GET /api/v1/organizations/org-public-uuid": () => jsonResponse({ ...detail, settings: null })
   });
   renderEdit();
-  expect(await screen.findByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+  expect(await screen.findByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("");
   expect(screen.getByLabelText("Nome do recebedor")).toHaveValue("");
   expect(screen.getByLabelText("Cidade do recebedor")).toHaveValue("");
@@ -433,23 +528,23 @@ it("clears edit data on organization changes and ignores an aborted save from th
     }
   });
   renderSwitchableEdit();
-  const name = await screen.findByLabelText("Nome");
+  const name = await screen.findByLabelText("Nome da organização");
   await user.clear(name);
   await user.type(name, "Rascunho da Acme");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await user.click(screen.getByRole("button", { name: "Editar Beta" }));
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(screen.queryByDisplayValue("Rascunho da Acme")).not.toBeInTheDocument();
   expect(saveSignal?.aborted).toBe(true);
   await act(async () => {
     betaLoad.resolve(jsonResponse({ ...detail, name: "Beta Imóveis", uuid: "org-beta" }));
   });
-  expect(await screen.findByLabelText("Nome")).toHaveValue("Beta Imóveis");
+  expect(await screen.findByLabelText("Nome da organização")).toHaveValue("Beta Imóveis");
 
   await act(async () => { save.resolve(jsonResponse(detail)); });
   expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-beta/edit");
-  expect(screen.getByLabelText("Nome")).toHaveValue("Beta Imóveis");
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Beta Imóveis");
 });
 
 it("deduplicates an edit save and aborts it when the page unmounts", async () => {
@@ -463,14 +558,14 @@ it("deduplicates an edit save and aborts it when the page unmounts", async () =>
     }
   });
   const view = renderEdit();
-  const form = (await screen.findByRole("button", { name: "Salvar" })).closest("form") as HTMLFormElement;
+  const form = (await screen.findByRole("button", { name: "Salvar alterações" })).closest("form") as HTMLFormElement;
 
   act(() => {
     fireEvent.submit(form);
     fireEvent.submit(form);
   });
   await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
-  expect(screen.getByRole("button", { name: "Salvando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Salvando…" })).toBeDisabled();
   view.unmount();
 
   expect(saveSignal?.aborted).toBe(true);
@@ -488,7 +583,7 @@ it("ignores an edit detail load that settles after the page unmounts", async () 
   });
   const view = renderEdit();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   await waitFor(() => expect(loadSignal).toBeDefined());
   view.unmount();
   expect(loadSignal?.aborted).toBe(true);
@@ -514,7 +609,7 @@ it("ignores a rejected edit save after switching organizations", async () => {
     "PATCH /api/v1/organizations/org-public-uuid": () => save.promise
   });
   renderSwitchableEdit();
-  await user.click(await screen.findByRole("button", { name: "Salvar" }));
+  await user.click(await screen.findByRole("button", { name: "Salvar alterações" }));
   await user.click(screen.getByRole("button", { name: "Editar Beta" }));
   await screen.findByDisplayValue("Beta Imóveis");
 

@@ -10,7 +10,7 @@ import { OrganizationListPage } from "./OrganizationListPage";
 type Organization = components["schemas"]["OrganizationResponse"];
 
 const organization: Organization = {
-  capabilities: { can_create_billing: false, can_invite: false, can_manage: false, can_view_billing_stats: false },
+  capabilities: { can_create_billing: true, can_invite: true, can_manage: true, can_view_billing_stats: true },
   created_at: "2026-07-18T10:00:00Z",
   current_role: "admin",
   enforce_mfa: true,
@@ -29,7 +29,7 @@ function installList(items: Organization[]) {
   return render(<MemoryRouter><OrganizationListPage /></MemoryRouter>);
 }
 
-it("renders the exact fresh-account organization state and restores the legacy title", async () => {
+it("guides a fresh account to its first organization with one clear action", async () => {
   document.title = "Anterior";
   let resolvePending!: (response: Response) => void;
   const pending = new Promise<Response>((resolve) => {
@@ -38,26 +38,86 @@ it("renders the exact fresh-account organization state and restores the legacy t
   vi.stubGlobal("fetch", vi.fn(() => pending));
   const view = render(<MemoryRouter><OrganizationListPage /></MemoryRouter>);
 
-  expect(screen.getByText("Carregando organizações...")).toBeVisible();
+  expect(screen.getByText("Carregando organizações…")).toBeVisible();
   resolvePending(jsonResponse({ items: [] }));
 
   expect(await screen.findByRole("heading", { name: "Organizações" })).toHaveClass("pagehead__title");
-  expect(screen.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
-  expect(screen.getByRole("link", { name: "Criar organização" })).toHaveAttribute("href", "/organizations/create");
+  expect(screen.getByRole("heading", { name: "Organize sua operação em equipe" })).toBeVisible();
+  expect(screen.getByText(/Uma organização reúne imóveis, cobranças e pessoas/)).toBeVisible();
+  expect(screen.getByRole("region", { name: "Organize sua operação em equipe" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "O que uma organização reúne" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  const createLinks = screen.getAllByRole("link", { name: "Criar organização" });
+  expect(createLinks).toHaveLength(1);
+  expect(createLinks[0]).toHaveAttribute("href", "/organizations/create");
   await waitFor(() => expect(document.title).toBe("Organizações - Rentivo"));
   view.unmount();
   expect(document.title).toBe("Anterior");
 });
 
-it("renders populated legacy cards without deriving controls from current_role", async () => {
+it("renders a scannable organization directory with role, access and MFA context", async () => {
   installList([organization]);
 
+  expect(await screen.findByRole("list", { name: "Organizações disponíveis" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(1);
   const card = await screen.findByRole("link", { name: /Ribeiro Imóveis/ });
-  expect(card).toHaveClass("org-card");
+  expect(card).toHaveClass("organization-directory__row");
   expect(card).toHaveAttribute("href", "/organizations/org-public-uuid");
-  expect(card.querySelector(".org-card__mark")).toHaveTextContent("R");
-  expect(screen.getByText("Abrir organização")).toHaveClass("org-card__mfa");
-  expect(screen.getByRole("link", { name: /Nova organização/ })).toHaveClass("btn--primary");
+  expect(card.querySelector(".organization-directory__mark")).toHaveTextContent("R");
+  expect(screen.getByText("Administrador")).toBeVisible();
+  expect(screen.getByText("Acesso completo")).toBeVisible();
+  expect(screen.getByText("MFA exigido")).toBeVisible();
+  expect(screen.getByText("1 organização")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Criar organização" })).toHaveClass("btn--primary");
+});
+
+it("handles long names and explains restricted access without hiding the destination", async () => {
+  installList([{
+    ...organization,
+    capabilities: {
+      can_create_billing: false,
+      can_invite: false,
+      can_manage: false,
+      can_view_billing_stats: false
+    },
+    current_role: "viewer",
+    enforce_mfa: false,
+    name: "Administração Patrimonial Família Ribeiro e Associados do Centro Histórico",
+    uuid: "org-long-name"
+  }]);
+
+  const row = await screen.findByRole("link", { name: /Administração Patrimonial/ });
+  expect(row).toHaveAttribute("href", "/organizations/org-long-name");
+  expect(row.querySelector(".organization-directory__name")).toHaveClass("organization-directory__name");
+  expect(screen.getByText("Visualizador")).toBeVisible();
+  expect(screen.getByText("Somente leitura")).toBeVisible();
+  expect(screen.getByText("MFA opcional")).toBeVisible();
+});
+
+it("distinguishes billing managers in a multi-organization directory", async () => {
+  installList([
+    {
+      ...organization,
+      capabilities: {
+        ...organization.capabilities,
+        can_manage: false
+      },
+      current_role: "manager",
+      name: "Ribeiro Operações",
+      uuid: "org-manager"
+    },
+    {
+      ...organization,
+      name: "Ribeiro Administração",
+      uuid: "org-admin"
+    }
+  ]);
+
+  expect(await screen.findByText("2 organizações")).toBeVisible();
+  expect(screen.getByRole("list", { name: "Organizações disponíveis" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  expect(screen.getByText("Gerencia cobranças")).toBeVisible();
+  expect(screen.getByText("Gerente")).toBeVisible();
 });
 
 it("retries API and network failures", async () => {
@@ -100,7 +160,7 @@ it("ignores loads that settle after the page unmounts", async () => {
   }));
   const view = render(<MemoryRouter><OrganizationListPage /></MemoryRouter>);
 
-  expect(screen.getByText("Carregando organizações...")).toBeVisible();
+  expect(screen.getByText("Carregando organizações…")).toBeVisible();
   await waitFor(() => expect(loadSignal).toBeDefined());
   view.unmount();
   expect(loadSignal?.aborted).toBe(true);

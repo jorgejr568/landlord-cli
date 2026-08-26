@@ -151,6 +151,10 @@ it("shows exact empty detail copy, capability-aware actions and generic mutation
   expect(screen.getByText("Nenhum documento anexado.")).toBeVisible();
   expect(screen.getByRole("link", { name: "Anexar documento" })).toHaveAttribute("href", "/billings/billing-public/edit");
 
+  view.rerender(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-public" canEdit mode="detail" onChanged={vi.fn()} onError={onError} /></MemoryRouter>);
+  expect(screen.getByRole("link", { name: "Baixar" })).toHaveAttribute("href", "/api/v1/billings/billing-public/attachments/attachment-public");
+  expect(screen.getByText("1 anexo")).toBeVisible();
+
   view.rerender(<MemoryRouter><AttachmentManager attachments={[attachment]} billingUuid="billing-public" canEdit mode="edit" onChanged={vi.fn()} onError={onError} /></MemoryRouter>);
   await user.click(screen.getByRole("button", { name: "Remover documento Contrato" }));
   await user.click(screen.getByRole("button", { name: "Remover" }));

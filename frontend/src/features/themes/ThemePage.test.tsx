@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { ThemePage } from "./ThemePage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -138,18 +139,14 @@ it("populates a new-account user theme from effective defaults and previews it",
 
   const { unmount } = renderPage(<ThemePage target="user" />);
 
-  expect(screen.getByText("Carregando tema...")).toBeVisible();
+  expect(screen.getByText("Carregando tema…")).toBeVisible();
   expect(await screen.findByRole("heading", { level: 1, name: "Meu Tema" })).toHaveClass(
     "page-title"
   );
-  for (const name of ["Fontes", "Cores", "Pré-visualização"]) {
-    // jsdom resolves rem against the 16px root font size, so 0.98rem computes to 15.68px.
-    expect(screen.getByRole("heading", { level: 2, name })).toHaveStyle({
-      fontSize: "15.68px",
-      margin: "0",
-      whiteSpace: "nowrap"
-    });
-  }
+  expect(screen.getByRole("heading", { level: 2, name: "Personalize sua marca" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
+  expect(screen.getByRole("heading", { level: 2, name: "Prévia da fatura" })).toBeVisible();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Montserrat");
   expect(screen.getByLabelText("Fonte do Texto")).toHaveValue("Montserrat");
   expect(screen.getByLabelText("Primária")).toHaveValue("#8a4c94");
@@ -158,9 +155,9 @@ it("populates a new-account user theme from effective defaults and previews it",
   expect(screen.getByLabelText("Secundária Escura")).toHaveValue("#357b7c");
   expect(screen.getByLabelText("Texto")).toHaveValue("#282830");
   expect(screen.getByLabelText("Contraste")).toHaveValue("#ffffff");
-  expect(screen.getByLabelText("Primária").closest(".theme-color-grid")).not.toBeNull();
+  expect(screen.getByLabelText("Primária").closest(".theme-color-list")).not.toBeNull();
   expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Primária")).not.toHaveAttribute("aria-describedby");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-hint");
   expect(screen.getByLabelText("Fonte do Cabeçalho")).not.toHaveAttribute("aria-describedby");
   expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
     "src",
@@ -169,6 +166,99 @@ it("populates a new-account user theme from effective defaults and previews it",
   expect(createObjectURL).toHaveBeenCalledOnce();
   unmount();
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
+});
+
+it("presents the personal theme as one cohesive control and preview workspace", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="user" />);
+
+  expect(await screen.findByRole("region", { name: "Personalização do tema" })).toBeVisible();
+  expect(screen.getByRole("region", { name: "Prévia da fatura" })).toBeVisible();
+  expect(screen.getByText("Padrão Rentivo")).toBeVisible();
+  expect(screen.getByText("#8A4C94")).toBeVisible();
+  expect(screen.getByText("#EEE4F1")).toBeVisible();
+});
+
+it("lets the controls settle before generating the initial PDF preview", async () => {
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+
+  expect(previewCalls).toBe(0);
+  await waitFor(() => expect(previewCalls).toBe(1));
+});
+
+it("distinguishes instant palette feedback from the generated PDF preview", async () => {
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+  renderPage(<ThemePage target="user" />);
+  await waitFor(() => expect(previewCalls).toBe(1));
+  expect(await screen.findByText("Prévia atualizada")).toBeVisible();
+
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  expect(screen.getByText("Alterações não salvas")).toBeVisible();
+  expect(screen.getByText("Atualize o PDF para aplicar as cores")).toBeVisible();
+  expect(previewCalls).toBe(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
+
+  await waitFor(() => expect(previewCalls).toBe(2));
+  expect(await screen.findByText("Prévia atualizada")).toBeVisible();
+});
+
+it("cancels an outdated PDF preview as soon as the palette changes", async () => {
+  const pendingPreview = deferred<Response>();
+  let previewSignal: AbortSignal | undefined;
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": (init) => {
+      previewSignal = init?.signal as AbortSignal;
+      return pendingPreview.promise;
+    }
+  });
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+  await waitFor(() => expect(previewSignal).toBeDefined());
+
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  expect(previewSignal?.aborted).toBe(true);
+  expect(screen.getByText("Atualize o PDF para aplicar as cores")).toBeVisible();
+  expect(screen.queryByText("Atualizando prévia…")).not.toBeInTheDocument();
+});
+
+it("warns before leaving when theme changes have not been saved", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse(defaultTheme),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+  renderPage(<ThemePage target="user" />);
+  await screen.findByRole("heading", { name: "Meu Tema" });
+  fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#123456" } });
+
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+
+  expect(event.defaultPrevented).toBe(true);
 });
 
 const targetCases = [
@@ -216,9 +306,11 @@ it.each(targetCases)("saves the $target target through its typed API path", asyn
   renderPage(
     <ThemePage target={target} targetUuid={uuid} />
   );
-  await user.selectOptions(await screen.findByLabelText("Fonte do Cabeçalho"), "Roboto");
-  await user.selectOptions(screen.getByLabelText("Fonte do Texto"), "Roboto");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await chooseSelectOption(user, await screen.findByLabelText("Fonte do Cabeçalho"), "Roboto");
+  await chooseSelectOption(user, screen.getByLabelText("Fonte do Texto"), "Roboto");
+  await user.click(screen.getByRole("button", {
+    name: target === "billing" ? "Salvar na cobrança" : "Salvar"
+  }));
 
   await waitFor(() => expect(savedBody).toEqual({
     ...customTheme.effective,
@@ -248,23 +340,80 @@ it("loads an exact organization label on a direct route", async () => {
     "/workspaces/:workspaceId/themes/organization/:orgUuid"
   );
 
-  expect(await screen.findByRole("heading", { name: "Acme Direta — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Acme Direta — Tema - Rentivo"));
+  expect(await screen.findByRole("heading", { name: "Acme Direta" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Acme Direta - Rentivo"));
   expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute(
     "href",
     "/organizations/org-route"
   );
   expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock.mock.calls.map(([input, init]) => (
     `${init?.method ?? "GET"} ${String(input)}`
   ))).toEqual([
-    "GET /api/v1/themes/organizations/org-route",
-    "POST /api/v1/themes/preview"
+    "GET /api/v1/themes/organizations/org-route"
   ]);
 });
 
+it("explains the organization theme scope, fallback, access, and branded preview", async () => {
+  installFetch({
+    "GET /api/v1/themes/organizations/org-scope": () => jsonResponse({
+      ...defaultTheme,
+      capabilities: { can_edit: false, can_reset: false },
+      owner_name: "Ribeiro Gestão Patrimonial"
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(
+    <ThemePage target="organization" targetUuid="org-scope" />
+  );
+
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da organização" });
+  expect(within(scope).getByRole("heading", { name: "Padrão visual da organização" })).toBeVisible();
+  expect(within(scope).getByText("Ribeiro Gestão Patrimonial")).toBeVisible();
+  expect(within(scope).getByText("Cobranças sem tema próprio")).toBeVisible();
+  expect(within(scope).getByText("Padrão Rentivo")).toBeVisible();
+  expect(within(scope).getByText("Somente consulta")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+
+  const localPreview = screen.getByLabelText("Amostra local do tema");
+  expect(within(localPreview).getByText("Ribeiro Gestão Patrimonial")).toBeVisible();
+});
+
+it("keeps the organization PDF local-first until it is explicitly requested", async () => {
+  const user = userEvent.setup();
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/organizations/org-local-first": () => jsonResponse({
+      ...defaultTheme,
+      owner_name: "Ribeiro Gestão Patrimonial"
+    }),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+
+  renderPage(<ThemePage target="organization" targetUuid="org-local-first" />);
+
+  expect(await screen.findByText("PDF completo sob demanda")).toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(previewCalls).toBe(0);
+  expect(screen.getByText("PDF pronto para gerar")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Visualizar" }));
+
+  await waitFor(() => expect(previewCalls).toBe(1));
+  expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
+    "src",
+    "blob:theme-preview-1"
+  );
+  expect(screen.queryByText("PDF completo sob demanda")).not.toBeInTheDocument();
+});
+
 it("uses inherited effective values for a billing without a stored theme", async () => {
+  const user = userEvent.setup();
   const fetchMock = installFetch({
     "GET /api/v1/themes/billings/billing-prop": () => jsonResponse({
       ...defaultTheme,
@@ -277,28 +426,75 @@ it("uses inherited effective values for a billing without a stored theme", async
 
   renderPage(<ThemePage target="billing" targetUuid="billing-prop" />);
 
-  expect(await screen.findByRole("heading", { name: "Aluguel Direto — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Aluguel Direto — Tema - Rentivo"));
+  expect(await screen.findByRole("heading", { name: "Aluguel Direto - Tema" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Aluguel Direto - Tema - Rentivo"));
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Lora");
   expect(screen.getByLabelText("Fonte do Texto")).toHaveValue("Roboto");
-  const sourceBanner = screen.getByText("Tema efetivo atual:").closest("div");
-  expect(sourceBanner).toHaveTextContent("da organização");
-  expect(sourceBanner).toHaveStyle({
-    background: "var(--paper)",
-    borderLeftColor: "var(--charcoal)"
-  });
+  expect(screen.getAllByText("Tema da organização")).toHaveLength(2);
+  expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
+  const scope = screen.getByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByRole("heading", { name: "Identidade desta cobrança" })).toBeVisible();
+  expect(within(scope).getByText("Aluguel Direto")).toBeVisible();
+  expect(within(scope).getByText("Somente esta cobrança")).toBeVisible();
+  expect(within(scope).getByText("Tema da organização")).toBeVisible();
+  expect(within(scope).getByText("Cria uma personalização exclusiva")).toBeVisible();
+  expect(within(scope).getByText("Edição permitida")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Ajuste desta cobrança" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Salvar na cobrança" })).toBeEnabled();
+  expect(within(screen.getByLabelText("Amostra local do tema")).getByText("Aluguel Direto")).toBeVisible();
   expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute(
     "href",
     "/billings/billing-prop"
   );
   expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
+  expect(screen.getByText("PDF completo sob demanda")).toBeVisible();
+  expect(screen.getByText("PDF pronto para gerar")).toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  await user.click(screen.getByRole("button", { name: "Visualizar" }));
+
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
+    "src",
+    "blob:theme-preview-1"
+  );
   expect(fetchMock.mock.calls.map(([input, init]) => (
     `${init?.method ?? "GET"} ${String(input)}`
   ))).toEqual([
     "GET /api/v1/themes/billings/billing-prop",
     "POST /api/v1/themes/preview"
   ]);
+});
+
+it("explains and confirms removing a billing-only theme override", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    "GET /api/v1/themes/billings/billing-custom": () => jsonResponse({
+      ...customTheme,
+      effective_source: "billing",
+      owner_name: "Apartamento Aurora"
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="billing" targetUuid="billing-custom" />);
+
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByText("Personalização exclusiva")).toBeVisible();
+  expect(within(scope).getByText("Atualiza a personalização exclusiva")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Remover personalização" }));
+
+  expect(screen.getByRole("dialog", { name: "Remover personalização da cobrança?" })).toBeVisible();
+  expect(screen.getByText(
+    "A cobrança voltará a seguir o tema do proprietário ou o padrão Rentivo."
+  )).toBeVisible();
+  expect(within(screen.getByRole("dialog")).getByRole(
+    "button",
+    { name: "Remover personalização" }
+  )).toBeVisible();
 });
 
 it("honors read-only capabilities while retaining preview access", async () => {
@@ -314,12 +510,30 @@ it("honors read-only capabilities while retaining preview access", async () => {
 
   renderPage(<ThemePage target="billing" targetUuid="read-only" />);
 
-  expect(await screen.findByText("Você tem acesso somente para consulta.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da cobrança" });
+  expect(within(scope).getByText("Somente consulta")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Salvar na cobrança" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Visualizar" })).toBeEnabled();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toBeDisabled();
   expect(screen.getByLabelText("Primária")).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
+});
+
+it("makes a read-only personal theme explicit without blocking preview", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse({
+      ...defaultTheme,
+      capabilities: { can_edit: false, can_reset: false }
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="user" />);
+
+  expect(await screen.findByText("Você tem acesso somente para consulta.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  expect(await screen.findByTitle("Pré-visualização do tema")).toBeVisible();
 });
 
 it("previews color changes locally without a request, warns on weak contrast, and supports a manual retry", async () => {
@@ -350,10 +564,12 @@ it("previews color changes locally without a request, warns on weak contrast, an
   fireEvent.change(screen.getByLabelText("Secundária"), { target: { value: "#bcdefa" } });
   await new Promise((resolve) => setTimeout(resolve, 350));
   expect(previewCalls).toBe(1);
-  expect(screen.getByLabelText("Amostra local do tema")).toHaveStyle({ backgroundColor: "#abcdef" });
+  expect(screen.getByLabelText("Amostra local do tema").querySelector(
+    ".theme-local-preview__brand"
+  )).toHaveStyle({ backgroundColor: "#abcdef" });
   fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#abcdef" } });
   expect(screen.getByText(/contraste entre a cor primária/i)).toBeVisible();
-  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Lora" } });
+  await chooseSelectOption(userEvent.setup(), screen.getByLabelText("Fonte do Cabeçalho"), "Lora");
   fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
   await waitFor(() => expect(screen.getByText("Não foi possível gerar esta prévia.")).toBeVisible());
 
@@ -368,7 +584,7 @@ it("previews color changes locally without a request, warns on weak contrast, an
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
   expect(screen.queryByText("Não foi possível gerar esta prévia.")).not.toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Roboto" } });
+  await chooseSelectOption(userEvent.setup(), screen.getByLabelText("Fonte do Cabeçalho"), "Roboto");
   await waitFor(() => expect(previewCalls).toBe(4));
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#000000" } });
   fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#ffffff" } });
@@ -461,14 +677,14 @@ it.each([
     uuid: undefined
   },
   {
-    expected: "Acme — Tema - Rentivo",
+    expected: "Acme - Rentivo",
     ownerLabel: undefined,
     ownerName: "Acme",
     target: "organization",
     uuid: "org-title"
   },
   {
-    expected: "Aluguel — Tema - Rentivo",
+    expected: "Aluguel - Tema - Rentivo",
     ownerLabel: undefined,
     ownerName: "Aluguel",
     target: "billing",
@@ -497,7 +713,7 @@ it.each([
 
   await screen.findByRole("heading", {
     level: 1,
-    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme — Tema" : "Aluguel — Tema"
+    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme" : "Aluguel - Tema"
   });
   await waitFor(() => expect(document.title).toBe(expected));
   unmount();
@@ -513,12 +729,12 @@ it("preserves an explicit owner label over the theme owner name", async () => {
     "POST /api/v1/themes/preview": () => pdfResponse()
   });
   renderPage(
-    <ThemePage ownerLabel="Nome injetado — Tema" target="organization" targetUuid="org-override" />
+    <ThemePage ownerLabel="Nome injetado" target="organization" targetUuid="org-override" />
   );
 
-  expect(await screen.findByRole("heading", { name: "Nome injetado — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Nome injetado — Tema - Rentivo"));
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(await screen.findByRole("heading", { name: "Nome injetado" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Nome injetado - Rentivo"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 });
 
 it("ignores a stale theme response after route navigation", async () => {
@@ -549,14 +765,14 @@ it("ignores a stale theme response after route navigation", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(oldSignals.every((signal) => signal.aborted)).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização nova — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização nova" })).toBeVisible();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Roboto");
   await act(async () => {
     oldTheme.resolve(jsonResponse({ ...customTheme, owner_name: "Organização antiga" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.getByRole("heading", { name: "Organização nova — Tema" })).toBeVisible();
-  expect(screen.queryByText("Organização antiga — Tema")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Organização nova" })).toBeVisible();
+  expect(screen.queryByText("Organização antiga")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Roboto");
 });
 
@@ -588,17 +804,17 @@ it("cancels pending preview and debounce work when the target changes", async ()
       </Routes>
     </MemoryRouter>
   );
-  await screen.findByRole("heading", { name: "Organização A — Tema" });
+  await screen.findByRole("heading", { name: "Organização A" });
+  fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
   await waitFor(() => expect(previewCalls).toBe(1));
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#abcdef" } });
 
   fireEvent.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(previewSignals[0]?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
-  await waitFor(() => expect(previewCalls).toBe(2));
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 350));
-  expect(previewCalls).toBe(2);
+  expect(previewCalls).toBe(1);
   expect(screen.getByLabelText("Primária")).toHaveValue("#112233");
 });
 
@@ -633,15 +849,15 @@ it("aborts a stale save success and keeps the new organization target usable", a
     "/themes/organization/org-a",
     "/themes/organization/org-b"
   );
-  await screen.findByRole("heading", { name: "Organização A — Tema" });
+  await screen.findByRole("heading", { name: "Organização A" });
 
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   await waitFor(() => expect(saveSignals).toHaveLength(1));
-  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Salvando…" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(saveSignals[0].aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled();
   await act(async () => {
     oldSave.resolve(jsonResponse({
@@ -653,7 +869,7 @@ it("aborts a stale save success and keeps the new organization target usable", a
     }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.getByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByLabelText("Primária")).toHaveValue("#112233");
   expect(screen.queryByText("Tema da organização salvo com sucesso!")).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
@@ -680,8 +896,8 @@ it("aborts and suppresses a stale save failure after changing target types", asy
     }
   });
   renderStrictThemeRoutes("/themes/billing/billing-a", "/themes/user");
-  await screen.findByRole("heading", { name: "Cobrança A — Tema" });
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await screen.findByRole("heading", { name: "Cobrança A - Tema" });
+  await user.click(screen.getByRole("button", { name: "Salvar na cobrança" }));
   await waitFor(() => expect(saveSignal).toBeDefined());
 
   await user.click(screen.getByRole("button", { name: "Navegar" }));
@@ -742,15 +958,15 @@ it("aborts a stale reset success without reloading the previous target", async (
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(resetSignal?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Cobrança B — Tema" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Usar Padrão" })).toBeEnabled();
+  expect(await screen.findByRole("heading", { name: "Cobrança B - Tema" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Remover personalização" })).toBeEnabled();
   const settledOldGetCalls = oldGetCalls;
   await act(async () => {
     oldReset.resolve(new Response(null, { status: 204 }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(oldGetCalls).toBe(settledOldGetCalls);
-  expect(screen.getByRole("heading", { name: "Cobrança B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Cobrança B - Tema" })).toBeVisible();
   expect(screen.queryByText("Tema da organização redefinido para o padrão.")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
 });
@@ -780,14 +996,17 @@ it("aborts and suppresses a stale reset failure after changing targets", async (
     "/themes/billing/billing-a",
     "/themes/organization/org-b"
   );
-  await user.click(await screen.findByRole("button", { name: "Usar Padrão" }));
-  await user.click(screen.getByRole("button", { name: "Usar padrão" }));
+  await user.click(await screen.findByRole("button", { name: "Remover personalização" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole(
+    "button",
+    { name: "Remover personalização" }
+  ));
   await waitFor(() => expect(resetSignal).toBeDefined());
 
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(resetSignal?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Usar Padrão" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
   await act(async () => {
@@ -803,7 +1022,7 @@ it("aborts and suppresses a stale reset failure after changing targets", async (
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(screen.queryByText("Falha antiga ao restaurar.")).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
@@ -916,16 +1135,30 @@ it.each(targetCases)("resets and refetches the $target target", async ({
   renderPage(
     <ThemePage target={target} targetUuid={uuid} />
   );
-  await user.click(await screen.findByRole("button", { name: "Usar Padrão" }));
-  expect(screen.getByRole("dialog", { name: "Restaurar o tema padrão?" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Usar padrão" }));
+  const resetTriggerName = target === "billing" ? "Remover personalização" : "Usar Padrão";
+  const resetDialogName = target === "billing"
+    ? "Remover personalização da cobrança?"
+    : "Restaurar o tema padrão?";
+  const resetAcceptName = target === "billing" ? "Remover personalização" : "Usar padrão";
+  if (target === "user") {
+    await screen.findByTitle("Pré-visualização do tema");
+  }
+  await user.click(await screen.findByRole("button", { name: resetTriggerName }));
+  const resetDialog = screen.getByRole("dialog", { name: resetDialogName });
+  expect(resetDialog).toBeVisible();
+  await user.click(within(resetDialog).getByRole("button", { name: resetAcceptName }));
 
-  expect(await screen.findByText(/redefinido para o padrão\./)).toBeVisible();
+  expect(await screen.findByText(target === "billing"
+    ? "Personalização removida. A cobrança voltou a seguir o tema do proprietário."
+    : /redefinido para o padrão\./)).toBeVisible();
   expect(getCalls).toBe(2);
   if (target === "billing") {
-    expect(screen.getByText("padrão do sistema")).toBeVisible();
+    expect(screen.getAllByText("Padrão Rentivo")).toHaveLength(2);
   }
-  expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
+  if (target === "user") {
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
+  }
+  expect(screen.queryByRole("button", { name: resetTriggerName })).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
 
@@ -960,14 +1193,17 @@ it("maps API field errors and reports an unexpected save failure", async () => {
   expect(await screen.findByText("Revise as cores informadas.")).toBeVisible();
   expect(screen.getByText("Cor inválida.")).toBeVisible();
   expect(screen.getByText("Fonte inválida.")).toBeVisible();
-  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-error");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute(
+    "aria-describedby",
+    "primary-hint primary-error"
+  );
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveAttribute(
     "aria-describedby",
     "header_font-error"
   );
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#abcdef" } });
   expect(screen.queryByText("Cor inválida.")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Primária")).not.toHaveAttribute("aria-describedby");
+  expect(screen.getByLabelText("Primária")).toHaveAttribute("aria-describedby", "primary-hint");
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveAttribute(
     "aria-describedby",
     "header_font-error"

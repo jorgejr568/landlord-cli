@@ -944,6 +944,20 @@ def test_csrf_endpoint_returns_bound_token_in_a_secure_non_http_only_cookie(
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_csrf_endpoint_remains_available_during_required_mfa_setup(
+    auth_harness: AuthHarness,
+) -> None:
+    auth_harness.mfa.setup_required = True
+
+    response = auth_harness.client.get(
+        "/api/v1/auth/csrf",
+        headers={"Cookie": _cookie_header(ACCESS_SECRET)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"csrf_token": response.cookies[CSRF_COOKIE_NAME]}
+
+
 def test_auth_openapi_exposes_versioned_json_operations_and_both_login_outcomes(
     auth_harness: AuthHarness,
 ) -> None:
