@@ -13,6 +13,69 @@ const options: components["schemas"]["APIKeyOptionsResponse"] = {
   scopes: ["profile:read", "billings:read"]
 };
 
+it("groups resource scopes into none, read, and write access levels", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  render(
+    <ApiKeyForm
+      onCancel={vi.fn()}
+      onSubmit={onSubmit}
+      options={{
+        ...options,
+        scopes: ["billings:read", "billings:write", "exports:create", "profile:read", "future:read", "future:execute"]
+      }}
+    />
+  );
+
+  expect(screen.getByRole("radio", { name: "Cobranças: nenhum" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "Exportações: leitura" })).toBeDisabled();
+  expect(screen.getByRole("radio", { name: "Perfil: escrita" })).toBeDisabled();
+  expect(screen.getByRole("radio", { name: "future:read: leitura" })).toBeEnabled();
+  expect(screen.getByRole("radio", { name: "future:execute: escrita" })).toBeEnabled();
+
+  await user.type(screen.getByLabelText("Nome"), "Automação");
+  await user.click(screen.getByRole("radio", { name: "Cobranças: escrita" }));
+  await user.click(screen.getByRole("radio", { name: "Exportações: escrita" }));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
+  await user.click(screen.getByLabelText("Pessoal"));
+  await user.click(screen.getByRole("button", { name: "Criar chave" }));
+
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+    scopes: ["billings:read", "billings:write", "exports:create", "profile:read"]
+  }));
+});
+
+it("repairs legacy write-only scope pairs when an existing key is saved", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  render(
+    <ApiKeyForm
+      initialKey={{
+        created_at: "2026-01-01T00:00:00Z",
+        expires_at: "2026-12-01T00:00:00Z",
+        grants: [{ available: true, resource_id: "personal", resource_type: "user" }],
+        hint: "rntv-v1-abcd••••yz",
+        last_used_at: null,
+        name: "Legada",
+        revoked_at: null,
+        scopes: ["billings:write"],
+        uuid: "key-uuid"
+      }}
+      onCancel={vi.fn()}
+      onSubmit={onSubmit}
+      options={{ ...options, scopes: ["billings:read", "billings:write"] }}
+    />
+  );
+
+  expect(screen.getByRole("radio", { name: "Cobranças: escrita" })).toBeChecked();
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({
+    name: "Legada",
+    scopes: ["billings:read", "billings:write"]
+  });
+});
+
 it("requires a name, scope, and at least one personal or organization workspace", async () => {
   const user = userEvent.setup();
   const onSubmit = vi.fn();
@@ -37,7 +100,7 @@ it("submits selected safe scopes and public workspace identifiers", async () => 
   await user.type(screen.getByLabelText("Nome"), "Automação");
   await user.clear(screen.getByLabelText("Expira em"));
   await user.type(screen.getByLabelText("Expira em"), "2026-12-31");
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByLabelText("Pessoal"));
   await user.click(screen.getByLabelText("Acme"));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
@@ -61,7 +124,7 @@ it("lets the backend apply the exact default expiration", async () => {
   render(<ApiKeyForm onCancel={vi.fn()} onSubmit={onSubmit} options={options} />);
 
   await user.type(screen.getByLabelText("Nome"), "Padrão");
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByLabelText("Pessoal"));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
 
@@ -75,7 +138,7 @@ it("never serializes the maximum date beyond the backend duration cap", async ()
   render(<ApiKeyForm onCancel={vi.fn()} onSubmit={onSubmit} options={options} />);
 
   await user.type(screen.getByLabelText("Nome"), "Máximo");
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByLabelText("Pessoal"));
   const expiration = screen.getByLabelText("Expira em");
   await user.clear(expiration);
@@ -96,14 +159,16 @@ it("evaluates each validation independently and supports organization-only acces
   await user.type(screen.getByLabelText("Nome"), "Teste");
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
   expect(screen.getByText("Selecione pelo menos um escopo.")).toBeVisible();
-  await user.click(screen.getByLabelText("Consultar perfil"));
+  await user.click(screen.getByRole("radio", { name: "Perfil: leitura" }));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
   expect(screen.getByText("Selecione pelo menos um espaço de trabalho.")).toBeVisible();
   await user.click(screen.getByLabelText("Acme"));
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
   expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ grants: [{ resource_id: "org-uuid", resource_type: "organization" }] }));
-  await user.click(screen.getByLabelText("Consultar perfil"));
-  expect(screen.getByLabelText("Consultar perfil")).not.toBeChecked();
+  await user.click(screen.getByLabelText("Acme"));
+  expect(screen.getByLabelText("Acme")).not.toBeChecked();
+  await user.click(screen.getByRole("radio", { name: "Perfil: nenhum" }));
+  expect(screen.getByRole("radio", { name: "Perfil: leitura" })).not.toBeChecked();
 });
 
 it("hydrates an existing key without changing expiration", () => {
@@ -161,7 +226,7 @@ it("omits dormant grants for metadata-only edits and sends selectable grant chan
 
   await user.clear(screen.getByLabelText("Nome"));
   await user.type(screen.getByLabelText("Nome"), "Atualizada");
-  await user.click(screen.getByLabelText("Consultar cobranças"));
+  await user.click(screen.getByRole("radio", { name: "Cobranças: leitura" }));
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   expect(onSubmit).toHaveBeenLastCalledWith({

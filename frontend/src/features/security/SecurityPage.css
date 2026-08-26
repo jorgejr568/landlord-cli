@@ -465,6 +465,131 @@
   border: 0;
 }
 
+.api-key-form__help {
+  max-width: 58ch;
+  margin: 0.3rem 0 0.65rem;
+  color: var(--foreground-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.api-key-access-matrix {
+  overflow: hidden;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+}
+
+.api-key-access-matrix__header,
+.api-key-access-row {
+  display: grid;
+  grid-template-columns: minmax(104px, 1fr) minmax(210px, 1.75fr);
+  align-items: stretch;
+}
+
+.api-key-access-matrix__header {
+  grid-template-columns: minmax(104px, 1fr) repeat(3, minmax(70px, 0.583fr));
+  border-bottom: 1.5px solid var(--ink);
+  background: var(--paper-2);
+  color: var(--foreground-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.api-key-access-matrix__header span {
+  padding: 0.55rem 0.6rem;
+  text-align: center;
+}
+
+.api-key-access-matrix__header span:first-child {
+  text-align: left;
+}
+
+.api-key-access-row + .api-key-access-row {
+  border-top: 1.5px solid var(--line);
+}
+
+.api-key-access-row > strong {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.api-key-access-row__choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(70px, 1fr));
+  border-left: 1.5px solid var(--line);
+}
+
+.api-key-access-choice {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.api-key-access-choice + .api-key-access-choice {
+  border-left: 1px solid var(--line-soft);
+}
+
+.api-key-access-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.api-key-access-choice span {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  padding: 0.4rem 0.35rem;
+  color: var(--foreground-muted);
+  font-size: 0.73rem;
+  font-weight: 750;
+  line-height: 1;
+  transition: background-color var(--t), color var(--t);
+}
+
+.api-key-access-choice:hover span {
+  background: var(--accent-pale);
+  color: var(--ink);
+}
+
+.api-key-access-choice:has(input:checked) span {
+  background: var(--accent-dark);
+  color: var(--accent-ink);
+}
+
+.api-key-access-choice:has(input[value="none"]:checked) span {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.api-key-access-choice:has(input:focus-visible) span {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.api-key-access-choice:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.api-key-access-choice:has(input:disabled) span {
+  background: var(--paper-2);
+  color: var(--line);
+  text-decoration: line-through;
+}
+
 .api-key-form__expiration {
   max-width: 350px;
 }
@@ -753,6 +878,15 @@
 
   .security-api-keys__content > form .api-key-choice-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .api-key-access-matrix {
+    overflow-x: auto;
+  }
+
+  .api-key-access-matrix__header,
+  .api-key-access-row {
+    min-width: 460px;
   }
 
   .security-passkey-table th:last-child,

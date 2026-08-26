@@ -21,6 +21,15 @@ interface ApiKeyFormProps {
   options: ApiKeyOptions;
 }
 
+type AccessLevel = "none" | "read" | "write";
+
+interface ScopeGroup {
+  id: string;
+  label: string;
+  readScope?: string;
+  writeScope?: string;
+}
+
 const SCOPE_LABELS: Record<string, string> = {
   "billings:read": "Consultar cobranças",
   "billings:write": "Gerenciar cobranças",
@@ -38,6 +47,51 @@ const SCOPE_LABELS: Record<string, string> = {
   "themes:read": "Consultar temas",
   "themes:write": "Gerenciar temas"
 };
+
+const SCOPE_GROUPS: ScopeGroup[] = [
+  { id: "billings", label: "Cobranças", readScope: "billings:read", writeScope: "billings:write" },
+  { id: "bills", label: "Faturas", readScope: "bills:read", writeScope: "bills:write" },
+  { id: "communications", label: "Comunicações", readScope: "communications:read", writeScope: "communications:send" },
+  { id: "expenses", label: "Despesas", readScope: "expenses:read", writeScope: "expenses:write" },
+  { id: "files", label: "Arquivos", readScope: "files:read", writeScope: "files:write" },
+  { id: "organizations", label: "Organizações", readScope: "organizations:read" },
+  { id: "profile", label: "Perfil", readScope: "profile:read" },
+  { id: "themes", label: "Temas", readScope: "themes:read", writeScope: "themes:write" },
+  { id: "exports", label: "Exportações", writeScope: "exports:create" }
+];
+
+function availableScopeGroups(availableScopes: string[]): ScopeGroup[] {
+  const available = new Set(availableScopes);
+  const known = new Set(SCOPE_GROUPS.flatMap((group) => [group.readScope, group.writeScope].filter(Boolean)));
+  return [
+    ...SCOPE_GROUPS
+      .map((group) => ({
+        ...group,
+        readScope: group.readScope && available.has(group.readScope) ? group.readScope : undefined,
+        writeScope: group.writeScope && available.has(group.writeScope) ? group.writeScope : undefined
+      }))
+      .filter((group) => group.readScope || group.writeScope),
+    ...availableScopes
+      .filter((scope) => !known.has(scope))
+      .map((scope) => scope.endsWith(":read")
+        ? { id: scope, label: scopeLabel(scope), readScope: scope }
+        : { id: scope, label: scopeLabel(scope), writeScope: scope })
+  ];
+}
+
+function accessLevel(group: ScopeGroup, selectedScopes: string[]): AccessLevel {
+  if (group.writeScope && selectedScopes.includes(group.writeScope)) return "write";
+  if (group.readScope && selectedScopes.includes(group.readScope)) return "read";
+  return "none";
+}
+
+function scopesForAccess(groups: ScopeGroup[], selectedScopes: string[]): string[] {
+  return selectedScopes.flatMap((scope) => {
+    const group = groups.find((candidate) => candidate.writeScope === scope);
+    if (group?.readScope && !selectedScopes.includes(group.readScope)) return [group.readScope, scope];
+    return [scope];
+  });
+}
 
 function defaultExpiration(days: number): string {
   const value = new Date();
@@ -57,6 +111,7 @@ export function scopeLabel(scope: string): string {
 }
 
 export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, options }: ApiKeyFormProps) {
+  const scopeGroups = useMemo(() => availableScopeGroups(options.scopes), [options.scopes]);
   const initialOrganizations = useMemo(
     () => {
       const selectable = new Set(options.organizations.map((organization) => organization.resource_id));
@@ -82,12 +137,25 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
     return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
   }
 
+  function setGroupAccess(group: ScopeGroup, level: AccessLevel) {
+    setScopes((current) => {
+      const groupScopes = [group.readScope, group.writeScope].filter((scope): scope is string => Boolean(scope));
+      const next = current.filter((scope) => !groupScopes.includes(scope));
+      if (level === "read" && group.readScope) return [...next, group.readScope];
+      if (level === "write" && group.writeScope) {
+        return [...next, ...(group.readScope ? [group.readScope] : []), group.writeScope];
+      }
+      return next;
+    });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitted(true);
     const normalizedName = name.trim();
+    const normalizedScopes = scopesForAccess(scopeGroups, scopes);
     const hasWorkspace = personal || organizations.length > 0 || Boolean(initialKey && !grantsChanged);
-    if (!normalizedName || scopes.length === 0 || !hasWorkspace) {
+    if (!normalizedName || normalizedScopes.length === 0 || !hasWorkspace) {
       return;
     }
     await onSubmit({
@@ -101,7 +169,7 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
         ]
       } : {}),
       name: normalizedName,
-      scopes
+      scopes: normalizedScopes
     });
   }
 
@@ -114,13 +182,39 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
       </div>
       <fieldset aria-describedby={submitted && scopes.length === 0 ? "api-key-scopes-error" : undefined} className="field api-key-form__group">
         <legend className="field-label">Permissões</legend>
-        <div className="api-key-choice-grid">
-          {options.scopes.map((scope) => (
-            <label className="api-key-choice" key={scope}>
-              <input checked={scopes.includes(scope)} onChange={() => setScopes(toggle(scopes, scope))} type="checkbox" />
-              {scopeLabel(scope)}
-            </label>
-          ))}
+        <p className="api-key-form__help">Escrita inclui leitura quando disponível.</p>
+        <div className="api-key-access-matrix">
+          <div aria-hidden="true" className="api-key-access-matrix__header">
+            <span>Recurso</span><span>Nenhum</span><span>Leitura</span><span>Escrita</span>
+          </div>
+          {scopeGroups.map((group) => {
+            const selected = accessLevel(group, scopes);
+            return (
+              <div aria-label={group.label} className="api-key-access-row" key={group.id} role="radiogroup">
+                <strong>{group.label}</strong>
+                <div className="api-key-access-row__choices">
+                  {(["none", "read", "write"] as const).map((level) => {
+                    const levelLabel = level === "none" ? "Nenhum" : level === "read" ? "Leitura" : "Escrita";
+                    const disabled = level === "read" ? !group.readScope : level === "write" ? !group.writeScope : false;
+                    return (
+                      <label className="api-key-access-choice" key={level}>
+                        <input
+                          aria-label={`${group.label}: ${levelLabel.toLowerCase()}`}
+                          checked={selected === level}
+                          disabled={disabled}
+                          name={`scope-${group.id}`}
+                          onChange={() => setGroupAccess(group, level)}
+                          type="radio"
+                          value={level}
+                        />
+                        <span>{levelLabel}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
         <FieldError id="api-key-scopes-error" message={submitted && scopes.length === 0 ? "Selecione pelo menos um escopo." : undefined} />
       </fieldset>
