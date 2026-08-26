@@ -170,8 +170,15 @@ it("retries a failed load and renders stats, PIX warnings, owners and current in
   expect(screen.getByText("Org")).toHaveClass("tag--solid");
   expect(screen.getByText("Enviado")).toHaveClass("tag--sent");
   expect(screen.getByText("Sem fatura")).toHaveClass("tag--draft");
+  const sentBillingRow = screen.getByRole("row", { name: /Apartamento 302/ });
+  expect(within(sentBillingRow).getByText("Julho/2026")).toBeVisible();
+  expect(within(sentBillingRow).getByText("Vence em 10/07/2026")).toBeVisible();
+  expect(within(sentBillingRow).getByRole("link", { name: "Ver cobrança Apartamento 302" })).toHaveAttribute("href", "/billings/billing-personal");
+  const billingWithoutInvoice = screen.getByRole("row", { name: /Sala Comercial/ });
+  expect(within(billingWithoutInvoice).getByText("Ainda não emitida")).toBeVisible();
   expect(screen.getByText("1 cobrança sem dados de recebimento")).toBeVisible();
   expect(screen.getByRole("table", { name: "Imóveis e faturas atuais" })).toBeVisible();
+  expect(screen.getByRole("columnheader", { name: "Ação" })).toBeVisible();
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 

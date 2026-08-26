@@ -15,9 +15,10 @@ import { Link } from "react-router";
 import { LoadError } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
-import { formatBrl } from "../../lib/format";
+import { formatBrl, formatIsoDate, formatMonth } from "../../lib/format";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import { PixSetupDialog } from "./PixSetupDialog";
+import "./BillingListPage.css";
 
 type BillingList = components["schemas"]["BillingListResponse"];
 type BillingListItem = BillingList["items"][number];
@@ -88,10 +89,10 @@ function FinancialSummary({ stats }: { stats: Stats }) {
   ];
 
   return (
-    <section aria-label={`Resumo financeiro de ${stats.year}`} className="billing-overview__summary">
+    <section aria-labelledby="billing-summary-title" className="billing-overview__summary">
       <div className="billing-overview__summary-title">
         <CircleDollarSign aria-hidden="true" size={22} strokeWidth={2.25} />
-        <div><strong>Resumo do ano</strong><span>Valores das faturas emitidas</span></div>
+        <div><h2 id="billing-summary-title">Resumo financeiro de {stats.year}</h2><span>Valores das faturas emitidas no ano</span></div>
       </div>
       <dl className="billing-overview__metrics">
         {metrics.map((metric) => (
@@ -180,7 +181,7 @@ function BillingLedger({ items }: { items: BillingListItem[] }) {
       </div>
       <div className="billing-overview__table-wrap">
         <table aria-label="Imóveis e faturas atuais" className="billing-overview__table">
-          <thead><tr><th>Imóvel</th><th>Itens</th><th>Fatura atual</th><th>Status</th><th><span className="sr-only">Abrir</span></th></tr></thead>
+          <thead><tr><th>Imóvel</th><th>Itens</th><th>Fatura atual</th><th>Status</th><th><span className="sr-only">Ação</span></th></tr></thead>
           <tbody>
             {items.map((billing) => (
               <tr key={billing.uuid}>
@@ -192,9 +193,17 @@ function BillingLedger({ items }: { items: BillingListItem[] }) {
                   </div>
                 </td>
                 <td className="billing-overview__items mono">{billing.item_count}</td>
-                <td className="billing-overview__amount mono">{billing.current_bill ? formatBrl(billing.current_bill.total_amount) : <span>Não emitida</span>}</td>
+                <td className="billing-overview__amount">
+                  {billing.current_bill ? (
+                    <div className="billing-overview__invoice">
+                      <strong className="mono">{formatBrl(billing.current_bill.total_amount)}</strong>
+                      <span>{formatMonth(billing.current_bill.reference_month)}</span>
+                      <span>{billing.current_bill.due_date ? `Vence em ${formatIsoDate(billing.current_bill.due_date)}` : "Sem vencimento definido"}</span>
+                    </div>
+                  ) : <span className="billing-overview__not-issued">Ainda não emitida</span>}
+                </td>
                 <td className="billing-overview__status">{billing.current_bill ? <StatusTag status={billing.current_bill.status} /> : <span className="tag tag--draft">Sem fatura</span>}</td>
-                <td className="billing-overview__open"><Link aria-label={`Abrir ${billing.name}`} to={`/billings/${billing.uuid}`}><span>Abrir</span><ChevronRight aria-hidden="true" size={18} strokeWidth={2.5} /></Link></td>
+                <td className="billing-overview__open"><Link aria-label={`Ver cobrança ${billing.name}`} to={`/billings/${billing.uuid}`}><span>Ver cobrança</span><ChevronRight aria-hidden="true" size={18} strokeWidth={2.5} /></Link></td>
               </tr>
             ))}
           </tbody>
