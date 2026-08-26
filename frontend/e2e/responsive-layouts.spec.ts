@@ -97,6 +97,54 @@ test("theme contrast icon remains centered inside its status circle", async ({ p
   expect(Math.abs(alignment.y)).toBeLessThanOrEqual(0.5);
 });
 
+test("organization wizard rail stays connected to its stage at every breakpoint", async ({ isMobile, page }) => {
+  const css = readFileSync(new URL("../src/features/organizations/OrganizationCreatePage.css", import.meta.url), "utf8");
+  await page.setContent(`
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      .wizard { display: grid; align-items: start; }
+      ${css}
+    </style>
+    <form class="organization-create-form">
+      <div class="wizard">
+        <nav class="wizard__rail">
+          <div class="wizard-progress">Etapa 1 de 3</div>
+          <ol class="wizard-steps"><li>Identidade</li><li>Recebimento PIX</li><li>Revisão</li></ol>
+        </nav>
+        <section class="wizard__stage">
+          <header class="wizard__stage-head">Identidade</header>
+          <div class="wizard__content">Nome da organização</div>
+          <footer class="wizard__actions">Continuar</footer>
+        </section>
+      </div>
+    </form>
+  `);
+
+  const edges = await page.locator(".wizard").evaluate((wizard) => {
+    const rail = wizard.querySelector(".wizard__rail")!.getBoundingClientRect();
+    const stage = wizard.querySelector(".wizard__stage")!.getBoundingClientRect();
+    return {
+      railBottom: rail.bottom,
+      railLeft: rail.left,
+      railRight: rail.right,
+      stageBottom: stage.bottom,
+      stageLeft: stage.left,
+      stageRight: stage.right,
+      stageTop: stage.top
+    };
+  });
+
+  if (isMobile) {
+    expect(Math.abs(edges.railLeft - edges.stageLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(edges.railRight - edges.stageRight)).toBeLessThanOrEqual(1);
+    expect(edges.railBottom).toBeLessThanOrEqual(edges.stageTop + 1);
+  } else {
+    expect(Math.abs(edges.railBottom - edges.stageBottom)).toBeLessThanOrEqual(1);
+  }
+});
+
 test("bill action menu escapes the invoice shell without leaving the viewport", async ({ page }) => {
   const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
   await page.setViewportSize({ height: 710, width: 1120 });
