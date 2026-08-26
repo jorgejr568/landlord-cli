@@ -244,14 +244,14 @@ data class BillingDraft(
     if (
       pixOverride != null &&
       (
-        pixOverride.merchantName.trim().apiCharacterCount() > 25 ||
-          pixOverride.merchantCity.trim().apiCharacterCount() > 15
+        pixOverride.merchantName.trim().apiCharacterCount() > 255 ||
+          pixOverride.merchantCity.trim().apiCharacterCount() > 255
         )
     ) {
       issues.add(
         ValidationIssue(
           ValidationField.PIX,
-          "O recebedor PIX aceita 25 caracteres no nome e 15 na cidade.",
+          "O recebedor PIX aceita até 255 caracteres no nome e na cidade.",
         )
       )
     }

@@ -123,10 +123,10 @@ data class OrganizationDraft(
         normalizedKey.isEmpty() && normalizedName.isEmpty() && normalizedCity.isEmpty() -> null
         normalizedKey.isEmpty() || normalizedName.isEmpty() || normalizedCity.isEmpty() ->
           "Informe a chave, o nome e a cidade do recebedor para usar uma chave PIX."
-        normalizedName.codePointCount(0, normalizedName.length) > 25 ->
-          "O nome do recebedor deve ter até 25 caracteres."
-        normalizedCity.codePointCount(0, normalizedCity.length) > 15 ->
-          "A cidade do recebedor deve ter até 15 caracteres."
+        normalizedName.codePointCount(0, normalizedName.length) > 255 ->
+          "O nome do recebedor deve ter até 255 caracteres."
+        normalizedCity.codePointCount(0, normalizedCity.length) > 255 ->
+          "A cidade do recebedor deve ter até 255 caracteres."
         else -> null
       }
     }

@@ -275,7 +275,7 @@ class ValidationTest {
         )
       ),
       pixOverride = PixConfiguration(
-        key = "pix", merchantName = "m".repeat(26), merchantCity = "c".repeat(16),
+        key = "pix", merchantName = "m".repeat(256), merchantCity = "c".repeat(256),
       ),
       recipients = listOf(
         BillingRecipient(

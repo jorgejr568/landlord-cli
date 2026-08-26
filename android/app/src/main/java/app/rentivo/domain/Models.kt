@@ -285,8 +285,8 @@ data class ProfilePIXForm(
       val normalizedName = merchantName.trim()
       val normalizedCity = merchantCity.trim()
       return fields.isValid &&
-        normalizedName.codePointCount(0, normalizedName.length) <= 25 &&
-        normalizedCity.codePointCount(0, normalizedCity.length) <= 15
+        normalizedName.codePointCount(0, normalizedName.length) <= 255 &&
+        normalizedCity.codePointCount(0, normalizedCity.length) <= 255
     }
 
   companion object {
