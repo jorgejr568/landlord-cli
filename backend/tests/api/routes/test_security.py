@@ -681,7 +681,7 @@ def test_pix_update_accepts_all_null_as_an_explicit_clear(security_harness: Secu
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("pix_merchant_name", "N" * 26), ("pix_merchant_city", "C" * 16)],
+    [("pix_merchant_name", "N" * 256), ("pix_merchant_city", "C" * 256)],
 )
 def test_pix_update_enforces_the_shared_merchant_lengths(
     security_harness: SecurityHarness,
@@ -696,6 +696,22 @@ def test_pix_update_enforces_the_shared_merchant_lengths(
     assert response.status_code == 422
     assert f"body.{field}" in response.json()["fields"]
     assert security_harness.user.pix_calls == []
+
+
+def test_pix_update_accepts_merchant_values_longer_than_the_emv_payload_limits(
+    security_harness: SecurityHarness,
+) -> None:
+    name = "N" * 26
+    city = "C" * 16
+
+    response = security_harness.request(
+        "POST",
+        "/api/v1/security/pix",
+        json={"pix_key": "person@example.com", "pix_merchant_name": name, "pix_merchant_city": city},
+    )
+
+    assert response.status_code == 200
+    assert security_harness.user.pix_calls == [(USER.id, "person@example.com", name, city)]
 
 
 def test_account_deletion_readiness_exposes_sole_admin_conflict_before_submission(
@@ -945,8 +961,8 @@ def test_pix_update_normalizes_profile_and_writes_redacted_audit_state(
     "payload",
     [
         {"pix_key": "person@example.com", "pix_merchant_name": "", "pix_merchant_city": ""},
-        {"pix_key": "person@example.com", "pix_merchant_name": "N" * 26, "pix_merchant_city": "Recife"},
-        {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "C" * 16},
+        {"pix_key": "person@example.com", "pix_merchant_name": "N" * 256, "pix_merchant_city": "Recife"},
+        {"pix_key": "person@example.com", "pix_merchant_name": "Person", "pix_merchant_city": "C" * 256},
     ],
 )
 def test_pix_update_rejects_partial_or_oversized_configuration_before_services(

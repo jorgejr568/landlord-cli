@@ -1260,13 +1260,13 @@
           },
           "pix_merchant_city": {
             "default": "",
-            "maxLength": 15,
+            "maxLength": 255,
             "title": "Pix Merchant City",
             "type": "string"
           },
           "pix_merchant_name": {
             "default": "",
-            "maxLength": 25,
+            "maxLength": 255,
             "title": "Pix Merchant Name",
             "type": "string"
           },
@@ -1843,7 +1843,7 @@
           "pix_merchant_city": {
             "anyOf": [
               {
-                "maxLength": 15,
+                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -1855,7 +1855,7 @@
           "pix_merchant_name": {
             "anyOf": [
               {
-                "maxLength": 25,
+                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -3199,13 +3199,13 @@
           },
           "pix_merchant_city": {
             "default": "",
-            "maxLength": 15,
+            "maxLength": 255,
             "title": "Pix Merchant City",
             "type": "string"
           },
           "pix_merchant_name": {
             "default": "",
-            "maxLength": 25,
+            "maxLength": 255,
             "title": "Pix Merchant Name",
             "type": "string"
           }
@@ -3716,7 +3716,7 @@
           "pix_merchant_city": {
             "anyOf": [
               {
-                "maxLength": 15,
+                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -3728,7 +3728,7 @@
           "pix_merchant_name": {
             "anyOf": [
               {
-                "maxLength": 25,
+                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -4158,7 +4158,7 @@
           "pix_merchant_city": {
             "anyOf": [
               {
-                "maxLength": 15,
+                "maxLength": 255,
                 "type": "string"
               },
               {
@@ -4171,7 +4171,7 @@
           "pix_merchant_name": {
             "anyOf": [
               {
-                "maxLength": 25,
+                "maxLength": 255,
                 "type": "string"
               },
               {

@@ -123,8 +123,8 @@ class BillingCreateRequest(_StrictModel):
     name: str = Field(min_length=1, max_length=255)
     description: str = Field(default="", max_length=2000)
     pix_key: str = ""
-    pix_merchant_name: str = Field(default="", max_length=25)
-    pix_merchant_city: str = Field(default="", max_length=15)
+    pix_merchant_name: str = Field(default="", max_length=255)
+    pix_merchant_city: str = Field(default="", max_length=255)
     owner: BillingOwnerRequest = Field(default_factory=BillingOwnerRequest)
     items: tuple[BillingItemCreateInput, ...] = Field(min_length=1)
     recipients: tuple[ContactInput, ...] | None = None
@@ -164,8 +164,8 @@ class BillingUpdateRequest(_StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     pix_key: str | None = None
-    pix_merchant_name: str | None = Field(default=None, max_length=25)
-    pix_merchant_city: str | None = Field(default=None, max_length=15)
+    pix_merchant_name: str | None = Field(default=None, max_length=255)
+    pix_merchant_city: str | None = Field(default=None, max_length=255)
     owner: BillingOwnerRequest | None = None
     items: tuple[BillingItemInput, ...] | None = Field(default=None, min_length=1)
     recipients: tuple[ContactInput, ...] | None = None
