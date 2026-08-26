@@ -7,7 +7,7 @@ import structlog
 
 from rentivo.constants import TYPE_LABELS, format_month
 from rentivo.models import format_brl
-from rentivo.models.bill import Bill
+from rentivo.models.bill import Bill, BillLineItem
 from rentivo.observability import traced
 from rentivo.pdf.document import PdfDocument, draw_box, draw_document_header, draw_footer, new_document
 
@@ -102,57 +102,134 @@ class InvoicePDF:
 
     def _draw_table(self, doc: PdfDocument, bill: Bill) -> None:
         pdf = doc.pdf
+        rows = self._measure_table_rows(doc, bill.line_items)
+        total_rows = len(rows)
+        content_bottom = pdf.h + _FOOTER_OFFSET - 7
+        summary_h = self._summary_height(doc, bill.notes)
+        first_row = 0
+        continuation = False
+
+        while True:
+            self._draw_table_heading(doc, total_rows, continuation=continuation)
+            table_y = pdf.get_y()
+            header_h = 11.5
+            remaining_h = header_h + sum(row_h for _, _, row_h in rows[first_row:])
+
+            if table_y + remaining_h + summary_h <= content_bottom:
+                last_row = total_rows
+            else:
+                available_h = content_bottom - table_y - header_h
+                used_h = 0.0
+                last_row = first_row
+                while last_row < total_rows:
+                    row_h = rows[last_row][2]
+                    if last_row > first_row and used_h + row_h > available_h:
+                        break
+                    used_h += row_h
+                    last_row += 1
+
+            self._draw_table_group(doc, rows[first_row:last_row])
+            if last_row == total_rows:
+                return
+
+            self._draw_footer(doc)
+            pdf.add_page()
+            draw_document_header(
+                doc,
+                title="FATURA",
+                subtitle="Itens da cobrança - continuação",
+            )
+            first_row = last_row
+            continuation = True
+
+    def _measure_table_rows(
+        self,
+        doc: PdfDocument,
+        items: list[BillLineItem],
+    ) -> list[tuple[BillLineItem, list[str], float]]:
+        pdf = doc.pdf
+        description_w = doc.page_w * 0.50 - 10
+        pdf.set_font(doc.text_font, "", 9.5)
+        rows: list[tuple[BillLineItem, list[str], float]] = []
+        for item in items:
+            lines = pdf.multi_cell(
+                description_w,
+                5,
+                item.description,
+                align="L",
+                dry_run=True,
+                output="LINES",
+            )
+            rows.append((item, lines, max(11.5, len(lines) * 5 + 5)))
+        return rows
+
+    def _draw_table_heading(self, doc: PdfDocument, item_count: int, *, continuation: bool) -> None:
+        pdf = doc.pdf
+        c = doc.colors
+        page_w = doc.page_w
+        title = "ITENS DA FATURA (CONTINUAÇÃO)" if continuation else "ITENS DA FATURA"
+
+        pdf.set_font(doc.header_font, "B", 12)
+        pdf.set_text_color(*c["text_color"])
+        pdf.cell(page_w * 0.70, 8, title)
+        pdf.set_font(doc.text_font_sb, "", 7)
+        pdf.set_text_color(*c["muted_text"])
+        pdf.cell(page_w * 0.30, 8, f"{item_count} ITENS", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
+    def _draw_table_group(
+        self,
+        doc: PdfDocument,
+        rows: list[tuple[BillLineItem, list[str], float]],
+    ) -> None:
+        pdf = doc.pdf
         c = doc.colors
         page_w = doc.page_w
         col_desc = page_w * 0.50
         col_type = page_w * 0.22
         col_amount = page_w * 0.28
-        line_h = 11.5
-
-        pdf.set_font(doc.header_font, "B", 12)
-        pdf.set_text_color(*c["text_color"])
-        pdf.cell(page_w * 0.70, 8, "ITENS DA FATURA")
-        pdf.set_font(doc.text_font_sb, "", 7)
-        pdf.set_text_color(*c["muted_text"])
-        pdf.cell(page_w * 0.30, 8, f"{len(bill.line_items)} ITENS", align="R", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(3)
-
+        header_h = 11.5
         table_x = pdf.l_margin
         table_y = pdf.get_y()
-        table_h = line_h * (len(bill.line_items) + 1)
-        draw_box(doc, table_x, table_y, page_w, table_h, fill=c["text_contrast"])
+        table_h = header_h + sum(row_h for _, _, row_h in rows)
 
+        draw_box(doc, table_x, table_y, page_w, table_h, fill=c["text_contrast"])
         pdf.set_fill_color(*c["primary_light"])
-        pdf.rect(table_x + 0.65, table_y + 0.65, page_w - 1.3, line_h - 0.65, style="F")
+        pdf.rect(table_x + 0.65, table_y + 0.65, page_w - 1.3, header_h - 0.65, style="F")
         pdf.set_xy(table_x, table_y)
         pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["text_color"])
-        pdf.cell(col_desc, line_h, "  DESCRI\u00c7\u00c3O")
-        pdf.cell(col_type, line_h, "TIPO", align="C")
-        pdf.cell(col_amount, line_h, "VALOR  ", align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(col_desc, header_h, "  DESCRI\u00c7\u00c3O")
+        pdf.cell(col_type, header_h, "TIPO", align="C")
+        pdf.cell(col_amount, header_h, "VALOR  ", align="R")
 
-        for item in bill.line_items:
-            row_y = pdf.get_y()
+        row_y = table_y + header_h
+        for item, description_lines, row_h in rows:
             pdf.set_draw_color(*c["border_color"])
             pdf.set_line_width(0.25)
             pdf.line(table_x + 4, row_y, table_x + page_w - 4, row_y)
 
+            text_h = len(description_lines) * 5
+            pdf.set_xy(table_x + 5, row_y + (row_h - text_h) / 2)
             pdf.set_font(doc.text_font, "", 9.5)
             pdf.set_text_color(*c["text_color"])
-            pdf.cell(col_desc, line_h, f"  {item.description}")
+            pdf.multi_cell(col_desc - 10, 5, item.description, align="L", max_line_height=5)
+
+            pdf.set_xy(table_x + col_desc, row_y)
             pdf.set_font(doc.text_font, "", 8.5)
-            pdf.cell(col_type, line_h, TYPE_LABELS.get(item.item_type, item.item_type), align="C")
+            pdf.cell(col_type, row_h, TYPE_LABELS.get(item.item_type, item.item_type), align="C")
+            pdf.set_xy(table_x + col_desc + col_type, row_y)
             pdf.set_font(doc.text_font_sb, "", 9.5)
-            pdf.cell(
-                col_amount,
-                line_h,
-                f"{format_brl(item.amount)}  ",
-                align="R",
-                new_x="LMARGIN",
-                new_y="NEXT",
-            )
+            pdf.cell(col_amount, row_h, f"{format_brl(item.amount)}  ", align="R")
+            row_y += row_h
 
         pdf.set_y(table_y + table_h + 5)
+
+    def _summary_height(self, doc: PdfDocument, notes: str) -> float:
+        height = 25.0
+        if notes:
+            height += 22.0 + self._measure_notes_height(doc, notes)
+        return height
 
     def _draw_total(self, doc: PdfDocument, total_amount: int) -> None:
         pdf = doc.pdf
@@ -185,15 +262,19 @@ class InvoicePDF:
         x = pdf.l_margin
         y = pdf.get_y()
 
-        pdf.set_font(doc.text_font, "", 9.5)
-        lines = pdf.multi_cell(page_w - 16, 5.5, notes, dry_run=True, output="LINES")
-        notes_h = max(20.0, len(lines) * 5.5 + 10)
+        notes_h = self._measure_notes_height(doc, notes)
         draw_box(doc, x, y, page_w, notes_h, fill=c["primary_light"], shadow=False)
         pdf.set_xy(x + 8, y + 5)
         pdf.set_text_color(*c["text_color"])
         pdf.set_font(doc.text_font, "", 9.5)
-        pdf.multi_cell(page_w - 16, 5.5, notes)
+        pdf.multi_cell(page_w - 16, 5.5, notes, align="L")
         pdf.set_y(y + notes_h)
+
+    def _measure_notes_height(self, doc: PdfDocument, notes: str) -> float:
+        pdf = doc.pdf
+        pdf.set_font(doc.text_font, "", 9.5)
+        lines = pdf.multi_cell(doc.page_w - 16, 5.5, notes, align="L", dry_run=True, output="LINES")
+        return max(20.0, len(lines) * 5.5 + 10)
 
     def _draw_pix_page(
         self,

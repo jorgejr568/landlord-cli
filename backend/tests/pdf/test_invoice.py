@@ -132,3 +132,86 @@ class TestInvoicePDF:
             pix_payload="",
         )
         assert result[:5] == b"%PDF-"
+
+    def test_many_items_continue_in_a_labeled_table_instead_of_a_total_only_page(self):
+        """Regression: a tall monolithic table pushed TOTAL onto an otherwise blank page."""
+        line_items = [
+            BillLineItem(
+                description=f"Item de cobrança {index:02d}",
+                amount=10000 + index,
+                item_type=ItemType.VARIABLE,
+                sort_order=index,
+            )
+            for index in range(13)
+        ]
+        result = InvoicePDF().generate(
+            self._make_bill(
+                line_items=line_items,
+                total_amount=sum(item.amount for item in line_items),
+                notes="",
+            ),
+            "Apartamento Aurora",
+        )
+
+        pages = pypdf.PdfReader(io.BytesIO(result)).pages
+        page_text = [page.extract_text() for page in pages]
+
+        assert len(pages) == 2
+        assert "ITENS DA FATURA" in page_text[1]
+        assert "TOTAL" in page_text[1]
+        assert all("rentivo" in text for text in page_text)
+
+    def test_long_item_description_is_split_into_multiple_pdf_text_fragments(self):
+        """Regression: a single-line description painted through the type and amount columns."""
+        description = "Consumo de água da unidade conforme leitura individual homologada pela administradora"
+        result = InvoicePDF().generate(
+            self._make_bill(
+                line_items=[
+                    BillLineItem(
+                        description=description,
+                        amount=16892,
+                        item_type=ItemType.VARIABLE,
+                        sort_order=0,
+                    )
+                ],
+                total_amount=16892,
+            ),
+            "Apartamento Aurora",
+        )
+
+        fragments: list[str] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, *_args: fragments.append(text.strip()) if text.strip() else None
+        )
+        description_fragments = [
+            fragment
+            for fragment in fragments
+            if "Consumo de água" in " ".join(fragment.split()) or "homologada" in fragment
+        ]
+        normalized = " ".join(" ".join(fragment.split()) for fragment in fragments)
+
+        assert description not in fragments
+        assert all("  " not in fragment for fragment in description_fragments)
+        assert "Consumo de água da unidade conforme" in normalized
+        assert "homologada pela administradora" in normalized
+
+    def test_wrapped_notes_remain_left_aligned(self):
+        """Regression: FPDF's default justification created distracting word gaps in notes."""
+        notes = (
+            "Cobrança em atraso. O valor exibido não inclui encargos posteriores à emissão deste documento. "
+            "Entre em contato com o atendimento para confirmar o saldo atualizado antes do pagamento."
+        )
+        result = InvoicePDF().generate(self._make_bill(notes=notes), "Apartamento Aurora")
+
+        fragments: list[str] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, *_args: fragments.append(text.strip()) if text.strip() else None
+        )
+        notes_fragments = [
+            fragment
+            for fragment in fragments
+            if "Cobrança em atraso" in " ".join(fragment.split()) or "saldo atualizado" in fragment
+        ]
+
+        assert notes_fragments
+        assert all("  " not in fragment for fragment in notes_fragments)
