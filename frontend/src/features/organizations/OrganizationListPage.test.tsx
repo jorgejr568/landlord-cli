@@ -44,6 +44,9 @@ it("guides a fresh account to its first organization with one clear action", asy
   expect(await screen.findByRole("heading", { name: "Organizações" })).toHaveClass("pagehead__title");
   expect(screen.getByRole("heading", { name: "Organize sua operação em equipe" })).toBeVisible();
   expect(screen.getByText(/Uma organização reúne imóveis, cobranças e pessoas/)).toBeVisible();
+  expect(screen.getByRole("region", { name: "Organize sua operação em equipe" })).toBeVisible();
+  expect(screen.getByRole("list", { name: "O que uma organização reúne" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(3);
   const createLinks = screen.getAllByRole("link", { name: "Criar organização" });
   expect(createLinks).toHaveLength(1);
   expect(createLinks[0]).toHaveAttribute("href", "/organizations/create");
@@ -55,6 +58,8 @@ it("guides a fresh account to its first organization with one clear action", asy
 it("renders a scannable organization directory with role, access and MFA context", async () => {
   installList([organization]);
 
+  expect(await screen.findByRole("list", { name: "Organizações disponíveis" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(1);
   const card = await screen.findByRole("link", { name: /Ribeiro Imóveis/ });
   expect(card).toHaveClass("organization-directory__row");
   expect(card).toHaveAttribute("href", "/organizations/org-public-uuid");
@@ -109,6 +114,8 @@ it("distinguishes billing managers in a multi-organization directory", async () 
   ]);
 
   expect(await screen.findByText("2 organizações")).toBeVisible();
+  expect(screen.getByRole("list", { name: "Organizações disponíveis" })).toBeVisible();
+  expect(screen.getAllByRole("listitem")).toHaveLength(2);
   expect(screen.getByText("Gerencia cobranças")).toBeVisible();
   expect(screen.getByText("Gerente")).toBeVisible();
 });

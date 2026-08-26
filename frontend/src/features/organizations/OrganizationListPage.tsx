@@ -6,6 +6,7 @@ import { LoadError } from "../../components/PageState";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
+import "./OrganizationListPage.css";
 
 type Organization = components["schemas"]["OrganizationResponse"];
 
@@ -53,11 +54,11 @@ export function OrganizationListPage() {
   }, [load]);
 
   return (
-    <div className="organization-index">
+    <div className="organization-index organization-list-page">
       <div className="pagehead organization-index__pagehead">
         <div className="organization-index__heading">
           <h1 className="pagehead__title">Organizações</h1>
-          <p className="pagehead__sub">Escolha um espaço de trabalho ou reúna sua operação com outras pessoas.</p>
+          <p className="pagehead__sub">Entre em um espaço de trabalho ou crie uma organização para operar em equipe.</p>
         </div>
         {organizations?.length ? (
           <Link className="btn btn--primary" to="/organizations/create">
@@ -89,61 +90,64 @@ export function OrganizationListPage() {
             </div>
             <strong>{organizationCount(organizations.length)}</strong>
           </header>
-          <div className="organization-directory__list">
+          <ul aria-label="Organizações disponíveis" className="organization-directory__list">
             {organizations.map((organization) => (
-              <Link className="organization-directory__row" key={organization.uuid} to={`/organizations/${organization.uuid}`}>
-                <span aria-hidden="true" className="organization-directory__mark">
-                  {organization.name.slice(0, 1).toLocaleUpperCase("pt-BR")}
-                </span>
-                <span className="organization-directory__identity">
-                  <strong className="organization-directory__name" title={organization.name}>{organization.name}</strong>
-                </span>
-                <span className="organization-directory__meta organization-directory__meta--role">
-                  <small>Seu papel</small>
-                  <strong>{ROLE_LABELS[organization.current_role]}</strong>
-                </span>
-                <span className="organization-directory__meta organization-directory__meta--access">
-                  <small>Permissões</small>
-                  <strong>{accessLabel(organization)}</strong>
-                </span>
-                <span className="organization-directory__security">
-                  <LockKeyhole aria-hidden="true" size={15} />
-                  {organization.enforce_mfa ? "MFA exigido" : "MFA opcional"}
-                </span>
-                <span aria-hidden="true" className="organization-directory__open">
-                  <ArrowRight size={19} />
-                </span>
-              </Link>
+              <li key={organization.uuid}>
+                <Link className="organization-directory__row" to={`/organizations/${organization.uuid}`}>
+                  <span aria-hidden="true" className="organization-directory__mark">
+                    {organization.name.slice(0, 1).toLocaleUpperCase("pt-BR")}
+                  </span>
+                  <span className="organization-directory__identity">
+                    <strong className="organization-directory__name" title={organization.name}>{organization.name}</strong>
+                    <small>Abrir espaço de trabalho</small>
+                  </span>
+                  <span className="organization-directory__meta organization-directory__meta--role">
+                    <small>Seu papel</small>
+                    <strong>{ROLE_LABELS[organization.current_role]}</strong>
+                  </span>
+                  <span className="organization-directory__meta organization-directory__meta--access">
+                    <small>Permissões</small>
+                    <strong>{accessLabel(organization)}</strong>
+                  </span>
+                  <span className="organization-directory__security">
+                    <LockKeyhole aria-hidden="true" size={15} />
+                    {organization.enforce_mfa ? "MFA exigido" : "MFA opcional"}
+                  </span>
+                  <span aria-hidden="true" className="organization-directory__open">
+                    <ArrowRight size={19} />
+                  </span>
+                </Link>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
       ) : (
-        <section className="organization-index__empty">
+        <section aria-labelledby="organization-empty-title" className="organization-index__empty">
           <div className="organization-index__empty-intro">
             <span aria-hidden="true" className="organization-index__empty-mark">
               <Building2 size={28} strokeWidth={2.2} />
             </span>
-            <h2>Organize sua operação em equipe</h2>
+            <h2 id="organization-empty-title">Organize sua operação em equipe</h2>
             <p>Uma organização reúne imóveis, cobranças e pessoas em um espaço com permissões próprias.</p>
             <Link className="btn btn--primary" to="/organizations/create">
               <Plus aria-hidden="true" size={17} />
               Criar organização
             </Link>
           </div>
-          <div aria-label="O que você pode organizar" className="organization-index__empty-guide">
-            <div>
+          <ul aria-label="O que uma organização reúne" className="organization-index__empty-guide">
+            <li>
               <Building2 aria-hidden="true" size={19} />
               <span><strong>Imóveis e cobranças</strong><small>Mantenha a operação do time no mesmo lugar.</small></span>
-            </div>
-            <div>
+            </li>
+            <li>
               <UsersRound aria-hidden="true" size={19} />
               <span><strong>Pessoas e papéis</strong><small>Defina quem administra, gerencia ou apenas visualiza.</small></span>
-            </div>
-            <div>
+            </li>
+            <li>
               <ShieldCheck aria-hidden="true" size={19} />
               <span><strong>Segurança compartilhada</strong><small>Exija MFA para proteger o acesso da equipe.</small></span>
-            </div>
-          </div>
+            </li>
+          </ul>
         </section>
       )}
     </div>

@@ -1,0 +1,340 @@
+.organization-list-page {
+  width: 100%;
+}
+
+.organization-list-page .organization-index__pagehead {
+  align-items: flex-end;
+  gap: 2rem;
+  margin-bottom: clamp(1.75rem, 4vw, 2.75rem);
+  padding-bottom: 1.35rem;
+  border-bottom: var(--bw) solid var(--ink);
+}
+
+.organization-list-page .organization-index__heading {
+  min-width: 0;
+}
+
+.organization-list-page .pagehead__title {
+  max-width: 12ch;
+  font-size: clamp(2.15rem, 5vw, 3.35rem);
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+}
+
+.organization-list-page .pagehead__sub {
+  max-width: 58ch;
+  margin-top: 0.7rem;
+  color: var(--ink-2);
+  font-size: 0.98rem;
+  text-wrap: pretty;
+}
+
+.organization-list-page .organization-index__pagehead .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.organization-list-page .organization-index__state {
+  min-height: 270px;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  background: var(--surface);
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: var(--r-soft);
+  box-shadow: var(--sh);
+}
+
+.organization-list-page .organization-index__state .empty-state {
+  padding: 0;
+}
+
+.organization-list-page .organization-index__loading {
+  grid-template-columns: 54px minmax(180px, 380px);
+  column-gap: 1.15rem;
+}
+
+.organization-list-page .organization-index__skeleton-mark {
+  width: 54px;
+  height: 54px;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--r);
+  background: var(--accent-pale);
+  box-shadow: var(--sh-sm);
+}
+
+.organization-list-page .organization-index__skeleton-lines span {
+  height: 0.8rem;
+  background: var(--n-200);
+}
+
+.organization-list-page .organization-index__empty {
+  min-height: 390px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.organization-list-page .organization-index__empty-intro {
+  position: relative;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(2rem, 5vw, 4rem) 0;
+}
+
+.organization-list-page .organization-index__empty-mark {
+  width: 58px;
+  height: 58px;
+  margin-bottom: 1.5rem;
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  transform: rotate(-2deg);
+}
+
+.organization-list-page .organization-index__empty-intro h2 {
+  max-width: 14ch;
+  margin-bottom: 0.8rem;
+  font-size: clamp(2rem, 4.2vw, 3.2rem);
+  letter-spacing: -0.055em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+.organization-list-page .organization-index__empty-intro p {
+  max-width: 52ch;
+  margin-bottom: 1.6rem;
+  color: var(--ink-2);
+  font-size: 1rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.organization-list-page .organization-index__empty-guide {
+  align-self: center;
+  display: grid;
+  align-content: center;
+  margin: 0;
+  padding: 0.75rem 1.5rem;
+  list-style: none;
+  background: var(--paper-2);
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: var(--r-soft);
+  box-shadow: var(--sh);
+}
+
+.organization-list-page .organization-index__empty-guide > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  padding: 1.25rem 0;
+}
+
+.organization-list-page .organization-index__empty-guide > li + li {
+  border-top: 1.5px solid var(--line);
+}
+
+.organization-list-page .organization-index__empty-guide svg {
+  flex-shrink: 0;
+  margin-top: 0.13rem;
+  color: var(--accent-dark);
+}
+
+.organization-list-page .organization-index__empty-guide span {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.organization-list-page .organization-index__empty-guide strong {
+  font-family: var(--font-display);
+  font-size: 0.94rem;
+}
+
+.organization-list-page .organization-index__empty-guide small {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.organization-list-page .organization-directory {
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.organization-list-page .organization-directory__header {
+  align-items: flex-end;
+  padding: 0 0 1.15rem;
+  background: transparent;
+  border-bottom: 0;
+}
+
+.organization-list-page .organization-directory__header h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  letter-spacing: -0.04em;
+}
+
+.organization-list-page .organization-directory__header p {
+  margin-top: 0.35rem;
+  font-size: 0.84rem;
+}
+
+.organization-list-page .organization-directory__header > strong {
+  padding: 0.38rem 0.58rem;
+  color: var(--ink);
+  background: var(--accent-pale);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--r-sm);
+  font-size: 0.68rem;
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+
+.organization-list-page .organization-directory__list {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.organization-list-page .organization-directory__list > li {
+  min-width: 0;
+}
+
+.organization-list-page .organization-directory__row {
+  grid-template-columns: 52px minmax(190px, 1.55fr) minmax(110px, 0.65fr) minmax(135px, 0.85fr) auto 38px;
+  gap: 1rem;
+  padding: 1.05rem 1.15rem;
+  background: var(--surface);
+  border: var(--bw-bold) solid var(--ink);
+  border-radius: var(--r-soft);
+  box-shadow: var(--sh);
+  transition: background-color var(--t), box-shadow var(--t), transform var(--t);
+}
+
+.organization-list-page .organization-directory__row:hover {
+  color: var(--ink);
+  background: var(--accent-pale);
+  box-shadow: var(--sh-lg);
+  transform: translate(-2px, -2px);
+}
+
+.organization-list-page .organization-directory__row:active {
+  background: var(--paper-2);
+  box-shadow: 1px 1px 0 var(--ink);
+  transform: translate(2px, 2px);
+}
+
+.organization-list-page .organization-directory__row:focus-visible {
+  z-index: 1;
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.organization-list-page .organization-directory__mark {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--r);
+}
+
+.organization-list-page .organization-directory__identity {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.organization-list-page .organization-directory__name {
+  font-size: 1.03rem;
+}
+
+.organization-list-page .organization-directory__identity > small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.organization-list-page .organization-directory__meta small {
+  font-size: 0.67rem;
+}
+
+.organization-list-page .organization-directory__meta strong {
+  font-size: 0.79rem;
+}
+
+.organization-list-page .organization-directory__security {
+  border: 1.5px solid var(--accent-dark);
+  border-radius: var(--r-sm);
+}
+
+.organization-list-page .organization-directory__open {
+  border-radius: var(--r-sm);
+}
+
+@media (max-width: 900px) {
+  .organization-list-page .organization-index__empty {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .organization-list-page .organization-index__empty-guide {
+    align-self: stretch;
+    border: var(--bw-bold) solid var(--ink);
+  }
+
+  .organization-list-page .organization-directory__row {
+    grid-template-columns: 50px minmax(0, 1fr) minmax(115px, auto) 38px;
+  }
+}
+
+@media (max-width: 620px) {
+  .organization-list-page .organization-index__pagehead {
+    align-items: stretch;
+    gap: 1.25rem;
+  }
+
+  .organization-list-page .organization-index__pagehead .btn {
+    width: 100%;
+  }
+
+  .organization-list-page .pagehead__title {
+    font-size: clamp(2.05rem, 11vw, 2.8rem);
+  }
+
+  .organization-list-page .organization-index__empty-intro {
+    padding: 2.25rem 0 2rem;
+  }
+
+  .organization-list-page .organization-index__empty-guide {
+    padding: 0.55rem 1.1rem;
+  }
+
+  .organization-list-page .organization-directory__header {
+    align-items: flex-start;
+    padding-bottom: 1rem;
+  }
+
+  .organization-list-page .organization-directory__row {
+    grid-template-columns: 44px minmax(0, 1fr) 34px;
+    gap: 0.65rem 0.8rem;
+    padding: 1rem;
+  }
+
+  .organization-list-page .organization-directory__mark {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .organization-list-page .organization-directory__row,
+  .organization-list-page .organization-directory__open {
+    transition: none;
+  }
+}
