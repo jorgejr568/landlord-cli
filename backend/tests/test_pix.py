@@ -56,6 +56,16 @@ class TestGeneratePixPayload:
         )
         assert "test@email.com" in payload
 
+    def test_normalizes_recipient_text_only_when_generating_the_payload(self):
+        payload = generate_pix_payload(
+            pix_key="test@email.com",
+            merchant_name="José Carlos de Albuquerque Neto",
+            merchant_city="São Paulo",
+        )
+
+        assert "5925JOSE CARLOS DE ALBUQUERQU" in payload
+        assert "6009SAO PAULO" in payload
+
     def test_with_amount(self):
         payload = generate_pix_payload(
             pix_key="key",

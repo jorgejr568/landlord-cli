@@ -179,6 +179,8 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   const key = screen.getByLabelText("Chave PIX");
   const name = screen.getByLabelText("Nome do recebedor");
   const city = screen.getByLabelText("Cidade do recebedor");
+  expect(screen.getByText("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.")).toBeVisible();
+  expect(screen.getByText("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.")).toBeVisible();
   fireEvent.change(name, { target: { value: "😀".repeat(26) } });
   fireEvent.change(city, { target: { value: "😀".repeat(16) } });
   expect(name).toHaveValue("😀".repeat(25));

@@ -108,6 +108,8 @@ it("guides organization creation through identity, optional PIX, and review", as
   expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
   await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
   expect(screen.getByLabelText("Chave PIX")).toBeVisible();
+  expect(screen.getByText(/Digite o nome completo\. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento\./)).toBeVisible();
+  expect(screen.getByText(/Digite normalmente, com acentos\. No PIX, “São Paulo” vira “SAO PAULO”\./)).toBeVisible();
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
 
@@ -401,6 +403,7 @@ it("loads and saves every legacy organization setting", async () => {
 
   expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("pagehead__title");
+  expect(screen.getByText("Digite nome e cidade normalmente; o PIX ajusta maiúsculas e acentos.")).toBeVisible();
   expect(screen.getByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await waitFor(() => expect(document.title).toBe("Editar Ribeiro Imóveis - Rentivo"));

@@ -118,17 +118,17 @@ def generate_pix_payload(
 
     Args:
         pix_key: The PIX key (CPF, CNPJ, phone, email, or random key).
-        merchant_name: Recipient name (max 25 chars, ASCII only).
-        merchant_city: Recipient city (max 15 chars, ASCII only).
+        merchant_name: Recipient name, normalized for PIX and limited to 25 chars.
+        merchant_city: Recipient city, normalized for PIX and limited to 15 chars.
         amount_centavos: Transaction amount in centavos (e.g. 15050 for R$ 150,50). None for open amount.
         txid: Transaction ID (default "***").
 
     Returns:
         The complete BR Code payload string with CRC16.
     """
-    # Strip accents for ASCII-only fields
-    name = _strip_accents(merchant_name)[:25]
-    city = _strip_accents(merchant_city)[:15]
+    # PIX recipient fields are rendered in accent-free uppercase only at generation time.
+    name = _strip_accents(merchant_name).upper()[:25]
+    city = _strip_accents(merchant_city).upper()[:15]
 
     # Merchant Account Information (tag 26)
     mai = _tlv("00", "br.gov.bcb.pix") + _tlv("01", pix_key)

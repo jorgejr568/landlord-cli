@@ -168,6 +168,10 @@ it("preserves the create form structure and filters owners by capability instead
   expect(screen.queryByLabelText("Descrição do item 2")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("radio", { name: /^Usar PIX exclusivo/ }));
+  expect(screen.getByText("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.")).toBeVisible();
+  expect(screen.getByText("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.")).toBeVisible();
+  expect(screen.getByLabelText("Nome do recebedor")).toHaveAccessibleDescription("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.");
+  expect(screen.getByLabelText("Cidade do recebedor")).toHaveAccessibleDescription("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.");
   await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
   await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
   await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");

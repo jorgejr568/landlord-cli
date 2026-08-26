@@ -213,7 +213,7 @@ export function OrganizationEditPage() {
               <ul>
                 <li>Use um nome reconhecível pela equipe.</li>
                 <li>Confira a chave PIX antes de emitir uma fatura.</li>
-                <li>Digite nome e cidade sem acentos.</li>
+                <li>Digite nome e cidade normalmente; o PIX ajusta maiúsculas e acentos.</li>
               </ul>
             </div>
           </div>

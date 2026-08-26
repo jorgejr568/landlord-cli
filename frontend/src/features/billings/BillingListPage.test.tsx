@@ -187,6 +187,8 @@ it("opens a focused PIX setup dialog and validates its required fields locally",
 
   const dialog = await screen.findByRole("dialog", { name: "Receber por PIX" });
   expect(within(dialog).getByText("Só precisamos destes 3 dados para colocar o PIX nas suas faturas pessoais.")).toBeVisible();
+  expect(within(dialog).getByText("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.")).toBeVisible();
+  expect(within(dialog).getByText("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.")).toBeVisible();
   expect(within(dialog).getByLabelText("Nome do recebedor")).toHaveValue("ANA SILVA");
   expect(within(dialog).getByLabelText("Chave PIX")).toHaveFocus();
 
@@ -321,13 +323,13 @@ it("recovers from PIX load failures and focuses each incomplete field", async ()
   expect(name).toHaveFocus();
   expect(within(dialog).getByText("Informe o nome do recebedor.")).toBeVisible();
 
-  await user.type(name, "ANA SILVA COM UM NOME LONGO DEMAIS");
-  expect(name).toHaveValue("ANA SILVA COM UM NOME LON");
+  await user.type(name, "José Carlos de Albuquerque Neto");
+  expect(name).toHaveValue("José Carlos de Albuquerqu");
   await user.click(within(dialog).getByRole("button", { name: "Salvar PIX" }));
   expect(city).toHaveFocus();
 
-  await user.type(city, "SAO PAULO MUITO LONGA");
-  expect(city).toHaveValue("SAO PAULO MUITO");
+  await user.type(city, "São Paulo do Sul");
+  expect(city).toHaveValue("São Paulo do Su");
   await user.click(within(dialog).getByRole("button", { name: "Salvar PIX" }));
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("Não foi possível salvar os dados PIX.");
   expect(key).toHaveFocus();
