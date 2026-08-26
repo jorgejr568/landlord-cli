@@ -29,10 +29,10 @@ import Testing
   form.merchantCity = "RECIFE"
   #expect(form.isSavable)
 
-  form.merchantName = String(repeating: "N", count: 26)
+  form.merchantName = String(repeating: "N", count: 256)
   #expect(!form.isSavable)
   form.merchantName = "ANA"
-  form.merchantCity = String(repeating: "C", count: 16)
+  form.merchantCity = String(repeating: "C", count: 256)
   #expect(!form.isSavable)
 }
 
