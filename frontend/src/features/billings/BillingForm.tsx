@@ -364,7 +364,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
       {showCustomPix ? <>
         <div className="field">
           <label className="field__label" htmlFor="pix_key">Chave PIX</label>
-          <input aria-describedby="pix-key-hint pix-key-error" autoComplete="off" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder="E-mail, CPF/CNPJ, telefone com DDD ou chave aleatória…" spellCheck={false} type="text" value={form.pixKey} />
+          <input aria-describedby="pix-key-hint pix-key-error" autoComplete="off" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder={PIX_KEY_GUIDANCE} spellCheck={false} type="text" value={form.pixKey} />
           <span className="field__hint" id="pix-key-hint">{PIX_KEY_GUIDANCE}</span>
           <FieldError id="pix-key-error" message={allFieldErrors.pix_key} />
         </div>

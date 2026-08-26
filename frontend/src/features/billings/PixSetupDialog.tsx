@@ -2,7 +2,7 @@ import { Landmark, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { FieldError } from "../../components/FieldError";
-import { PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
+import { PIX_KEY_GUIDANCE, PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
 import { validatePix } from "../../forms/validators";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
@@ -207,7 +207,7 @@ export function PixSetupDialog({ onClose, onSaved, open }: PixSetupDialogProps) 
             <div className="field pix-setup-dialog__key">
               <label className="field__label" htmlFor="quick-pix-key">Chave PIX</label>
               <input aria-describedby={errors.key ? "quick-pix-key-error" : "quick-pix-key-hint"} aria-invalid={Boolean(errors.key)} autoComplete="off" className="input mono" id="quick-pix-key" name="pix_key" onChange={(event) => { setKey(event.target.value); setErrors({}); }} ref={keyRef} spellCheck={false} value={key} />
-              {errors.key ? <FieldError id="quick-pix-key-error" message={errors.key} /> : <span className="field__hint" id="quick-pix-key-hint">E-mail, CPF/CNPJ, telefone com +55 ou chave aleatória.</span>}
+              {errors.key ? <FieldError id="quick-pix-key-error" message={errors.key} /> : <span className="field__hint" id="quick-pix-key-hint">{PIX_KEY_GUIDANCE}</span>}
             </div>
             <div className="pix-setup-dialog__row">
               <div className="field">
