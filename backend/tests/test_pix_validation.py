@@ -76,3 +76,17 @@ class TestValidatePixKey:
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             validate_pix_key("not-a-pix-key")
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "joão@exemplo.com",  # the email pattern accepts any non-space character
+            "٠١٢٣٤٥٦٧٨٩٠",  # str.isdigit() accepts non-ASCII digits
+            "+55٠١٢٣٤٥٦٧٨٩",  # so does the \\d in the phone pattern
+        ],
+    )
+    def test_non_ascii_raises(self, key):
+        # The BR Code payload is ASCII-encoded when its CRC is computed, so a
+        # non-ASCII key must never reach storage.
+        with pytest.raises(ValueError, match="ASCII"):
+            validate_pix_key(key)

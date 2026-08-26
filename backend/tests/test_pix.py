@@ -3,6 +3,7 @@ import pytest
 from rentivo.pix import (
     _crc16_ccitt,
     _format_amount_centavos,
+    _sanitize_recipient_field,
     _strip_accents,
     _tlv,
     generate_pix_payload,
@@ -38,6 +39,20 @@ class TestStripAccents:
         assert _strip_accents("Março") == "Marco"
 
 
+class TestSanitizeRecipientField:
+    def test_keeps_plain_ascii_uppercase(self):
+        assert _sanitize_recipient_field("Rua do Comércio", 25) == "RUA DO COMERCIO"
+
+    def test_drops_characters_without_a_canonical_decomposition(self):
+        # Em dash, curly quotes, stroked letters and emoji survive _strip_accents.
+        assert _sanitize_recipient_field("Ø — “ok” 🚀", 25) == "  OK "
+
+    def test_truncates_after_dropping(self):
+        # The emoji is dropped before truncation, so it costs no budget: the
+        # 15-char window still reaches the end of "COMERCIO".
+        assert _sanitize_recipient_field("Ábaco 🚀 Comércio e Serviços", 15) == "ABACO  COMERCIO"
+
+
 class TestGeneratePixPayload:
     def test_returns_string(self):
         payload = generate_pix_payload(
@@ -65,6 +80,48 @@ class TestGeneratePixPayload:
 
         assert "5925JOSE CARLOS DE ALBUQUERQU" in payload
         assert "6009SAO PAULO" in payload
+
+    def test_typographic_punctuation_and_emoji_do_not_break_the_payload(self):
+        payload = generate_pix_payload(
+            pix_key="test@email.com",
+            merchant_name="Cláudio — “Móveis” Comércio Ltda",
+            merchant_city="São Paulo 🏙 do Sul",
+        )
+
+        assert payload.isascii()
+        assert "5925CLAUDIO  MOVEIS COMERCIO " in payload
+        assert "6015SAO PAULO  DO S" in payload
+
+    def test_truncation_applies_after_non_ascii_characters_are_dropped(self):
+        with_punctuation = generate_pix_payload(
+            pix_key="test@email.com",
+            merchant_name="Cláudio — “Móveis” Comércio Ltda",
+            merchant_city="São Paulo 🏙 do Sul",
+        )
+        without_punctuation = generate_pix_payload(
+            pix_key="test@email.com",
+            merchant_name="Claudio  Moveis Comercio Ltda",
+            merchant_city="Sao Paulo  do Sul",
+        )
+
+        assert with_punctuation == without_punctuation
+
+    def test_non_ascii_pix_key_raises_value_error(self):
+        with pytest.raises(ValueError, match="ASCII"):
+            generate_pix_payload(
+                pix_key="joão@exemplo.com",
+                merchant_name="Name",
+                merchant_city="City",
+            )
+
+    def test_non_ascii_txid_raises_value_error(self):
+        with pytest.raises(ValueError, match="ASCII"):
+            generate_pix_payload(
+                pix_key="test@email.com",
+                merchant_name="Name",
+                merchant_city="City",
+                txid="FATURA—1",
+            )
 
     def test_with_amount(self):
         payload = generate_pix_payload(
