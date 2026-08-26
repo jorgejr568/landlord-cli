@@ -280,6 +280,52 @@ describe("typed API client", () => {
     }
   });
 
+  it("gives each concurrent mutation its own failed CSRF refresh response", async () => {
+    let resolveRefresh!: (response: Response) => void;
+    const refresh = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/v1/auth/csrf") {
+        return refresh;
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setCsrfToken("stale-csrf-token");
+
+    const first = apiRequest(apiClient.DELETE("/api/v1/themes/user"));
+    const second = apiRequest(apiClient.DELETE("/api/v1/themes/user"));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    resolveRefresh(
+      new Response(JSON.stringify({
+        code: "service_unavailable",
+        detail: "Proteção indisponível.",
+        request_id: "csrf-refresh-request",
+        status: 503
+      }), {
+        headers: { "Content-Type": "application/problem+json" },
+        status: 503
+      })
+    );
+    const results = await Promise.allSettled([first, second]);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") {
+        expect(result.reason).toBeInstanceOf(ApiError);
+        expect(result.reason).toMatchObject({
+          code: "service_unavailable",
+          message: "Proteção indisponível.",
+          requestId: "csrf-refresh-request",
+          status: 503
+        });
+      }
+    }
+  });
+
   it("serializes query parameters without changing the API path", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ status: "authenticated" }), {

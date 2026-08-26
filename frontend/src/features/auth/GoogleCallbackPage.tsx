@@ -59,6 +59,7 @@ export function GoogleCallbackPage() {
   const errorRef = useRef<HTMLDivElement>(null);
   const redirectTimer = useRef<number | null>(null);
   const { isHandoff, withHandoff } = useMobileHandoff();
+  const returnPath = withHandoff("/login?error=google_auth_failed");
 
   useEffect(() => {
     document.title =
@@ -98,9 +99,10 @@ export function GoogleCallbackPage() {
         redirectTimer.current = window.setTimeout(() => {
           if (data.status === "mfa_required") {
             saveMfaChallenge({ challengeId: data.challenge_id, methods: data.methods });
-            navigate(`/mfa-verify?challenge=${encodeURIComponent(data.challenge_id)}`, {
-              replace: true
-            });
+            navigate(
+              withHandoff(`/mfa-verify?challenge=${encodeURIComponent(data.challenge_id)}`),
+              { replace: true }
+            );
             return;
           }
           auth.authenticate(data);
@@ -109,7 +111,7 @@ export function GoogleCallbackPage() {
       })
       .catch(() => {
         if (!cancelled) {
-          navigate("/login?error=google_auth_failed", { replace: true });
+          navigate(returnPath, { replace: true });
         }
       });
 
@@ -119,12 +121,10 @@ export function GoogleCallbackPage() {
         window.clearTimeout(redirectTimer.current);
       }
     };
-  }, [auth, callback.isValid, callbackQuery, navigate]);
+  }, [auth, callback.isValid, callbackQuery, navigate, returnPath, withHandoff]);
 
   const stepState =
     phase === "success" ? "complete" : phase === "invalid" ? "error" : "active";
-  const returnPath = withHandoff("/login?error=google_auth_failed");
-
   return (
     <div className="google-callback">
       <div className="google-callback__brand" translate="no">

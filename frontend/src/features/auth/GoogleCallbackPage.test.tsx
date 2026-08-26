@@ -67,6 +67,38 @@ describe("GoogleCallbackPage", () => {
     });
   });
 
+  it("preserves the mobile handoff when the callback requires MFA", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      {
+        handlers: {
+          "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () =>
+            jsonResponse(
+              {
+                challenge_id: "google/challenge",
+                methods: ["totp"],
+                status: "mfa_required"
+              },
+              202
+            )
+        },
+        path: "/auth/google/callback?code=auth-code&state=oauth-state&mobile_state=native%2Fstate"
+      }
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/mfa-verify?challenge=google%2Fchallenge&mobile_state=native%2Fstate"
+      )
+    );
+    expect(loadMfaChallenge("google/challenge")).toEqual({
+      challengeId: "google/challenge",
+      methods: ["totp"]
+    });
+  });
+
   it("returns callback failures to the legacy login error URL", async () => {
     renderAuth(<GoogleCallbackPage />, {
       handlers: {
@@ -121,7 +153,7 @@ describe("GoogleCallbackPage", () => {
     resolveCallback(jsonResponse(AUTHENTICATED_RESPONSE));
     await callback;
 
-    expect(sessionStorage.getItem("rentivo.auth.mfa_challenge")).toBeNull();
+    expect(loadMfaChallenge("google/challenge")).toBeNull();
   });
 
   it("ignores a callback failure that arrives after the handoff page closes", async () => {
@@ -141,7 +173,7 @@ describe("GoogleCallbackPage", () => {
     rejectCallback(new TypeError("network unavailable"));
     await callback.catch(() => undefined);
 
-    expect(sessionStorage.getItem("rentivo.auth.mfa_challenge")).toBeNull();
+    expect(loadMfaChallenge("google/challenge")).toBeNull();
   });
 
   it("does not send an incomplete callback and gives the user safe recovery actions", () => {
@@ -181,6 +213,35 @@ describe("GoogleCallbackPage", () => {
     expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
       "href",
       "/login?error=google_auth_failed&mobile_state=native%2Fstate"
+    );
+  });
+
+  it("preserves the mobile handoff when the callback request fails", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      {
+        handlers: {
+          "/api/v1/auth/google/callback?error=access_denied&state=oauth-state": () =>
+            problemResponse({
+              code: "google_auth_failed",
+              detail: "Não foi possível entrar com o Google. Tente novamente.",
+              fields: {},
+              request_id: "request-id",
+              status: 401,
+              title: "Não autenticado",
+              type: "https://rentivo.com.br/problems/google_auth_failed"
+            })
+        },
+        path: "/auth/google/callback?error=access_denied&state=oauth-state&mobile_state=native%2Fstate"
+      }
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/login?error=google_auth_failed&mobile_state=native%2Fstate"
+      )
     );
   });
 });

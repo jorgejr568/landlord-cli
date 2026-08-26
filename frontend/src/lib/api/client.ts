@@ -126,7 +126,8 @@ async function refreshCsrfToken(): Promise<Response | null> {
       csrfRefresh = null;
     });
   }
-  return csrfRefresh;
+  const refreshFailure = await csrfRefresh;
+  return refreshFailure?.clone() ?? null;
 }
 
 async function isCsrfFailure(response: Response): Promise<boolean> {
