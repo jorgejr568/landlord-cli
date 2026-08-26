@@ -230,44 +230,56 @@ export function OrganizationForm({
   }
 
   return (
-    <form onSubmit={submit}>
+    <form aria-busy={saving} className="organization-edit-form" onSubmit={submit}>
       <DirtyFormGuard isDirty={isDirty && !saving} />
       {error ? <div className="toast toast--danger" role="alert">{error}</div> : null}
       <div className="panel">
+        <div className="panel-head organization-edit-form__section-head">
+          <div>
+            <h2>Identificação</h2>
+            <p>Este nome aparece para toda a equipe e organiza suas cobranças.</p>
+          </div>
+        </div>
         <div className="panel-body">
           <div className="field mb-0">
-            <label className={labelClass} htmlFor="name">Nome</label>
-            <input aria-describedby={describedBy("name")} className={inputClass} id="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
+            <label className={labelClass} htmlFor="name">Nome da organização</label>
+            <input aria-describedby={describedBy("name", "edit-name-hint")} autoComplete="organization" className={inputClass} id="name" name="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Gestão Patrimonial…" ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
             <FieldError id="name-error" message={allFieldErrors.name} />
+            <span className="field-hint" id="edit-name-hint">Use um nome curto e fácil de reconhecer no seletor.</span>
           </div>
         </div>
       </div>
       <div className="panel">
-        <div className="panel-head"><h5>Dados do PIX</h5></div>
+        <div className="panel-head organization-edit-form__section-head">
+          <div>
+            <h2>Recebimento PIX</h2>
+            <p>Esses dados geram o QR Code das próximas faturas.</p>
+          </div>
+        </div>
         <div className="panel-body">
-          <p className="field-hint mb-1">Estes dados são usados para gerar o QR Code nas faturas das cobranças desta organização. Todos os três campos são obrigatórios para gerar faturas.</p>
+          <p className="field-hint mb-1">Preencha os 3 campos para ativar o PIX. Deixe todos vazios se preferir configurar depois.</p>
           <div className="field">
             <label className={labelClass} htmlFor="pix_key">Chave PIX</label>
-            <input aria-describedby={describedBy("pix_key")} className={inputClass} id="pix_key" onChange={(event) => update("pix_key", limitApiCharacters(event.target.value, 320))} ref={(element) => { refs.current.pix_key = element; }} type="text" value={form.pix_key} />
+            <input aria-describedby={describedBy("pix_key", "edit-pix-key-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_key" name="pix_key" onChange={(event) => update("pix_key", limitApiCharacters(event.target.value, 320))} placeholder="E-mail, CPF/CNPJ, telefone (+55) ou chave aleatória…" ref={(element) => { refs.current.pix_key = element; }} spellCheck={false} type="text" value={form.pix_key} />
             <FieldError id="pix_key-error" message={allFieldErrors.pix_key} />
-            <span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span>
+            <span className="field-hint" id="edit-pix-key-hint">Para celular, inclua o código +55.</span>
           </div>
           <div className="field">
             <label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_name")} className={inputClass} id="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} ref={(element) => { refs.current.pix_merchant_name = element; }} type="text" value={form.pix_merchant_name} />
+            <input aria-describedby={describedBy("pix_merchant_name", "edit-pix-name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: RIBEIRO GESTAO…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} />
             <FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} />
-            <span className="field-hint">Até 25 caracteres.</span>
+            <span className="field-hint" id="edit-pix-name-hint">{form.pix_merchant_name.length} de 25 caracteres</span>
           </div>
           <div className="field mb-0">
             <label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_city")} className={inputClass} id="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} ref={(element) => { refs.current.pix_merchant_city = element; }} type="text" value={form.pix_merchant_city} />
+            <input aria-describedby={describedBy("pix_merchant_city", "edit-pix-city-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: SAO PAULO…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} />
             <FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} />
-            <span className="field-hint">Até 15 caracteres, sem acentos.</span>
+            <span className="field-hint" id="edit-pix-city-hint">{form.pix_merchant_city.length} de 15 caracteres, sem acentos</span>
           </div>
         </div>
       </div>
       <div className="btn-group">
-        <button className="btn btn--primary" disabled={saving} type="submit">{saving ? "Salvando..." : "Salvar"}</button>
+        <button className="btn btn--primary" disabled={saving} type="submit">{saving ? "Salvando…" : "Salvar alterações"}</button>
         <Link className="btn btn--ghost" to={cancelUrl}>Cancelar</Link>
       </div>
     </form>

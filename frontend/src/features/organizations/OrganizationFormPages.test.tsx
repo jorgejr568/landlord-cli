@@ -399,20 +399,20 @@ it("loads and saves every legacy organization setting", async () => {
   document.title = "Anterior";
   const view = renderEdit();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
-  expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("mb-3");
-  expect(screen.getByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Editar Organização" })).toHaveClass("pagehead__title");
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("+5571999999999");
   await waitFor(() => expect(document.title).toBe("Editar Ribeiro Imóveis - Rentivo"));
-  await user.clear(screen.getByLabelText("Nome"));
-  await user.type(screen.getByLabelText("Nome"), "Ribeiro Gestão");
+  await user.clear(screen.getByLabelText("Nome da organização"));
+  await user.type(screen.getByLabelText("Nome da organização"), "Ribeiro Gestão");
   await user.clear(screen.getByLabelText("Chave PIX"));
   await user.type(screen.getByLabelText("Chave PIX"), "+5571888888888");
   await user.clear(screen.getByLabelText("Nome do recebedor"));
   await user.type(screen.getByLabelText("Nome do recebedor"), "RIBEIRO GESTAO");
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
   await user.type(screen.getByLabelText("Cidade do recebedor"), "LAURO FREITAS");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-public-uuid"));
   expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledOnce();
@@ -428,7 +428,7 @@ it("blocks incomplete organization PIX values locally and focuses the missing fi
   renderEdit();
   await screen.findByRole("heading", { name: "Editar Organização" });
   await user.clear(screen.getByLabelText("Chave PIX"));
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
@@ -436,7 +436,7 @@ it("blocks incomplete organization PIX values locally and focuses the missing fi
 
   fireEvent.change(screen.getByLabelText("Nome do recebedor"), { target: { value: "M".repeat(26) } });
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
-  fireEvent.submit(screen.getByRole("button", { name: "Salvar" }).closest("form")!);
+  fireEvent.submit(screen.getByRole("button", { name: "Salvar alterações" }).closest("form")!);
   expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
 });
 
@@ -473,18 +473,18 @@ it("retries edit loading, handles realistic field errors, and hides the form by 
   expect(await screen.findByText("Não foi possível carregar a organização.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await screen.findByLabelText("Cidade do recebedor");
-  await user.clear(screen.getByLabelText("Nome"));
-  await user.type(screen.getByLabelText("Nome"), "Rascunho preservado");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.clear(screen.getByLabelText("Nome da organização"));
+  await user.type(screen.getByLabelText("Nome da organização"), "Rascunho preservado");
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Cidade inválida.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveValue("Rascunho preservado");
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Rascunho preservado");
   expect(screen.getByLabelText("Cidade do recebedor")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("PIX recusado.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(await screen.findByText("Não foi possível atualizar a organização.")).toBeVisible();
-  expect(screen.getByLabelText("Nome")).toHaveFocus();
+  expect(screen.getByLabelText("Nome da organização")).toHaveFocus();
 
   cleanup();
   installFetch({
@@ -497,7 +497,7 @@ it("retries edit loading, handles realistic field errors, and hides the form by 
   });
   renderEdit();
   expect(await screen.findByText("Você não tem permissão para editar esta organização.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Salvar alterações" })).not.toBeInTheDocument();
 });
 
 it("edits a manageable organization whose optional settings are absent", async () => {
@@ -505,7 +505,7 @@ it("edits a manageable organization whose optional settings are absent", async (
     "GET /api/v1/organizations/org-public-uuid": () => jsonResponse({ ...detail, settings: null })
   });
   renderEdit();
-  expect(await screen.findByLabelText("Nome")).toHaveValue("Ribeiro Imóveis");
+  expect(await screen.findByLabelText("Nome da organização")).toHaveValue("Ribeiro Imóveis");
   expect(screen.getByLabelText("Chave PIX")).toHaveValue("");
   expect(screen.getByLabelText("Nome do recebedor")).toHaveValue("");
   expect(screen.getByLabelText("Cidade do recebedor")).toHaveValue("");
@@ -525,23 +525,23 @@ it("clears edit data on organization changes and ignores an aborted save from th
     }
   });
   renderSwitchableEdit();
-  const name = await screen.findByLabelText("Nome");
+  const name = await screen.findByLabelText("Nome da organização");
   await user.clear(name);
   await user.type(name, "Rascunho da Acme");
-  await user.click(screen.getByRole("button", { name: "Salvar" }));
+  await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   await user.click(screen.getByRole("button", { name: "Editar Beta" }));
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   expect(screen.queryByDisplayValue("Rascunho da Acme")).not.toBeInTheDocument();
   expect(saveSignal?.aborted).toBe(true);
   await act(async () => {
     betaLoad.resolve(jsonResponse({ ...detail, name: "Beta Imóveis", uuid: "org-beta" }));
   });
-  expect(await screen.findByLabelText("Nome")).toHaveValue("Beta Imóveis");
+  expect(await screen.findByLabelText("Nome da organização")).toHaveValue("Beta Imóveis");
 
   await act(async () => { save.resolve(jsonResponse(detail)); });
   expect(screen.getByTestId("location")).toHaveTextContent("/organizations/org-beta/edit");
-  expect(screen.getByLabelText("Nome")).toHaveValue("Beta Imóveis");
+  expect(screen.getByLabelText("Nome da organização")).toHaveValue("Beta Imóveis");
 });
 
 it("deduplicates an edit save and aborts it when the page unmounts", async () => {
@@ -555,14 +555,14 @@ it("deduplicates an edit save and aborts it when the page unmounts", async () =>
     }
   });
   const view = renderEdit();
-  const form = (await screen.findByRole("button", { name: "Salvar" })).closest("form") as HTMLFormElement;
+  const form = (await screen.findByRole("button", { name: "Salvar alterações" })).closest("form") as HTMLFormElement;
 
   act(() => {
     fireEvent.submit(form);
     fireEvent.submit(form);
   });
   await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
-  expect(screen.getByRole("button", { name: "Salvando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Salvando…" })).toBeDisabled();
   view.unmount();
 
   expect(saveSignal?.aborted).toBe(true);
@@ -580,7 +580,7 @@ it("ignores an edit detail load that settles after the page unmounts", async () 
   });
   const view = renderEdit();
 
-  expect(screen.getByText("Carregando organização...")).toBeVisible();
+  expect(screen.getByText("Carregando organização…")).toBeVisible();
   await waitFor(() => expect(loadSignal).toBeDefined());
   view.unmount();
   expect(loadSignal?.aborted).toBe(true);
@@ -606,7 +606,7 @@ it("ignores a rejected edit save after switching organizations", async () => {
     "PATCH /api/v1/organizations/org-public-uuid": () => save.promise
   });
   renderSwitchableEdit();
-  await user.click(await screen.findByRole("button", { name: "Salvar" }));
+  await user.click(await screen.findByRole("button", { name: "Salvar alterações" }));
   await user.click(screen.getByRole("button", { name: "Editar Beta" }));
   await screen.findByDisplayValue("Beta Imóveis");
 
