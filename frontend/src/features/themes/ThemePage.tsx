@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Building2,
   Check,
   Eye,
   FileText,
@@ -189,7 +190,9 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
   const [theme, setTheme] = useState<ThemeResponse | null>(null);
   const resolvedOwnerLabel = ownerLabel
     ?? (theme
-      ? target === "user" ? theme.owner_name : `${theme.owner_name} — Tema`
+      ? target === "user" || target === "organization"
+        ? theme.owner_name
+        : `${theme.owner_name} — Tema`
       : meta.title);
   const [values, setValues] = useState<ThemeValues>(INITIAL_VALUES);
   const [loading, setLoading] = useState(true);
@@ -322,7 +325,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     setTheme(data);
     setValues(nextValues);
     setLoading(false);
-    schedulePreview(nextValues);
+    if (target !== "organization") schedulePreview(nextValues);
   }, [cancelPreviewWork, meta.missing, schedulePreview, target, uuid]);
 
   useEffect(() => {
@@ -357,7 +360,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
     setFieldErrors((current) => ({ ...current, [key]: "" }));
     setPreviewLoading(false);
     setPreviewStale(true);
-    if (!COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
+    if (target !== "organization" && !COLOR_KEYS.has(key as ColorKey)) schedulePreview(nextValues);
   }
 
   function previewNow() {
@@ -459,10 +462,20 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
 
   const resolvedBackUrl = backUrl ?? `${meta.backPrefix}${target === "user" ? "" : uuid}`;
   const ratio = contrastRatio(values.primary, values.text_contrast);
+  const pageDescription = target === "organization"
+    ? "Defina a identidade aplicada às faturas da organização e confira o resultado antes de salvar."
+    : "Escolha a tipografia e a paleta usadas nas faturas enviadas aos seus inquilinos.";
+  const controlsTitle = target === "organization" ? "Identidade da organização" : "Personalize sua marca";
+  const organizationPdfIdle = target === "organization"
+    && !previewLoading
+    && !previewError
+    && !previewUrl;
   const previewStatus = previewLoading
     ? "Atualizando prévia…"
     : previewError
       ? "Prévia indisponível"
+      : organizationPdfIdle
+        ? "PDF pronto para gerar"
       : previewStale
       ? "Atualize o PDF para aplicar as cores"
       : previewUrl
@@ -475,7 +488,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         <div className="theme-page-header__copy">
           <span className="theme-page-header__eyebrow">Identidade visual</span>
           <h1 className="page-title">{resolvedOwnerLabel}</h1>
-          <p>Escolha a tipografia e a paleta usadas nas faturas enviadas aos seus inquilinos.</p>
+          <p>{pageDescription}</p>
         </div>
         <div className="theme-page-header__actions">
           <span className={`theme-page-header__state${theme.stored ? " is-custom" : ""}`}>
@@ -489,7 +502,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
 
       {success ? <div className="toast toast--success" role="status">{success}</div> : null}
       {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
-      {!theme.capabilities.can_edit ? (
+      {!theme.capabilities.can_edit && target !== "organization" ? (
         <div className="toast toast--warning" role="status">Você tem acesso somente para consulta.</div>
       ) : null}
       {target === "billing" ? (
@@ -501,12 +514,42 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
         </div>
       ) : null}
 
-      <div className="theme-workspace">
+      <div className={`theme-workspace${target === "organization" ? " has-organization-scope" : ""}`}>
+        {target === "organization" ? (
+          <section
+            aria-label="Alcance do tema da organização"
+            className="theme-organization-scope"
+          >
+            <div className="theme-organization-scope__identity">
+              <span className="theme-organization-scope__icon">
+                <Building2 aria-hidden="true" size={19} />
+              </span>
+              <div>
+                <h2>Padrão visual da organização</h2>
+                <p>{theme.owner_name}</p>
+              </div>
+            </div>
+            <dl className="theme-organization-scope__facts">
+              <div>
+                <dt>Aplicação</dt>
+                <dd>Cobranças sem tema próprio</dd>
+              </div>
+              <div>
+                <dt>Base ativa</dt>
+                <dd>{theme.effective_source === "organization" ? "Personalizado aqui" : "Padrão Rentivo"}</dd>
+              </div>
+              <div>
+                <dt>Seu acesso</dt>
+                <dd>{theme.capabilities.can_edit ? "Edição permitida" : "Somente consulta"}</dd>
+              </div>
+            </dl>
+          </section>
+        ) : null}
         <section aria-label="Personalização do tema" className="theme-controls">
           <form id="theme-form" onSubmit={(event) => void saveTheme(event)}>
             <div className="theme-controls__intro">
               <div>
-                <h2>Personalize sua marca</h2>
+                <h2>{controlsTitle}</h2>
                 <p>A amostra responde na hora. Atualize o PDF quando quiser conferir o documento completo.</p>
               </div>
               <span aria-live="polite" className={`theme-draft-state${isDirty ? " is-dirty" : ""}`}>
@@ -665,7 +708,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                 fontFamily: values.header_font
               }}
             >
-              <span>Rentivo</span>
+              <span>{target === "organization" ? theme.owner_name : "Rentivo"}</span>
               <strong>Fatura de aluguel</strong>
             </div>
             <div className="theme-local-preview__content">
@@ -681,8 +724,17 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
             </span>
           </div>
 
-          <div className="theme-pdf-stage">
-            {!previewUrl && !previewError ? <div className="theme-pdf-skeleton" aria-hidden="true" /> : null}
+          <div className={`theme-pdf-stage${organizationPdfIdle ? " is-idle" : ""}`}>
+            {organizationPdfIdle ? (
+              <div className="theme-pdf-idle">
+                <FileText aria-hidden="true" size={24} />
+                <strong>PDF completo sob demanda</strong>
+                <span>Gere o documento para conferir margens, tipografia e paginação.</span>
+              </div>
+            ) : null}
+            {!organizationPdfIdle && !previewUrl && !previewError ? (
+              <div className="theme-pdf-skeleton" aria-hidden="true" />
+            ) : null}
             {previewUrl ? (
               <iframe
                 className="theme-pdf-frame"

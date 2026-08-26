@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
@@ -337,20 +337,76 @@ it("loads an exact organization label on a direct route", async () => {
     "/workspaces/:workspaceId/themes/organization/:orgUuid"
   );
 
-  expect(await screen.findByRole("heading", { name: "Acme Direta — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Acme Direta — Tema - Rentivo"));
+  expect(await screen.findByRole("heading", { name: "Acme Direta" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Acme Direta - Rentivo"));
   expect(screen.getByRole("link", { name: "Voltar" })).toHaveAttribute(
     "href",
     "/organizations/org-route"
   );
   expect(screen.queryByText("Tema efetivo atual:")).not.toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock.mock.calls.map(([input, init]) => (
     `${init?.method ?? "GET"} ${String(input)}`
   ))).toEqual([
-    "GET /api/v1/themes/organizations/org-route",
-    "POST /api/v1/themes/preview"
+    "GET /api/v1/themes/organizations/org-route"
   ]);
+});
+
+it("explains the organization theme scope, fallback, access, and branded preview", async () => {
+  installFetch({
+    "GET /api/v1/themes/organizations/org-scope": () => jsonResponse({
+      ...defaultTheme,
+      capabilities: { can_edit: false, can_reset: false },
+      owner_name: "Ribeiro Gestão Patrimonial"
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(
+    <ThemePage target="organization" targetUuid="org-scope" />
+  );
+
+  const scope = await screen.findByRole("region", { name: "Alcance do tema da organização" });
+  expect(within(scope).getByRole("heading", { name: "Padrão visual da organização" })).toBeVisible();
+  expect(within(scope).getByText("Ribeiro Gestão Patrimonial")).toBeVisible();
+  expect(within(scope).getByText("Cobranças sem tema próprio")).toBeVisible();
+  expect(within(scope).getByText("Padrão Rentivo")).toBeVisible();
+  expect(within(scope).getByText("Somente consulta")).toBeVisible();
+  expect(screen.queryByText("Você tem acesso somente para consulta.")).not.toBeInTheDocument();
+
+  const localPreview = screen.getByLabelText("Amostra local do tema");
+  expect(within(localPreview).getByText("Ribeiro Gestão Patrimonial")).toBeVisible();
+});
+
+it("keeps the organization PDF local-first until it is explicitly requested", async () => {
+  const user = userEvent.setup();
+  let previewCalls = 0;
+  installFetch({
+    "GET /api/v1/themes/organizations/org-local-first": () => jsonResponse({
+      ...defaultTheme,
+      owner_name: "Ribeiro Gestão Patrimonial"
+    }),
+    "POST /api/v1/themes/preview": () => {
+      previewCalls += 1;
+      return pdfResponse();
+    }
+  });
+
+  renderPage(<ThemePage target="organization" targetUuid="org-local-first" />);
+
+  expect(await screen.findByText("PDF completo sob demanda")).toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  expect(previewCalls).toBe(0);
+  expect(screen.getByText("PDF pronto para gerar")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Visualizar" }));
+
+  await waitFor(() => expect(previewCalls).toBe(1));
+  expect(await screen.findByTitle("Pré-visualização do tema")).toHaveAttribute(
+    "src",
+    "blob:theme-preview-1"
+  );
+  expect(screen.queryByText("PDF completo sob demanda")).not.toBeInTheDocument();
 });
 
 it("uses inherited effective values for a billing without a stored theme", async () => {
@@ -552,7 +608,7 @@ it.each([
     uuid: undefined
   },
   {
-    expected: "Acme — Tema - Rentivo",
+    expected: "Acme - Rentivo",
     ownerLabel: undefined,
     ownerName: "Acme",
     target: "organization",
@@ -588,7 +644,7 @@ it.each([
 
   await screen.findByRole("heading", {
     level: 1,
-    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme — Tema" : "Aluguel — Tema"
+    name: target === "user" ? "Meu Tema" : target === "organization" ? "Acme" : "Aluguel — Tema"
   });
   await waitFor(() => expect(document.title).toBe(expected));
   unmount();
@@ -604,12 +660,12 @@ it("preserves an explicit owner label over the theme owner name", async () => {
     "POST /api/v1/themes/preview": () => pdfResponse()
   });
   renderPage(
-    <ThemePage ownerLabel="Nome injetado — Tema" target="organization" targetUuid="org-override" />
+    <ThemePage ownerLabel="Nome injetado" target="organization" targetUuid="org-override" />
   );
 
-  expect(await screen.findByRole("heading", { name: "Nome injetado — Tema" })).toBeVisible();
-  await waitFor(() => expect(document.title).toBe("Nome injetado — Tema - Rentivo"));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole("heading", { name: "Nome injetado" })).toBeVisible();
+  await waitFor(() => expect(document.title).toBe("Nome injetado - Rentivo"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 });
 
 it("ignores a stale theme response after route navigation", async () => {
@@ -640,14 +696,14 @@ it("ignores a stale theme response after route navigation", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(oldSignals.every((signal) => signal.aborted)).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização nova — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização nova" })).toBeVisible();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Roboto");
   await act(async () => {
     oldTheme.resolve(jsonResponse({ ...customTheme, owner_name: "Organização antiga" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.getByRole("heading", { name: "Organização nova — Tema" })).toBeVisible();
-  expect(screen.queryByText("Organização antiga — Tema")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Organização nova" })).toBeVisible();
+  expect(screen.queryByText("Organização antiga")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Fonte do Cabeçalho")).toHaveValue("Roboto");
 });
 
@@ -679,17 +735,17 @@ it("cancels pending preview and debounce work when the target changes", async ()
       </Routes>
     </MemoryRouter>
   );
-  await screen.findByRole("heading", { name: "Organização A — Tema" });
+  await screen.findByRole("heading", { name: "Organização A" });
+  fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
   await waitFor(() => expect(previewCalls).toBe(1));
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#abcdef" } });
 
   fireEvent.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(previewSignals[0]?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
-  await waitFor(() => expect(previewCalls).toBe(2));
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 350));
-  expect(previewCalls).toBe(2);
+  expect(previewCalls).toBe(1);
   expect(screen.getByLabelText("Primária")).toHaveValue("#112233");
 });
 
@@ -724,7 +780,7 @@ it("aborts a stale save success and keeps the new organization target usable", a
     "/themes/organization/org-a",
     "/themes/organization/org-b"
   );
-  await screen.findByRole("heading", { name: "Organização A — Tema" });
+  await screen.findByRole("heading", { name: "Organização A" });
 
   await user.click(screen.getByRole("button", { name: "Salvar" }));
   await waitFor(() => expect(saveSignals).toHaveLength(1));
@@ -732,7 +788,7 @@ it("aborts a stale save success and keeps the new organization target usable", a
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(saveSignals[0].aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled();
   await act(async () => {
     oldSave.resolve(jsonResponse({
@@ -744,7 +800,7 @@ it("aborts a stale save success and keeps the new organization target usable", a
     }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.getByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByLabelText("Primária")).toHaveValue("#112233");
   expect(screen.queryByText("Tema da organização salvo com sucesso!")).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
@@ -878,7 +934,7 @@ it("aborts and suppresses a stale reset failure after changing targets", async (
   await user.click(screen.getByRole("button", { name: "Navegar" }));
 
   expect(resetSignal?.aborted).toBe(true);
-  expect(await screen.findByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Usar Padrão" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
   await act(async () => {
@@ -894,7 +950,7 @@ it("aborts and suppresses a stale reset failure after changing targets", async (
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(screen.queryByText("Falha antiga ao restaurar.")).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Organização B — Tema" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Organização B" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Navegar" })).toHaveFocus();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();
 });
