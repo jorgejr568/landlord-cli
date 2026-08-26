@@ -290,7 +290,7 @@ it("renders the public landing page at the anonymous home URL without the authen
   expect(
     await screen.findByRole("heading", { level: 1, name: /cobranças de aluguel.*pix em segundos/i })
   ).toBeVisible();
-  expect(screen.getByRole("link", { name: "Criar conta gratuita" })).toHaveAttribute("href", "/signup");
+  expect(screen.getAllByRole("link", { name: "Criar conta" })[0]).toHaveAttribute("href", "/signup");
   expect(screen.queryByRole("button", { name: "Sair" })).not.toBeInTheDocument();
 
   view.unmount();

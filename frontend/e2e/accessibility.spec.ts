@@ -71,9 +71,8 @@ test("public landing has a main landmark and no inaccessible controls", async ({
     page.getByRole("heading", { level: 1, name: /cobranças de aluguel.*pix em segundos/i })
   ).toBeVisible();
   await expect(page.getByRole("main")).toHaveCount(1);
-  await expect(page.getByRole("link", { name: "Criar conta gratuita" })).toHaveAttribute(
-    "href",
-    "/signup"
+  await expect(page.getByRole("link", { name: "Criar conta", exact: true }).first()).toHaveAttribute(
+    "href", "/signup"
   );
   await expectAccessibleFundamentals(page);
 });
