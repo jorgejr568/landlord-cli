@@ -27,7 +27,7 @@ describe("ForgotPasswordPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Recupere seu acesso" })).toBeVisible();
     expect(screen.getByRole("heading", { level: 2, name: "O que acontece agora" })).toBeVisible();
     const email = screen.getByLabelText("E-mail");
-    expect(email).toHaveFocus();
+    await waitFor(() => expect(email).toHaveFocus());
     expect(email).toHaveAttribute("autocomplete", "email");
     expect(email).toHaveAttribute("inputmode", "email");
     expect(email).toHaveAttribute("spellcheck", "false");
