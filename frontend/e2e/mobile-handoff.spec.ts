@@ -36,7 +36,7 @@ test("the iOS handoff offers no third-party login, including after navigating", 
 // app's authentication sheet and ended on the web dashboard, so the user never
 // got back to the app. Signing up must finish the mobile authorization.
 test("creating an account inside the iOS handoff returns to the app", async ({ page }) => {
-  await installApiMocks(page, { googleAuth: true, session: "anonymous" });
+  const api = await installApiMocks(page, { googleAuth: true, session: "anonymous" });
   await page.goto("/login?mobile_state=native-state");
 
   await page.getByRole("link", { name: "Criar conta" }).click();
@@ -51,6 +51,16 @@ test("creating an account inside the iOS handoff returns to the app", async ({ p
   await expect(page).toHaveURL(/\/login\?mobile_state=native-state$/);
   await expect(page.getByRole("heading", { name: "Tudo pronto" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Voltar para o app agora" })).toBeVisible();
+
+  const authorizationRequests = api.requests.filter((request) =>
+    ["/auth/csrf", "/auth/mobile/authorize"].includes(request.path)
+  );
+  expect(authorizationRequests.map(({ method, path }) => `${method} ${path}`)).toEqual([
+    "GET /auth/csrf",
+    "POST /auth/mobile/authorize"
+  ]);
+  expect(authorizationRequests[1]?.headers["x-csrf-token"]).toBe("csrf-e2e-token");
+  expect(api.unexpectedRequests).toEqual([]);
 });
 
 test("the gate survives a URL that lost the handoff parameter", async ({ page }) => {

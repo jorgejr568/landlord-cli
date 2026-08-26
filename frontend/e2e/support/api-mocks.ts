@@ -339,6 +339,13 @@ export async function installApiMocks(
       else await fulfillJson(route, sessionResponse);
       return;
     }
+    if (path === "/auth/csrf" && method === "GET") {
+      const csrf: Schemas["CSRFResponse"] = {
+        csrf_token: sessionResponse.bootstrap.csrf_token
+      };
+      await fulfillJson(route, csrf);
+      return;
+    }
     if (path === "/auth/login" && method === "POST") {
       await fulfillJson(route, loginResponse);
       return;
