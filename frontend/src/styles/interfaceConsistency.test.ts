@@ -35,6 +35,30 @@ describe("shared interface consistency contracts", () => {
     expect(css).toContain(".communication-compose-form .wizard__content {\n  flex: 1;\n  overflow: visible;");
   });
 
+  it("centers the wide communication workspace without transform-based viewport overflow", () => {
+    const css = source("../features/bills/CommunicationComposePage.css");
+
+    expect(css).not.toContain("margin-inline: 50%");
+    expect(css).not.toContain("transform: translateX(-50%)");
+    expect(css).toContain("calc((100% - min(1280px, calc(100vw - 3.5rem))) / 2)");
+  });
+
+  it("gives status-menu actions a visible keyboard focus indicator", () => {
+    const css = source("./custom.css");
+    const focusRule = /\.status-menu__item:focus-visible\s*{([^}]*)}/s.exec(css);
+
+    expect(focusRule?.[1]).toMatch(/outline:\s*[2-9]px solid var\(--accent\)/);
+    expect(focusRule?.[1]).toContain("outline-offset:");
+  });
+
+  it("keeps security table actions sticky and visible on narrow screens", () => {
+    const css = source("../features/security/SecurityPage.css");
+    const mobile = css.slice(css.indexOf("@media (max-width: 700px)"));
+
+    expect(mobile).toMatch(/\.security-passkey-table th:last-child,[\s\S]*\.security-passkey-table td:last-child[^{]*{[^}]*position:\s*sticky;[^}]*right:\s*0;/);
+    expect(mobile).toMatch(/\.api-key-table th:last-child,[\s\S]*\.api-key-table td:last-child[^{]*{[^}]*position:\s*sticky;[^}]*right:\s*0;/);
+  });
+
   it("disables shared dialog and menu motion when reduced motion is requested", () => {
     const css = source("./custom.css");
     const reducedMotion = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));

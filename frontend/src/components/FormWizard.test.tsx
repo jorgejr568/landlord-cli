@@ -107,7 +107,8 @@ it("uses back, continue, and final actions without submitting intermediate steps
   expect(onSubmit).toHaveBeenCalledOnce();
 });
 
-it("focuses the active step heading after progression and renders contextual summaries", () => {
+it("focuses and allows the active step heading to scroll into view after progression", () => {
+  const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
   const { rerender } = render(
     <FormWizard
       activeStep={0}
@@ -138,8 +139,10 @@ it("focuses the active step heading after progression and renders contextual sum
     </FormWizard>
   );
 
-  expect(screen.getByRole("heading", { name: "Itens" })).toHaveFocus();
-  expect(screen.getByRole("heading", { name: "Itens" })).toHaveClass("wizard__stage-title");
+  const heading = screen.getByRole("heading", { name: "Itens" });
+  expect(heading).toHaveFocus();
+  expect(heading).toHaveClass("wizard__stage-title");
+  expect(focusSpy).toHaveBeenCalledWith();
   expect(screen.getByRole("complementary", { name: "Resumo" })).toHaveTextContent("Total R$ 1.000,00");
   expect(screen.getByText("Apartamento 302")).toBeVisible();
   expect(screen.getByRole("button", { name: "Editar Imóvel" })).toBeVisible();

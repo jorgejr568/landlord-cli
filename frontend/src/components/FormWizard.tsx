@@ -50,7 +50,7 @@ export function FormWizard({
   const step = steps[activeStep];
 
   useEffect(() => {
-    if (previousStep.current !== activeStep) headingRef.current?.focus({ preventScroll: true });
+    if (previousStep.current !== activeStep) headingRef.current?.focus();
     previousStep.current = activeStep;
   }, [activeStep]);
 

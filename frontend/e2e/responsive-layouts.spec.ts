@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { installApiMocks } from "./support/api-mocks";
@@ -17,6 +19,73 @@ async function expectSingleColumn(page: Page, selector: string) {
   await expect(grid).toBeVisible();
   await expect.poll(() => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
 }
+
+test("wide communication workspace breaks out safely at desktop and tablet widths", async ({ page }) => {
+  const css = readFileSync(new URL("../src/features/bills/CommunicationComposePage.css", import.meta.url), "utf8");
+
+  for (const width of [1440, 820]) {
+    await page.setViewportSize({ height: 900, width });
+    await page.setContent(`
+      <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; }
+        .test-shell { width: min(960px, calc(100% - 3rem)); margin-inline: auto; }
+        ${css}
+      </style>
+      <main class="test-shell"><article class="communication-workspace">Composer</article></main>
+    `);
+
+    const dimensions = await page.evaluate(() => {
+      const shell = document.querySelector<HTMLElement>(".test-shell")!.getBoundingClientRect();
+      const workspace = document.querySelector<HTMLElement>(".communication-workspace")!.getBoundingClientRect();
+      return {
+        bodyWidth: document.body.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        shellCenter: shell.left + shell.width / 2,
+        shellWidth: shell.width,
+        workspaceCenter: workspace.left + workspace.width / 2,
+        workspaceWidth: workspace.width
+      };
+    });
+
+    expect(dimensions.bodyWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+    expect(Math.abs(dimensions.workspaceCenter - dimensions.shellCenter)).toBeLessThanOrEqual(1);
+    if (width === 1440) expect(dimensions.workspaceWidth).toBeGreaterThan(dimensions.shellWidth);
+  }
+});
+
+test("status menu items retain a visible keyboard focus ring", async ({ page }) => {
+  const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+  await page.setContent(`<style>${css}</style><button class="status-menu__item">Alterar status</button>`);
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Alterar status" })).toBeFocused();
+  const focusStyle = await page.getByRole("button", { name: "Alterar status" }).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(focusStyle.outlineStyle).not.toBe("none");
+  expect(Number.parseFloat(focusStyle.outlineWidth)).toBeGreaterThanOrEqual(2);
+});
+
+test("security keeps passkey and API-key actions in view on mobile", async ({ isMobile, page }) => {
+  test.skip(!isMobile, "Mobile layout regression");
+  await installApiMocks(page);
+  await page.goto("/security");
+
+  const actions = [
+    page.getByRole("button", { name: "Remover Notebook pessoal" }),
+    page.getByRole("button", { name: /Editar / }).first(),
+    page.getByRole("button", { name: /Revogar / }).first()
+  ];
+  for (const action of actions) {
+    await expect(action).toBeVisible();
+    const box = await action.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  }
+});
 
 test("populated detail and theme grids collapse to one column on mobile", async ({ isMobile, page }) => {
   test.skip(!isMobile, "Mobile layout regression");

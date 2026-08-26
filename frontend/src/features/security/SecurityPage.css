@@ -754,6 +754,28 @@
   .security-api-keys__content > form .api-key-choice-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .security-passkey-table th:last-child,
+  .security-passkey-table td:last-child,
+  .api-key-table th:last-child,
+  .api-key-table td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: -1.5px 0 0 var(--line);
+  }
+
+  .security-passkey-table th:last-child,
+  .api-key-table th:last-child {
+    z-index: 2;
+    background: var(--paper-2);
+  }
+
+  .security-passkey-table tbody tr:hover td:last-child,
+  .api-key-table tbody tr:hover td:last-child {
+    background: var(--accent-pale);
+  }
 }
 
 @media (max-width: 520px) {

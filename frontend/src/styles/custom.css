@@ -1305,7 +1305,13 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     padding: 0.5rem 0.7rem; border: none; border-radius: var(--r-sm);
     background: none; color: var(--ink); font-family: inherit; font-size: 0.9rem; font-weight: 600;
 }
-.status-menu__item:hover, .status-menu__item:focus-visible { background: var(--paper-2); outline: none; }
+.status-menu__item:hover { background: var(--paper-2); }
+.status-menu__item:focus-visible {
+    background: var(--paper-2);
+    outline: 3px solid var(--accent);
+    outline-offset: 1px;
+    box-shadow: inset 0 0 0 1px var(--ink);
+}
 .status-menu__item--danger { color: var(--overdue); }
 .status-menu__item--danger:hover, .status-menu__item--danger:focus-visible { background: var(--overdue-pale); }
 /* A panel hosting the status menu must not clip the open dropdown.

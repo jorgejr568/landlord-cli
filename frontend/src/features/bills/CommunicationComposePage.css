@@ -1,7 +1,6 @@
 .communication-workspace {
   width: min(1280px, calc(100vw - 3.5rem));
-  margin-inline: 50%;
-  transform: translateX(-50%);
+  margin-inline: calc((100% - min(1280px, calc(100vw - 3.5rem))) / 2);
 }
 
 .communication-workspace > .crumb {
@@ -554,7 +553,6 @@
   .communication-workspace {
     width: 100%;
     margin-inline: 0;
-    transform: none;
   }
 
   .communication-workspace > .crumb {
