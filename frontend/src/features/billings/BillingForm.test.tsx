@@ -4,6 +4,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
+import { chooseSelectOption } from "../../test/select";
 import { BillingForm, type BillingFormValues } from "./BillingForm";
 import { emptyBillingValues } from "./billingFormValues";
 
@@ -134,16 +135,18 @@ it("preserves the create form structure and filters owners by capability instead
   await user.clear(billingName);
   await user.clear(billingDescription);
   expect(screen.getByRole("heading", { name: "Essenciais" })).toBeVisible();
+  await user.click(screen.getByLabelText("Proprietário"));
   expect(screen.getByRole("option", { name: "Minha conta" })).toBeVisible();
   expect(screen.getByRole("option", { name: "Permitida por capability" })).toBeVisible();
   expect(screen.queryByRole("option", { name: "Negada por capability" })).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
   expect(screen.getByRole("complementary", { name: "Resumo da cobrança" }).querySelector("#fixed-subtotal")).toHaveTextContent("R$ 0,00");
 
   await user.type(billingName, "Apartamento 302");
   await user.type(billingDescription, "Inquilino atual");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-allowed");
+  await chooseSelectOption(user, screen.getByLabelText("Proprietário"), "Permitida por capability");
+  await chooseSelectOption(user, screen.getByLabelText("Proprietário"), "Minha conta");
+  await chooseSelectOption(user, screen.getByLabelText("Proprietário"), "Permitida por capability");
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   const itemDescription = screen.getByLabelText("Descrição do item 1");
   fireEvent.change(itemDescription, { target: { value: "😀".repeat(256) } });
@@ -152,12 +155,12 @@ it("preserves the create form structure and filters owners by capability instead
   await user.type(itemDescription, "Aluguel");
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "2.850,00");
   expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 2.850,00");
-  await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
+  await chooseSelectOption(user, screen.getByLabelText("Tipo do item 1"), "Variável");
   expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
   expect(screen.getByRole("complementary", { name: "Resumo da cobrança" })).toHaveTextContent("R$ 0,00");
-  await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "fixed");
+  await chooseSelectOption(user, screen.getByLabelText("Tipo do item 1"), "Fixo");
   expect(screen.getByLabelText("Valor do item 1 (R$)")).toHaveValue("");
-  await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
+  await chooseSelectOption(user, screen.getByLabelText("Tipo do item 1"), "Variável");
   expect(screen.queryByLabelText("Valor do item 1 (R$)")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   expect(screen.getByLabelText("Descrição do item 2")).toBeVisible();
@@ -209,6 +212,13 @@ it("renders field and form errors, focuses normalized controls and supports edit
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Salvar alterações" }));
   expect(onSubmit).toHaveBeenCalled();
+});
+
+it("focuses the recurring item type trigger for a server field error", async () => {
+  render(<Harness fieldErrors={{ "items.0.item_type": "Tipo inválido." }} />);
+
+  expect(await screen.findByText("Tipo inválido.")).toBeVisible();
+  await waitFor(() => expect(screen.getByLabelText("Tipo do item 1")).toHaveFocus());
 });
 
 it("keeps invalid currency visible and prevents removing the final item row", async () => {

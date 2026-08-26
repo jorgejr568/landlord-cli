@@ -356,7 +356,7 @@
   font-size: 0.68rem;
 }
 
-.organization-transfer-row__controls .select {
+.organization-transfer-row__controls .themed-select__trigger {
   min-width: 0;
   min-height: 38px;
   padding-top: 0.35rem;
@@ -434,7 +434,7 @@
 }
 
 .organization-invite-form .input,
-.organization-invite-form .select {
+.organization-invite-form .themed-select__trigger {
   min-width: 0;
   background-color: var(--surface);
   color: var(--ink);
@@ -470,7 +470,7 @@
   overflow-wrap: anywhere;
 }
 
-.organization-member-row__role .select {
+.organization-member-row__role .themed-select__trigger {
   width: 100%;
   min-width: 0;
   min-height: 38px;

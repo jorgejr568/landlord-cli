@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { BillingDetailPage } from "./BillingDetailPage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -305,7 +306,7 @@ it("exports, creates and removes centavo expenses, forwards analytics and refres
   fireEvent.change(expenseDescription, { target: { value: "" } });
 
   await user.type(expenseDescription, "Pintura");
-  await user.selectOptions(screen.getByLabelText("Categoria da despesa"), "manutencao");
+  await chooseSelectOption(user, screen.getByLabelText("Categoria da despesa"), "Manutenção");
   fireEvent.change(screen.getByLabelText("Data da despesa"), { target: { value: "2026-07-18" } });
   await user.type(screen.getByLabelText("Valor da despesa (R$)"), "120,50");
   fireEvent.click(screen.getByRole("button", { name: "Adicionar despesa" }));
@@ -374,7 +375,7 @@ it("confirms transfer and uses the public organization UUID before navigating", 
   });
   renderPage();
   await screen.findByLabelText("Organização de destino");
-  await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+  await chooseSelectOption(user, screen.getByLabelText("Organização de destino"), "Ribeiro Imóveis");
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   expect(screen.getByRole("dialog", { name: "Transferir cobrança?" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Voltar" }));
@@ -438,7 +439,7 @@ it("reports export, expense-removal and transfer failures without forwarding ana
   await user.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
   await user.click(screen.getByRole("button", { name: "Remover" }));
   expect(await screen.findByText("Não foi possível remover a despesa.")).toBeVisible();
-  await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+  await chooseSelectOption(user, screen.getByLabelText("Organização de destino"), "Ribeiro Imóveis");
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   await user.click(screen.getByRole("button", { name: "Confirmar transferência" }));
   expect(await screen.findByText("Não foi possível transferir a cobrança.")).toBeVisible();
@@ -713,7 +714,7 @@ it("does not navigate or emit analytics when a transfer resolves after the route
   </Routes></MemoryRouter>);
 
   await screen.findByRole("heading", { name: "Apartamento 302" });
-  await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+  await chooseSelectOption(user, screen.getByLabelText("Organização de destino"), "Ribeiro Imóveis");
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   await user.click(screen.getByRole("button", { name: "Confirmar transferência" }));
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));
@@ -747,7 +748,7 @@ it("deduplicates exports and disables every domain mutation while one is pending
   fireEvent.change(screen.getByLabelText("Valor da despesa (R$)"), { target: { value: "10,00" } });
 
   fireEvent.click(screen.getByRole("button", { name: "Remover despesa IPTU 2026" }));
-  fireEvent.change(screen.getByLabelText("Organização de destino"), { target: { value: "org-public" } });
+  await chooseSelectOption(user, screen.getByLabelText("Organização de destino"), "Ribeiro Imóveis");
   fireEvent.click(screen.getByRole("button", { name: "Transferir" }));
   fireEvent.click(screen.getByRole("button", { name: "Excluir cobrança" }));
   await showTab(user, /^Faturas 6$/);
@@ -1000,7 +1001,7 @@ const staleMutationFailures: Array<{
     errorText: "Não foi possível transferir a cobrança.",
     mutation: "transfer",
     run: async (user) => {
-      await user.selectOptions(screen.getByLabelText("Organização de destino"), "org-public");
+      await chooseSelectOption(user, screen.getByLabelText("Organização de destino"), "Ribeiro Imóveis");
       await user.click(screen.getByRole("button", { name: "Transferir" }));
       await user.click(screen.getByRole("button", { name: "Confirmar transferência" }));
     }

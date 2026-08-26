@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { ThemePage } from "./ThemePage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -305,8 +306,8 @@ it.each(targetCases)("saves the $target target through its typed API path", asyn
   renderPage(
     <ThemePage target={target} targetUuid={uuid} />
   );
-  await user.selectOptions(await screen.findByLabelText("Fonte do Cabeçalho"), "Roboto");
-  await user.selectOptions(screen.getByLabelText("Fonte do Texto"), "Roboto");
+  await chooseSelectOption(user, await screen.findByLabelText("Fonte do Cabeçalho"), "Roboto");
+  await chooseSelectOption(user, screen.getByLabelText("Fonte do Texto"), "Roboto");
   await user.click(screen.getByRole("button", {
     name: target === "billing" ? "Salvar na cobrança" : "Salvar"
   }));
@@ -568,7 +569,7 @@ it("previews color changes locally without a request, warns on weak contrast, an
   )).toHaveStyle({ backgroundColor: "#abcdef" });
   fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#abcdef" } });
   expect(screen.getByText(/contraste entre a cor primária/i)).toBeVisible();
-  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Lora" } });
+  await chooseSelectOption(userEvent.setup(), screen.getByLabelText("Fonte do Cabeçalho"), "Lora");
   fireEvent.click(screen.getByRole("button", { name: "Visualizar" }));
   await waitFor(() => expect(screen.getByText("Não foi possível gerar esta prévia.")).toBeVisible());
 
@@ -583,7 +584,7 @@ it("previews color changes locally without a request, warns on weak contrast, an
   expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
   expect(screen.queryByText("Não foi possível gerar esta prévia.")).not.toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("Fonte do Cabeçalho"), { target: { value: "Roboto" } });
+  await chooseSelectOption(userEvent.setup(), screen.getByLabelText("Fonte do Cabeçalho"), "Roboto");
   await waitFor(() => expect(previewCalls).toBe(4));
   fireEvent.change(screen.getByLabelText("Primária"), { target: { value: "#000000" } });
   fireEvent.change(screen.getByLabelText("Contraste"), { target: { value: "#ffffff" } });

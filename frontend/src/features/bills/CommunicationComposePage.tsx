@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../../components/FormWizard";
+import { ThemedSelect } from "../../components/ThemedSelect";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { LoadError, LoadingState } from "../../components/PageState";
 import { apiClient, apiRequest } from "../../lib/api/client";
@@ -122,7 +123,7 @@ export function CommunicationComposePage() {
   const recipientRef = useRef<HTMLInputElement>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const saveScopeRef = useRef<HTMLSelectElement>(null);
+  const saveScopeRef = useRef<HTMLButtonElement>(null);
 
   useDocumentTitle(`Enviar ${commLabel} - Rentivo`);
 
@@ -378,7 +379,7 @@ export function CommunicationComposePage() {
                   <WizardReviewRow label="Mensagem" onEdit={() => setActiveStep(1)} value={subject} />
                   <WizardReviewRow label="Documento" value={`${isRecibo ? "Recibo" : "Fatura"} em PDF`} />
                 </dl>
-                <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><select aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-label="Salvar modelo" autoComplete="off" className="select" id="save_scope" name="save_scope" onChange={(event) => setSaveScope(event.target.value as typeof saveScope)} ref={saveScopeRef} value={saveScope}><option value="">Não salvar como modelo</option><option value="billing">Salvar para esta cobrança</option>{billing.capabilities.can_edit && <option value="owner">Salvar para {billing.owner.type === "organization" ? "a organização" : "minha conta"}</option>}</select><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>
+                <div className="field review-save-scope"><label className="field__label" htmlFor="save_scope">Salvar esta mensagem como modelo?</label><ThemedSelect aria-describedby={fieldErrors.save_scope ? "save_scope-error" : undefined} aria-invalid={Boolean(fieldErrors.save_scope)} aria-label="Salvar modelo" id="save_scope" name="save_scope" onValueChange={(value) => setSaveScope(value as typeof saveScope)} options={[{ label: "Não salvar como modelo", value: "" }, { label: "Salvar para esta cobrança", value: "billing" }, ...(billing.capabilities.can_edit ? [{ label: `Salvar para ${billing.owner.type === "organization" ? "a organização" : "minha conta"}`, value: "owner" }] : [])]} ref={saveScopeRef} value={saveScope} /><FieldError id="save_scope-error" message={fieldErrors.save_scope} /></div>
               </>
             ) : null}
           </FormWizard>

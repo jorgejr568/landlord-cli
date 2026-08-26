@@ -82,8 +82,8 @@ test("a fresh account has complete authenticated destination pages", async ({ is
   await expect(page.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Prévia da fatura" })).toBeVisible();
-  await expect(page.getByLabel("Fonte do Cabeçalho")).toHaveValue("Montserrat");
-  await expect(page.getByLabel("Fonte do Texto")).toHaveValue("Montserrat");
+  await expect(page.getByLabel("Fonte do Cabeçalho")).toHaveText("Montserrat");
+  await expect(page.getByLabel("Fonte do Texto")).toHaveText("Montserrat");
   await expect(page.getByRole("link", { name: "Voltar" })).toHaveAttribute("href", "/billings/");
 
   expect(api.unexpectedRequests).toEqual([]);

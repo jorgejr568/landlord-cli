@@ -10,6 +10,7 @@ import {
   jsonResponse,
   problemResponse
 } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { OrganizationDetailPage } from "./OrganizationDetailPage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -389,7 +390,7 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   expect(inviteEmail).toHaveValue("😀".repeat(320));
   fireEvent.change(inviteEmail, { target: { value: "" } });
 
-  await user.selectOptions(screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "viewer");
+  await chooseSelectOption(user, screen.getByRole("combobox", { name: "Papel de manager@example.com" }), "Visualizador");
   expect(await screen.findByText("Papel atualizado com sucesso!")).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Papel de manager@example.com" })).toHaveValue("viewer");
 
@@ -400,13 +401,13 @@ it("uses numeric login member IDs for role updates/removal and mutates invite an
   await waitFor(() => expect(screen.getByRole("button", { name: "Remover manager@example.com" })).toHaveFocus());
 
   await user.type(inviteEmail, "NEW@EXAMPLE.COM");
-  await user.selectOptions(screen.getByLabelText("Papel do convite"), "manager");
+  await chooseSelectOption(user, screen.getByLabelText("Papel do convite"), "Gerente");
   await user.click(screen.getByRole("button", { name: "Enviar convite" }));
   expect(await screen.findByText("Convite enviado com sucesso!")).toBeVisible();
   expect(screen.getByText("new@example.com")).toBeVisible();
 
   await openView(user, "billings");
-  await user.selectOptions(screen.getByLabelText("Cobrança para transferir"), "billing-personal");
+  await chooseSelectOption(user, screen.getByLabelText("Cobrança para transferir"), "Cobrança pessoal");
   await user.click(screen.getByRole("button", { name: "Transferir cobrança" }));
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   expect(await screen.findByText("Cobrança transferida com sucesso!")).toBeVisible();
@@ -437,10 +438,10 @@ it("focuses failed mutation controls and normalizes invite body fields", async (
   await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  await user.selectOptions(role, "viewer");
+  await chooseSelectOption(user, role, "Visualizador");
   expect(await screen.findByText("A associação mudou.")).toBeVisible();
   expect(role).toHaveFocus();
-  await user.selectOptions(role, "admin");
+  await chooseSelectOption(user, role, "Admin");
   expect(await screen.findByText("Não foi possível atualizar o papel.")).toBeVisible();
   expect(role).toHaveFocus();
 
@@ -522,7 +523,7 @@ it("retries detail loads and surfaces delete, transfer, MFA, and member removal 
   await waitFor(() => expect(screen.getByRole("button", { name: "Remover viewer@example.com" })).toHaveFocus());
 
   await openView(user, "billings");
-  await user.selectOptions(screen.getByLabelText("Cobrança para transferir"), "billing-personal");
+  await chooseSelectOption(user, screen.getByLabelText("Cobrança para transferir"), "Cobrança pessoal");
   await user.click(screen.getByRole("button", { name: "Transferir cobrança" }));
   await user.click(screen.getByRole("button", { name: "Transferir" }));
   expect(await screen.findByText("Não foi possível transferir a cobrança.")).toBeVisible();
@@ -568,7 +569,7 @@ it("clears organization data on route changes and ignores an aborted member resp
   await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  await user.selectOptions(role, "viewer");
+  await chooseSelectOption(user, role, "Visualizador");
   await user.click(screen.getByRole("button", { name: "Abrir Beta" }));
 
   expect(screen.getByText("Carregando organização…")).toBeVisible();
@@ -600,9 +601,9 @@ it("deduplicates and disables member, invite, and MFA mutations while each reque
   await openView(user, "team");
   const role = await screen.findByRole("combobox", { name: "Papel de manager@example.com" });
 
-  fireEvent.change(role, { target: { value: "viewer" } });
-  fireEvent.change(role, { target: { value: "admin" } });
+  await chooseSelectOption(user, role, "Visualizador");
   expect(role).toBeDisabled();
+  await user.click(role);
   await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/members/77"))).toHaveLength(1));
   await act(async () => { roleUpdate.resolve(jsonResponse({ ...detail.members[1], role: "viewer" })); });
 

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
+import { ThemedSelect } from "../../components/ThemedSelect";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
@@ -234,7 +235,7 @@ export function OrganizationDetailPage() {
     }
   };
 
-  const changeRole = async (member: Member, role: MemberRole, control: HTMLSelectElement) => {
+  const changeRole = async (member: Member, role: MemberRole) => {
     await runAction(
       `member-role:${member.user_id}`,
       (signal) => apiRequest(apiClient.PATCH("/api/v1/organizations/{organization_uuid}/members/{user_id}", {
@@ -249,7 +250,7 @@ export function OrganizationDetailPage() {
       },
       (caught) => {
         setActionError(errorMessage(caught, "Não foi possível atualizar o papel."));
-        focusLater(control);
+        pendingFocusRef.current = () => document.querySelector<HTMLElement>(`[data-member-id="${member.user_id}"] [role="combobox"]`);
       }
     );
   };
@@ -455,7 +456,7 @@ export function OrganizationDetailPage() {
           {organizationBillings.length ? <BillingTable billings={organizationBillings} /> : <div className="organization-workspace__empty"><Building2 aria-hidden="true" size={24} /><div><h3>Nenhuma cobrança por aqui</h3><p>Crie uma cobrança para a organização ou transfira uma cobrança pessoal disponível.</p></div></div>}
           {detail.capabilities.can_manage && personalBillings.length ? <div className="organization-transfer-row">
             <div className="organization-transfer-row__copy"><Building2 aria-hidden="true" size={18} /><span><strong>Trazer cobrança pessoal</strong><small>A cobrança passa a pertencer a esta organização.</small></span></div>
-            <div className="organization-transfer-row__controls"><label className="sr-only" htmlFor="transfer-billing">Cobrança para transferir</label><select aria-label="Cobrança para transferir" className="select" disabled={activeAction !== ""} id="transfer-billing" name="transfer-billing" onChange={(event) => setTransferUuid(event.target.value)} value={transferUuid}><option value="">Escolha uma cobrança</option>{personalBillings.map((billing) => <option key={billing.uuid} value={billing.uuid}>{billing.name}</option>)}</select><button className="btn btn--primary btn--sm" disabled={!transferUuid || activeAction !== ""} onClick={() => setConfirmation({ body: "A cobrança passará a pertencer a esta organização. Esta ação não pode ser desfeita.", confirm: () => void transferBilling(), label: "Transferir", title: "Transferir cobrança?", variant: "primary" })} ref={transferRef} type="button">{activeAction === "billing-transfer" ? "Transferindo…" : "Transferir cobrança"}</button></div>
+            <div className="organization-transfer-row__controls"><label className="sr-only" htmlFor="transfer-billing">Cobrança para transferir</label><ThemedSelect aria-label="Cobrança para transferir" disabled={activeAction !== ""} id="transfer-billing" name="transfer-billing" onValueChange={setTransferUuid} options={[{ label: "Escolha uma cobrança", value: "" }, ...personalBillings.map((billing) => ({ label: billing.name, value: billing.uuid }))]} value={transferUuid} /><button className="btn btn--primary btn--sm" disabled={!transferUuid || activeAction !== ""} onClick={() => setConfirmation({ body: "A cobrança passará a pertencer a esta organização. Esta ação não pode ser desfeita.", confirm: () => void transferBilling(), label: "Transferir", title: "Transferir cobrança?", variant: "primary" })} ref={transferRef} type="button">{activeAction === "billing-transfer" ? "Transferindo…" : "Transferir cobrança"}</button></div>
           </div> : null}
         </section> : null}
 
@@ -466,10 +467,10 @@ export function OrganizationDetailPage() {
           </div>
           <div className={`organization-team__body${canManageMembers ? " organization-team__body--managed" : ""}`}>
             <div className="organization-team__directory">
-              <OrganizationMembers canManageMembers={canManageMembers} disabled={activeAction !== ""} headingRef={membersHeadingRef} members={detail.members} onRemove={(member) => setConfirmation({ body: `Remover ${member.email} desta organização?`, confirm: () => void removeMember(member), label: "Remover membro", title: "Remover membro?" })} onRoleChange={(member, role, control) => void changeRole(member, role, control)} />
+              <OrganizationMembers canManageMembers={canManageMembers} disabled={activeAction !== ""} headingRef={membersHeadingRef} members={detail.members} onRemove={(member) => setConfirmation({ body: `Remover ${member.email} desta organização?`, confirm: () => void removeMember(member), label: "Remover membro", title: "Remover membro?" })} onRoleChange={(member, role) => void changeRole(member, role)} />
               {canManageMembers && detail.invites.length ? <section aria-labelledby="organization-invites-heading" className="organization-invites"><div className="organization-team__subheading"><h3 id="organization-invites-heading">Convites enviados</h3><span>{detail.invites.length}</span></div><div className="organization-invites__list">{detail.invites.map((invite) => { const status = INVITE_META[invite.status]; return <div className="organization-invite-row" key={invite.uuid}><span className="organization-invite-row__email">{invite.invited_email}</span><span className={`tag ${ROLE_TAGS[invite.role]}`}>{ROLE_LABELS[invite.role]}</span><span className={`tag ${status.className}`}>{status.label}</span></div>; })}</div></section> : null}
             </div>
-            {canManageMembers ? <aside className="organization-invite-form" aria-labelledby="organization-invite-heading"><div className="organization-invite-form__heading"><Mail aria-hidden="true" size={19} /><div><h3 id="organization-invite-heading">Convidar membro</h3><p>O convite será enviado por e-mail.</p></div></div><form onSubmit={(event) => void sendInvite(event)}><div className="field"><label className="field__label" htmlFor="invite-email">E-mail</label><input aria-describedby={inviteErrors.email ? "invite-email-error" : undefined} autoComplete="off" className="input mono" disabled={activeAction !== ""} id="invite-email" inputMode="email" name="invite-email" onChange={(event) => setInviteEmail(limitApiCharacters(event.target.value, 320))} placeholder="nome@exemplo.com…" ref={inviteEmailRef} required spellCheck={false} type="email" value={inviteEmail} /><FieldError id="invite-email-error" message={inviteErrors.email} /></div><div className="field"><label className="field__label" htmlFor="invite-role">Papel</label><select aria-label="Papel do convite" className="select" disabled={activeAction !== ""} id="invite-role" name="invite-role" onChange={(event) => setInviteRole(event.target.value as MemberRole)} value={inviteRole}>{Object.entries(ROLE_LABELS).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</select></div><button className="btn btn--primary btn--sm" disabled={activeAction !== ""} type="submit">{activeAction === "invite-create" ? "Enviando…" : "Enviar convite"}</button></form></aside> : null}
+            {canManageMembers ? <aside className="organization-invite-form" aria-labelledby="organization-invite-heading"><div className="organization-invite-form__heading"><Mail aria-hidden="true" size={19} /><div><h3 id="organization-invite-heading">Convidar membro</h3><p>O convite será enviado por e-mail.</p></div></div><form onSubmit={(event) => void sendInvite(event)}><div className="field"><label className="field__label" htmlFor="invite-email">E-mail</label><input aria-describedby={inviteErrors.email ? "invite-email-error" : undefined} autoComplete="off" className="input mono" disabled={activeAction !== ""} id="invite-email" inputMode="email" name="invite-email" onChange={(event) => setInviteEmail(limitApiCharacters(event.target.value, 320))} placeholder="nome@exemplo.com…" ref={inviteEmailRef} required spellCheck={false} type="email" value={inviteEmail} /><FieldError id="invite-email-error" message={inviteErrors.email} /></div><div className="field"><label className="field__label" htmlFor="invite-role">Papel</label><ThemedSelect aria-label="Papel do convite" disabled={activeAction !== ""} id="invite-role" name="invite-role" onValueChange={(value) => setInviteRole(value as MemberRole)} options={Object.entries(ROLE_LABELS).map(([role, label]) => ({ label, value: role }))} value={inviteRole} /></div><button className="btn btn--primary btn--sm" disabled={activeAction !== ""} type="submit">{activeAction === "invite-create" ? "Enviando…" : "Enviar convite"}</button></form></aside> : null}
           </div>
         </section> : null}
 

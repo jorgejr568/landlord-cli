@@ -15,7 +15,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
   type FormEvent
 } from "react";
 import { Link, useParams } from "react-router";
@@ -23,6 +22,7 @@ import { Link, useParams } from "react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FieldError } from "../../components/FieldError";
 import { LoadError, LoadingState } from "../../components/PageState";
+import { ThemedSelect } from "../../components/ThemedSelect";
 import { apiClient, apiRequest } from "../../lib/api/client";
 import { errorMessage, normalizedFieldErrors } from "../../lib/api/errors";
 import type { components } from "../../lib/api/schema";
@@ -607,40 +607,38 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
               <div className="theme-font-grid">
                   <div className="field mb-0">
                     <label className="field-label" htmlFor="header_font">Fonte do Cabeçalho</label>
-                    <select
+                    <ThemedSelect
                       aria-describedby={fieldErrorId(fieldErrors, "header_font")}
-                      autoComplete="off"
-                      className="field-select theme-select"
+                      aria-invalid={Boolean(fieldErrors.header_font)}
+                      className="theme-select"
                       disabled={!theme.capabilities.can_edit}
                       id="header_font"
                       name="header_font"
-                      onChange={(event: ChangeEvent<HTMLSelectElement>) => updateValue(
+                      onValueChange={(value) => updateValue(
                         "header_font",
-                        event.target.value as ThemeValues["header_font"]
+                        value as ThemeValues["header_font"]
                       )}
+                      options={theme.options.fonts.map((font) => ({ label: font, value: font }))}
                       value={values.header_font}
-                    >
-                      {theme.options.fonts.map((font) => <option key={font} value={font}>{font}</option>)}
-                    </select>
+                    />
                     <FieldError id="header_font-error" message={fieldErrors.header_font} />
                   </div>
                   <div className="field mb-0">
                     <label className="field-label" htmlFor="text_font">Fonte do Texto</label>
-                    <select
+                    <ThemedSelect
                       aria-describedby={fieldErrorId(fieldErrors, "text_font")}
-                      autoComplete="off"
-                      className="field-select theme-select"
+                      aria-invalid={Boolean(fieldErrors.text_font)}
+                      className="theme-select"
                       disabled={!theme.capabilities.can_edit}
                       id="text_font"
                       name="text_font"
-                      onChange={(event: ChangeEvent<HTMLSelectElement>) => updateValue(
+                      onValueChange={(value) => updateValue(
                         "text_font",
-                        event.target.value as ThemeValues["text_font"]
+                        value as ThemeValues["text_font"]
                       )}
+                      options={theme.options.fonts.map((font) => ({ label: font, value: font }))}
                       value={values.text_font}
-                    >
-                      {theme.options.fonts.map((font) => <option key={font} value={font}>{font}</option>)}
-                    </select>
+                    />
                     <FieldError id="text_font-error" message={fieldErrors.text_font} />
                   </div>
               </div>

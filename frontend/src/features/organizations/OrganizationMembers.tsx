@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import type { RefObject } from "react";
 
+import { ThemedSelect } from "../../components/ThemedSelect";
 import type { components } from "../../lib/api/schema";
 
 type Member = components["schemas"]["OrganizationMemberResponse"];
@@ -12,7 +13,7 @@ interface OrganizationMembersProps {
   headingRef: RefObject<HTMLHeadingElement | null>;
   members: Member[];
   onRemove: (member: Member) => void;
-  onRoleChange: (member: Member, role: Role, control: HTMLSelectElement) => void;
+  onRoleChange: (member: Member, role: Role) => void;
 }
 
 const ROLE_META: Record<Role, { className: string; label: string }> = {
@@ -46,17 +47,14 @@ export function OrganizationMembers({
               </div>
               <div className="organization-member-row__role">
                 {canManageMembers && !member.is_current_user ? (
-                  <select
+                  <ThemedSelect
                     aria-label={`Papel de ${member.email}`}
-                    className="select"
-                    data-member-control
                     disabled={disabled}
                     name={`member-role-${member.user_id}`}
-                    onChange={(event) => onRoleChange(member, event.target.value as Role, event.currentTarget)}
+                    onValueChange={(value) => onRoleChange(member, value as Role)}
+                    options={Object.entries(ROLE_META).map(([value, meta]) => ({ label: meta.label, value }))}
                     value={member.role}
-                  >
-                    {Object.entries(ROLE_META).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}
-                  </select>
+                  />
                 ) : <span className={`tag ${role.className}`}>{role.label}</span>}
               </div>
               {canManageMembers ? member.is_current_user ? <span className="organization-member-row__current">Conta atual</span> : (

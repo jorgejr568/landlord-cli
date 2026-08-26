@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { BILLING_CAPABILITIES_ALL, jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { BillDetailPage } from "./BillDetailPage";
 import { BillEditPage } from "./BillEditPage";
 import { CommunicationComposePage } from "./CommunicationComposePage";
@@ -603,7 +604,7 @@ it("sends selected recipients and applies templates without requesting a preview
   expect(screen.getByLabelText("Assunto")).toHaveValue("Fatura de julho");
   fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByRole("button", { name: "Enviar fatura" })).toBeEnabled();
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
   await waitFor(() => expect(sendBody).toEqual({
@@ -1295,7 +1296,7 @@ it("shows a blocking send error without navigating", async () => {
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await composeGoToReview();
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
 
   await waitFor(() => expect(
@@ -1443,7 +1444,7 @@ it("requires recipients and focuses subject and body API errors", async () => {
   await waitFor(() => expect(screen.getByLabelText("Ana <ana@example.com>")).toHaveFocus());
   fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
   fireEvent.click(screen.getByRole("button", { name: /Continuar/ }));
-  await user.selectOptions(screen.getByLabelText("Salvar modelo"), "billing");
+  await chooseSelectOption(user, screen.getByLabelText("Salvar modelo"), "Salvar para esta cobrança");
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
   expect(await screen.findByText("Modelo indisponível.")).toBeVisible();
   await waitFor(() => expect(screen.getByLabelText("Salvar modelo")).toHaveFocus());
@@ -1494,6 +1495,7 @@ it("renders the payment-receipt variant with an empty template and capability-dr
 });
 
 it("blocks unavailable recibos and shows the user-owner template scope", async () => {
+  const user = userEvent.setup();
   installFetch({
     ...detailHandlers(),
     "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({ ...bill, capabilities: { ...capabilities, can_download_recibo: true, can_send_recibo: false } })
@@ -1509,7 +1511,9 @@ it("blocks unavailable recibos and shows the user-owner template scope", async (
   });
   renderAt(<CommunicationComposePage />, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await composeGoToReview();
-  expect(await screen.findByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
+  await user.click(await screen.findByLabelText("Salvar modelo"));
+  expect(screen.getByRole("option", { name: "Salvar para minha conta" })).toBeVisible();
+  await user.keyboard("{Escape}");
   expect(screen.queryByRole("heading", { name: "Pré-visualização" })).not.toBeInTheDocument();
 });
 

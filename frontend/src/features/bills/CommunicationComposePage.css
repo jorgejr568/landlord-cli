@@ -425,7 +425,7 @@
   border-top: 1.5px solid var(--line);
 }
 
-.communication-compose-form .review-save-scope .select {
+.communication-compose-form .review-save-scope .themed-select__trigger {
   width: 100%;
   min-height: 44px;
   margin-top: 0.4rem;

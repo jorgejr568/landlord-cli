@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import type { components } from "../../lib/api/schema";
 import { BILLING_CAPABILITIES_ALL, jsonResponse, problemResponse } from "../../test/auth";
+import { chooseSelectOption } from "../../test/select";
 import { BillingCreatePage } from "./BillingCreatePage";
 
 const analytics = vi.hoisted(() => ({ pushAnalyticsFromResponse: vi.fn() }));
@@ -135,10 +136,10 @@ it("selects an organization and sends populated recipient, reply-to, fixed and v
   renderPage();
   await screen.findByLabelText("Nome do imóvel");
   await user.type(screen.getByLabelText("Nome do imóvel"), "Casa");
-  await user.selectOptions(screen.getByLabelText("Proprietário"), "org-public");
+  await chooseSelectOption(user, screen.getByLabelText("Proprietário"), "Ribeiro Imóveis");
   await continueTo(user, "Itens recorrentes");
   await user.type(screen.getByLabelText("Descrição do item 1"), "Água");
-  await user.selectOptions(screen.getByLabelText("Tipo do item 1"), "variable");
+  await chooseSelectOption(user, screen.getByLabelText("Tipo do item 1"), "Variável");
   await user.click(screen.getByRole("button", { name: "Adicionar item" }));
   await user.type(screen.getByLabelText("Descrição do item 2"), "Condomínio");
   await user.type(screen.getByLabelText("Valor do item 2 (R$)"), "1.000,50");

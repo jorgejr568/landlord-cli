@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../../components/FormWizard";
+import { ThemedSelect } from "../../components/ThemedSelect";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { validateContacts, validateMoney, validatePix, validateText } from "../../forms/validators";
 import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
@@ -254,24 +255,23 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
       {mode === "create" ? (
         <div className="field field--full">
           <label className="field__label" htmlFor="owner">Proprietário</label>
-          <select
-            autoComplete="off"
-            className="select"
+          <ThemedSelect
             id="owner"
             name="owner"
-            onChange={(event) => {
+            onValueChange={(value) => {
               setIsDirty(true);
               setForm((current) => ({
                 ...current,
-                ownerType: event.target.value ? "organization" : "user",
-                ownerUuid: event.target.value
+                ownerType: value ? "organization" : "user",
+                ownerUuid: value
               }));
             }}
+            options={[
+              { label: "Minha conta", value: "" },
+              ...allowedOrganizations.map((organization) => ({ label: organization.name, value: organization.uuid }))
+            ]}
             value={form.ownerType === "organization" ? form.ownerUuid : ""}
-          >
-            <option value="">Minha conta</option>
-            {allowedOrganizations.map((organization) => <option key={organization.uuid} value={organization.uuid}>{organization.name}</option>)}
-          </select>
+          />
           <FieldError id="owner-error" message={fieldErrors.owner} />
         </div>
       ) : null}
@@ -323,9 +323,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
                   </div>
                   <div className="field mb-0">
                     <label className="field__label" htmlFor={`${item.id}-type`}>Tipo</label>
-                    <select aria-label={`Tipo do item ${index + 1}`} className="select" id={`${item.id}-type`} name={`items-${index}-item_type`} onChange={(event) => updateItem(index, { amount: event.target.value === "variable" ? "" : item.amount, itemType: event.target.value as BillingItemValue["itemType"] })} value={item.itemType}>
-                      <option value="fixed">Fixo</option><option value="variable">Variável</option>
-                    </select>
+                    <ThemedSelect aria-describedby={typeError ? `${item.id}-type-error` : undefined} aria-invalid={Boolean(typeError)} aria-label={`Tipo do item ${index + 1}`} id={`${item.id}-type`} name={`items-${index}-item_type`} onValueChange={(value) => updateItem(index, { amount: value === "variable" ? "" : item.amount, itemType: value as BillingItemValue["itemType"] })} options={[{ label: "Fixo", value: "fixed" }, { label: "Variável", value: "variable" }]} value={item.itemType} />
                     <FieldError id={`${item.id}-type-error`} message={typeError} />
                   </div>
                   {item.itemType === "fixed" ? (
