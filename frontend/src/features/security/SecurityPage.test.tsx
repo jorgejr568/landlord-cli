@@ -40,6 +40,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("presents the account protections as one navigable security workspace", async () => {
+  renderPage();
+
+  expect(await screen.findByRole("heading", { level: 1, name: "Segurança" })).toBeVisible();
+  const shortcuts = screen.getByRole("navigation", { name: "Atalhos de segurança" });
+  expect(shortcuts).toBeVisible();
+  expect(shortcuts.getElementsByTagName("a")).toHaveLength(4);
+  expect(screen.getByRole("link", { name: "Recebimento" })).toHaveAttribute("href", "#recebimento");
+  expect(screen.getByRole("link", { name: "Acesso" })).toHaveAttribute("href", "#acesso");
+  expect(screen.getByRole("link", { name: "Integrações" })).toHaveAttribute("href", "#integracoes");
+  expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute("href", "#conta");
+  expect(screen.getByRole("link", { name: "Esqueci minha senha" })).toHaveAttribute("href", "/forgot-password");
+  expect(screen.getByText("PIX configurado")).toBeVisible();
+  expect(screen.getByText("Aplicativo autenticador ativo")).toBeVisible();
+  expect(screen.getByText("Nenhuma chave de acesso")).toBeVisible();
+});
+
+it("exposes password-manager metadata on every security credential", async () => {
+  renderPage();
+
+  await screen.findByRole("heading", { name: "Segurança" });
+  expect(screen.getByLabelText("Senha atual")).toHaveAttribute("autocomplete", "current-password");
+  expect(screen.getByLabelText("Senha atual")).toHaveAttribute("name", "current_password");
+  expect(screen.getByLabelText("Nova senha")).toHaveAttribute("autocomplete", "new-password");
+  expect(screen.getByLabelText("Nova senha")).toHaveAttribute("name", "new_password");
+  expect(screen.getByLabelText("Confirmar nova senha")).toHaveAttribute("autocomplete", "new-password");
+  expect(screen.getByLabelText("Confirmar nova senha")).toHaveAttribute("name", "confirm_password");
+});
+
 it("ports the security summary and clears authentication after disabling TOTP", async () => {
   const user = userEvent.setup();
   renderPage({ "/api/v1/security/totp/disable": () => new Response(null, { status: 204 }) });

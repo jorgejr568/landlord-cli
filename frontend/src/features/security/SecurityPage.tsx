@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { CircleAlert, Fingerprint, KeyRound, Landmark, ShieldCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
@@ -11,6 +12,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
 import { PasskeyManager } from "./PasskeyManager";
 import { createPasskey } from "./webauthn";
+import "./SecurityPage.css";
 
 type SecuritySummary = components["schemas"]["SecuritySummaryResponse"];
 type AccountDeletionReadiness = components["schemas"]["AccountDeletionReadinessResponse"];
@@ -248,50 +250,139 @@ export function SecurityPage() {
     pushAnalyticsFromResponse(response);
   }
 
-  if (loading) return <p role="status">Carregando...</p>;
-  if (!summary) return <><div className="toast toast--danger" role="alert">{loadError}</div><button className="btn btn--primary" onClick={() => void load()} type="button">Tentar novamente</button></>;
+  if (loading) {
+    return (
+      <div aria-busy="true" className="security-center security-center--loading">
+        <div className="security-loading__heading" />
+        <div className="security-loading__surface" />
+        <p role="status">Carregando segurança…</p>
+      </div>
+    );
+  }
+  if (!summary) {
+    return (
+      <div className="security-center security-center--error">
+        <CircleAlert aria-hidden="true" size={28} />
+        <h1>Segurança</h1>
+        <div className="toast toast--danger" role="alert">{loadError}</div>
+        <button className="btn btn--primary" onClick={() => void load()} type="button">Tentar novamente</button>
+      </div>
+    );
+  }
 
   const pixIncomplete = !summary.profile.pix_key || !summary.profile.pix_merchant_name || !summary.profile.pix_merchant_city;
+  const passkeyStatus = summary.passkeys.length === 0
+    ? "Nenhuma chave de acesso"
+    : `${summary.passkeys.length} ${summary.passkeys.length === 1 ? "chave de acesso" : "chaves de acesso"}`;
   return (
-    <>
-      <div className="page-header"><div className="page-header-info"><h2 className="page-title">Segurança</h2><p className="page-subtitle">Gerencie sua senha e configurações de autenticação multifator.</p></div></div>
+    <div className="security-center">
+      <header className="security-center__header">
+        <div className="security-center__title">
+          <span aria-hidden="true" className="security-center__mark"><ShieldCheck size={28} /></span>
+          <div>
+            <h1>Segurança</h1>
+            <p>Proteja o acesso, defina o PIX pessoal e controle as integrações da sua conta.</p>
+          </div>
+        </div>
+        <div aria-label="Resumo de segurança" className="security-status" role="list">
+          <div className={`security-status__item ${pixIncomplete ? "is-pending" : "is-ready"}`} role="listitem">
+            <Landmark aria-hidden="true" size={19} />
+            <span><small>Recebimento</small><strong>{pixIncomplete ? "PIX pendente" : "PIX configurado"}</strong></span>
+          </div>
+          <div className={`security-status__item ${summary.totp.enabled ? "is-ready" : "is-pending"}`} role="listitem">
+            <KeyRound aria-hidden="true" size={19} />
+            <span><small>Autenticador</small><strong>{summary.totp.enabled ? "Aplicativo autenticador ativo" : "Aplicativo autenticador desativado"}</strong></span>
+          </div>
+          <div className={`security-status__item ${summary.passkeys.length ? "is-ready" : "is-neutral"}`} role="listitem">
+            <Fingerprint aria-hidden="true" size={19} />
+            <span><small>Passkeys</small><strong>{passkeyStatus}</strong></span>
+          </div>
+        </div>
+      </header>
+
+      <nav aria-label="Atalhos de segurança" className="security-shortcuts">
+        <a href="#recebimento">Recebimento</a>
+        <a href="#acesso">Acesso</a>
+        <a href="#integracoes">Integrações</a>
+        <a href="#conta">Conta</a>
+      </nav>
+
       {summary.mfa.setup_required ? <div className="mfa-enforcement-banner">Sua organização exige autenticação multifator. Configure o TOTP ou uma passkey para continuar.</div> : null}
-      {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
-      {message ? <div className="toast toast--success" role="status">{message}</div> : null}
-      <div className="panel"><div className="panel-head"><h5>Dados do PIX</h5></div><div className="panel-body">
-        <p className="field-hint mb-1">Estes dados são usados para gerar o QR Code nas faturas das suas cobranças pessoais. Todos os três campos são obrigatórios para gerar faturas.</p>
-        {pixIncomplete ? <div className="toast toast--warning" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
-        <form onSubmit={(event) => void updatePix(event)}>
-          <div className="field"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-invalid={Boolean(pixErrors.key)} className="field-input" id="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} style={{ maxWidth: "350px" }} value={pixKey} />{pixErrors.key ? <span className="field-error">{pixErrors.key}</span> : <span className="field-hint">Para celular, inclua +55 (caso contrário 11 dígitos são tratados como CPF).</span>}</div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-invalid={Boolean(pixErrors.name)} className="field-input" id="pix_merchant_name" onChange={(event) => { setPixName(limitApiCharacters(event.target.value, 25)); setPixErrors({}); }} ref={pixNameRef} style={{ maxWidth: "350px" }} value={pixName} />{pixErrors.name ? <span className="field-error">{pixErrors.name}</span> : <span className="field-hint">Até 25 caracteres.</span>}</div>
-          <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-invalid={Boolean(pixErrors.city)} className="field-input" id="pix_merchant_city" onChange={(event) => { setPixCity(limitApiCharacters(event.target.value, 15)); setPixErrors({}); }} ref={pixCityRef} style={{ maxWidth: "350px" }} value={pixCity} />{pixErrors.city ? <span className="field-error">{pixErrors.city}</span> : <span className="field-hint">Até 15 caracteres, sem acentos.</span>}</div>
-          <SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton>
-        </form>
-      </div></div>
-      <div className="panel"><div className="panel-head"><h5>Alterar Senha</h5></div><div className="panel-body"><form onSubmit={(event) => void changePassword(event)}>
-        <div className="field"><label className="field-label" htmlFor="current_password">Senha atual</label><input className="field-input" id="current_password" onChange={(event) => setCurrentPassword(event.target.value)} ref={passwordRef} required style={{ maxWidth: "350px" }} type="password" value={currentPassword} /></div>
-        <div className="field"><label className="field-label" htmlFor="new_password">Nova senha</label><input className="field-input" id="new_password" onChange={(event) => setNewPassword(event.target.value)} required style={{ maxWidth: "350px" }} type="password" value={newPassword} /></div>
-        <div className="field"><label className="field-label" htmlFor="confirm_password">Confirmar nova senha</label><input className="field-input" id="confirm_password" onChange={(event) => setConfirmPassword(event.target.value)} required style={{ maxWidth: "350px" }} type="password" value={confirmPassword} /></div>
-        <SubmitButton className="btn btn--primary btn--sm" loading={changingPassword}>Alterar Senha</SubmitButton>
-      </form></div></div>
-      <div className="panel"><div className="panel-head"><h5>Autenticação por Aplicativo (TOTP)</h5></div><div className="panel-body">
-        {summary.totp.enabled ? <><p>TOTP está <strong style={{ color: "var(--emerald)" }}>ativado</strong>.</p><p style={{ marginTop: "0.5rem" }}>Códigos de recuperação restantes: <strong>{summary.totp.recovery_codes_remaining}</strong>{summary.totp.recovery_codes_remaining < 3 ? <span style={{ color: "var(--danger)", fontWeight: 600 }}> — Recomendamos regenerar seus códigos.</span> : null}</p><div className="btn-row" style={{ marginTop: "1rem" }}><button aria-busy={regeneratingRecoveryCodes} className="btn btn--sm" disabled={regeneratingRecoveryCodes} onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar Códigos de Recuperação</button>{!showDisableTotp ? <button className="btn btn--sm btn--danger" onClick={() => setShowDisableTotp(true)} type="button">Desativar TOTP</button> : null}</div>{showDisableTotp ? <div style={{ marginTop: "1rem" }}><form onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input className="field-input" id="disable-totp-password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar Desativação</SubmitButton></form></div> : null}</> : <><p>TOTP não está configurado.</p><Link className="btn btn--primary" style={{ marginTop: "0.75rem" }} to="/security/totp/setup">Configurar TOTP</Link></>}
-      </div></div>
-      <PasskeyManager onDelete={deletePasskey} onRegister={registerPasskey} onSessionRevoked={() => { void logout().catch(() => undefined); }} organizationEnforced={summary.mfa.organization_enforced} passkeys={summary.passkeys} />
-      <ApiKeySection />
-      <div className="panel">
-        <div className="panel-head"><h5>Excluir conta</h5></div>
-        <div className="panel-body">
-          <p>A exclusão é permanente: suas cobranças são removidas e seus dados pessoais são apagados. Registros exigidos por lei podem ser retidos conforme a <Link to="/privacy">Política de Privacidade</Link>. Se você entra apenas com o Google, defina uma senha antes em Esqueci minha senha.</p>
-          {deletionReadinessError ? <><div className="toast toast--warning" role="alert">{deletionReadinessError}</div><button className="btn btn--sm" onClick={() => void load()} type="button">Verificar novamente</button></> : null}
-          {deletionReadiness && !deletionReadiness.can_delete ? <div className="toast toast--warning" role="alert">{deletionReadiness.reason === "sole_organization_admin" ? "Transfira a administração ou exclua suas organizações antes de excluir a conta." : "A exclusão da conta não está disponível no momento."}</div> : null}
+      <div aria-live="polite" className="security-feedback">
+        {actionError ? <div className="toast toast--danger" role="alert">{actionError}</div> : null}
+        {message ? <div className="toast toast--success" role="status">{message}</div> : null}
+      </div>
+
+      <div className="security-surface">
+        <section aria-labelledby="recebimento-title" className="security-section security-section--pix" id="recebimento">
+          <div className="security-section__heading">
+            <div>
+              <h2 id="recebimento-title">PIX pessoal</h2>
+              <p>Usado nas faturas de cobranças pessoais que não têm um PIX próprio.</p>
+            </div>
+            <span className={`security-section__state ${pixIncomplete ? "is-pending" : "is-ready"}`}>{pixIncomplete ? "Configuração pendente" : "Pronto para receber"}</span>
+          </div>
+          {pixIncomplete ? <div className="security-inline-notice" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
+          <form className="security-pix-form" onSubmit={(event) => void updatePix(event)}>
+            <div className="field security-pix-form__key"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-invalid={Boolean(pixErrors.key)} autoComplete="off" className="field-input" id="pix_key" name="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} spellCheck={false} value={pixKey} />{pixErrors.key ? <span className="field-error">{pixErrors.key}</span> : <span className="field-hint">Para celular, inclua +55. Sem o prefixo, 11 dígitos são tratados como CPF.</span>}</div>
+            <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-invalid={Boolean(pixErrors.name)} autoComplete="off" className="field-input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => { setPixName(limitApiCharacters(event.target.value, 25)); setPixErrors({}); }} ref={pixNameRef} value={pixName} />{pixErrors.name ? <span className="field-error">{pixErrors.name}</span> : <span className="field-hint">Até 25 caracteres.</span>}</div>
+            <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-invalid={Boolean(pixErrors.city)} autoComplete="off" className="field-input" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => { setPixCity(limitApiCharacters(event.target.value, 15)); setPixErrors({}); }} ref={pixCityRef} value={pixCity} />{pixErrors.city ? <span className="field-error">{pixErrors.city}</span> : <span className="field-hint">Até 15 caracteres, sem acentos.</span>}</div>
+            <div className="security-pix-form__action"><SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton></div>
+          </form>
+        </section>
+
+        <section aria-labelledby="acesso-title" className="security-section security-section--access" id="acesso">
+          <div className="security-section__heading">
+            <div><h2 id="acesso-title">Acesso à conta</h2><p>Combine um aplicativo autenticador, passkeys e uma senha exclusiva.</p></div>
+          </div>
+          <div className="security-auth-grid">
+            <article className="security-auth-method">
+              <div className="security-auth-method__heading"><KeyRound aria-hidden="true" size={20} /><div><h3>Aplicativo autenticador</h3><p>{summary.totp.enabled ? "Ativo nesta conta" : "Ainda não configurado"}</p></div></div>
+              {summary.totp.enabled ? (
+                <>
+                  <p className="security-auth-method__metric"><strong>{summary.totp.recovery_codes_remaining}</strong> códigos de recuperação disponíveis</p>
+                  {summary.totp.recovery_codes_remaining < 3 ? <p className="security-auth-method__warning">Poucos códigos restantes. Recomendamos regenerar seus códigos.</p> : null}
+                  <div className="security-auth-method__actions">
+                    <button aria-busy={regeneratingRecoveryCodes} className="btn btn--sm" disabled={regeneratingRecoveryCodes} onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar Códigos de Recuperação</button>
+                    {!showDisableTotp ? <button className="btn btn--sm btn--danger" onClick={() => setShowDisableTotp(true)} type="button">Desativar TOTP</button> : null}
+                  </div>
+                  {showDisableTotp ? <form className="security-inline-form" onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input autoComplete="current-password" className="field-input" id="disable-totp-password" name="disable_totp_password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar Desativação</SubmitButton></form> : null}
+                </>
+              ) : (
+                <Link className="btn btn--primary btn--sm" to="/security/totp/setup">Configurar TOTP</Link>
+              )}
+            </article>
+            <PasskeyManager onDelete={deletePasskey} onRegister={registerPasskey} onSessionRevoked={() => { void logout().catch(() => undefined); }} organizationEnforced={summary.mfa.organization_enforced} passkeys={summary.passkeys} />
+          </div>
+
+          <div className="security-password">
+            <div className="security-password__heading"><div><h3>Senha</h3><p>Troque a senha sem sair desta página.</p></div><span>Use uma senha forte e exclusiva</span></div>
+            <form className="security-password__form" onSubmit={(event) => void changePassword(event)}>
+              <div className="field"><label className="field-label" htmlFor="current_password">Senha atual</label><input autoComplete="current-password" className="field-input" id="current_password" name="current_password" onChange={(event) => setCurrentPassword(event.target.value)} ref={passwordRef} required type="password" value={currentPassword} /></div>
+              <div className="field"><label className="field-label" htmlFor="new_password">Nova senha</label><input autoComplete="new-password" className="field-input" id="new_password" name="new_password" onChange={(event) => setNewPassword(event.target.value)} required type="password" value={newPassword} /></div>
+              <div className="field"><label className="field-label" htmlFor="confirm_password">Confirmar nova senha</label><input autoComplete="new-password" className="field-input" id="confirm_password" name="confirm_password" onChange={(event) => setConfirmPassword(event.target.value)} required type="password" value={confirmPassword} /></div>
+              <div className="security-password__action"><SubmitButton className="btn btn--primary btn--sm" loading={changingPassword}>Alterar Senha</SubmitButton></div>
+            </form>
+          </div>
+        </section>
+
+        <div id="integracoes"><ApiKeySection /></div>
+
+        <section aria-labelledby="conta-title" className="security-section security-section--danger" id="conta">
+          <div className="security-section__heading">
+            <div><h2 id="conta-title">Excluir conta</h2><p>Remove cobranças e dados pessoais de forma permanente.</p></div>
+            {deletionReadiness?.can_delete ? <span className="security-section__state is-danger">Ação permanente</span> : null}
+          </div>
+          <p className="security-danger-copy">Registros exigidos por lei podem ser retidos conforme a <Link to="/privacy">Política de Privacidade</Link>. Se você entra apenas com o Google, defina uma senha antes em <Link to="/forgot-password">Esqueci minha senha</Link>.</p>
+          {deletionReadinessError ? <div className="security-danger-actions"><div className="security-inline-notice" role="alert">{deletionReadinessError}</div><button className="btn btn--sm" onClick={() => void load()} type="button">Verificar novamente</button></div> : null}
+          {deletionReadiness && !deletionReadiness.can_delete ? <div className="security-inline-notice" role="alert">{deletionReadiness.reason === "sole_organization_admin" ? "Transfira a administração ou exclua suas organizações antes de excluir a conta." : "A exclusão da conta não está disponível no momento."}</div> : null}
           {deletionReadiness?.can_delete && !showDeleteAccount ? <button className="btn btn--sm btn--danger" onClick={() => setShowDeleteAccount(true)} type="button">Excluir conta</button> : null}
-          {deletionReadiness?.can_delete && showDeleteAccount ? <form onSubmit={(event) => void deleteAccount(event)}>
-            <div className="field"><label className="field-label" htmlFor="delete-account-password">Confirme sua senha para excluir a conta</label><input className="field-input" id="delete-account-password" onChange={(event) => setDeletePassword(event.target.value)} ref={deleteAccountRef} required type="password" value={deletePassword} /></div>
+          {deletionReadiness?.can_delete && showDeleteAccount ? <form className="security-delete-form" onSubmit={(event) => void deleteAccount(event)}>
+            <div className="field"><label className="field-label" htmlFor="delete-account-password">Confirme sua senha para excluir a conta</label><input autoComplete="current-password" className="field-input" id="delete-account-password" name="delete_account_password" onChange={(event) => setDeletePassword(event.target.value)} ref={deleteAccountRef} required type="password" value={deletePassword} /></div>
             <SubmitButton className="btn btn--danger btn--sm" loading={deletingAccount}>Excluir minha conta permanentemente</SubmitButton>
           </form> : null}
-        </div>
+        </section>
       </div>
-    </>
+    </div>
   );
 }

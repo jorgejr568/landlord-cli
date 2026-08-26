@@ -58,13 +58,12 @@ export function PasskeyManager({ onDelete, onRegister, onSessionRevoked, organiz
   }
 
   return (
-    <div className="panel">
-      <div className="panel-head"><h5>Passkeys (Chaves de Acesso)</h5></div>
-      <div className="panel-body">
-        {organizationEnforced ? <div className="mfa-enforcement-banner">Sua organização exige autenticação multifator. Mantenha pelo menos um fator ativo.</div> : null}
+    <article aria-labelledby="passkeys-title" className="security-auth-method security-auth-method--passkeys">
+      <div className="security-auth-method__heading"><KeyRound aria-hidden="true" size={20} /><div><h3 id="passkeys-title">Passkeys</h3><p>Entre com o dispositivo, sem digitar a senha.</p></div></div>
+        {organizationEnforced ? <div className="security-inline-notice">Sua organização exige autenticação multifator. Mantenha pelo menos um fator ativo.</div> : null}
         {error ? <div className="toast toast--danger" role="alert">{error}</div> : null}
         {passkeys.length ? (
-          <div className="data-table-wrap">
+          <div className="data-table-wrap security-passkey-table">
             <table className="data-table">
               <thead><tr><th>Nome</th><th>Criada em</th><th>Último uso</th><th className="text-right">Ações</th></tr></thead>
               <tbody>{passkeys.map((passkey) => (
@@ -77,13 +76,12 @@ export function PasskeyManager({ onDelete, onRegister, onSessionRevoked, organiz
               ))}</tbody>
             </table>
           </div>
-        ) : <p>Nenhuma passkey cadastrada.</p>}
-        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "1rem" }}>
-          <input aria-label="Nome da passkey" className="field-input" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} placeholder="Nome da passkey" ref={inputRef} style={{ width: "220px" }} value={name} />
-          <button className="btn btn--primary btn--sm" disabled={loading} onClick={() => void register()} type="button"><KeyRound aria-hidden="true" size={15} style={{ marginRight: "0.35rem", verticalAlign: "text-bottom" }} />Adicionar Passkey</button>
-        </div>
-      </div>
+        ) : <p className="security-auth-method__empty">Nenhuma passkey cadastrada.</p>}
+        <form className="security-passkey-form" onSubmit={(event) => { event.preventDefault(); void register(); }}>
+          <div className="field"><label className="field-label" htmlFor="passkey-name">Nome da passkey</label><input autoComplete="off" className="field-input" id="passkey-name" name="passkey_name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Notebook…" ref={inputRef} value={name} /></div>
+          <button className="btn btn--primary btn--sm" disabled={loading} type="submit"><KeyRound aria-hidden="true" size={15} />Adicionar Passkey</button>
+        </form>
       <ConfirmDialog acceptLabel="Remover passkey" body="Você precisará entrar novamente após remover esta passkey." onClose={() => setTarget(null)} onConfirm={() => void remove()} open={target !== null} title="Remover esta passkey?" />
-    </div>
+    </article>
   );
 }
