@@ -145,6 +145,36 @@ test("organization wizard rail stays connected to its stage at every breakpoint"
   }
 });
 
+test("communication wizard columns reach the same connected bottom edge", async ({ page }) => {
+  const sharedCss = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+  const pageCss = readFileSync(new URL("../src/features/bills/CommunicationComposePage.css", import.meta.url), "utf8");
+  await page.setViewportSize({ height: 900, width: 1440 });
+  await page.setContent(`
+    <style>* { box-sizing: border-box; } html, body { margin: 0; } ${sharedCss} ${pageCss}</style>
+    <form class="communication-compose-form" style="width: 1180px;">
+      <div class="wizard wizard--with-aside">
+        <nav class="wizard__rail"><div class="wizard-progress">Etapa 1 de 3</div></nav>
+        <section class="wizard__stage">
+          <header class="wizard__stage-head">Destinatários</header>
+          <div class="wizard__content" style="min-height: 420px;">Selecione quem receberá o documento.</div>
+          <footer class="wizard__actions">Continuar</footer>
+        </section>
+        <aside class="wizard__aside"><section class="wizard-summary">Prévia da mensagem</section></aside>
+      </div>
+    </form>
+  `);
+
+  const edges = await page.locator(".communication-compose-form .wizard").evaluate((wizard) => {
+    const rail = wizard.querySelector(".wizard__rail")!.getBoundingClientRect();
+    const stage = wizard.querySelector(".wizard__stage")!.getBoundingClientRect();
+    const preview = wizard.querySelector(".wizard__aside")!.getBoundingClientRect();
+    return { previewBottom: preview.bottom, railBottom: rail.bottom, stageBottom: stage.bottom };
+  });
+
+  expect(Math.abs(edges.railBottom - edges.stageBottom)).toBeLessThanOrEqual(1);
+  expect(Math.abs(edges.previewBottom - edges.stageBottom)).toBeLessThanOrEqual(1);
+});
+
 test("bill action menu escapes the invoice shell without leaving the viewport", async ({ page }) => {
   const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
   await page.setViewportSize({ height: 710, width: 1120 });

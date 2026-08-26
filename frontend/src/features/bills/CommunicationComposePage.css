@@ -138,6 +138,7 @@
 .communication-compose-form .wizard--with-aside {
   display: grid;
   grid-template-columns: 190px minmax(430px, 1fr) minmax(310px, 360px);
+  align-items: stretch;
   gap: 0;
   overflow: visible;
   border: var(--bw-bold) solid var(--ink);

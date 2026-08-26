@@ -106,6 +106,7 @@
 .billing-edit-page .billing-form--edit .wizard {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(230px, 274px);
+    align-items: stretch;
     gap: 0;
 }
 
