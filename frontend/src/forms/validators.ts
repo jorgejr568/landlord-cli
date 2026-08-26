@@ -67,8 +67,8 @@ export function validatePix(pix: PixDraft): { value: PixDraft } | { errors: Reco
   if (!value.key) errors.key = "Informe a chave PIX.";
   if (!value.name) errors.name = "Informe o nome do recebedor.";
   if (!value.city) errors.city = "Informe a cidade do recebedor.";
-  if (Array.from(value.name).length > 25) errors.name = "Informe no máximo 25 caracteres.";
-  if (Array.from(value.city).length > 15) errors.city = "Informe no máximo 15 caracteres.";
+  if (Array.from(value.name).length > 255) errors.name = "Informe no máximo 255 caracteres.";
+  if (Array.from(value.city).length > 255) errors.city = "Informe no máximo 255 caracteres.";
   return complete && !Object.keys(errors).length ? { value } : { errors };
 }
 

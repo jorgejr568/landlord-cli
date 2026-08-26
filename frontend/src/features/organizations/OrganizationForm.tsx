@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, type WizardStep } from "../../components/FormWizard";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
-import { PIX_MERCHANT_CITY_GUIDANCE, PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
+import { PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
 import { validatePix, validateText } from "../../forms/validators";
 import { shouldAutoFocus } from "../../lib/autofocus";
 import { limitApiCharacters } from "../../lib/textLimits";
@@ -100,7 +100,7 @@ export function OrganizationForm({
     setLocalFieldErrors({});
     setIgnoredServerFields((current) => [...new Set([...current, "pix_key", "pix_merchant_name", "pix_merchant_city"])]);
   };
-  const describedBy = (key: keyof OrganizationValues, hintId: string) => [allFieldErrors[key] ? `${key}-error` : "", hintId].filter(Boolean).join(" ");
+  const describedBy = (key: keyof OrganizationValues, hintId?: string) => [allFieldErrors[key] ? `${key}-error` : "", hintId ?? ""].filter(Boolean).join(" ") || undefined;
   const inputClass = createMode ? "input" : "field-input";
   const labelClass = createMode ? "field__label" : "field-label";
   const cancelUrl = createMode ? "/organizations/" : `/organizations/${organizationUuid}`;
@@ -203,8 +203,8 @@ export function OrganizationForm({
         </fieldset>
         {customPix ? <div className="organization-pix-fields">
           <div className="field field--full"><label className={labelClass} htmlFor="pix_key">Chave PIX</label><input aria-describedby={describedBy("pix_key", "pix_key-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_key" name="pix_key" onChange={(event) => update("pix_key", limitApiCharacters(event.target.value, 320))} placeholder="E-mail, CPF/CNPJ, telefone (+55) ou chave aleatória…" ref={(element) => { refs.current.pix_key = element; }} spellCheck={false} type="text" value={form.pix_key} /><FieldError id="pix_key-error" message={allFieldErrors.pix_key} /><span className="field__hint" id="pix_key-hint">Para celular, inclua o código +55.</span></div>
-          <div className="field"><label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={describedBy("pix_merchant_name", "pix_merchant_name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: Ribeiro Imóveis…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} /><FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} /><span className="field__hint organization-character-count" id="pix_merchant_name-hint">{form.pix_merchant_name.length} de 25 caracteres. {PIX_MERCHANT_NAME_GUIDANCE}</span></div>
-          <div className="field"><label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={describedBy("pix_merchant_city", "pix_merchant_city-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: São Paulo…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} /><FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} /><span className="field__hint organization-character-count" id="pix_merchant_city-hint">{form.pix_merchant_city.length} de 15 caracteres. {PIX_MERCHANT_CITY_GUIDANCE}</span></div>
+          <div className="field"><label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={describedBy("pix_merchant_name", "pix_merchant_name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Imóveis…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} /><FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} /><span className="field__hint" id="pix_merchant_name-hint">{PIX_MERCHANT_NAME_GUIDANCE}</span></div>
+          <div className="field"><label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={describedBy("pix_merchant_city")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: São Paulo…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} /><FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} /></div>
         </div> : <div aria-live="polite" className="organization-pix-skip" role="status"><strong>PIX fica para depois.</strong><span>A organização será criada normalmente e esta configuração continuará disponível.</span></div>}
       </>
     );
@@ -268,15 +268,14 @@ export function OrganizationForm({
           </div>
           <div className="field">
             <label className={labelClass} htmlFor="pix_merchant_name">Nome do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_name", "edit-pix-name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: Ribeiro Gestão…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} />
+            <input aria-describedby={describedBy("pix_merchant_name", "edit-pix-name-hint")} autoComplete="off" className={inputClass} id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => update("pix_merchant_name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Gestão…" ref={(element) => { refs.current.pix_merchant_name = element; }} spellCheck={false} type="text" value={form.pix_merchant_name} />
             <FieldError id="pix_merchant_name-error" message={allFieldErrors.pix_merchant_name} />
-            <span className="field-hint" id="edit-pix-name-hint">{form.pix_merchant_name.length} de 25 caracteres. {PIX_MERCHANT_NAME_GUIDANCE}</span>
+            <span className="field-hint" id="edit-pix-name-hint">{PIX_MERCHANT_NAME_GUIDANCE}</span>
           </div>
           <div className="field mb-0">
             <label className={labelClass} htmlFor="pix_merchant_city">Cidade do recebedor</label>
-            <input aria-describedby={describedBy("pix_merchant_city", "edit-pix-city-hint")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: São Paulo…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} />
+            <input aria-describedby={describedBy("pix_merchant_city")} autoComplete="off" className={`${inputClass} mono`} id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => update("pix_merchant_city", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: São Paulo…" ref={(element) => { refs.current.pix_merchant_city = element; }} spellCheck={false} type="text" value={form.pix_merchant_city} />
             <FieldError id="pix_merchant_city-error" message={allFieldErrors.pix_merchant_city} />
-            <span className="field-hint" id="edit-pix-city-hint">{form.pix_merchant_city.length} de 15 caracteres. {PIX_MERCHANT_CITY_GUIDANCE}</span>
           </div>
         </div>
       </div>

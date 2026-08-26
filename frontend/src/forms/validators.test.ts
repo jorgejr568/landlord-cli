@@ -49,10 +49,10 @@ it("requires all custom PIX values or no custom PIX values", () => {
   expect(validatePix({ city: "SALVADOR", key: "", name: "MARIA" })).toEqual({ errors: { key: "Informe a chave PIX." } });
   expect(validatePix({ city: "SALVADOR", key: "chave", name: "" })).toEqual({ errors: { name: "Informe o nome do recebedor." } });
   expect(validatePix({ city: "SALVADOR", key: "chave", name: "MARIA" })).toEqual({ value: { city: "SALVADOR", key: "chave", name: "MARIA" } });
-  expect(validatePix({ city: "", key: "chave", name: "x".repeat(26) })).toEqual({
-    errors: { city: "Informe a cidade do recebedor.", name: "Informe no máximo 25 caracteres." }
+  expect(validatePix({ city: "", key: "chave", name: "x".repeat(256) })).toEqual({
+    errors: { city: "Informe a cidade do recebedor.", name: "Informe no máximo 255 caracteres." }
   });
-  expect(validatePix({ city: "x".repeat(16), key: "chave", name: "MARIA" })).toEqual({ errors: { city: "Informe no máximo 15 caracteres." } });
+  expect(validatePix({ city: "x".repeat(256), key: "chave", name: "MARIA" })).toEqual({ errors: { city: "Informe no máximo 255 caracteres." } });
 });
 
 it("counts communication bytes as UTF-8 and preflights file type and size", () => {

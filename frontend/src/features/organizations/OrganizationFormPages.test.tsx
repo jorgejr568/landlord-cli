@@ -108,8 +108,8 @@ it("guides organization creation through identity, optional PIX, and review", as
   expect(screen.queryByLabelText("Chave PIX")).not.toBeInTheDocument();
   await user.click(screen.getByRole("radio", { name: /Configurar agora/ }));
   expect(screen.getByLabelText("Chave PIX")).toBeVisible();
-  expect(screen.getByText(/Digite o nome completo\. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento\./)).toBeVisible();
-  expect(screen.getByText(/Digite normalmente, com acentos\. No PIX, “São Paulo” vira “SAO PAULO”\./)).toBeVisible();
+  expect(screen.getByText("Digite o nome completo.")).toBeVisible();
+  expect(screen.getByLabelText("Cidade do recebedor")).not.toHaveAttribute("aria-describedby");
   await user.click(screen.getByRole("button", { name: /Continuar/ }));
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
 

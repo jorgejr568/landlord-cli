@@ -2,7 +2,7 @@ import { Landmark, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { FieldError } from "../../components/FieldError";
-import { PIX_MERCHANT_CITY_GUIDANCE, PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
+import { PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
 import { validatePix } from "../../forms/validators";
 import { ApiError, apiClient, apiRequest } from "../../lib/api/client";
 import type { components } from "../../lib/api/schema";
@@ -212,13 +212,13 @@ export function PixSetupDialog({ onClose, onSaved, open }: PixSetupDialogProps) 
             <div className="pix-setup-dialog__row">
               <div className="field">
                 <label className="field__label" htmlFor="quick-pix-name">Nome do recebedor</label>
-                <input aria-describedby={errors.name ? "quick-pix-name-error" : "quick-pix-name-hint"} aria-invalid={Boolean(errors.name)} autoComplete="off" className="input" id="quick-pix-name" name="pix_merchant_name" onChange={(event) => { setName(limitApiCharacters(event.target.value, 25)); setErrors({}); }} ref={nameRef} value={name} />
+                <input aria-describedby={errors.name ? "quick-pix-name-error" : "quick-pix-name-hint"} aria-invalid={Boolean(errors.name)} autoComplete="off" className="input" id="quick-pix-name" name="pix_merchant_name" onChange={(event) => { setName(limitApiCharacters(event.target.value, 255)); setErrors({}); }} ref={nameRef} value={name} />
                 {errors.name ? <FieldError id="quick-pix-name-error" message={errors.name} /> : <span className="field__hint" id="quick-pix-name-hint">{PIX_MERCHANT_NAME_GUIDANCE}</span>}
               </div>
               <div className="field">
                 <label className="field__label" htmlFor="quick-pix-city">Cidade do recebedor</label>
-                <input aria-describedby={errors.city ? "quick-pix-city-error" : "quick-pix-city-hint"} aria-invalid={Boolean(errors.city)} autoComplete="off" className="input mono" id="quick-pix-city" name="pix_merchant_city" onChange={(event) => { setCity(limitApiCharacters(event.target.value, 15)); setErrors({}); }} ref={cityRef} value={city} />
-                {errors.city ? <FieldError id="quick-pix-city-error" message={errors.city} /> : <span className="field__hint" id="quick-pix-city-hint">{PIX_MERCHANT_CITY_GUIDANCE}</span>}
+                <input aria-describedby={errors.city ? "quick-pix-city-error" : undefined} aria-invalid={Boolean(errors.city)} autoComplete="off" className="input mono" id="quick-pix-city" name="pix_merchant_city" onChange={(event) => { setCity(limitApiCharacters(event.target.value, 255)); setErrors({}); }} ref={cityRef} value={city} />
+                <FieldError id="quick-pix-city-error" message={errors.city} />
               </div>
             </div>
             <footer className="pix-setup-dialog__foot">
