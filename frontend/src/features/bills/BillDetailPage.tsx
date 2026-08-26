@@ -1,5 +1,5 @@
 import { ArrowLeft, CalendarDays, ChevronDown, Download, Edit3, FileCheck2, FileClock, FileText, FileWarning, RefreshCw, Send, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -53,6 +53,7 @@ export function BillDetailPage() {
   const [activeRecords, setActiveRecords] = useState<"communications" | "receipts">("communications");
   const controllerRef = useRef<AbortController | null>(null);
   const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const recordTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const mutationControllers = useRef(new Set<AbortController>());
   const routeGeneration = useRef(0);
@@ -91,6 +92,32 @@ export function BillDetailPage() {
     return () => {
       document.removeEventListener("click", close);
       document.removeEventListener("keydown", closeWithKeyboard);
+    };
+  }, [openDropdown]);
+
+  useLayoutEffect(() => {
+    if (openDropdown !== "actions") return;
+    const placeMenu = () => {
+      const trigger = actionsButtonRef.current;
+      const menu = actionsMenuRef.current;
+      /* v8 ignore next -- both refs are mounted whenever the actions menu is open */
+      if (!trigger || !menu) return;
+      const triggerBox = trigger.getBoundingClientRect();
+      const edge = 12;
+      const gap = 8;
+      const availableBelow = window.innerHeight - triggerBox.bottom - gap - edge;
+      const availableAbove = triggerBox.top - gap - edge;
+      const placement = availableBelow < Math.min(menu.scrollHeight, 320) && availableAbove > availableBelow ? "top" : "bottom";
+      const available = placement === "top" ? availableAbove : availableBelow;
+      menu.dataset.placement = placement;
+      menu.style.setProperty("--bill-action-menu-space", `${Math.max(48, Math.floor(available))}px`);
+    };
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
+    return () => {
+      window.removeEventListener("resize", placeMenu);
+      window.removeEventListener("scroll", placeMenu, true);
     };
   }, [openDropdown]);
 
@@ -259,7 +286,7 @@ export function BillDetailPage() {
   return (
     <>
       <Link className="crumb" to={`/billings/${billingUuid}`}><ArrowLeft aria-hidden="true" size={16} />{billing.name}</Link>
-      <article aria-label={`Fatura de ${formatMonth(bill.reference_month)}`} className="bill-workspace">
+      <article aria-label={`Fatura de ${formatMonth(bill.reference_month)}`} className={`bill-workspace${openDropdown === "actions" ? " bill-workspace--menu-open" : ""}`}>
         <header className="bill-workspace__header">
           <div className="bill-workspace__identity">
             <div className="bill-workspace__title-row">
@@ -291,7 +318,7 @@ export function BillDetailPage() {
               renderMenu={(transitionItems) => (
                 <div className={`btn-dropdown bill-action-menu${openDropdown === "actions" ? " open" : ""}`}>
                   <button aria-controls="bill-actions-menu" aria-expanded={openDropdown === "actions"} aria-label="Ações da fatura" className="btn btn--sm btn-dropdown-toggle" onClick={(event) => { event.stopPropagation(); setOpenDropdown((current) => current === "actions" ? null : "actions"); }} ref={actionsButtonRef} type="button">Ações <ChevronDown aria-hidden="true" size={14} /></button>
-                  <div className="btn-dropdown-menu" id="bill-actions-menu">
+                  <div className="btn-dropdown-menu" id="bill-actions-menu" ref={actionsMenuRef}>
                     {bill.capabilities.can_download_invoice ? <><span className="bill-action-menu__label">Documentos</span><a className="btn-dropdown-item" href={`/api/v1/billings/${billingUuid}/bills/${bill.uuid}/invoice`} target="_blank"><Download aria-hidden="true" size={15} />Baixar fatura</a>{bill.capabilities.can_download_recibo
                       ? <a aria-disabled={downloadingRecibo || undefined} className="btn-dropdown-item" href={`/api/v1/billings/${billingUuid}/bills/${bill.uuid}/recibo/download`} onClick={(event) => void downloadRecibo(event)} target="_blank"><Download aria-hidden="true" size={15} />Baixar recibo</a>
                       : <span aria-disabled="true" className="btn-dropdown-item btn-dropdown-item--disabled" title={bill.status === "paid" ? "O recibo ainda está sendo gerado." : "O recibo fica disponível quando a fatura está paga."}><Download aria-hidden="true" size={15} />Baixar recibo</span>}</> : null}

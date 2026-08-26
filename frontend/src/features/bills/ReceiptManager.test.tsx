@@ -95,6 +95,35 @@ it("keeps the selected-file state readable outside the native file control", () 
   expect(screen.getByText("2 arquivos selecionados.")).toBeVisible();
 });
 
+it("keeps upload progress inside the action and separates its success feedback", async () => {
+  const user = userEvent.setup();
+  let finishUpload!: () => void;
+  installFetch({
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => new Promise<Response>((resolve) => {
+      finishUpload = () => resolve(jsonResponse({ attached: 1, items: [receipts[0]], skipped: 0, total_bytes: 1536 }, 201));
+    })
+  });
+  render(<ReceiptManager
+    billingUuid="billing-public-uuid" billUuid="bill-public-uuid"
+    capabilities={capabilities} onChange={vi.fn()} receipts={[]}
+  />);
+
+  await user.upload(screen.getByLabelText("Anexar comprovantes"), new File(["pdf"], "julho.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
+
+  const submit = screen.getByRole("button", { name: "Enviando…" });
+  expect(submit).toBeDisabled();
+  expect(submit).toHaveAttribute("aria-busy", "true");
+  expect(submit.querySelector(".receipt-upload-dots")).toBeInTheDocument();
+  expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+  await act(async () => finishUpload());
+  const success = await screen.findByRole("status");
+  expect(success).toHaveTextContent("1 comprovante(s) anexado(s).");
+  expect(success).toHaveClass("receipt-feedback");
+  expect(success.parentElement).toHaveClass("receipt-manager");
+});
+
 it("renders same-origin downloads and uploads, deletes, and reorders receipts from capabilities", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
@@ -241,7 +270,7 @@ it("deduplicates uploads, shows progress and skipped counts, merges latest state
   fireEvent.change(screen.getByLabelText("Anexar comprovantes"), { target: { files: [file, file] } });
   await user.click(screen.getByRole("button", { name: "Enviar comprovantes" }));
 
-  expect(screen.getByRole("progressbar", { name: "Progresso do envio" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Enviando…" })).toHaveAttribute("aria-busy", "true");
   expect(uploadBody?.getAll("receipt_files")).toEqual([file]);
   view.rerender(<ReceiptManager billingUuid="billing-public-uuid" billUuid="bill-public-uuid" capabilities={capabilities} onChange={onChange} receipts={[...receipts, external]} />);
   resolveUpload(jsonResponse({

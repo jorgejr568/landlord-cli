@@ -68,6 +68,112 @@ test("status menu items retain a visible keyboard focus ring", async ({ page }) 
   expect(Number.parseFloat(focusStyle.outlineWidth)).toBeGreaterThanOrEqual(2);
 });
 
+test("bill action menu escapes the invoice shell without leaving the viewport", async ({ page }) => {
+  const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+  await page.setViewportSize({ height: 710, width: 1120 });
+  await page.setContent(`
+    <style>* { box-sizing: border-box; } html, body { margin: 0; } ${css}</style>
+    <main style="padding: 42px 24px; width: 100%;">
+      <article class="bill-workspace bill-workspace--menu-open" style="height: 560px;">
+        <section class="bill-workspace__control-strip">
+          <div></div><div></div>
+          <div class="bill-workspace__toolbar">
+            <div class="btn-dropdown bill-action-menu open">
+              <button class="btn btn--sm btn-dropdown-toggle">Ações</button>
+              <div class="btn-dropdown-menu">
+                ${Array.from({ length: 13 }, (_, index) => `<button class="status-menu__item">Ação ${index + 1}</button>`).join("")}
+              </div>
+            </div>
+          </div>
+        </section>
+      </article>
+    </main>
+  `);
+
+  const layout = await page.locator(".bill-action-menu .btn-dropdown-menu").evaluate((menu) => {
+    const box = menu.getBoundingClientRect();
+    const workspace = menu.closest(".bill-workspace")!;
+    const style = getComputedStyle(menu);
+    return {
+      bottom: box.bottom,
+      menuOverflowY: style.overflowY,
+      viewportHeight: document.documentElement.clientHeight,
+      workspaceOverflow: getComputedStyle(workspace).overflow
+    };
+  });
+  expect(layout.workspaceOverflow).toBe("visible");
+  expect(layout.menuOverflowY).toBe("auto");
+  expect(layout.bottom).toBeLessThanOrEqual(layout.viewportHeight);
+});
+
+test("bill action menu can flip above a trigger near the bottom edge", async ({ page }) => {
+  const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+  await page.setViewportSize({ height: 420, width: 1120 });
+  await page.setContent(`
+    <style>* { box-sizing: border-box; } html, body { margin: 0; } ${css}</style>
+    <div class="btn-dropdown bill-action-menu open" style="position: fixed; right: 24px; bottom: 12px;">
+      <button class="btn btn--sm btn-dropdown-toggle">Ações</button>
+      <div class="btn-dropdown-menu" data-placement="top" style="--bill-action-menu-space: 330px;">
+        ${Array.from({ length: 8 }, (_, index) => `<button class="status-menu__item">Ação ${index + 1}</button>`).join("")}
+      </div>
+    </div>
+  `);
+
+  const trigger = await page.getByRole("button", { name: "Ações" }).boundingBox();
+  const menu = await page.locator(".bill-action-menu .btn-dropdown-menu").boundingBox();
+  expect(trigger).not.toBeNull();
+  expect(menu).not.toBeNull();
+  expect(menu!.y + menu!.height).toBeLessThanOrEqual(trigger!.y);
+  expect(menu!.y).toBeGreaterThanOrEqual(0);
+});
+
+test("receipt rail uses a compact list without horizontal scrolling", async ({ page }) => {
+  const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+  await page.setViewportSize({ height: 710, width: 390 });
+  await page.setContent(`
+    <style>* { box-sizing: border-box; } html, body { margin: 0; } ${css}</style>
+    <section class="receipt-manager" style="width: 342px; padding: 16px;">
+      <div class="table-wrap receipt-list">
+        <table class="table data-table"><thead><tr><th></th><th>Arquivo</th><th class="num">Tamanho</th><th></th></tr></thead>
+          <tbody><tr class="receipt-row">
+            <td class="receipt-row__handle"><button class="drag-handle">::</button></td>
+            <td class="table__primary receipt-row__file">Nubank_2026-08-03_comprovante-muito-longo.pdf</td>
+            <td class="num receipt-row__size">39.6 KB</td>
+            <td class="receipt-row__actions"><a class="btn btn--sm">Ver</a><button class="btn btn--sm btn--danger">Remover</button></td>
+          </tr></tbody>
+        </table>
+      </div>
+      <form class="receipt-upload-form"><button class="btn btn--sm btn--primary receipt-upload-submit">Enviar comprovantes</button></form>
+      <div class="receipt-feedback toast toast--success">1 comprovante anexado.</div>
+    </section>
+  `);
+
+  for (const width of [342, 453]) {
+    await page.locator(".receipt-manager").evaluate((manager, nextWidth) => {
+      (manager as HTMLElement).style.width = `${nextWidth}px`;
+    }, width);
+    const layout = await page.locator(".receipt-manager").evaluate((manager) => {
+      const row = manager.querySelector(".receipt-row")!;
+      const actions = manager.querySelector(".receipt-row__actions")!.getBoundingClientRect();
+      const managerBox = manager.getBoundingClientRect();
+      const submit = manager.querySelector(".receipt-upload-submit")!.getBoundingClientRect();
+      const feedback = manager.querySelector(".receipt-feedback")!.getBoundingClientRect();
+      return {
+        actionsRight: actions.right,
+        feedbackGap: feedback.top - submit.bottom,
+        managerRight: managerBox.right,
+        managerScrollWidth: manager.scrollWidth,
+        managerWidth: manager.clientWidth,
+        rowDisplay: getComputedStyle(row).display
+      };
+    });
+    expect(layout.managerScrollWidth).toBeLessThanOrEqual(layout.managerWidth);
+    expect(layout.actionsRight).toBeLessThanOrEqual(layout.managerRight);
+    expect(layout.feedbackGap).toBeGreaterThanOrEqual(12);
+    expect(layout.rowDisplay).toBe("grid");
+  }
+});
+
 test("security keeps passkey and API-key actions in view on mobile", async ({ isMobile, page }) => {
   test.skip(!isMobile, "Mobile layout regression");
   await installApiMocks(page);

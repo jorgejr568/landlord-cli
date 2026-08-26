@@ -244,9 +244,11 @@ it("toggles the unified action dropdown and returns focus when Escape closes it"
 
   await user.click(actions);
   expect(dropdown).toHaveClass("open");
+  expect(screen.getByRole("article", { name: "Fatura de Julho/2026" })).toHaveClass("bill-workspace--menu-open");
   expect(actions).toHaveAttribute("aria-expanded", "true");
   await user.click(actions);
   expect(dropdown).not.toHaveClass("open");
+  expect(screen.getByRole("article", { name: "Fatura de Julho/2026" })).not.toHaveClass("bill-workspace--menu-open");
   await user.click(actions);
   expect(dropdown).toHaveClass("open");
   fireEvent.keyDown(document, { key: "ArrowDown" });
@@ -258,6 +260,25 @@ it("toggles the unified action dropdown and returns focus when Escape closes it"
   await user.click(actions);
   fireEvent.click(document.body);
   expect(dropdown).not.toHaveClass("open");
+});
+
+it("flips the unified action dropdown above a trigger near the viewport edge", async () => {
+  const user = userEvent.setup();
+  installFetch(detailHandlers());
+  renderAt(<BillDetailPage />, "/billings/billing-public-uuid/bills/bill-public-uuid", "/billings/:billingUuid/bills/:billUuid");
+  await screen.findByRole("heading", { name: "Fatura · Julho/2026" });
+
+  const actions = screen.getByRole("button", { name: "Ações da fatura" });
+  vi.stubGlobal("innerHeight", 710);
+  vi.spyOn(actions, "getBoundingClientRect").mockReturnValue(new DOMRect(980, 650, 112, 34));
+
+  await user.click(actions);
+  const menu = document.getElementById("bill-actions-menu")!;
+  Object.defineProperty(menu, "scrollHeight", { configurable: true, value: 480 });
+  fireEvent(window, new Event("resize"));
+
+  await waitFor(() => expect(menu).toHaveAttribute("data-placement", "top"));
+  expect(menu.style.getPropertyValue("--bill-action-menu-space")).toBe("630px");
 });
 
 it("keeps a transition-only action menu free of unavailable controls", async () => {
