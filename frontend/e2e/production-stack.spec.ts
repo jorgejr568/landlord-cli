@@ -128,6 +128,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.getByLabel("E-mail").fill(email);
     await page.getByLabel("Senha", { exact: true }).fill(password);
     await page.getByLabel("Confirmar Senha").fill(password);
+    await page.getByRole("checkbox", { name: /Li e aceito/ }).check();
     await page.getByRole("button", { name: "Criar Conta" }).click();
 
     await expect(page).toHaveURL(/\/billings\/$/);

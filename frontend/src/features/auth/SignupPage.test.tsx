@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -34,16 +34,46 @@ describe("SignupPage", () => {
     );
     expect(screen.getByRole("button", { name: "Criar Conta" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Continuar com Google" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Termos de Uso" })).toHaveAttribute(
-      "href",
-      "/terms"
+    screen.getAllByRole("link", { name: "Termos de Uso" }).forEach((link) =>
+      expect(link).toHaveAttribute("href", "/terms")
     );
-    expect(screen.getByRole("link", { name: "Política de Privacidade" })).toHaveAttribute(
-      "href",
-      "/privacy"
+    screen.getAllByRole("link", { name: "Política de Privacidade" }).forEach((link) =>
+      expect(link).toHaveAttribute("href", "/privacy")
     );
     expect(screen.getByTestId("turnstile")).toBeVisible();
     expect(document.title).toBe("Criar Conta - Rentivo");
+  });
+
+  it("requires explicit legal consent with safe links before creating the account", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<SignupPage />, { path: "/signup" });
+
+    const form = await screen.findByRole("form", { name: "Criar Conta" });
+    const consent = within(form).getByRole("checkbox", {
+      name: "Li e aceito os Termos de Uso e a Política de Privacidade."
+    });
+    const terms = within(form).getByRole("link", { name: "Termos de Uso" });
+    const privacy = within(form).getByRole("link", { name: "Política de Privacidade" });
+
+    expect(consent).toBeRequired();
+    expect(terms).toHaveAttribute("href", "/terms");
+    expect(terms).toHaveAttribute("target", "_blank");
+    expect(terms).toHaveAttribute("rel", "noopener noreferrer");
+    expect(privacy).toHaveAttribute("href", "/privacy");
+    expect(privacy).toHaveAttribute("target", "_blank");
+    expect(privacy).toHaveAttribute("rel", "noopener noreferrer");
+
+    await user.type(within(form).getByLabelText("E-mail"), "user@example.com");
+    await user.type(within(form).getByLabelText("Senha"), "correct-password");
+    await user.type(within(form).getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(within(form).getByRole("button", { name: "Criar Conta" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Aceite os Termos de Uso e a Política de Privacidade para criar sua conta."
+    );
+    expect(consent).toHaveFocus();
+    expect(consent).toHaveAttribute("aria-invalid", "true");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
   });
 
   it("shows password guidance and lets each secret be reviewed", async () => {
@@ -77,6 +107,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "password-one");
     await user.type(screen.getByLabelText("Confirmar Senha"), "password-two");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("As senhas não coincidem.");
@@ -95,6 +126,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "á".repeat(37));
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
@@ -108,6 +140,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "á".repeat(37));
     await user.type(screen.getByLabelText("Confirmar Senha"), "á".repeat(37));
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
@@ -137,6 +170,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), " user@example.com ");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
@@ -154,6 +188,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     await waitFor(() =>
@@ -225,6 +260,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("E-mail já cadastrado.");
@@ -260,6 +296,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -289,6 +326,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -330,6 +368,7 @@ describe("SignupPage", () => {
     await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
     await user.type(screen.getByLabelText("Senha"), "correct-password");
     await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("checkbox", { name: /Li e aceito/ }));
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(

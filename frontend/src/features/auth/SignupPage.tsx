@@ -20,7 +20,7 @@ import { Turnstile, type TurnstileHandle } from "./Turnstile";
 import "./SignupPage.css";
 
 type SignupRequest = components["schemas"]["SignupRequest"];
-type SignupField = "confirmPassword" | "email" | "password";
+type SignupField = "confirmPassword" | "email" | "legalConsent" | "password";
 type SignupFieldErrors = Partial<Record<SignupField, string>>;
 
 export function SignupPage() {
@@ -37,6 +37,7 @@ export function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [legalConsent, setLegalConsent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -46,6 +47,7 @@ export function SignupPage() {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
+  const legalConsentRef = useRef<HTMLInputElement>(null);
   const turnstileRef = useRef<TurnstileHandle>(null);
 
   const passwordEntered = password.length > 0;
@@ -292,6 +294,43 @@ export function SignupPage() {
           ref={turnstileRef}
           siteKey={auth.config.feature_flags.turnstile_site_key}
         />
+        <div className="signup-page__consent">
+          <input
+            aria-describedby={fieldErrors.legalConsent ? "signup-consent-error" : undefined}
+            aria-invalid={fieldErrors.legalConsent ? true : undefined}
+            checked={legalConsent}
+            className="signup-page__consent-checkbox"
+            id="signup-legal-consent"
+            name="legal_consent"
+            onChange={(event) => {
+              setLegalConsent(event.target.checked);
+              clearFieldError("legalConsent");
+            }}
+            onInvalid={(event) => {
+              event.preventDefault();
+              setFieldErrors({
+                legalConsent: "Aceite os Termos de Uso e a Política de Privacidade para criar sua conta."
+              });
+              legalConsentRef.current?.focus();
+            }}
+            ref={legalConsentRef}
+            required
+            type="checkbox"
+          />
+          <div className="signup-page__consent-copy">
+            <label htmlFor="signup-legal-consent">
+              Li e aceito os{" "}
+              <a href="/terms" rel="noopener noreferrer" target="_blank">Termos de Uso</a>
+              {" "}e a{" "}
+              <a href="/privacy" rel="noopener noreferrer" target="_blank">Política de Privacidade</a>.
+            </label>
+            {fieldErrors.legalConsent ? (
+              <span className="signup-page__field-error" id="signup-consent-error" role="alert">
+                {fieldErrors.legalConsent}
+              </span>
+            ) : null}
+          </div>
+        </div>
         <SubmitButton
           className="btn btn--primary btn--block btn--lg signup-page__submit"
           loading={loading}

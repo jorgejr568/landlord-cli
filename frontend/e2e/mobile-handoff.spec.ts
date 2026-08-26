@@ -46,6 +46,7 @@ test("creating an account inside the iOS handoff returns to the app", async ({ p
   await page.getByLabel("E-mail").fill("nova@example.com");
   await page.getByLabel("Senha", { exact: true }).fill("senha-correta");
   await page.getByLabel("Confirmar Senha").fill("senha-correta");
+  await page.getByRole("checkbox", { name: /Li e aceito/ }).check();
   await page.getByRole("button", { name: "Criar Conta" }).click();
 
   await expect(page).toHaveURL(/\/login\?mobile_state=native-state$/);
