@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from rentivo.pix_keys import PIX_KEY_PATTERNS, classify_pix_key
+from rentivo.pix_keys import PIX_KEY_PATTERNS, classify_pix_key, is_valid_cpf
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "rentivo" / "pix_keys.py"
 
@@ -40,6 +40,16 @@ def test_classify_rejects_non_keys(key: str) -> None:
 
 def test_pattern_registry_has_exactly_the_five_key_types() -> None:
     assert set(PIX_KEY_PATTERNS) == {"cpf", "cnpj", "email", "phone", "evp"}
+
+
+@pytest.mark.parametrize("cpf", ["00000000604", "00000001830"])
+def test_cpf_validation_handles_zero_check_digits(cpf: str) -> None:
+    assert is_valid_cpf(cpf)
+
+
+@pytest.mark.parametrize("cpf", ["123", "11111111111", "abcdefghijk", "１２３４５６７８９０１"])
+def test_cpf_validation_rejects_malformed_values(cpf: str) -> None:
+    assert not is_valid_cpf(cpf)
 
 
 def test_module_imports_only_the_standard_library() -> None:

@@ -6,7 +6,7 @@ import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../../components/FormWizard";
 import { ThemedSelect } from "../../components/ThemedSelect";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
-import { PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
+import { PIX_KEY_GUIDANCE, PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
 import { validateContacts, validateMoney, validatePix, validateText } from "../../forms/validators";
 import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
 import { shouldAutoFocus } from "../../lib/autofocus";
@@ -364,8 +364,8 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
       {showCustomPix ? <>
         <div className="field">
           <label className="field__label" htmlFor="pix_key">Chave PIX</label>
-          <input aria-describedby="pix-key-hint pix-key-error" autoComplete="off" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder="E-mail, CPF/CNPJ, telefone (+55) ou chave aleatória…" spellCheck={false} type="text" value={form.pixKey} />
-          <span className="field__hint" id="pix-key-hint">Para celular inclua +55, caso contrário 11 dígitos são tratados como CPF.</span>
+          <input aria-describedby="pix-key-hint pix-key-error" autoComplete="off" className="input mono" id="pix_key" name="pix_key" onChange={(event) => setField("pixKey", event.target.value)} placeholder="E-mail, CPF/CNPJ, telefone com DDD ou chave aleatória…" spellCheck={false} type="text" value={form.pixKey} />
+          <span className="field__hint" id="pix-key-hint">{PIX_KEY_GUIDANCE}</span>
           <FieldError id="pix-key-error" message={allFieldErrors.pix_key} />
         </div>
         <div className="form-grid">

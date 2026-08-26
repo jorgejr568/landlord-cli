@@ -106,7 +106,7 @@ it("provides complete field semantics and clear section hierarchy", async () => 
   expect(pixKey).toHaveAttribute("name", "pix_key");
   expect(pixKey).toHaveAttribute("autocomplete", "off");
   expect(pixKey).toHaveAttribute("spellcheck", "false");
-  expect(pixKey).toHaveAccessibleDescription("Para celular, inclua o código +55.");
+  expect(pixKey).toHaveAccessibleDescription("Informe DDD + número. O +55 é opcional.");
 });
 
 it("makes missing PIX setup clear before editing", async () => {

@@ -20,7 +20,7 @@ const billing: Billing = {
   capabilities: BILLING_CAPABILITIES_ALL,
   communication_templates: [], created_at: null, description: "Inquilino atual",
   items: [{ amount: 285_000, description: "Aluguel", item_type: "fixed", uuid: "item-rent" }, { amount: 0, description: "Água", item_type: "variable", uuid: "item-water" }],
-  name: "Apartamento 302", owner: { name: null, type: "user", uuid: null }, pix_key: "chave",
+  name: "Apartamento 302", owner: { name: null, type: "user", uuid: null }, pix_key: "pix@example.com",
   pix_merchant_city: "SALVADOR", pix_merchant_name: "MARIA", pix_needs_setup: false,
   recipients: [{ email: "joao@example.com", name: "João", uuid: "recipient-full" }, { uuid: "recipient-reference" }],
   reply_to: [{ email: "ana@example.com", name: "Ana", uuid: "reply-full" }], stats, updated_at: null, uuid: "billing-public"
@@ -105,7 +105,7 @@ it("preserves opaque recipient references while explicitly replacing a fully vis
           { amount: 285_000, description: "Aluguel", item_type: "fixed", uuid: "item-rent" },
           { amount: 0, description: "Água", item_type: "variable", uuid: "item-water" },
           { amount: 50_000, description: "Garagem", item_type: "fixed" }
-        ], name: "Apartamento 302", pix_key: "chave", pix_merchant_city: "SALVADOR", pix_merchant_name: "MARIA",
+        ], name: "Apartamento 302", pix_key: "pix@example.com", pix_merchant_city: "SALVADOR", pix_merchant_name: "MARIA",
         reply_to: []
       });
       return jsonResponse({ ...billing, recipients: [], reply_to: [] }, 200, { "X-Rentivo-Analytics-Event": "rentivo_billing_edited" });
