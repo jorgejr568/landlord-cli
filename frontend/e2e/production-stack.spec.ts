@@ -139,8 +139,8 @@ test("exercises the replacement stack without network interception", async ({ ba
 
     await page.goto("/themes/user");
     await expect(page.getByRole("heading", { level: 1, name: "Meu Tema" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Fontes" })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Cores" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
     // The PDF preview is delivered as a blob: URL, which the report-only
     // policy must permit through frame-src.
     await expect(page.locator('iframe[title="Pré-visualização do tema"]')).toHaveAttribute(
@@ -294,7 +294,7 @@ test("exercises the replacement stack without network interception", async ({ ba
 
     await page.reload();
     await expect(page.getByRole("heading", { level: 1, name: "Fatura · Dezembro/2030" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Abrir PDF com QR" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Abrir PDF" })).toBeVisible();
     const invoice = await page.request.get(`/api/v1/billings/${billingUuid}/bills/${billUuid}/invoice`);
     expect(invoice.status()).toBe(200);
     expect(invoice.headers()["content-type"]).toMatch(/^application\/pdf(?:;|$)/);
