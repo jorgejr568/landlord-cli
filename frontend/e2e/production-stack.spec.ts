@@ -135,7 +135,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await expect(page.getByRole("heading", { name: "Cadastre seu primeiro imóvel" })).toBeVisible();
 
     await page.goto("/organizations/");
-    await expect(page.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Organize sua operação em equipe" })).toBeVisible();
 
     await page.goto("/themes/user");
     await expect(page.getByRole("heading", { level: 1, name: "Meu Tema" })).toBeVisible();
@@ -169,7 +169,7 @@ test("exercises the replacement stack without network interception", async ({ ba
     await page.goto("/security");
     await page.getByRole("button", { name: "Criar chave" }).click();
     await page.getByLabel("Nome", { exact: true }).fill(`Gate ${unique}`);
-    await page.getByLabel("Consultar organizações").check();
+    await page.getByRole("radio", { name: "Organizações: leitura" }).check();
     await page.getByRole("checkbox", { name: "Pessoal", exact: true }).check();
     await page.getByRole("button", { name: "Criar chave" }).click();
 
