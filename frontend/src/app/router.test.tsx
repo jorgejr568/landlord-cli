@@ -52,7 +52,7 @@ it.each([
   ["/signup", "Criar Conta"],
   ["/forgot-password", "Enviar link"],
   ["/reset-password", "Link inválido ou expirado. Solicite uma nova redefinição."],
-  ["/auth/google/callback?code=code&state=state", "Entrando com o Google..."]
+  ["/auth/google/callback?code=code&state=state", "Confirmando seu acesso"]
 ])("routes the legacy authentication URL %s outside the shell", async (path, expectedCopy) => {
   window.history.pushState({}, "", path);
   const router = createAppRouter();

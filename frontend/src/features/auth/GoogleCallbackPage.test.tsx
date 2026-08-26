@@ -5,6 +5,7 @@ import { AUTHENTICATED_RESPONSE, jsonResponse, problemResponse } from "../../tes
 import { renderAuth } from "../../test/renderAuth";
 import { loadMfaChallenge } from "./authStorage";
 import { GoogleCallbackPage } from "./GoogleCallbackPage";
+import { MobileHandoffProvider } from "./mobileHandoff";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,10 +29,15 @@ describe("GoogleCallbackPage", () => {
       path: "/auth/google/callback?code=auth-code&state=oauth-state"
     });
 
-    expect(screen.getByText("Entrando com o Google...")).toHaveAttribute("role", "status");
+    const progressHeading = screen.getByRole("heading", { name: "Confirmando seu acesso" });
+    expect(progressHeading.closest('[role="status"]')).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("list", { name: "Progresso do acesso" })).toHaveTextContent(
+      "GoogleVerificaçãoRentivo"
+    );
+    expect(await screen.findByRole("heading", { name: "Acesso confirmado" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/"));
     expect(callbackCalls).toBe(1);
-    expect(document.title).toBe("Entrar com Google - Rentivo");
+    expect(document.title).toBe("Acesso confirmado - Rentivo");
   });
 
   it("stores the returned MFA challenge and opens verification", async () => {
@@ -86,15 +92,55 @@ describe("GoogleCallbackPage", () => {
   it("uses the same failure path for an unavailable callback request", async () => {
     renderAuth(<GoogleCallbackPage />, {
       handlers: {
-        "/api/v1/auth/google/callback?code=auth-code": () => {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => {
           throw new TypeError("network unavailable");
         }
       },
-      path: "/auth/google/callback?code=auth-code"
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
     });
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent("/login?error=google_auth_failed")
+    );
+  });
+
+  it("does not send an incomplete callback and gives the user safe recovery actions", () => {
+    const { fetchMock } = renderAuth(<GoogleCallbackPage />, {
+      path: "/auth/google/callback?code=auth-code"
+    });
+
+    expect(screen.getByRole("heading", { name: "Este retorno não é válido" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Inicie o acesso com Google novamente para criar uma conexão segura."
+    );
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(screen.getByRole("link", { name: "Tentar com Google novamente" })).toHaveAttribute(
+      "href",
+      "/api/v1/auth/google/start"
+    );
+    expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
+      "href",
+      "/login?error=google_auth_failed"
+    );
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/auth/google/callback"))
+    ).toBe(false);
+  });
+
+  it("keeps Google recovery hidden and threads return state inside the mobile handoff", () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <GoogleCallbackPage />
+      </MobileHandoffProvider>,
+      { path: "/auth/google/callback?mobile_state=native%2Fstate" }
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Tentar com Google novamente" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Voltar para entrar" })).toHaveAttribute(
+      "href",
+      "/login?error=google_auth_failed&mobile_state=native%2Fstate"
     );
   });
 });
