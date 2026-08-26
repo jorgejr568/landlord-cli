@@ -514,6 +514,8 @@ it("presents invoice editing as one workspace with a live summary and disclosed 
   expect(actions).toHaveAttribute("aria-expanded", "false");
   await user.click(actions);
   expect(actions).toHaveAttribute("aria-expanded", "true");
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(actions).toHaveAttribute("aria-expanded", "true");
   fireEvent.keyDown(document, { key: "Escape" });
   expect(actions).toHaveAttribute("aria-expanded", "false");
   expect(actions).toHaveFocus();
@@ -524,6 +526,36 @@ it("presents invoice editing as one workspace with a live summary and disclosed 
   await user.click(receipts);
   expect(receipts).toHaveAttribute("aria-expanded", "true");
   expect(within(workspace).getByLabelText("Anexar comprovantes")).toBeVisible();
+});
+
+it("shows only the invoice maintenance actions allowed by capabilities", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_delete: false, can_regenerate: true }
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await user.click(await screen.findByRole("button", { name: "Ações da fatura" }));
+  expect(screen.getByRole("button", { name: "Regenerar PDF" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Excluir fatura" })).not.toBeInTheDocument();
+
+  cleanup();
+  installFetch({
+    ...detailHandlers(),
+    "GET /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => jsonResponse({
+      ...bill,
+      capabilities: { ...capabilities, can_delete: true, can_regenerate: false }
+    })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await user.click(await screen.findByRole("button", { name: "Ações da fatura" }));
+  expect(screen.queryByRole("button", { name: "Regenerar PDF" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Excluir fatura" })).toBeVisible();
 });
 
 it("sends selected recipients and applies templates without requesting a preview", async () => {

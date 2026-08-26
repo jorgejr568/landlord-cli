@@ -141,9 +141,10 @@ async function sameOriginFetch(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const canHaveBody = request.method !== "GET" && request.method !== "HEAD";
   const sourceBody = (request as SameOriginRequest).sourceBody;
-  const body = !canHaveBody
-    ? undefined
-    : sourceBody ?? await request.clone().arrayBuffer();
+  let body: BodyInit | undefined;
+  if (canHaveBody) {
+    body = sourceBody ?? await request.clone().arrayBuffer();
+  }
   const headers = new Headers(request.headers);
   if (body instanceof FormData) {
     headers.delete("Content-Type");

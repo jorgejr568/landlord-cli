@@ -111,6 +111,21 @@ it("presents pending invitations as a decision-ready workspace", async () => {
   expect(within(workspace).getAllByText("Aguardando resposta")).toHaveLength(2);
 });
 
+it("labels missing and malformed invitation dates without exposing invalid timestamps", async () => {
+  installFetch({
+    "GET /api/v1/invites": () => jsonResponse({
+      items: [
+        { ...acmeInvite, created_at: null },
+        { ...betaInvite, created_at: "not-a-date" }
+      ]
+    })
+  });
+  renderPage();
+
+  expect(await screen.findAllByText("Data do convite não informada")).toHaveLength(2);
+  expect(screen.queryByText(/Invalid Date/i)).not.toBeInTheDocument();
+});
+
 it("renders loading, retry, and the exact empty new-account invite state", async () => {
   const user = userEvent.setup();
   let attempts = 0;

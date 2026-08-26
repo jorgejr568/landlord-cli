@@ -212,10 +212,28 @@ it("presents one compact workspace with deep-linked operation, team and access v
 
   const actions = within(workspace).getByRole("button", { name: "Ações da organização" });
   await user.click(actions);
-  expect(within(workspace).getByRole("link", { name: "Editar organização" })).toHaveAttribute("href", "/organizations/org-public-uuid/edit");
-  expect(within(workspace).getByRole("link", { name: "Tema da organização" })).toHaveAttribute("href", "/themes/organization/org-public-uuid");
+  const editLink = within(workspace).getByRole("link", { name: "Editar organização" });
+  const themeLink = within(workspace).getByRole("link", { name: "Tema da organização" });
+  expect(editLink).toHaveAttribute("href", "/organizations/org-public-uuid/edit");
+  expect(themeLink).toHaveAttribute("href", "/themes/organization/org-public-uuid");
+  await user.keyboard("x");
+  expect(actions).toHaveAttribute("aria-expanded", "true");
   await user.keyboard("{Escape}");
   expect(actions).toHaveFocus();
+
+  await user.click(actions);
+  fireEvent.click(document.getElementById("organization-actions-menu")!);
+  expect(actions).toHaveAttribute("aria-expanded", "true");
+  editLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  fireEvent.click(editLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  themeLink.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  fireEvent.click(themeLink);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
+  await user.click(actions);
+  fireEvent.click(document.body);
+  expect(actions).toHaveAttribute("aria-expanded", "false");
 
   const teamTab = within(workspace).getByRole("tab", { name: "Equipe 3" });
   await user.click(teamTab);
@@ -232,6 +250,17 @@ it("presents one compact workspace with deep-linked operation, team and access v
   expect(screen.getByTestId("location")).toHaveTextContent("?view=access");
   expect(within(workspace).getByRole("heading", { name: "Segurança da organização" })).toBeVisible();
   expect(within(workspace).getByRole("button", { name: "Excluir organização" })).toBeVisible();
+
+  await user.keyboard("{Home}");
+  const billingsTab = within(workspace).getByRole("tab", { name: "Cobranças 3" });
+  expect(billingsTab).toHaveFocus();
+  expect(billingsTab).toHaveAttribute("aria-selected", "true");
+  await user.keyboard("x");
+  expect(billingsTab).toHaveAttribute("aria-selected", "true");
+  await user.keyboard("{End}");
+  expect(accessTab).toHaveFocus();
+  await user.keyboard("{ArrowLeft}");
+  expect(teamTab).toHaveFocus();
 });
 
 it("renders complete organization and billing payloads inside the workspace", async () => {

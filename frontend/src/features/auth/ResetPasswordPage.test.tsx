@@ -112,6 +112,25 @@ describe("ResetPasswordPage", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(
       false
     );
+
+    await user.clear(screen.getByLabelText("Confirmar nova senha"));
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "password-one");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("rejects an invalid confirmation before sending the reset request", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<ResetPasswordPage />, {
+      path: "/reset-password?token=reset-token"
+    });
+
+    await user.type(await screen.findByLabelText("Nova senha"), "new-password");
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Redefinir senha" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(screen.getByLabelText("Confirmar nova senha")).toHaveFocus();
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/password/reset")).toBe(false);
   });
 
   it("keeps an over-72-byte multibyte password local", async () => {

@@ -89,6 +89,30 @@ it("handles long names and explains restricted access without hiding the destina
   expect(screen.getByText("MFA opcional")).toBeVisible();
 });
 
+it("distinguishes billing managers in a multi-organization directory", async () => {
+  installList([
+    {
+      ...organization,
+      capabilities: {
+        ...organization.capabilities,
+        can_manage: false
+      },
+      current_role: "manager",
+      name: "Ribeiro Operações",
+      uuid: "org-manager"
+    },
+    {
+      ...organization,
+      name: "Ribeiro Administração",
+      uuid: "org-admin"
+    }
+  ]);
+
+  expect(await screen.findByText("2 organizações")).toBeVisible();
+  expect(screen.getByText("Gerencia cobranças")).toBeVisible();
+  expect(screen.getByText("Gerente")).toBeVisible();
+});
+
 it("retries API and network failures", async () => {
   const user = userEvent.setup();
   let attempts = 0;

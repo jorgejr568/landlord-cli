@@ -519,6 +519,22 @@ it("honors read-only capabilities while retaining preview access", async () => {
   expect(screen.queryByRole("button", { name: "Usar Padrão" })).not.toBeInTheDocument();
 });
 
+it("makes a read-only personal theme explicit without blocking preview", async () => {
+  installFetch({
+    "GET /api/v1/themes/user": () => jsonResponse({
+      ...defaultTheme,
+      capabilities: { can_edit: false, can_reset: false }
+    }),
+    "POST /api/v1/themes/preview": () => pdfResponse()
+  });
+
+  renderPage(<ThemePage target="user" />);
+
+  expect(await screen.findByText("Você tem acesso somente para consulta.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+  expect(await screen.findByTitle("Pré-visualização do tema")).toBeVisible();
+});
+
 it("previews color changes locally without a request, warns on weak contrast, and supports a manual retry", async () => {
   let previewCalls = 0;
   installFetch({
@@ -1123,6 +1139,9 @@ it.each(targetCases)("resets and refetches the $target target", async ({
     ? "Remover personalização da cobrança?"
     : "Restaurar o tema padrão?";
   const resetAcceptName = target === "billing" ? "Remover personalização" : "Usar padrão";
+  if (target === "user") {
+    await screen.findByTitle("Pré-visualização do tema");
+  }
   await user.click(await screen.findByRole("button", { name: resetTriggerName }));
   const resetDialog = screen.getByRole("dialog", { name: resetDialogName });
   expect(resetDialog).toBeVisible();
@@ -1134,6 +1153,9 @@ it.each(targetCases)("resets and refetches the $target target", async ({
   expect(getCalls).toBe(2);
   if (target === "billing") {
     expect(screen.getAllByText("Padrão Rentivo")).toHaveLength(2);
+  }
+  if (target === "user") {
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:theme-preview-1");
   }
   expect(screen.queryByRole("button", { name: resetTriggerName })).not.toBeInTheDocument();
   expect(analytics.pushAnalyticsFromResponse).not.toHaveBeenCalled();

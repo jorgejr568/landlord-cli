@@ -272,9 +272,6 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
   }, []);
 
   const schedulePreview = useCallback((nextValues: ThemeValues) => {
-    if (previewTimer.current !== null) {
-      clearTimeout(previewTimer.current);
-    }
     previewTimer.current = setTimeout(() => {
       previewTimer.current = null;
       void requestPreview(nextValues);
@@ -785,7 +782,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
             {previewUrl ? (
               <iframe
                 className="theme-pdf-frame"
-                src={previewUrl || undefined}
+                src={previewUrl}
                 title="Pré-visualização do tema"
               />
             ) : null}

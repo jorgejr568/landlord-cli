@@ -36,7 +36,7 @@ function requestCallback(queryString: string) {
         query: {
           code: callback.code || undefined,
           error: callback.error || undefined,
-          state: callback.state || undefined
+          state: callback.state
         }
       }
     })

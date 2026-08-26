@@ -57,6 +57,18 @@ it("presents the account protections as one navigable security workspace", async
   expect(screen.getByText("Nenhuma chave de acesso")).toBeVisible();
 });
 
+it("summarizes multiple registered passkeys with the plural label", async () => {
+  renderPage({}, {
+    ...summary,
+    passkeys: [
+      { created_at: "2026-07-17T10:00:00Z", last_used_at: null, name: "Notebook", uuid: "pk-notebook" },
+      { created_at: "2026-07-18T10:00:00Z", last_used_at: null, name: "Celular", uuid: "pk-phone" }
+    ]
+  });
+
+  expect(await screen.findByText("2 chaves de acesso")).toBeVisible();
+});
+
 it("exposes password-manager metadata on every security credential", async () => {
   renderPage();
 

@@ -1,10 +1,11 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { jsonResponse, problemResponse } from "../../test/auth";
+import { AUTH_CONFIG, jsonResponse, problemResponse } from "../../test/auth";
 import { renderAuth } from "../../test/renderAuth";
 import { ForgotPasswordPage } from "./ForgotPasswordPage";
+import { MobileHandoffProvider } from "./mobileHandoff";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,6 +49,26 @@ describe("ForgotPasswordPage", () => {
     expect(email).not.toHaveFocus();
   });
 
+  it("uses app-safe chrome throughout a mobile recovery handoff", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <ForgotPasswordPage />
+      </MobileHandoffProvider>,
+      { path: "/forgot-password?mobile_state=native-state" }
+    );
+
+    expect(await screen.findByRole("heading", { name: "Recupere seu acesso" })).toBeVisible();
+    expect(document.querySelector(".forgot-password-page__brand--static")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Ir para a página inicial do Rentivo" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Links institucionais" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Voltar para o login" })).toHaveAttribute(
+      "href",
+      "/login?mobile_state=native-state"
+    );
+  });
+
   it("announces the pending request and prevents a duplicate submission", async () => {
     const user = userEvent.setup();
     let resolveRequest!: (response: Response) => void;
@@ -67,6 +88,7 @@ describe("ForgotPasswordPage", () => {
     const submit = screen.getByRole("button", { name: "Enviando link…" });
     expect(submit).toBeDisabled();
     expect(submit).toHaveAttribute("aria-busy", "true");
+    fireEvent.submit(submit.closest("form")!);
 
     resolveRequest(
       jsonResponse(
@@ -78,6 +100,26 @@ describe("ForgotPasswordPage", () => {
       )
     );
     expect(await screen.findByRole("heading", { name: "Confira sua caixa de entrada" })).toBeVisible();
+  });
+
+  it("recovers when authentication configuration becomes available on retry", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    renderAuth(<ForgotPasswordPage />, {
+      configHandler: () => {
+        attempts += 1;
+        return attempts === 1
+          ? new Response("unavailable", { status: 503 })
+          : jsonResponse(AUTH_CONFIG);
+      },
+      path: "/forgot-password"
+    });
+
+    expect(await screen.findByRole("heading", { name: "Recuperação indisponível" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByRole("heading", { name: "Recupere seu acesso" })).toBeVisible();
+    expect(attempts).toBe(2);
   });
 
   it("uses the generated contract and shows the same non-enumerating success state", async () => {

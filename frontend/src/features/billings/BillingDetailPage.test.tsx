@@ -245,6 +245,24 @@ it("renders configured personal PIX fallbacks, first-invoice action, partial ove
   expect(screen.getByText("Recebedor").parentElement).toHaveTextContent("Não informado");
 });
 
+it("uses singular and plural labels independently in the yearly invoice flow", async () => {
+  installFetch((key) => dataResponse(key, {
+    ...billing,
+    stats: {
+      ...stats,
+      overdue_count: 2,
+      paid_count: 2,
+      pending_count: 1
+    }
+  }));
+  renderPage();
+
+  const flow = await screen.findByRole("group", { name: "Fluxo das faturas no ano" });
+  expect(within(flow).getByText("2 pagas")).toBeVisible();
+  expect(within(flow).getByText("1 aberta")).toBeVisible();
+  expect(within(flow).getByText("2 vencidas")).toBeVisible();
+});
+
 it("exports, creates and removes centavo expenses, forwards analytics and refreshes domain data", async () => {
   const user = userEvent.setup();
   let billingGets = 0;

@@ -99,7 +99,7 @@ export function OrganizationForm({
     setLocalFieldErrors({});
     setIgnoredServerFields((current) => [...new Set([...current, "pix_key", "pix_merchant_name", "pix_merchant_city"])]);
   };
-  const describedBy = (key: keyof OrganizationValues, hintId?: string) => [allFieldErrors[key] ? `${key}-error` : "", hintId ?? ""].filter(Boolean).join(" ") || undefined;
+  const describedBy = (key: keyof OrganizationValues, hintId: string) => [allFieldErrors[key] ? `${key}-error` : "", hintId].filter(Boolean).join(" ");
   const inputClass = createMode ? "input" : "field-input";
   const labelClass = createMode ? "field__label" : "field-label";
   const cancelUrl = createMode ? "/organizations/" : `/organizations/${organizationUuid}`;

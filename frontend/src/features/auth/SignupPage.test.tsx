@@ -2,8 +2,9 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AUTHENTICATED_RESPONSE, jsonResponse, problemResponse } from "../../test/auth";
+import { AUTH_CONFIG, AUTHENTICATED_RESPONSE, jsonResponse, problemResponse } from "../../test/auth";
 import { renderAuth } from "../../test/renderAuth";
+import { MobileHandoffProvider } from "./mobileHandoff";
 import { SignupPage } from "./SignupPage";
 
 afterEach(() => {
@@ -87,6 +88,20 @@ describe("SignupPage", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
   });
 
+  it("rejects an invalid confirmation before calling the signup API", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderAuth(<SignupPage />, { path: "/signup" });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.type(screen.getByLabelText("Confirmar Senha"), "á".repeat(37));
+    await user.click(screen.getByRole("button", { name: "Criar Conta" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(screen.getByLabelText("Confirmar Senha")).toHaveFocus();
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
+  });
+
   it("keeps an over-72-byte multibyte password local", async () => {
     const user = userEvent.setup();
     const { fetchMock } = renderAuth(<SignupPage />, { path: "/signup" });
@@ -149,6 +164,24 @@ describe("SignupPage", () => {
     expect(screen.getByTestId("location")).not.toHaveTextContent("/billings");
   });
 
+  it("uses app-safe chrome throughout a mobile signup handoff", async () => {
+    renderAuth(
+      <MobileHandoffProvider>
+        <SignupPage />
+      </MobileHandoffProvider>,
+      { path: "/signup?mobile_state=native-state" }
+    );
+
+    expect(await screen.findByRole("heading", { name: "Criar Conta" })).toBeVisible();
+    expect(screen.getByLabelText("Rentivo")).toHaveClass("signup-page__brand--static");
+    expect(screen.queryByRole("link", { name: "Ir para a página inicial do Rentivo" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Links institucionais" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Continuar com Google" }))
+      .not.toBeInTheDocument();
+  });
+
   it("returns an existing session to the mobile authorization page", async () => {
     renderAuth(<SignupPage />, {
       path: "/signup?mobile_state=native-state",
@@ -201,6 +234,86 @@ describe("SignupPage", () => {
       "E-mail já cadastrado."
     );
     expect(reset).toHaveBeenCalledWith("widget");
+
+    await user.type(screen.getByLabelText("E-mail"), ".br");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uses a field-level email error even when the API code is generic", async () => {
+    const user = userEvent.setup();
+    renderAuth(<SignupPage />, {
+      handlers: {
+        "/api/v1/auth/signup": () =>
+          problemResponse({
+            code: "validation_failed",
+            detail: "Revise os campos.",
+            fields: { email: "Use um endereço de e-mail válido." },
+            request_id: "request-id",
+            status: 422,
+            title: "Dados inválidos",
+            type: "https://rentivo.com.br/problems/validation_failed"
+          })
+      },
+      path: "/signup"
+    });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Criar Conta" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Use um endereço de e-mail válido."
+    );
+    expect(screen.getByLabelText("E-mail")).toHaveFocus();
+  });
+
+  it("shows a form-level API error that is unrelated to the email field", async () => {
+    const user = userEvent.setup();
+    renderAuth(<SignupPage />, {
+      handlers: {
+        "/api/v1/auth/signup": () =>
+          problemResponse({
+            code: "turnstile_failed",
+            detail: "Verificação de segurança falhou. Tente novamente.",
+            fields: {},
+            request_id: "request-id",
+            status: 400,
+            title: "Requisição inválida",
+            type: "https://rentivo.com.br/problems/turnstile_failed"
+          })
+      },
+      path: "/signup"
+    });
+
+    await user.type(await screen.findByLabelText("E-mail"), "user@example.com");
+    await user.type(screen.getByLabelText("Senha"), "correct-password");
+    await user.type(screen.getByLabelText("Confirmar Senha"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Criar Conta" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Verificação de segurança falhou. Tente novamente."
+    );
+  });
+
+  it("recovers when signup configuration becomes available on retry", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    renderAuth(<SignupPage />, {
+      configHandler: () => {
+        attempts += 1;
+        return attempts === 1
+          ? new Response("unavailable", { status: 503 })
+          : jsonResponse(AUTH_CONFIG);
+      },
+      path: "/signup"
+    });
+
+    expect(await screen.findByText("Não foi possível preparar o cadastro agora.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByLabelText("E-mail")).toBeVisible();
+    expect(attempts).toBe(2);
   });
 
   it("shows the generic request error when no API response is available", async () => {

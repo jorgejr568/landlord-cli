@@ -148,6 +148,138 @@ describe("typed API client", () => {
       .toBe("retry-token");
   });
 
+  it("does not send a protected mutation when the preflight CSRF refresh fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: "service_unavailable",
+        detail: "Proteção indisponível.",
+        status: 503
+      }), {
+        headers: { "Content-Type": "application/problem+json" },
+        status: 503
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setCsrfToken("stale-csrf-token");
+
+    await expect(
+      apiRequest(
+        apiClient.POST("/api/v1/security/totp/disable", {
+          body: { password: "password" }
+        })
+      )
+    ).rejects.toMatchObject({
+      code: "service_unavailable",
+      message: "Proteção indisponível.",
+      status: 503
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/auth/csrf");
+  });
+
+  it("rejects a protected mutation when the CSRF refresh payload is malformed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("not-json", {
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setCsrfToken("stale-csrf-token");
+
+    await expect(
+      apiRequest(
+        apiClient.POST("/api/v1/security/totp/disable", {
+          body: { password: "password" }
+        })
+      )
+    ).rejects.toMatchObject({
+      code: "csrf_refresh_failed",
+      message: "Não foi possível atualizar a proteção do formulário. Tente novamente.",
+      status: 502
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a failed retry refresh after a CSRF rejection", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: "csrf_failed" }), {
+          headers: { "Content-Type": "application/problem+json" },
+          status: 403
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          code: "service_unavailable",
+          detail: "Proteção indisponível.",
+          status: 503
+        }), {
+          headers: { "Content-Type": "application/problem+json" },
+          status: 503
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest(
+        apiClient.POST("/api/v1/security/totp/disable", {
+          body: { password: "password" }
+        })
+      )
+    ).rejects.toMatchObject({ code: "service_unavailable", status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/auth/csrf");
+  });
+
+  it("does not retry an opaque forbidden response as a CSRF failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("not-json", { status: 403 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiRequest(
+        apiClient.POST("/api/v1/security/totp/disable", {
+          body: { password: "password" }
+        })
+      )
+    ).rejects.toMatchObject({ code: "request_failed", status: 403 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("shares one CSRF refresh across concurrent deletes", async () => {
+    let resolveRefresh!: (response: Response) => void;
+    const refresh = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      void _init;
+      if (String(input) === "/api/v1/auth/csrf") {
+        return refresh;
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setCsrfToken("stale-csrf-token");
+
+    const first = apiRequest(apiClient.DELETE("/api/v1/themes/user"));
+    const second = apiRequest(apiClient.DELETE("/api/v1/themes/user"));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    resolveRefresh(csrfResponse("shared-token"));
+    await Promise.all([first, second]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/v1/auth/csrf"))
+      .toHaveLength(1);
+    for (const [, init] of fetchMock.mock.calls.slice(1)) {
+      expect(init?.body).toBeInstanceOf(ArrayBuffer);
+      expect((init?.body as ArrayBuffer).byteLength).toBe(0);
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("shared-token");
+    }
+  });
+
   it("serializes query parameters without changing the API path", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ status: "authenticated" }), {

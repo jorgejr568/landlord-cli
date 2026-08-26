@@ -58,6 +58,26 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Organizações" })).toHaveClass("is-active");
   });
 
+  it("marks each account-menu destination as the current page", () => {
+    const view = render(
+      <MemoryRouter>
+        <AppShell currentPath="/invites/pending" currentUser={{ email: "user@example.com" }} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("link", { name: "Convites" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+
+    view.rerender(
+      <MemoryRouter>
+        <AppShell currentPath="/themes/user" currentUser={{ email: "user@example.com" }} />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole("link", { name: "Tema" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("closes navigation menus after client-side route changes", async () => {
     const user = userEvent.setup();
 

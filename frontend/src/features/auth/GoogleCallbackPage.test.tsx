@@ -104,6 +104,46 @@ describe("GoogleCallbackPage", () => {
     );
   });
 
+  it("ignores a callback response that arrives after the handoff page closes", async () => {
+    let resolveCallback!: (response: Response) => void;
+    const callback = new Promise<Response>((resolve) => {
+      resolveCallback = resolve;
+    });
+    const view = renderAuth(<GoogleCallbackPage />, {
+      handlers: {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => callback
+      },
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
+    });
+
+    expect(screen.getByRole("heading", { name: "Confirmando seu acesso" })).toBeVisible();
+    view.unmount();
+    resolveCallback(jsonResponse(AUTHENTICATED_RESPONSE));
+    await callback;
+
+    expect(sessionStorage.getItem("rentivo.auth.mfa_challenge")).toBeNull();
+  });
+
+  it("ignores a callback failure that arrives after the handoff page closes", async () => {
+    let rejectCallback!: (error: Error) => void;
+    const callback = new Promise<Response>((_resolve, reject) => {
+      rejectCallback = reject;
+    });
+    const view = renderAuth(<GoogleCallbackPage />, {
+      handlers: {
+        "/api/v1/auth/google/callback?code=auth-code&state=oauth-state": () => callback
+      },
+      path: "/auth/google/callback?code=auth-code&state=oauth-state"
+    });
+
+    expect(screen.getByRole("heading", { name: "Confirmando seu acesso" })).toBeVisible();
+    view.unmount();
+    rejectCallback(new TypeError("network unavailable"));
+    await callback.catch(() => undefined);
+
+    expect(sessionStorage.getItem("rentivo.auth.mfa_challenge")).toBeNull();
+  });
+
   it("does not send an incomplete callback and gives the user safe recovery actions", () => {
     const { fetchMock } = renderAuth(<GoogleCallbackPage />, {
       path: "/auth/google/callback?code=auth-code"

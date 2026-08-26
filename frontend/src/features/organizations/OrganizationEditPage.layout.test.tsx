@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -129,4 +129,15 @@ it("keeps the summary in sync with the unsaved draft", async () => {
   await user.type(screen.getByLabelText("Chave PIX"), "+5571999999999");
   expect(screen.getByText("Sem alterações pendentes")).toBeVisible();
   expect(screen.getByText("PIX configurado")).toBeVisible();
+});
+
+it("ignores supplementary inputs outside the persisted organization fields", async () => {
+  renderPage();
+
+  expect(await screen.findByText("Sem alterações pendentes")).toBeVisible();
+  const supplementaryInput = screen.getByLabelText("Nome da organização");
+  supplementaryInput.id = "organization-note";
+  fireEvent.change(supplementaryInput, { target: { value: "Nota local" } });
+
+  expect(screen.getByText("Sem alterações pendentes")).toBeVisible();
 });

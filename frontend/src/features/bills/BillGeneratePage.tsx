@@ -423,11 +423,11 @@ export function BillGeneratePage() {
             {billing.items.map((item) => (
               <li key={item.uuid}>
                 <span><strong>{item.description}</strong><small>{item.item_type === "fixed" ? "Fixo" : "Variável"}</small></span>
-                <output>{formatBrl(item.item_type === "fixed" ? item.amount : (itemValues.variables[item.uuid] ?? 0))}</output>
+                <output>{formatBrl(item.item_type === "fixed" ? item.amount : itemValues.variables[item.uuid])}</output>
               </li>
             ))}
             {itemValues.extras.map((extra) => (
-              <li key={extra.key}><span><strong>{extra.description}</strong><small>Extra</small></span><output>{formatBrl(extra.amount ?? 0)}</output></li>
+              <li key={extra.key}><span><strong>{extra.description}</strong><small>Extra</small></span><output>{formatBrl(extra.amount!)}</output></li>
             ))}
           </ul>
           <div className="bill-generate-review__grand-total"><span>Total da fatura</span><strong>{formatBrl(itemValues.total)}</strong></div>
