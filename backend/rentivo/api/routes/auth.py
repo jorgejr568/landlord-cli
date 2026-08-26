@@ -542,7 +542,10 @@ async def auth_config(services: RequestServices = Depends(get_services)) -> Auth
 
 
 @router.get("/csrf", response_model=CSRFResponse)
-async def csrf_token(principal: Principal = Depends(_login_principal)) -> JSONResponse:
+async def csrf_token(
+    _allow_mfa_setup: None = Depends(allow_mfa_setup),
+    principal: Principal = Depends(_login_principal),
+) -> JSONResponse:
     cookie_response = Response()
     token = issue_csrf_token(cookie_response, principal)
     response = JSONResponse({"csrf_token": token}, headers={"Cache-Control": "no-store"})
