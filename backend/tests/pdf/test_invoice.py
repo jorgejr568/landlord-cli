@@ -215,3 +215,124 @@ class TestInvoicePDF:
 
         assert notes_fragments
         assert all("  " not in fragment for fragment in notes_fragments)
+
+    def test_long_billing_name_expands_header_before_items_heading(self):
+        """Regression: a fixed-height metadata card let long names overlap the table heading."""
+        billing_name = " ".join(
+            [
+                "Condomínio Residencial Jardim das Palmeiras - Torre Ipê - Unidade 1204 - "
+                "Administração Patrimonial Ribeiro e Filhos"
+            ]
+            * 3
+        )
+        result = InvoicePDF().generate(self._make_bill(), billing_name)
+
+        fragments: list[tuple[str, float]] = []
+        page = pypdf.PdfReader(io.BytesIO(result)).pages[0]
+        page.extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+        billing_label = next(index for index, (text, _) in enumerate(fragments) if text == "COBRANÇA")
+        reference_label = next(index for index, (text, _) in enumerate(fragments) if text == "REFERÊNCIA")
+        items_heading_y = next(y for text, y in fragments if text == "ITENS DA FATURA")
+        billing_line_y = [y for _, y in fragments[billing_label + 1 : reference_label]]
+        billing_fragments = [text for text, _ in fragments[billing_label + 1 : reference_label]]
+
+        assert billing_line_y
+        assert min(billing_line_y) >= items_heading_y + 18
+        assert all("  " not in fragment for fragment in billing_fragments)
+
+    def test_expanded_header_moves_whole_table_to_a_labeled_continuation_page(self):
+        """A very tall metadata card must not leave an orphan table heading behind."""
+        billing_name = " ".join(
+            [
+                "Condomínio Residencial Jardim das Palmeiras - Torre Ipê - Unidade 1204 - "
+                "Administração Patrimonial Ribeiro e Filhos"
+            ]
+            * 6
+        )
+        line_item = BillLineItem(
+            description="Aluguel residencial",
+            amount=385000,
+            item_type=ItemType.FIXED,
+            sort_order=0,
+        )
+        result = InvoicePDF().generate(
+            self._make_bill(line_items=[line_item], total_amount=line_item.amount),
+            billing_name,
+        )
+
+        page_text = [page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages]
+
+        assert len(page_text) == 2
+        assert "ITENS DA FATURA" not in page_text[0]
+        assert "ITENS DA FATURA (CONTINUAÇÃO)" in page_text[1]
+        assert "Aluguel residencial" in page_text[1]
+        assert "TOTAL" in page_text[1]
+        assert all("Documento gerado automaticamente" in text for text in page_text)
+
+    def test_extraordinarily_tall_item_is_split_across_branded_table_pages(self):
+        """Regression: FPDF auto-break split one row's description, type, and amount into bare pages."""
+        phrase = (
+            "Consumo de água e esgoto conforme leitura individual da concessionária, incluindo rateio "
+            "das áreas comuns, ajustes retroativos, encargos operacionais e memória detalhada de cálculo "
+            "do período."
+        )
+        result = InvoicePDF().generate(
+            self._make_bill(
+                line_items=[
+                    BillLineItem(
+                        description=" ".join([phrase] * 8),
+                        amount=16892,
+                        item_type=ItemType.VARIABLE,
+                        sort_order=0,
+                    )
+                ],
+                total_amount=16892,
+            ),
+            "Apartamento Aurora",
+        )
+
+        page_text = [page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages]
+        type_pages = [index for index, text in enumerate(page_text) if "Variável" in text]
+
+        assert len(page_text) >= 2
+        assert all("rentivo" in text and "FATURA" in text and "ITENS DA FATURA" in text for text in page_text)
+        assert type_pages == [len(page_text) - 1]
+        assert "R$ 168,92" in page_text[type_pages[0]]
+        assert "TOTAL" in page_text[-1]
+
+    def test_final_tall_fragment_keeps_type_and_value_for_its_last_page(self):
+        """A row that fits alone still splits when the invoice summary needs the remaining room."""
+        item = BillLineItem(
+            description="Descrição extensa",
+            amount=16892,
+            item_type=ItemType.VARIABLE,
+            sort_order=0,
+        )
+        pending_rows = [(item, [f"Linha {index}" for index in range(5)], True)]
+
+        page_rows = InvoicePDF()._take_table_page(pending_rows, available_h=30)
+
+        assert page_rows == [(item, ["Linha 0", "Linha 1", "Linha 2", "Linha 3"], False)]
+        assert pending_rows == [(item, ["Linha 4"], True)]
+
+    def test_long_notes_repeat_observations_container_on_branded_pages(self):
+        """Regression: automatic note overflow created a page without invoice furniture."""
+        phrase = (
+            "Cobrança em atraso. O valor exibido não inclui encargos posteriores à emissão deste documento. "
+            "Entre em contato para confirmar o saldo atualizado."
+        )
+        result = InvoicePDF().generate(
+            self._make_bill(notes=" ".join([phrase] * 14)),
+            "Apartamento Aurora",
+        )
+
+        page_text = [page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages]
+
+        assert len(page_text) >= 2
+        assert all("rentivo" in text and "FATURA" in text and "OBSERVAÇÕES" in text for text in page_text)
+        assert all("Documento gerado automaticamente" in text for text in page_text)
+        assert sum(text.count("Cobrança") for text in page_text) == 14

@@ -78,8 +78,20 @@ class InvoicePDF:
             fields.append(("VENCIMENTO", due_date))
 
         widths = [page_w * 0.50, page_w * 0.25, page_w * 0.25] if due_date else [page_w * 0.62, page_w * 0.38]
+        pdf.set_font(doc.header_font, "B", 12)
+        value_lines = [
+            pdf.multi_cell(
+                field_w - 12,
+                5.5,
+                value,
+                align="L",
+                dry_run=True,
+                output="LINES",
+            )
+            for (_, value), field_w in zip(fields, widths, strict=True)
+        ]
         card_y = pdf.get_y()
-        card_h = 28.0
+        card_h = max(28.0, max(len(lines) for lines in value_lines) * 5.5 + 17.0)
         draw_box(doc, x, card_y, page_w, card_h, fill=c["text_contrast"])
 
         field_x = x
@@ -95,7 +107,7 @@ class InvoicePDF:
             pdf.set_xy(field_x + 7, card_y + 12)
             pdf.set_font(doc.header_font, "B", 12)
             pdf.set_text_color(*c["text_color"])
-            pdf.multi_cell(field_w - 12, 5.5, value, max_line_height=5.5)
+            pdf.multi_cell(field_w - 12, 5.5, value, align="L", max_line_height=5.5)
             field_x += field_w
 
         pdf.set_y(card_y + card_h + 15)
@@ -106,51 +118,97 @@ class InvoicePDF:
         total_rows = len(rows)
         content_bottom = pdf.h + _FOOTER_OFFSET - 7
         summary_h = self._summary_height(doc, bill.notes)
-        first_row = 0
         continuation = False
 
-        while True:
+        while rows:
+            heading_h = 11.0
+            header_h = 11.5
+            first_row_h = self._table_row_height(rows[0][1])
+            required_h = heading_h + header_h + first_row_h + summary_h
+            fresh_rows_h = content_bottom - (pdf.t_margin + 52.0 + heading_h + header_h)
+            first_row_fits_fresh = first_row_h + summary_h <= fresh_rows_h
+            if not continuation and first_row_fits_fresh and pdf.get_y() + required_h > content_bottom:
+                self._start_table_continuation(doc)
+                continuation = True
+
             self._draw_table_heading(doc, total_rows, continuation=continuation)
             table_y = pdf.get_y()
-            header_h = 11.5
-            remaining_h = header_h + sum(row_h for _, _, row_h in rows[first_row:])
+            available_h = content_bottom - table_y - header_h
+            remaining_h = sum(self._table_row_height(lines) for _, lines, _ in rows)
 
-            if table_y + remaining_h + summary_h <= content_bottom:
-                last_row = total_rows
-            else:
-                available_h = content_bottom - table_y - header_h
-                used_h = 0.0
-                last_row = first_row
-                while last_row < total_rows:
-                    row_h = rows[last_row][2]
-                    if last_row > first_row and used_h + row_h > available_h:
-                        break
-                    used_h += row_h
-                    last_row += 1
-
-            self._draw_table_group(doc, rows[first_row:last_row])
-            if last_row == total_rows:
+            if remaining_h + summary_h <= available_h:
+                self._draw_table_group(doc, rows)
                 return
 
-            self._draw_footer(doc)
-            pdf.add_page()
-            draw_document_header(
-                doc,
-                title="FATURA",
-                subtitle="Itens da cobrança - continuação",
-            )
-            first_row = last_row
+            page_rows = self._take_table_page(rows, available_h)
+            self._draw_table_group(doc, page_rows)
+            self._start_table_continuation(doc)
             continuation = True
+
+    def _start_table_continuation(self, doc: PdfDocument) -> None:
+        self._draw_footer(doc)
+        doc.pdf.add_page()
+        draw_document_header(
+            doc,
+            title="FATURA",
+            subtitle="Itens da cobrança - continuação",
+        )
+
+    def _take_table_page(
+        self,
+        rows: list[tuple[BillLineItem, list[str], bool]],
+        available_h: float,
+    ) -> list[tuple[BillLineItem, list[str], bool]]:
+        page_rows: list[tuple[BillLineItem, list[str], bool]] = []
+        used_h = 0.0
+
+        while rows:
+            item, lines, show_values = rows[0]
+            row_h = self._table_row_height(lines)
+            room_h = available_h - used_h
+
+            if row_h <= room_h and len(rows) > 1:
+                page_rows.append(rows.pop(0))
+                used_h += row_h
+                continue
+
+            if row_h <= room_h:
+                # All content fits, but the caller already established that the
+                # summary does not. The page preflight moves ordinary final rows
+                # to a continuation page first, so this is an over-tall row: keep
+                # its final line for the fragment that owns type and value.
+                max_lines = len(lines) - 1
+                page_rows.append((item, lines[:max_lines], False))
+                rows[0] = (item, lines[max_lines:], show_values)
+                break
+
+            if page_rows:
+                break
+
+            # A non-fitting first row has at least two lines: one-line rows use
+            # the 11.5mm minimum height and fit the page budget. Keep at least
+            # one line for the final fragment, where type and value are drawn.
+            max_lines = min(len(lines) - 1, max(1, int((room_h - 5) // 5)))
+
+            page_rows.append((item, lines[:max_lines], False))
+            rows[0] = (item, lines[max_lines:], show_values)
+            break
+
+        return page_rows
+
+    @staticmethod
+    def _table_row_height(lines: list[str]) -> float:
+        return max(11.5, len(lines) * 5 + 5)
 
     def _measure_table_rows(
         self,
         doc: PdfDocument,
         items: list[BillLineItem],
-    ) -> list[tuple[BillLineItem, list[str], float]]:
+    ) -> list[tuple[BillLineItem, list[str], bool]]:
         pdf = doc.pdf
         description_w = doc.page_w * 0.50 - 10
         pdf.set_font(doc.text_font, "", 9.5)
-        rows: list[tuple[BillLineItem, list[str], float]] = []
+        rows: list[tuple[BillLineItem, list[str], bool]] = []
         for item in items:
             lines = pdf.multi_cell(
                 description_w,
@@ -160,7 +218,7 @@ class InvoicePDF:
                 dry_run=True,
                 output="LINES",
             )
-            rows.append((item, lines, max(11.5, len(lines) * 5 + 5)))
+            rows.append((item, lines, True))
         return rows
 
     def _draw_table_heading(self, doc: PdfDocument, item_count: int, *, continuation: bool) -> None:
@@ -180,7 +238,7 @@ class InvoicePDF:
     def _draw_table_group(
         self,
         doc: PdfDocument,
-        rows: list[tuple[BillLineItem, list[str], float]],
+        rows: list[tuple[BillLineItem, list[str], bool]],
     ) -> None:
         pdf = doc.pdf
         c = doc.colors
@@ -191,7 +249,7 @@ class InvoicePDF:
         header_h = 11.5
         table_x = pdf.l_margin
         table_y = pdf.get_y()
-        table_h = header_h + sum(row_h for _, _, row_h in rows)
+        table_h = header_h + sum(self._table_row_height(lines) for _, lines, _ in rows)
 
         draw_box(doc, table_x, table_y, page_w, table_h, fill=c["text_contrast"])
         pdf.set_fill_color(*c["primary_light"])
@@ -204,7 +262,8 @@ class InvoicePDF:
         pdf.cell(col_amount, header_h, "VALOR  ", align="R")
 
         row_y = table_y + header_h
-        for item, description_lines, row_h in rows:
+        for item, description_lines, show_values in rows:
+            row_h = self._table_row_height(description_lines)
             pdf.set_draw_color(*c["border_color"])
             pdf.set_line_width(0.25)
             pdf.line(table_x + 4, row_y, table_x + page_w - 4, row_y)
@@ -213,14 +272,21 @@ class InvoicePDF:
             pdf.set_xy(table_x + 5, row_y + (row_h - text_h) / 2)
             pdf.set_font(doc.text_font, "", 9.5)
             pdf.set_text_color(*c["text_color"])
-            pdf.multi_cell(col_desc - 10, 5, item.description, align="L", max_line_height=5)
+            pdf.multi_cell(
+                col_desc - 10,
+                5,
+                "\n".join(description_lines),
+                align="L",
+                max_line_height=5,
+            )
 
-            pdf.set_xy(table_x + col_desc, row_y)
-            pdf.set_font(doc.text_font, "", 8.5)
-            pdf.cell(col_type, row_h, TYPE_LABELS.get(item.item_type, item.item_type), align="C")
-            pdf.set_xy(table_x + col_desc + col_type, row_y)
-            pdf.set_font(doc.text_font_sb, "", 9.5)
-            pdf.cell(col_amount, row_h, f"{format_brl(item.amount)}  ", align="R")
+            if show_values:
+                pdf.set_xy(table_x + col_desc, row_y)
+                pdf.set_font(doc.text_font, "", 8.5)
+                pdf.cell(col_type, row_h, TYPE_LABELS.get(item.item_type, item.item_type), align="C")
+                pdf.set_xy(table_x + col_desc + col_type, row_y)
+                pdf.set_font(doc.text_font_sb, "", 9.5)
+                pdf.cell(col_amount, row_h, f"{format_brl(item.amount)}  ", align="R")
             row_y += row_h
 
         pdf.set_y(table_y + table_h + 5)
@@ -228,7 +294,9 @@ class InvoicePDF:
     def _summary_height(self, doc: PdfDocument, notes: str) -> float:
         height = 25.0
         if notes:
-            height += 22.0 + self._measure_notes_height(doc, notes)
+            # Reserve a useful first observations panel while allowing very
+            # long notes to continue explicitly on branded pages.
+            height += 22.0 + min(44.0, self._measure_notes_height(doc, notes))
         return height
 
     def _draw_total(self, doc: PdfDocument, total_amount: int) -> None:
@@ -252,29 +320,60 @@ class InvoicePDF:
         pdf = doc.pdf
         c = doc.colors
         page_w = doc.page_w
-        pdf.ln(12)
+        lines = self._measure_notes_lines(doc, notes)
+        continuation = False
 
-        pdf.set_font(doc.header_font, "B", 11)
-        pdf.set_text_color(*c["text_color"])
-        pdf.cell(0, 7, "OBSERVA\u00c7ÕES", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(3)
+        while lines:
+            pdf.ln(4 if continuation else 12)
+            pdf.set_font(doc.header_font, "B", 11)
+            pdf.set_text_color(*c["text_color"])
+            heading = "OBSERVAÇÕES (CONTINUAÇÃO)" if continuation else "OBSERVAÇÕES"
+            pdf.cell(0, 7, heading, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
 
-        x = pdf.l_margin
-        y = pdf.get_y()
+            x = pdf.l_margin
+            y = pdf.get_y()
+            content_bottom = pdf.h + _FOOTER_OFFSET - 7
+            available_h = content_bottom - y
+            # _summary_height reserves at least one notes row on the invoice;
+            # continuation pages start directly below the shared masthead.
+            max_lines = max(1, int((available_h - 10) // 5.5))
 
-        notes_h = self._measure_notes_height(doc, notes)
-        draw_box(doc, x, y, page_w, notes_h, fill=c["primary_light"], shadow=False)
-        pdf.set_xy(x + 8, y + 5)
-        pdf.set_text_color(*c["text_color"])
-        pdf.set_font(doc.text_font, "", 9.5)
-        pdf.multi_cell(page_w - 16, 5.5, notes, align="L")
-        pdf.set_y(y + notes_h)
+            page_lines = lines[:max_lines]
+            lines = lines[max_lines:]
+            notes_h = max(20.0, len(page_lines) * 5.5 + 10)
+            draw_box(doc, x, y, page_w, notes_h, fill=c["primary_light"], shadow=False)
+            pdf.set_xy(x + 8, y + 5)
+            pdf.set_text_color(*c["text_color"])
+            pdf.set_font(doc.text_font, "", 9.5)
+            pdf.multi_cell(page_w - 16, 5.5, "\n".join(page_lines), align="L")
+            pdf.set_y(y + notes_h)
+
+            if lines:
+                self._draw_footer(doc)
+                pdf.add_page()
+                draw_document_header(
+                    doc,
+                    title="FATURA",
+                    subtitle="Observações - continuação",
+                )
+                continuation = True
 
     def _measure_notes_height(self, doc: PdfDocument, notes: str) -> float:
+        return max(20.0, len(self._measure_notes_lines(doc, notes)) * 5.5 + 10)
+
+    @staticmethod
+    def _measure_notes_lines(doc: PdfDocument, notes: str) -> list[str]:
         pdf = doc.pdf
         pdf.set_font(doc.text_font, "", 9.5)
-        lines = pdf.multi_cell(doc.page_w - 16, 5.5, notes, align="L", dry_run=True, output="LINES")
-        return max(20.0, len(lines) * 5.5 + 10)
+        return pdf.multi_cell(
+            doc.page_w - 16,
+            5.5,
+            notes,
+            align="L",
+            dry_run=True,
+            output="LINES",
+        )
 
     def _draw_pix_page(
         self,
