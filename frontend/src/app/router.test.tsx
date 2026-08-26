@@ -67,7 +67,7 @@ it.each([
 
 it.each([
   ["/privacy", "Política de Privacidade", 1],
-  ["/terms", "Termos de Uso", 2]
+  ["/terms", "Termos de Uso", 1]
 ])("renders the public legal page %s inside the public shell", async (path, heading, level) => {
   window.history.pushState({}, "", path);
   const router = createAppRouter();

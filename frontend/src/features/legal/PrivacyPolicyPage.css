@@ -16,7 +16,7 @@
   background: var(--surface);
   box-shadow: var(--sh-sm);
   color: var(--ink);
-  transform: translateY(-180%);
+  transform: translateY(calc(-100% - 3rem));
   transition: transform var(--t);
 }
 
