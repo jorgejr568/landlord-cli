@@ -111,36 +111,46 @@ def draw_document_header(
     subtitle: str,
     show_wordmark: bool = True,
 ) -> None:
-    """Draw the shared flat Rentivo masthead and advance below it."""
+    """Draw the shared document rail and advance below it.
+
+    The document identity leads; product branding is deliberately secondary.
+    This keeps invoices and receipts recognizable as one family without
+    turning their masthead into an application banner.
+    """
     pdf = doc.pdf
     c = doc.colors
     x = pdf.l_margin
     y = pdf.get_y()
-    header_h = 34.0 if show_wordmark else 29.0
+    header_h = 28.0
 
-    pdf.set_fill_color(*c["secondary_dark"])
-    pdf.rect(x, y, doc.page_w, header_h, style="F")
+    pdf.set_fill_color(*c["primary"])
+    pdf.rect(x, y + 1, 3.0, 19.0, style="F", round_corners=True, corner_radius=1.4)
 
-    if show_wordmark:
-        draw_wordmark(doc, x + 7, y + 6.5, inverted=True)
-        title_y = y + 18
-        subtitle_y = y + 20
-    else:
-        title_y = y + 8.5
-        subtitle_y = y + 11
+    pdf.set_xy(x + 8, y)
+    pdf.set_font(doc.header_font, "B", 21)
+    pdf.set_text_color(*c["text_color"])
+    pdf.cell(doc.page_w * 0.60, 10, title)
 
-    pdf.set_xy(x + 8, title_y)
-    pdf.set_font(doc.header_font, "B", 19)
-    pdf.set_text_color(*c["text_contrast"])
-    pdf.cell(doc.page_w * 0.5, 10, title)
-
-    subtitle_w = doc.page_w * 0.45
-    pdf.set_xy(x + doc.page_w * 0.48, subtitle_y)
-    pdf.set_font(doc.text_font, "", 8.5)
-    pdf.set_text_color(218, 220, 225)
+    subtitle_w = doc.page_w * (0.26 if show_wordmark else 0.42)
+    subtitle_x = x + doc.page_w - subtitle_w
+    pdf.set_xy(subtitle_x, y + 2.2)
+    pdf.set_font(doc.text_font, "", 8.2)
+    pdf.set_text_color(*c["muted_text"])
     pdf.cell(subtitle_w, 5, _fit_single_line(pdf, subtitle, subtitle_w), align="R")
 
-    pdf.set_y(y + header_h + 9)
+    if show_wordmark:
+        draw_wordmark(doc, x + doc.page_w - 36, y + 11.5)
+
+    rule_y = y + header_h - 2
+    pdf.set_draw_color(*c["border_color"])
+    pdf.set_line_width(0.55)
+    pdf.line(x, rule_y, x + doc.page_w, rule_y)
+    pdf.set_draw_color(*c["primary"])
+    pdf.set_line_width(1.8)
+    pdf.line(x, rule_y, x + 31, rule_y)
+    pdf.set_line_width(0.2)
+
+    pdf.set_y(y + header_h + 7)
 
 
 def new_document(theme: Theme | None, *, semibold: bool = True) -> PdfDocument:
@@ -163,8 +173,9 @@ def new_document(theme: Theme | None, *, semibold: bool = True) -> PdfDocument:
     tf_sb = tf + "SB"
 
     pdf = FPDF()
-    pdf.add_page()
+    pdf.set_margins(14, 14, 14)
     pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
 
     # Register header font
     pdf.add_font(hf, "", str(FONTS_DIR / header_info["regular"]))
@@ -213,8 +224,11 @@ def draw_footer(
     pdf.set_line_width(0.45)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.l_margin + doc.page_w, y)
+    pdf.set_draw_color(*c["primary"])
+    pdf.set_line_width(1.5)
+    pdf.line(pdf.l_margin, y, pdf.l_margin + 24, y)
     pdf.ln(gap)
     pdf.set_font(doc.text_font, "", 7)
     pdf.set_text_color(*c["muted_text"])
-    pdf.cell(doc.page_w * 0.5, 5, "rentivo  |  Documento gerado automaticamente")
+    pdf.cell(doc.page_w * 0.5, 5, "rentivo  ·  Documento gerado automaticamente")
     pdf.cell(doc.page_w * 0.5, 5, f"Página {pdf.page_no()}", align="R")

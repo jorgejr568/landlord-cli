@@ -116,6 +116,43 @@ class TestInvoicePDF:
         total_y = next(y for text, y in fragments if text == "TOTAL A PAGAR")
         assert final_item_y - total_y <= 48
 
+    def test_invoice_leads_with_the_amount_before_the_item_ledger(self):
+        """A customer should see the payment outcome before scanning its composition."""
+        result = InvoicePDF().generate(self._make_bill(), "Apartamento Aurora")
+        fragments: list[tuple[str, float]] = []
+        pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text(
+            visitor_text=lambda text, _cm, tm, _font, _size: (
+                fragments.append((text.strip(), tm[5])) if text.strip() else None
+            )
+        )
+
+        amount_y = next(y for text, y in fragments if text == "VALOR DA FATURA")
+        items_y = next(y for text, y in fragments if text == "ITENS DA FATURA")
+
+        assert amount_y > items_y
+
+    def test_pix_page_uses_the_same_payment_summary_language_as_the_invoice(self):
+        """The PIX page should feel like the payment step of the same document."""
+        pix_png = generate_pix_qrcode_png(
+            pix_key="test@pix.com",
+            merchant_name="Test",
+            merchant_city="City",
+            amount_centavos=295000,
+        )
+        result = InvoicePDF().generate(
+            self._make_bill(),
+            "Apartamento Aurora",
+            pix_qrcode_png=pix_png,
+            pix_key="test@pix.com",
+            pix_payload="00020126...",
+        )
+
+        payment_text = pypdf.PdfReader(io.BytesIO(result)).pages[1].extract_text()
+
+        assert "PAGUE COM PIX" in payment_text
+        assert "VALOR DA FATURA" in payment_text
+        assert "APONTE A CÂMERA PARA O QR CODE" in payment_text
+
     def test_generate_without_pix(self):
         pdf_gen = InvoicePDF()
         bill = self._make_bill()
