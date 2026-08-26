@@ -19,12 +19,54 @@ describe("SignupPage", () => {
     renderAuth(<SignupPage />, { path: "/signup" });
 
     expect(await screen.findByLabelText("E-mail")).toHaveFocus();
-    expect(screen.getByLabelText("Senha")).toHaveClass("field-input");
+    expect(screen.getByRole("heading", { level: 1, name: "Criar Conta" })).toBeVisible();
+    expect(screen.getByText("Sua cobrança começa organizada.")).toBeVisible();
+    expect(screen.getByText("Sua cobrança começa organizada.").tagName).toBe("P");
+    expect(screen.getByLabelText("E-mail")).toHaveAttribute("autocomplete", "email");
+    expect(screen.getByLabelText("E-mail")).toHaveAttribute("inputmode", "email");
+    expect(screen.getByLabelText("Senha")).toHaveClass("input");
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "new-password");
     expect(screen.getByLabelText("Confirmar Senha")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("Confirmar Senha")).toHaveAttribute(
+      "autocomplete",
+      "new-password"
+    );
     expect(screen.getByRole("button", { name: "Criar Conta" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Continuar com Google" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Termos de Uso" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(screen.getByRole("link", { name: "Política de Privacidade" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
     expect(screen.getByTestId("turnstile")).toBeVisible();
     expect(document.title).toBe("Criar Conta - Rentivo");
+  });
+
+  it("shows password guidance and lets each secret be reviewed", async () => {
+    const user = userEvent.setup();
+    renderAuth(<SignupPage />, { path: "/signup" });
+
+    const password = await screen.findByLabelText("Senha");
+    const confirmation = screen.getByLabelText("Confirmar Senha");
+    await user.type(password, "correct-password");
+
+    expect(screen.getByText("Senha preenchida")).toBeVisible();
+    expect(screen.getByText("Repita a mesma senha")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Mostrar senha" }));
+    expect(password).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: "Ocultar senha" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    await user.type(confirmation, "correct-password");
+    expect(screen.getByText("Senhas iguais")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Mostrar confirmação da senha" }));
+    expect(confirmation).toHaveAttribute("type", "text");
   });
 
   it("rejects mismatched passwords before calling the API", async () => {
@@ -37,7 +79,11 @@ describe("SignupPage", () => {
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("As senhas não coincidem.");
-    expect(screen.getByLabelText("E-mail")).toHaveFocus();
+    expect(screen.getByLabelText("Confirmar Senha")).toHaveFocus();
+    expect(screen.getByLabelText("Confirmar Senha")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Confirmar Senha")).toHaveAccessibleDescription(
+      "As senhas não coincidem."
+    );
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
   });
 
@@ -50,6 +96,8 @@ describe("SignupPage", () => {
     await user.click(screen.getByRole("button", { name: "Criar Conta" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Senha muito longa.");
+    expect(screen.getByLabelText("Senha")).toHaveFocus();
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("aria-invalid", "true");
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/auth/signup")).toBe(false);
   });
 
@@ -148,6 +196,10 @@ describe("SignupPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("E-mail já cadastrado.");
     expect(screen.getByLabelText("E-mail")).toHaveFocus();
+    expect(screen.getByLabelText("E-mail")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("E-mail")).toHaveAccessibleDescription(
+      "E-mail já cadastrado."
+    );
     expect(reset).toHaveBeenCalledWith("widget");
   });
 
