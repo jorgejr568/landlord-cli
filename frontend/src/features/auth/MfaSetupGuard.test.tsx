@@ -142,7 +142,7 @@ it("refreshes the bootstrap across the production setup, recovery, and Continue 
   await waitFor(() => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/auth/session")).toHaveLength(2);
   });
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Concluir e ir para Segurança" }));
   expect(await screen.findByRole("heading", { name: "Segurança" })).toBeVisible();
   expect(router.state.location.pathname).toBe("/security");
   expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/v1/auth/session")).toHaveLength(3);
@@ -173,7 +173,7 @@ it("keeps recovery codes through failed refreshes and retries before Continue", 
   expect(screen.queryByText("Não foi possível confirmar o código.")).not.toBeInTheDocument();
   expect(router.state.location.pathname).toBe("/security/recovery-codes");
 
-  await user.click(screen.getByRole("button", { name: "Continuar" }));
+  await user.click(screen.getByRole("button", { name: "Concluir e ir para Segurança" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível atualizar sua sessão.");
   expect(screen.getByText("code-one")).toBeVisible();
   expect(router.state.location.pathname).toBe("/security/recovery-codes");
