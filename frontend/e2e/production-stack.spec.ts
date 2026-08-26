@@ -198,6 +198,7 @@ test("exercises the replacement stack without network interception", async ({ ba
   await test.step("enforce organization MFA continuously and complete the exempt setup path", async () => {
     await page.goto(`/organizations/${organizationUuid}`);
     await expect(page.getByRole("heading", { level: 1, name: `Organização ${unique}` })).toBeVisible();
+    await page.getByRole("tab", { name: "Acesso" }).click();
     const policyResponsePromise = page.waitForResponse((response) =>
       response.request().method() === "PUT" &&
       new URL(response.url()).pathname === `/api/v1/organizations/${organizationUuid}/mfa-policy`
