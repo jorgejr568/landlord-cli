@@ -401,8 +401,8 @@ Todo texto atual não listado abaixo permanece verbatim. Identificadores de aces
 | Tipo incompatível/legado | `Esta chave não corresponde ao tipo selecionado.` |
 | Nome do recebedor vazio | `Informe o nome do recebedor.` |
 | Cidade do recebedor vazia | `Informe a cidade do recebedor.` |
-| Nome do recebedor longo | `O nome do recebedor deve ter até 25 caracteres.` |
-| Cidade do recebedor longa | `A cidade do recebedor deve ter até 15 caracteres.` |
+| Nome do recebedor longo | `O nome do recebedor deve ter até 255 caracteres.` |
+| Cidade do recebedor longa | `A cidade do recebedor deve ter até 255 caracteres.` |
 | Troca de tipo — título | `Alterar tipo de chave?` |
 | Troca de tipo — mensagem | `A chave digitada será apagada para evitar que seja interpretada no formato errado.` |
 | Troca de tipo — ações | `Alterar e apagar` / `Cancelar` |

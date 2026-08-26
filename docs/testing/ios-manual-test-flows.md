@@ -296,9 +296,8 @@ that inherit PIX (see [D1](#d1-create-a-billing)).
    nas cobranças pessoais.") with **Nome do recebedor** and **Cidade** fields, and a
    second card **"Herança"**: "↝ Cobranças pessoais sem PIX próprio herdam esta
    configuração."
-5. Fill both fields (e.g. `QA Primary` / `Sao Paulo` — note the city field force-uppercases
-   as you type, e.g. "São PAULO", which is expected EMV/PIX formatting, not a bug). Tap
-   **"Continuar"**.
+5. Fill both fields (e.g. `QA Primary` / `Sao Paulo` — the city field keeps what you type;
+   the backend uppercases it when it generates the EMV payload). Tap **"Continuar"**.
 6. Step 3/3, **"Revisão"** — card **"Conta"** (E-mail only; there is no Ambiente row),
    card **"PIX pessoal"** (Tipo da chave, masked Chave, Recebedor, Cidade). Tap **"Mostrar
    chave"** to inspect the normalized key, then **"Ocultar chave"**. Going back and
