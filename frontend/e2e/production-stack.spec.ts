@@ -242,8 +242,9 @@ test("exercises the replacement stack without network interception", async ({ ba
 
     await expect(page).toHaveURL(/\/security\/recovery-codes$/);
     await expect(page.getByRole("heading", { name: "Códigos de Recuperação", exact: true })).toBeVisible();
-    expect(await page.locator("#recovery-codes code").count()).toBeGreaterThan(0);
-    await page.getByRole("button", { name: "Continuar" }).click();
+    const recoveryCodeList = page.getByRole("list", { name: "Códigos de recuperação" });
+    await expect(recoveryCodeList.locator("code").first()).toBeVisible();
+    await page.getByRole("button", { name: "Concluir e ir para Segurança" }).click();
     await expect(page).toHaveURL(/\/security$/);
     await expect(page.getByRole("heading", { name: "Segurança" })).toBeVisible();
 
