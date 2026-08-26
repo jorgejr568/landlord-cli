@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { LandingMetadata } from "./LandingMetadata";
+import "../../styles/landing.css";
 
 function GitHubIcon({ size = 24 }: { size?: number }) {
   return (

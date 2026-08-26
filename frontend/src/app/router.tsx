@@ -6,37 +6,40 @@ import {
   useAuth
 } from "../features/auth/AuthProvider";
 import { LoadingState } from "../components/PageState";
-import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
-import { GoogleCallbackPage } from "../features/auth/GoogleCallbackPage";
-import { LoginPage } from "../features/auth/LoginPage";
-import { MobileLogoutPage } from "../features/auth/MobileLogoutPage";
 import { MfaSetupGuard } from "../features/auth/MfaSetupGuard";
-import { MfaVerifyPage } from "../features/auth/MfaVerifyPage";
 import { MobileHandoffProvider } from "../features/auth/mobileHandoff";
-import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
-import { SignupPage } from "../features/auth/SignupPage";
-import { BillingCreatePage } from "../features/billings/BillingCreatePage";
-import { BillingDetailPage } from "../features/billings/BillingDetailPage";
-import { BillingEditPage } from "../features/billings/BillingEditPage";
-import { BillingListPage } from "../features/billings/BillingListPage";
-import { BillDetailPage } from "../features/bills/BillDetailPage";
-import { BillEditPage } from "../features/bills/BillEditPage";
-import { BillGeneratePage } from "../features/bills/BillGeneratePage";
-import { CommunicationComposePage } from "../features/bills/CommunicationComposePage";
-import { InviteListPage } from "../features/invites/InviteListPage";
-import { PrivacyPolicyPage } from "../features/legal/PrivacyPolicyPage";
-import { TermsPage } from "../features/legal/TermsPage";
-import { NotFoundPage } from "../features/notFound/NotFoundPage";
-import { OrganizationCreatePage } from "../features/organizations/OrganizationCreatePage";
-import { OrganizationDetailPage } from "../features/organizations/OrganizationDetailPage";
-import { OrganizationEditPage } from "../features/organizations/OrganizationEditPage";
-import { OrganizationListPage } from "../features/organizations/OrganizationListPage";
-import { RecoveryCodesPage } from "../features/security/RecoveryCodesPage";
-import { SecurityPage } from "../features/security/SecurityPage";
-import { TotpSetupPage } from "../features/security/TotpSetupPage";
-import { SupportPage } from "../features/support/SupportPage";
-import { ThemePage } from "../features/themes/ThemePage";
-import { LandingPage } from "../features/landing/LandingPage";
+import { RouteLoadBoundary } from "./RouteLoadBoundary";
+import {
+  BillingCreatePage,
+  BillingDetailPage,
+  BillingEditPage,
+  BillingListPage,
+  BillDetailPage,
+  BillEditPage,
+  BillGeneratePage,
+  CommunicationComposePage,
+  ForgotPasswordPage,
+  GoogleCallbackPage,
+  InviteListPage,
+  LandingPage,
+  LoginPage,
+  MfaVerifyPage,
+  MobileLogoutPage,
+  NotFoundPage,
+  OrganizationCreatePage,
+  OrganizationDetailPage,
+  OrganizationEditPage,
+  OrganizationListPage,
+  PrivacyPolicyPage,
+  RecoveryCodesPage,
+  ResetPasswordPage,
+  SecurityPage,
+  SignupPage,
+  SupportPage,
+  TermsPage,
+  ThemePage,
+  TotpSetupPage
+} from "./lazyRoutePages";
 
 export const PUBLIC_AUTH_ROUTE_ID = "public-auth";
 
@@ -48,7 +51,9 @@ function PublicAuthLayout() {
   return (
     <MobileHandoffProvider>
       <main className="wrapper main-content">
-        <Outlet />
+        <RouteLoadBoundary>
+          <Outlet />
+        </RouteLoadBoundary>
       </main>
     </MobileHandoffProvider>
   );
@@ -81,7 +86,9 @@ function ProtectedApp() {
   }
   return (
     <AuthenticatedAppShell>
-      <MfaSetupGuard />
+      <RouteLoadBoundary>
+        <MfaSetupGuard />
+      </RouteLoadBoundary>
     </AuthenticatedAppShell>
   );
 }
@@ -92,7 +99,11 @@ function HomeRoute() {
   if (status === "authenticated") {
     return <Navigate replace to="/billings/" />;
   }
-  return <LandingPage />;
+  return (
+    <RouteLoadBoundary>
+      <LandingPage />
+    </RouteLoadBoundary>
+  );
 }
 
 export function createAppRouter(children: RouteObject[] = []) {

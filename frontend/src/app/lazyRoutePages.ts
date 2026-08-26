@@ -1,0 +1,33 @@
+import { lazy } from "react";
+
+import { routePageLoaders } from "./routePageLoaders";
+
+export const ForgotPasswordPage = lazy(routePageLoaders.ForgotPasswordPage);
+export const GoogleCallbackPage = lazy(routePageLoaders.GoogleCallbackPage);
+export const LoginPage = lazy(routePageLoaders.LoginPage);
+export const MobileLogoutPage = lazy(routePageLoaders.MobileLogoutPage);
+export const MfaVerifyPage = lazy(routePageLoaders.MfaVerifyPage);
+export const ResetPasswordPage = lazy(routePageLoaders.ResetPasswordPage);
+export const SignupPage = lazy(routePageLoaders.SignupPage);
+export const BillingCreatePage = lazy(routePageLoaders.BillingCreatePage);
+export const BillingDetailPage = lazy(routePageLoaders.BillingDetailPage);
+export const BillingEditPage = lazy(routePageLoaders.BillingEditPage);
+export const BillingListPage = lazy(routePageLoaders.BillingListPage);
+export const BillDetailPage = lazy(routePageLoaders.BillDetailPage);
+export const BillEditPage = lazy(routePageLoaders.BillEditPage);
+export const BillGeneratePage = lazy(routePageLoaders.BillGeneratePage);
+export const CommunicationComposePage = lazy(routePageLoaders.CommunicationComposePage);
+export const InviteListPage = lazy(routePageLoaders.InviteListPage);
+export const PrivacyPolicyPage = lazy(routePageLoaders.PrivacyPolicyPage);
+export const TermsPage = lazy(routePageLoaders.TermsPage);
+export const NotFoundPage = lazy(routePageLoaders.NotFoundPage);
+export const OrganizationCreatePage = lazy(routePageLoaders.OrganizationCreatePage);
+export const OrganizationDetailPage = lazy(routePageLoaders.OrganizationDetailPage);
+export const OrganizationEditPage = lazy(routePageLoaders.OrganizationEditPage);
+export const OrganizationListPage = lazy(routePageLoaders.OrganizationListPage);
+export const RecoveryCodesPage = lazy(routePageLoaders.RecoveryCodesPage);
+export const SecurityPage = lazy(routePageLoaders.SecurityPage);
+export const TotpSetupPage = lazy(routePageLoaders.TotpSetupPage);
+export const SupportPage = lazy(routePageLoaders.SupportPage);
+export const ThemePage = lazy(routePageLoaders.ThemePage);
+export const LandingPage = lazy(routePageLoaders.LandingPage);
