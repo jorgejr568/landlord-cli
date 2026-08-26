@@ -233,8 +233,7 @@ test("exercises the replacement stack without network interception", async ({ ba
       page.off("request", capturePrivateRequest);
     }
 
-    await page.getByText("Inserir manualmente", { exact: true }).click();
-    const secret = page.locator(".secret-key");
+    const secret = page.locator(".totp-enrollment__secret-row code");
     await expect(secret).toBeVisible();
     totpSecret = (await secret.innerText()).trim();
     expect(totpSecret).toMatch(/^[A-Z2-7]+$/);
