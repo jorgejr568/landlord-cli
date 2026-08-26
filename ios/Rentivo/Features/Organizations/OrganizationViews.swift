@@ -405,7 +405,6 @@ struct OrganizationFormView: View {
             errorMessage: pixCityError,
             accessibilityIdentifier: "organization.form.pix.city"
           )
-            .textInputAutocapitalization(.characters)
             .focused($focusedField, equals: .city)
             .accessibilityFocused($accessibilityFocusedField, equals: .city)
         } else {

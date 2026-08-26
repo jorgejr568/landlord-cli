@@ -375,7 +375,6 @@ struct ProfilePixView: View {
           isAccessibilityFocused: accessibilityFocusBinding(.city),
           accessibilityIdentifier: "profile.pix.city"
         )
-          .textInputAutocapitalization(.characters)
           .disabled(isDemoViewerLocked || !profileLoaded)
           .onChange(of: form.merchantCity) {
             if cityValidationMessage != nil { validateRecipientFields() }

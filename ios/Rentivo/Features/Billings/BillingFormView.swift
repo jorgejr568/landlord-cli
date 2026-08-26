@@ -450,7 +450,6 @@ struct BillingFormView: View {
           )
             .focused($focusedField, equals: .pixMerchantCity)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
-            .textInputAutocapitalization(.characters)
         } else {
           Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
             .foregroundStyle(RentivoColors.secondaryInk)
