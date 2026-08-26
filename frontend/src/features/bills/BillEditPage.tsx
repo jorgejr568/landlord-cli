@@ -58,6 +58,7 @@ export function BillEditPage() {
   const [actionError, setActionError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState("");
+  const [saveComplete, setSaveComplete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -80,6 +81,7 @@ export function BillEditPage() {
     setActionError("");
     setFieldErrors({});
     setSuccess("");
+    setSaveComplete(false);
     setSaving(false);
     setRegenerating(false);
     setDeleting(false);
@@ -94,6 +96,14 @@ export function BillEditPage() {
       controllers.clear();
     };
   }, [billingUuid, billUuid]);
+
+  useEffect(() => {
+    if (!saveComplete || !bill) return;
+    navigate(`/billings/${billingUuid}/bills/${bill.uuid}`, {
+      replace: true,
+      state: { notice: "Fatura atualizada com sucesso." }
+    });
+  }, [bill, billingUuid, navigate, saveComplete]);
 
   useEffect(() => {
     if (!actionsOpen) return;
@@ -197,7 +207,7 @@ export function BillEditPage() {
       if (!mutationIsCurrent(controller, generation)) return;
       pushAnalyticsFromResponse(response);
       setBill(data);
-      setSuccess("Fatura atualizada com sucesso.");
+      setSaveComplete(true);
     } catch (caught) {
       if (!mutationIsCurrent(controller, generation)) return;
       const apiErrors = normalizedFieldErrors(caught);
@@ -266,7 +276,7 @@ export function BillEditPage() {
 
   return (
     <>
-      <DirtyFormGuard isDirty={isDirty && !deleting} />
+      <DirtyFormGuard isDirty={isDirty && !deleting && !saveComplete} />
       <Link className="crumb invoice-edit-page__crumb" to={`/billings/${billingUuid}/bills/${bill.uuid}`}><ArrowLeft aria-hidden="true" size={16} />Voltar para a fatura</Link>
       <article aria-label={`Editor da fatura de ${formatMonth(bill.reference_month)}`} className="invoice-edit-page">
         <header className="invoice-edit-page__header">
@@ -287,6 +297,9 @@ export function BillEditPage() {
             </div> : null}
           </div>
         </header>
+
+        {actionError ? <div className="toast toast--danger invoice-edit-page__feedback" role="alert">{actionError}</div> : null}
+        {success ? <div className="toast toast--success invoice-edit-page__feedback" role="status">{success}</div> : null}
 
         {bill.pdf_render_status === "pending" ? <div aria-live="polite" className="invoice-edit-page__notice"><FileText aria-hidden="true" size={17} /><span><strong>PDF em atualização.</strong> O novo arquivo será montado em segundo plano.</span></div> : null}
         {bill.pdf_render_status === "failed" ? <div className="invoice-edit-page__notice invoice-edit-page__notice--danger" role="alert"><FileText aria-hidden="true" size={17} /><span><strong>O PDF não foi gerado.</strong> Tente novamente pelo menu Ações.</span></div> : null}
@@ -316,9 +329,6 @@ export function BillEditPage() {
                 <div className="field mb-0"><label className="field-label" htmlFor="notes">Observações</label><textarea aria-describedby={fieldErrors.notes ? "notes-error" : "notes-hint"} aria-invalid={fieldErrors.notes ? true : undefined} autoComplete="off" className="field-textarea" id="notes" name="notes" onChange={(event) => setNotes(event.target.value)} ref={(node) => { fieldRefs.current.notes = node; }} rows={4} value={notes} /><span className="field-hint" id="notes-hint">Use este campo para instruções úteis ao pagador.</span><FieldError id="notes-error" message={fieldErrors.notes} /></div>
               </div>
             </section>
-
-            {actionError ? <div className="toast toast--danger invoice-edit-form__feedback" role="alert">{actionError}</div> : null}
-            {success ? <div className="toast toast--success invoice-edit-form__feedback" role="status">{success}</div> : null}
           </form> : <section className="invoice-edit-page__denied"><h2>Edição indisponível</h2><p>Você não possui permissão para editar esta fatura.</p><Link className="btn btn--primary" to={`/billings/${billingUuid}/bills/${bill.uuid}`}>Voltar para a fatura</Link></section>}
 
           <aside aria-label="Resumo e comprovantes" className="invoice-edit-page__aside">

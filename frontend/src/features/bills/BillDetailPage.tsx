@@ -1,6 +1,6 @@
 import { ArrowLeft, CalendarDays, ChevronDown, Download, Edit3, FileCheck2, FileClock, FileText, FileWarning, RefreshCw, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { LoadingState } from "../../components/PageState";
@@ -38,7 +38,11 @@ function DocumentFeedback({ ready, status }: { ready: boolean; status: string | 
 
 export function BillDetailPage() {
   const { billingUuid = "", billUuid = "" } = useParams<{ billingUuid: string; billUuid: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
+  const navigationNotice = typeof (location.state as { notice?: unknown } | null)?.notice === "string"
+    ? (location.state as { notice: string }).notice
+    : "";
   const [billing, setBilling] = useState<Billing | null>(null);
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +68,7 @@ export function BillDetailPage() {
     const controllers = mutationControllers.current;
     const generation = ++routeGeneration.current;
     setActionError("");
-    setSuccess("");
+    setSuccess(navigationNotice);
     setDeleting(false);
     setDeleteOpen(false);
     setRegenerating(false);
@@ -77,7 +81,7 @@ export function BillDetailPage() {
       controllers.forEach((controller) => controller.abort());
       controllers.clear();
     };
-  }, [billingUuid, billUuid]);
+  }, [billingUuid, billUuid, navigationNotice]);
 
   useEffect(() => {
     if (!openDropdown) return;
@@ -286,6 +290,8 @@ export function BillDetailPage() {
   return (
     <>
       <Link className="crumb" to={`/billings/${billingUuid}`}><ArrowLeft aria-hidden="true" size={16} />{billing.name}</Link>
+      {actionError ? <div className="toast toast--danger bill-route-feedback" role="alert">{actionError}</div> : null}
+      {success ? <div className="toast toast--success bill-route-feedback" role="status">{success}</div> : null}
       <article aria-label={`Fatura de ${formatMonth(bill.reference_month)}`} className={`bill-workspace${openDropdown === "actions" ? " bill-workspace--menu-open" : ""}`}>
         <header className="bill-workspace__header">
           <div className="bill-workspace__identity">
@@ -375,7 +381,6 @@ export function BillDetailPage() {
           </aside>
         </div>
       </article>
-      {actionError && <div className="toast toast--danger" role="alert">{actionError}</div>}{success && <div className="toast toast--success" role="status">{success}</div>}
       <ConfirmDialog acceptLabel="Excluir fatura" body="A fatura e seus arquivos serão removidos. Esta ação não pode ser desfeita." onClose={() => setDeleteOpen(false)} onConfirm={() => void removeBill()} open={deleteOpen} title="Tem certeza que deseja excluir esta fatura?" />
     </>
   );
