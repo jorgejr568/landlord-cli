@@ -7,9 +7,9 @@ import { EmptyState, LoadError, LoadingState } from "./PageState";
 
 describe("PageState", () => {
   it("announces a stable loading state", () => {
-    render(<LoadingState label="Carregando cobranças..." />);
+    render(<LoadingState label="Carregando cobranças…" />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("Carregando cobranças...");
+    expect(screen.getByRole("status")).toHaveTextContent("Carregando cobranças…");
     expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
   });
 

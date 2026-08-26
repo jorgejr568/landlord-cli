@@ -86,7 +86,7 @@ it("uses back, continue, and final actions without submitting intermediate steps
       </FormWizard>
     </form>
   );
-  expect(screen.getByRole("button", { name: "Criando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Criando…" })).toBeDisabled();
 
   view.rerender(
     <form onSubmit={onSubmit}>
@@ -139,6 +139,7 @@ it("focuses the active step heading after progression and renders contextual sum
   );
 
   expect(screen.getByRole("heading", { name: "Itens" })).toHaveFocus();
+  expect(screen.getByRole("heading", { name: "Itens" })).toHaveClass("wizard__stage-title");
   expect(screen.getByRole("complementary", { name: "Resumo" })).toHaveTextContent("Total R$ 1.000,00");
   expect(screen.getByText("Apartamento 302")).toBeVisible();
   expect(screen.getByRole("button", { name: "Editar Imóvel" })).toBeVisible();
@@ -160,6 +161,6 @@ it("supports steps without descriptions and a neutral busy label", () => {
     </FormWizard>
   );
 
-  expect(screen.getByRole("button", { name: "Processando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Processando…" })).toBeDisabled();
   expect(screen.getByRole("heading", { name: "Finalização" })).toBeVisible();
 });

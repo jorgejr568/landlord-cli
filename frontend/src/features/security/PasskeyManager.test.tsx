@@ -30,10 +30,10 @@ it("registers a named passkey and uses the legacy default for a blank name", asy
   render(<PasskeyManager onDelete={vi.fn()} onRegister={onRegister} onSessionRevoked={vi.fn()} organizationEnforced passkeys={[]} />);
   expect(screen.getByText(/Sua organização exige/)).toBeVisible();
   expect(screen.getByText("Nenhuma passkey cadastrada.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  await user.click(screen.getByRole("button", { name: /Adicionar passkey/ }));
   expect(onRegister).toHaveBeenCalledWith("Minha Passkey");
   await user.type(screen.getByLabelText("Nome da passkey"), "Celular");
-  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  await user.click(screen.getByRole("button", { name: /Adicionar passkey/ }));
   expect(onRegister).toHaveBeenLastCalledWith("Celular");
   expect(screen.getByLabelText("Nome da passkey")).toHaveValue("");
 });
@@ -46,7 +46,7 @@ it("limits passkey names to 255 API characters without splitting emoji", async (
   const input = screen.getByLabelText("Nome da passkey");
   fireEvent.change(input, { target: { value: "😀".repeat(256) } });
   expect(input).toHaveValue("😀".repeat(255));
-  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  await user.click(screen.getByRole("button", { name: /Adicionar passkey/ }));
   expect(onRegister).toHaveBeenCalledWith("😀".repeat(255));
 });
 
@@ -57,7 +57,7 @@ it("silently handles a canceled passkey prompt and focuses other failures", asyn
     .mockRejectedValueOnce(new Error("Falha do navegador."))
     .mockRejectedValueOnce("unknown");
   render(<PasskeyManager onDelete={vi.fn()} onRegister={onRegister} onSessionRevoked={vi.fn()} organizationEnforced={false} passkeys={[]} />);
-  const button = screen.getByRole("button", { name: /Adicionar Passkey/ });
+  const button = screen.getByRole("button", { name: /Adicionar passkey/ });
   await user.click(button);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   await user.click(button);

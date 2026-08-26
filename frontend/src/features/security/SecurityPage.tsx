@@ -7,6 +7,7 @@ import { passwordValidationError, validatePix } from "../../forms/validators";
 import type { components } from "../../lib/api/schema";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { ApiKeySection } from "../apiKeys/ApiKeySection";
+import { FieldError } from "../../components/FieldError";
 import { SubmitButton } from "../auth/AuthComponents";
 import { useAuth } from "../auth/AuthProvider";
 import { pushAnalyticsFromResponse } from "../auth/analytics";
@@ -324,10 +325,10 @@ export function SecurityPage() {
           </div>
           {pixIncomplete ? <div className="security-inline-notice" role="alert">Preencha todos os campos abaixo para poder gerar faturas das cobranças pessoais.</div> : null}
           <form className="security-pix-form" onSubmit={(event) => void updatePix(event)}>
-            <div className="field security-pix-form__key"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-invalid={Boolean(pixErrors.key)} autoComplete="off" className="field-input" id="pix_key" name="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} spellCheck={false} value={pixKey} />{pixErrors.key ? <span className="field-error">{pixErrors.key}</span> : <span className="field-hint">Para celular, inclua +55. Sem o prefixo, 11 dígitos são tratados como CPF.</span>}</div>
-            <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-invalid={Boolean(pixErrors.name)} autoComplete="off" className="field-input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => { setPixName(limitApiCharacters(event.target.value, 25)); setPixErrors({}); }} ref={pixNameRef} value={pixName} />{pixErrors.name ? <span className="field-error">{pixErrors.name}</span> : <span className="field-hint">Até 25 caracteres.</span>}</div>
-            <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-invalid={Boolean(pixErrors.city)} autoComplete="off" className="field-input" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => { setPixCity(limitApiCharacters(event.target.value, 15)); setPixErrors({}); }} ref={pixCityRef} value={pixCity} />{pixErrors.city ? <span className="field-error">{pixErrors.city}</span> : <span className="field-hint">Até 15 caracteres, sem acentos.</span>}</div>
-            <div className="security-pix-form__action"><SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar Dados PIX</SubmitButton></div>
+            <div className="field security-pix-form__key"><label className="field-label" htmlFor="pix_key">Chave PIX</label><input aria-describedby={pixErrors.key ? "pix_key-error" : "pix_key-hint"} aria-invalid={Boolean(pixErrors.key)} autoComplete="off" className="field-input" id="pix_key" name="pix_key" onChange={(event) => { setPixKey(event.target.value); setPixErrors({}); }} ref={pixRef} spellCheck={false} value={pixKey} />{pixErrors.key ? <FieldError id="pix_key-error" message={pixErrors.key} /> : <span className="field-hint" id="pix_key-hint">Para celular, inclua +55. Sem o prefixo, 11 dígitos são tratados como CPF.</span>}</div>
+            <div className="field"><label className="field-label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={pixErrors.name ? "pix_merchant_name-error" : "pix_merchant_name-hint"} aria-invalid={Boolean(pixErrors.name)} autoComplete="off" className="field-input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => { setPixName(limitApiCharacters(event.target.value, 25)); setPixErrors({}); }} ref={pixNameRef} value={pixName} />{pixErrors.name ? <FieldError id="pix_merchant_name-error" message={pixErrors.name} /> : <span className="field-hint" id="pix_merchant_name-hint">Até 25 caracteres.</span>}</div>
+            <div className="field"><label className="field-label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={pixErrors.city ? "pix_merchant_city-error" : "pix_merchant_city-hint"} aria-invalid={Boolean(pixErrors.city)} autoComplete="off" className="field-input" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => { setPixCity(limitApiCharacters(event.target.value, 15)); setPixErrors({}); }} ref={pixCityRef} value={pixCity} />{pixErrors.city ? <FieldError id="pix_merchant_city-error" message={pixErrors.city} /> : <span className="field-hint" id="pix_merchant_city-hint">Até 15 caracteres, sem acentos.</span>}</div>
+            <div className="security-pix-form__action"><SubmitButton className="btn btn--primary btn--sm" loading={savingPix}>Salvar dados PIX</SubmitButton></div>
           </form>
         </section>
 
@@ -343,10 +344,10 @@ export function SecurityPage() {
                   <p className="security-auth-method__metric"><strong>{summary.totp.recovery_codes_remaining}</strong> códigos de recuperação disponíveis</p>
                   {summary.totp.recovery_codes_remaining < 3 ? <p className="security-auth-method__warning">Poucos códigos restantes. Recomendamos regenerar seus códigos.</p> : null}
                   <div className="security-auth-method__actions">
-                    <button aria-busy={regeneratingRecoveryCodes} className="btn btn--sm" disabled={regeneratingRecoveryCodes} onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar Códigos de Recuperação</button>
+                    <button aria-busy={regeneratingRecoveryCodes} className="btn btn--sm" disabled={regeneratingRecoveryCodes} onClick={() => void regenerateRecoveryCodes()} ref={recoveryRef} type="button">Regenerar códigos de recuperação</button>
                     {!showDisableTotp ? <button className="btn btn--sm btn--danger" onClick={() => setShowDisableTotp(true)} type="button">Desativar TOTP</button> : null}
                   </div>
-                  {showDisableTotp ? <form className="security-inline-form" onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input autoComplete="current-password" className="field-input" id="disable-totp-password" name="disable_totp_password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar Desativação</SubmitButton></form> : null}
+                  {showDisableTotp ? <form className="security-inline-form" onSubmit={(event) => void disableTotp(event)}><div className="field"><label className="field-label" htmlFor="disable-totp-password">Confirme sua senha para desativar</label><input autoComplete="current-password" className="field-input" id="disable-totp-password" name="disable_totp_password" onChange={(event) => setDisablePassword(event.target.value)} ref={disableTotpRef} required type="password" value={disablePassword} /></div><SubmitButton className="btn btn--danger btn--sm" loading={disablingTotp}>Confirmar desativação</SubmitButton></form> : null}
                 </>
               ) : (
                 <Link className="btn btn--primary btn--sm" to="/security/totp/setup">Configurar TOTP</Link>
@@ -361,7 +362,7 @@ export function SecurityPage() {
               <div className="field"><label className="field-label" htmlFor="current_password">Senha atual</label><input autoComplete="current-password" className="field-input" id="current_password" name="current_password" onChange={(event) => setCurrentPassword(event.target.value)} ref={passwordRef} required type="password" value={currentPassword} /></div>
               <div className="field"><label className="field-label" htmlFor="new_password">Nova senha</label><input autoComplete="new-password" className="field-input" id="new_password" name="new_password" onChange={(event) => setNewPassword(event.target.value)} required type="password" value={newPassword} /></div>
               <div className="field"><label className="field-label" htmlFor="confirm_password">Confirmar nova senha</label><input autoComplete="new-password" className="field-input" id="confirm_password" name="confirm_password" onChange={(event) => setConfirmPassword(event.target.value)} required type="password" value={confirmPassword} /></div>
-              <div className="security-password__action"><SubmitButton className="btn btn--primary btn--sm" loading={changingPassword}>Alterar Senha</SubmitButton></div>
+              <div className="security-password__action"><SubmitButton className="btn btn--primary btn--sm" loading={changingPassword}>Alterar senha</SubmitButton></div>
             </form>
           </div>
         </section>

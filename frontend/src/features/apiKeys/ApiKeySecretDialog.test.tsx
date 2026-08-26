@@ -10,6 +10,8 @@ it("shows the integration secret once and requires acknowledgement before closin
   render(<ApiKeySecretDialog onClose={onClose} open secret="rntv-v1-secret" />);
 
   expect(screen.getByText("rntv-v1-secret")).toBeVisible();
+  expect(screen.getByRole("dialog")).toHaveClass("api-key-secret-dialog");
+  expect(screen.getByRole("dialog").querySelector("[style]")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Concluir" })).toBeDisabled();
   expect(screen.getByRole("checkbox", { name: /guardei esta chave/i })).toHaveFocus();
   await user.keyboard("{Escape}");

@@ -8,7 +8,7 @@ export function FieldError({ id, message }: FieldErrorProps) {
     return null;
   }
   return (
-    <span className="field-hint" id={id} role="alert" style={{ color: "var(--danger)" }}>
+    <span className="field-error" id={id} role="alert">
       {message}
     </span>
   );

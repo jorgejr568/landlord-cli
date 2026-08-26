@@ -23,6 +23,7 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <>
+      <a className="skip-link" href="#main-content">Pular para o conteúdo principal</a>
       {currentUser ? (
         <Topbar
           currentPath={currentPath}
@@ -31,7 +32,7 @@ export function AppShell({
           pendingInviteCount={pendingInviteCount}
         />
       ) : null}
-      <main className="wrapper main-content">
+      <main className="wrapper main-content" id="main-content" tabIndex={-1}>
         <ToastRegion toasts={toasts} />
         {children ?? <Outlet />}
       </main>

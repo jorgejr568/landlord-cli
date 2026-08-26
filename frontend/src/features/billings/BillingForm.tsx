@@ -7,6 +7,7 @@ import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { validateContacts, validateMoney, validatePix, validateText } from "../../forms/validators";
 import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
+import { shouldAutoFocus } from "../../lib/autofocus";
 import type { components } from "../../lib/api/schema";
 import { limitApiCharacters } from "../../lib/textLimits";
 import { RecipientFormset, type ContactValue } from "./RecipientFormset";
@@ -284,7 +285,7 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
       <div className="form-grid">
         <div className="field field--full">
           <label className="field__label" htmlFor="name">Nome do imóvel</label>
-          <input aria-describedby={allFieldErrors.name ? "name-error" : undefined} autoComplete="off" autoFocus className="input" id="name" name="name" onChange={(event) => setField("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Apartamento 302, Ed. Aurora…" required type="text" value={form.name} />
+          <input aria-describedby={allFieldErrors.name ? "name-error" : undefined} autoComplete="off" autoFocus={shouldAutoFocus()} className="input" id="name" name="name" onChange={(event) => setField("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Apartamento 302, Ed. Aurora…" required type="text" value={form.name} />
           <FieldError id="name-error" message={allFieldErrors.name} />
         </div>
         <div className="field field--full">

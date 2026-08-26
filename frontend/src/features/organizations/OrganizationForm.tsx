@@ -6,6 +6,7 @@ import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, type WizardStep } from "../../components/FormWizard";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
 import { validatePix, validateText } from "../../forms/validators";
+import { shouldAutoFocus } from "../../lib/autofocus";
 import { limitApiCharacters } from "../../lib/textLimits";
 
 export interface OrganizationValues {
@@ -177,7 +178,7 @@ export function OrganizationForm({
         <div className="organization-wizard__intro"><Building2 aria-hidden="true" size={24} /><div><strong>Comece pelo nome do espaço</strong><p>Use o nome que sua equipe reconhece. Convites e cobranças entram depois da criação.</p></div></div>
         <div className="field mb-0">
           <label className={labelClass} htmlFor="name">Nome da organização</label>
-          <input aria-describedby={describedBy("name", "name-hint")} autoComplete="organization" autoFocus className={inputClass} id="name" name="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Imóveis…" ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
+          <input aria-describedby={describedBy("name", "name-hint")} autoComplete="organization" autoFocus={shouldAutoFocus()} className={inputClass} id="name" name="name" onChange={(event) => update("name", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Ribeiro Imóveis…" ref={(element) => { refs.current.name = element; }} required type="text" value={form.name} />
           <FieldError id="name-error" message={allFieldErrors.name} />
           <span className="field__hint" id="name-hint">Você será o administrador inicial e poderá ajustar os acessos depois.</span>
         </div>

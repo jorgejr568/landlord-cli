@@ -508,8 +508,8 @@ it.each(["resolve", "reject"] as const)("resets every resource when a stale gene
   await user.type(screen.getByLabelText("Água"), "10,00");
   await moveFromItemsToReview(user, "Não pode vazar");
   await user.click(screen.getByRole("button", { name: "Gerar Fatura" }));
-  expect(screen.getByRole("button", { name: "Gerando..." })).toBeDisabled();
-  fireEvent.submit(screen.getByRole("button", { name: "Gerando..." }).closest("form")!);
+  expect(screen.getByRole("button", { name: "Gerando…" })).toBeDisabled();
+  fireEvent.submit(screen.getByRole("button", { name: "Gerando…" }).closest("form")!);
   expect(generationPosts).toBe(1);
 
   await user.click(screen.getByRole("button", { name: "Trocar cobrança" }));

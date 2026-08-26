@@ -16,13 +16,15 @@
     --n-100: oklch(0.965 0.008 90);
     --n-200: oklch(0.915 0.009 88);
     --n-300: oklch(0.865 0.010 86);
-    --n-400: oklch(0.72 0.012 280);
+    --n-400: oklch(0.66 0.012 280);
     --n-500: oklch(0.58 0.014 280);
     --n-600: oklch(0.48 0.016 280);
 
     --line:        var(--n-300);   /* hairline dividers */
     --line-soft:   var(--n-200);
-    --muted:       var(--n-500);   /* secondary text */
+    --foreground-muted: oklch(0.45 0.016 280); /* normal secondary copy — AA on paper */
+    --foreground-placeholder: oklch(0.50 0.014 280);
+    --muted:       var(--foreground-muted);   /* secondary text */
 
     /* Accent — refined emerald */
     --accent:      oklch(0.605 0.125 162);
@@ -40,6 +42,10 @@
     --overdue-pale: oklch(0.95 0.04 25);
     --sent:    oklch(0.62 0.12 245);
     --sent-pale: oklch(0.95 0.035 245);
+    --status-paid-ink: var(--accent-dark);
+    --status-pending-ink: oklch(0.44 0.11 70);
+    --status-overdue-ink: oklch(0.48 0.15 25);
+    --status-sent-ink: oklch(0.44 0.10 245);
     --draft:   var(--n-500);
     --draft-pale: var(--n-200);
 
@@ -47,6 +53,9 @@
     --r-soft: 12px;
     --r:      9px;
     --r-sm:   6px;
+    --radius-panel: var(--r-soft);
+    --radius-surface: var(--r);
+    --radius-control: var(--r-sm);
     --bw:     2px;        /* standard border weight */
     --bw-bold: 2.5px;
 
@@ -54,6 +63,9 @@
     --sh:    3px 3px 0 var(--ink);
     --sh-sm: 2px 2px 0 var(--ink);
     --sh-lg: 5px 5px 0 var(--ink);
+    --shadow-control: var(--sh-sm);
+    --shadow-raised: var(--sh);
+    --shadow-overlay: var(--sh-lg);
 
     --font-display: "Space Grotesk", system-ui, sans-serif;
     --font: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
@@ -144,6 +156,15 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 /* accent rule at the very top of the page */
 body::before { content: ""; display: block; height: 4px; background: var(--accent); }
 
+.skip-link {
+    position: fixed; top: 0.65rem; left: 0.75rem; z-index: 1000;
+    padding: 0.55rem 0.8rem; border: var(--bw) solid var(--ink);
+    border-radius: var(--radius-control); background: var(--surface); color: var(--ink);
+    box-shadow: var(--shadow-control); transform: translateY(calc(-100% - 1rem));
+    transition: transform var(--t);
+}
+.skip-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; transform: translateY(0); }
+
 /* ============================================================
    Top navigation (app chrome) — dark bar
    ============================================================ */
@@ -175,6 +196,7 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .brand em { color: var(--accent); font-style: normal; }
 
 .nav__links, .topbar-menu { display: flex; align-items: center; gap: 0.15rem; }
+.topbar-menu, .topbar-dropdown { min-width: 0; }
 .nav__link, .topbar-link {
     color: rgba(255,255,255,0.72);
     padding: 0.45rem 0.8rem; border-radius: var(--r-sm);
@@ -216,7 +238,11 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 
 /* --- Account dropdown --- */
 .topbar-dropdown { position: relative; }
-.topbar-dropdown-toggle { display: inline-flex; align-items: center; gap: 0.4rem; }
+.topbar-dropdown-toggle {
+    display: inline-flex; min-width: 0; max-width: min(26rem, 42vw);
+    align-items: center; gap: 0.4rem;
+}
+.topbar-user-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-dropdown-menu {
     display: none; position: absolute; right: 0; top: calc(100% + 0.5rem);
     min-width: 190px; background: var(--surface);
@@ -369,7 +395,10 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .table tbody tr.is-clickable { cursor: pointer; }
 .table tbody tr.is-clickable:hover,
 .data-table tbody tr:hover { background: var(--accent-pale); }
-.table .num, .data-table .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.table .num, .data-table .num {
+    width: 1%; text-align: right; white-space: nowrap;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
 .table .center { text-align: center; }
 .table__primary { font-weight: 700; }
 .table__sub { color: var(--muted); font-size: 0.82rem; }
@@ -394,11 +423,11 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     line-height: 1.4; vertical-align: middle;
 }
 .tag .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.tag--paid      { background: var(--paid-pale);    color: var(--accent-dark); border-color: var(--paid); }
-.tag--pending   { background: var(--pending-pale); color: oklch(0.5 0.12 70); border-color: var(--pending); }
-.tag--overdue   { background: var(--overdue-pale); color: var(--overdue); border-color: var(--overdue); }
-.tag--delayed   { background: var(--pending-pale); color: oklch(0.5 0.12 70); border-color: var(--pending); }
-.tag--sent      { background: var(--sent-pale);    color: var(--sent); border-color: var(--sent); }
+.tag--paid      { background: var(--paid-pale);    color: var(--status-paid-ink); border-color: var(--paid); }
+.tag--pending   { background: var(--pending-pale); color: var(--status-pending-ink); border-color: var(--pending); }
+.tag--overdue   { background: var(--overdue-pale); color: var(--status-overdue-ink); border-color: var(--overdue); }
+.tag--delayed   { background: var(--pending-pale); color: var(--status-pending-ink); border-color: var(--pending); }
+.tag--sent      { background: var(--sent-pale);    color: var(--status-sent-ink); border-color: var(--sent); }
 .tag--draft     { background: var(--draft-pale);   color: var(--n-600); border-color: var(--n-400); }
 .tag--published { background: var(--ink); color: #fff; border-color: var(--ink); }
 .tag--cancelled { background: var(--overdue-pale); color: var(--overdue); border-color: var(--overdue); text-decoration: line-through; }
@@ -430,7 +459,7 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     outline: none; box-shadow: var(--sh-sm); border-color: var(--accent);
 }
 .input::placeholder, .textarea::placeholder,
-.field-input::placeholder, .field-textarea::placeholder { color: var(--n-400); }
+.field-input::placeholder, .field-textarea::placeholder { color: var(--foreground-placeholder); opacity: 1; }
 .input:disabled, .select:disabled,
 .field-input:disabled, .field-select:disabled,
 .input--disabled { background: var(--paper-2); color: var(--muted); cursor: not-allowed; }
@@ -441,6 +470,10 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 }
 .field-textarea, .textarea { resize: vertical; min-height: 5rem; }
 .field__hint, .field-hint { display: block; font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
+.field-error {
+    display: block; margin-top: 0.35rem; color: var(--status-overdue-ink);
+    font-size: 0.8rem; font-weight: 650; line-height: 1.4;
+}
 
 .input-prefix { position: relative; }
 .input-prefix .pfx { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); pointer-events: none; }
@@ -1240,7 +1273,7 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 .modal {
     width: 100%; max-width: 440px; background: var(--surface);
     border: var(--bw-bold) solid var(--ink); border-radius: var(--r);
-    box-shadow: var(--sh-lg); overflow: hidden;
+    box-shadow: var(--shadow-overlay); overflow: hidden; overscroll-behavior: contain;
     animation: modal-pop 0.16s cubic-bezier(0.3, 0.7, 0.4, 1.2);
 }
 @keyframes modal-pop { from { transform: translateY(8px) scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -1608,7 +1641,7 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 @keyframes wizard-stage-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 .wizard__stage-head { padding: 1.25rem 1.35rem 1rem; border-bottom: var(--bw) solid var(--ink); background: var(--paper-2); }
 .wizard__stage-head h2 { margin: 0.1rem 0 0; font-size: 1.2rem; }
-.wizard__stage-head h2:focus { outline: none; }
+.wizard__stage-title:focus { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
 .wizard__stage-head p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.88rem; }
 .wizard__eyebrow, .wizard-summary__eyebrow {
     color: var(--accent-dark); font-family: var(--font-mono); font-size: 0.64rem;
@@ -1741,6 +1774,11 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 }
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
+    .skip-link,
+    .modal-overlay,
+    .modal,
+    .status-menu__panel,
+    .btn-dropdown-menu { animation: none; transition: none; }
     .wizard__stage { animation: none; }
     .wizard-progress__track i, .wizard-step > button { transition: none; }
     .wizard-step > button:hover { transform: none; }

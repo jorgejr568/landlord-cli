@@ -19,9 +19,12 @@ it("requires a name, scope, and at least one personal or organization workspace"
   render(<ApiKeyForm onCancel={vi.fn()} onSubmit={onSubmit} options={options} />);
 
   await user.click(screen.getByRole("button", { name: "Criar chave" }));
-  expect(screen.getByText("Informe um nome para a chave.")).toBeVisible();
-  expect(screen.getByText("Selecione pelo menos um escopo.")).toBeVisible();
-  expect(screen.getByText("Selecione pelo menos um espaço de trabalho.")).toBeVisible();
+  expect(screen.getByText("Informe um nome para a chave.")).toHaveAttribute("role", "alert");
+  expect(screen.getByText("Selecione pelo menos um escopo.")).toHaveAttribute("role", "alert");
+  expect(screen.getByText("Selecione pelo menos um espaço de trabalho.")).toHaveAttribute("role", "alert");
+  expect(screen.getByLabelText("Nome")).toHaveAttribute("aria-describedby", "api-key-name-error");
+  expect(screen.getByLabelText("Nome")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByRole("form", { name: "Configurar chave de integração" }).querySelector("[style]")).not.toBeInTheDocument();
   expect(onSubmit).not.toHaveBeenCalled();
 });
 

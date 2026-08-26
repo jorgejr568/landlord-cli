@@ -23,11 +23,11 @@ interface FormWizardProps {
 }
 
 function defaultBusyLabel(label: string): string {
-  if (label.startsWith("Criar")) return "Criando...";
-  if (label.startsWith("Gerar")) return "Gerando...";
-  if (label.startsWith("Enviar")) return "Enviando...";
-  if (label.startsWith("Salvar")) return "Salvando...";
-  return "Processando...";
+  if (label.startsWith("Criar")) return "Criando…";
+  if (label.startsWith("Gerar")) return "Gerando…";
+  if (label.startsWith("Enviar")) return "Enviando…";
+  if (label.startsWith("Salvar")) return "Salvando…";
+  return "Processando…";
 }
 
 export function FormWizard({
@@ -98,7 +98,7 @@ export function FormWizard({
       <section className="wizard__stage" key={step.id}>
         <header className="wizard__stage-head">
           <span className="wizard__eyebrow">Etapa {activeStep + 1}</span>
-          <h2 ref={headingRef} tabIndex={-1}>{step.label}</h2>
+          <h2 className="wizard__stage-title" ref={headingRef} tabIndex={-1}>{step.label}</h2>
           {step.description ? <p>{step.description}</p> : null}
         </header>
         <div className="wizard__content">{children}</div>

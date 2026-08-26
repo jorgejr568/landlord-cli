@@ -76,7 +76,7 @@ it("ports the security summary and clears authentication after disabling TOTP", 
   expect(await screen.findByRole("heading", { name: "Segurança" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
   await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "password");
-  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+  await user.click(screen.getByRole("button", { name: "Confirmar desativação" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
 });
 
@@ -92,7 +92,7 @@ it("still lands on /login when logout fails after disabling TOTP", async () => {
   expect(await screen.findByRole("heading", { name: "Segurança" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
   await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "password");
-  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+  await user.click(screen.getByRole("button", { name: "Confirmar desativação" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
 });
@@ -139,16 +139,16 @@ it("updates PIX and changes the password atomically", async () => {
   await user.type(screen.getByLabelText("Nome do recebedor"), "Novo Nome");
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
   await user.type(screen.getByLabelText("Cidade do recebedor"), "Rio");
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Dados do PIX atualizados.")).toBeVisible();
   await user.type(screen.getByLabelText("Senha atual"), "current");
   await user.type(screen.getByLabelText("Nova senha"), "new-password");
   await user.type(screen.getByLabelText("Confirmar nova senha"), "different");
-  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  await user.click(screen.getByRole("button", { name: "Alterar senha" }));
   expect(await screen.findByText("As senhas não coincidem.")).toBeVisible();
   await user.clear(screen.getByLabelText("Confirmar nova senha"));
   await user.type(screen.getByLabelText("Confirmar nova senha"), "new-password");
-  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  await user.click(screen.getByRole("button", { name: "Alterar senha" }));
   expect(await screen.findByText("Senha alterada com sucesso!")).toBeVisible();
   expect(screen.getByLabelText("Senha atual")).toHaveValue("");
 });
@@ -175,11 +175,11 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   await user.clear(name);
   await user.clear(city);
   await user.type(name, "Pessoa");
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(key).toHaveFocus();
   await user.clear(name);
   await user.type(key, "person@example.com");
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
 
   expect(await screen.findByText("Informe o nome do recebedor.")).toBeVisible();
   expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
@@ -187,7 +187,7 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   expect(name).toHaveFocus();
 
   await user.type(name, "Pessoa");
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(city).toHaveFocus();
   expect(updates).toBe(0);
 });
@@ -199,20 +199,49 @@ it("focuses each incomplete PIX field before calling the API", async () => {
   await screen.findByRole("heading", { name: "Segurança" });
 
   await user.clear(screen.getByLabelText("Chave PIX"));
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Informe a chave PIX.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
   await user.type(screen.getByLabelText("Chave PIX"), "pix");
   await user.clear(screen.getByLabelText("Nome do recebedor"));
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Informe o nome do recebedor.")).toBeVisible();
   expect(screen.getByLabelText("Nome do recebedor")).toHaveFocus();
   await user.type(screen.getByLabelText("Nome do recebedor"), "User");
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Informe a cidade do recebedor.")).toBeVisible();
   expect(screen.getByLabelText("Cidade do recebedor")).toHaveFocus();
   expect(pixPosts).toBe(0);
+});
+
+it("links every PIX control to stable hint and validation error semantics", async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByRole("heading", { name: "Segurança" });
+
+  const key = screen.getByLabelText("Chave PIX");
+  const name = screen.getByLabelText("Nome do recebedor");
+  const city = screen.getByLabelText("Cidade do recebedor");
+  expect(key).toHaveAttribute("aria-describedby", "pix_key-hint");
+  expect(name).toHaveAttribute("aria-describedby", "pix_merchant_name-hint");
+  expect(city).toHaveAttribute("aria-describedby", "pix_merchant_city-hint");
+
+  await user.clear(key);
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
+
+  expect(key).toHaveAttribute("aria-invalid", "true");
+  expect(key).toHaveAttribute("aria-describedby", "pix_key-error");
+  expect(screen.getByText("Informe a chave PIX.")).toHaveAttribute("id", "pix_key-error");
+  expect(screen.getByText("Informe a chave PIX.")).toHaveAttribute("role", "alert");
+
+  await user.type(key, "pix@example.com");
+  await user.clear(name);
+  await user.clear(city);
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
+
+  expect(name).toHaveAttribute("aria-describedby", "pix_merchant_name-error");
+  expect(city).toHaveAttribute("aria-describedby", "pix_merchant_city-error");
 });
 
 it("loads nullable PIX profile values as empty controls", async () => {
@@ -231,7 +260,7 @@ it("loads nullable PIX profile values as empty controls", async () => {
 it("routes regenerated recovery codes to their one-time screen", async () => {
   const user = userEvent.setup();
   renderPage({ "/api/v1/security/recovery-codes/regenerate": () => jsonResponse({ recovery_codes: ["one"] }, 200, { "X-Rentivo-Analytics-Event": "rentivo_recovery_codes_regenerated" }) });
-  await user.click(await screen.findByRole("button", { name: "Regenerar Códigos de Recuperação" }));
+  await user.click(await screen.findByRole("button", { name: "Regenerar códigos de recuperação" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/security/recovery-codes"));
 });
 
@@ -245,7 +274,7 @@ it("keeps recovery-code regeneration single-flight", async () => {
       return pendingRequest;
     }
   });
-  const button = await screen.findByRole("button", { name: "Regenerar Códigos de Recuperação" });
+  const button = await screen.findByRole("button", { name: "Regenerar códigos de recuperação" });
 
   act(() => {
     button.click();
@@ -268,11 +297,11 @@ it("registers a passkey with typed WebAuthn data", async () => {
     "/api/v1/security/passkeys/register/complete": () => jsonResponse({ created_at: "2026-07-17T10:00:00Z", last_used_at: null, name: "Notebook", uuid: "pk-uuid" }, 200, { "X-Rentivo-Analytics-Event": "rentivo_passkey_added" })
   });
   await user.type(await screen.findByLabelText("Nome da passkey"), "Notebook");
-  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  await user.click(screen.getByRole("button", { name: /Adicionar passkey/ }));
   expect(await screen.findByText("Passkey cadastrada.")).toBeVisible();
   expect(screen.getByText("Notebook")).toBeVisible();
   vi.mocked(createPasskey).mockResolvedValueOnce(null);
-  await user.click(screen.getByRole("button", { name: /Adicionar Passkey/ }));
+  await user.click(screen.getByRole("button", { name: /Adicionar passkey/ }));
   await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 });
 
@@ -321,27 +350,27 @@ it("surfaces API and network action failures", async () => {
     "/api/v1/security/totp/disable": () => problemResponse({ code: "totp", detail: "TOTP protegido.", fields: {}, request_id: "id", status: 409, title: "Conflito", type: "problem" })
   });
   await screen.findByRole("heading", { name: "Segurança" });
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("PIX inválido.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Salvar Dados PIX" }));
+  await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Não foi possível atualizar os dados do PIX.")).toBeVisible();
   await user.type(screen.getByLabelText("Senha atual"), "current");
   await user.type(screen.getByLabelText("Nova senha"), "new");
   await user.type(screen.getByLabelText("Confirmar nova senha"), "new");
-  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  await user.click(screen.getByRole("button", { name: "Alterar senha" }));
   expect(await screen.findByText("Senha atual incorreta.")).toBeVisible();
   expect(screen.getByLabelText("Senha atual")).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  await user.click(screen.getByRole("button", { name: "Alterar senha" }));
   expect(await screen.findByText("Não foi possível alterar a senha.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Regenerar Códigos de Recuperação" }));
+  await user.click(screen.getByRole("button", { name: "Regenerar códigos de recuperação" }));
   expect(await screen.findByText("Não disponível.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Regenerar Códigos de Recuperação" })).toHaveFocus();
-  await user.click(screen.getByRole("button", { name: "Regenerar Códigos de Recuperação" }));
+  expect(screen.getByRole("button", { name: "Regenerar códigos de recuperação" })).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Regenerar códigos de recuperação" }));
   expect(await screen.findByText("Não foi possível regenerar os códigos de recuperação.")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
   await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "password");
-  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+  await user.click(screen.getByRole("button", { name: "Confirmar desativação" }));
   expect(await screen.findByText("TOTP protegido.")).toBeVisible();
   expect(screen.getByLabelText("Confirme sua senha para desativar")).toHaveFocus();
 });
@@ -371,12 +400,12 @@ it("keeps over-72-byte multibyte passwords local for sensitive actions", async (
   await user.type(screen.getByLabelText("Senha atual"), "á".repeat(37));
   await user.type(screen.getByLabelText("Nova senha"), "nova-senha");
   await user.type(screen.getByLabelText("Confirmar nova senha"), "nova-senha");
-  await user.click(screen.getByRole("button", { name: "Alterar Senha" }));
+  await user.click(screen.getByRole("button", { name: "Alterar senha" }));
   expect(await screen.findByText("Senha muito longa.")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Desativar TOTP" }));
   await user.type(screen.getByLabelText("Confirme sua senha para desativar"), "á".repeat(37));
-  await user.click(screen.getByRole("button", { name: "Confirmar Desativação" }));
+  await user.click(screen.getByRole("button", { name: "Confirmar desativação" }));
   expect(await screen.findByText("Senha muito longa.")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Excluir conta" }));

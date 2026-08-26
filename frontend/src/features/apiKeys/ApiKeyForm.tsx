@@ -1,6 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 
+import { FieldError } from "../../components/FieldError";
 import type { components } from "../../lib/api/schema";
+import { shouldAutoFocus } from "../../lib/autofocus";
 import { limitApiCharacters } from "../../lib/textLimits";
 
 type ApiKey = components["schemas"]["APIKeyResponse"];
@@ -104,32 +106,33 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)}>
+    <form aria-label="Configurar chave de integração" className="api-key-form" onSubmit={(event) => void handleSubmit(event)}>
       <div className="field">
         <label className="field-label" htmlFor="api-key-name">Nome</label>
-        <input autoFocus className="field-input" id="api-key-name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} value={name} />
-        {submitted && !name.trim() ? <span className="field-hint" style={{ color: "var(--danger)" }}>Informe um nome para a chave.</span> : null}
+        <input aria-describedby={submitted && !name.trim() ? "api-key-name-error" : undefined} aria-invalid={submitted && !name.trim()} autoComplete="off" autoFocus={shouldAutoFocus()} className="field-input" id="api-key-name" name="api_key_name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} value={name} />
+        <FieldError id="api-key-name-error" message={submitted && !name.trim() ? "Informe um nome para a chave." : undefined} />
       </div>
-      <fieldset className="field" style={{ border: 0, margin: "0 0 1.1rem", padding: 0 }}>
+      <fieldset aria-describedby={submitted && scopes.length === 0 ? "api-key-scopes-error" : undefined} className="field api-key-form__group">
         <legend className="field-label">Permissões</legend>
-        <div className="form-grid">
+        <div className="api-key-choice-grid">
           {options.scopes.map((scope) => (
-            <label key={scope} style={{ alignItems: "center", display: "flex", gap: "0.5rem", marginBottom: "0.65rem" }}>
+            <label className="api-key-choice" key={scope}>
               <input checked={scopes.includes(scope)} onChange={() => setScopes(toggle(scopes, scope))} type="checkbox" />
               {scopeLabel(scope)}
             </label>
           ))}
         </div>
-        {submitted && scopes.length === 0 ? <span className="field-hint" style={{ color: "var(--danger)" }}>Selecione pelo menos um escopo.</span> : null}
+        <FieldError id="api-key-scopes-error" message={submitted && scopes.length === 0 ? "Selecione pelo menos um escopo." : undefined} />
       </fieldset>
-      <fieldset className="field" style={{ border: 0, margin: "0 0 1.1rem", padding: 0 }}>
+      <fieldset aria-describedby={submitted && !personal && organizations.length === 0 && (!initialKey || grantsChanged) ? "api-key-workspaces-error" : undefined} className="field api-key-form__group">
         <legend className="field-label">Espaços de trabalho</legend>
-        <label style={{ alignItems: "center", display: "flex", gap: "0.5rem", marginBottom: "0.65rem" }}>
+        <div className="api-key-choice-grid api-key-choice-grid--workspaces">
+        <label className="api-key-choice">
           <input checked={personal} onChange={(event) => { setPersonal(event.target.checked); setGrantsChanged(true); }} type="checkbox" />
           Pessoal
         </label>
         {options.organizations.map((organization) => (
-          <label key={organization.resource_id} style={{ alignItems: "center", display: "flex", gap: "0.5rem", marginBottom: "0.65rem" }}>
+          <label className="api-key-choice" key={organization.resource_id}>
             <input
               checked={organizations.includes(organization.resource_id)}
               onChange={() => { setOrganizations(toggle(organizations, organization.resource_id)); setGrantsChanged(true); }}
@@ -138,12 +141,13 @@ export function ApiKeyForm({ initialKey, loading = false, onCancel, onSubmit, op
             {organization.name}
           </label>
         ))}
-        {submitted && !personal && organizations.length === 0 && (!initialKey || grantsChanged) ? <span className="field-hint" style={{ color: "var(--danger)" }}>Selecione pelo menos um espaço de trabalho.</span> : null}
+        </div>
+        <FieldError id="api-key-workspaces-error" message={submitted && !personal && organizations.length === 0 && (!initialKey || grantsChanged) ? "Selecione pelo menos um espaço de trabalho." : undefined} />
       </fieldset>
       {!initialKey ? (
-        <div className="field" style={{ maxWidth: "350px" }}>
+        <div className="field api-key-form__expiration">
           <label className="field-label" htmlFor="api-key-expiration">Expira em</label>
-          <input className="field-input" id="api-key-expiration" max={defaultExpiration(options.max_expiration_days)} min={new Date().toISOString().slice(0, 10)} onChange={(event) => { setExpiresAt(event.target.value); setExpirationChanged(true); }} required type="date" value={expiresAt} />
+          <input autoComplete="off" className="field-input" id="api-key-expiration" max={defaultExpiration(options.max_expiration_days)} min={new Date().toISOString().slice(0, 10)} name="api_key_expiration" onChange={(event) => { setExpiresAt(event.target.value); setExpirationChanged(true); }} required type="date" value={expiresAt} />
         </div>
       ) : null}
       <div className="btn-row">

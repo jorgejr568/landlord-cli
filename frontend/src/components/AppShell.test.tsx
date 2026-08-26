@@ -17,6 +17,8 @@ describe("AppShell", () => {
 
     const trigger = screen.getByRole("button", { name: /user@example.com/i });
     expect(screen.getByRole("link", { name: "Minhas Cobranças" })).toHaveClass("is-active");
+    expect(screen.getByRole("link", { name: "Minhas Cobranças" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Organizações" })).not.toHaveAttribute("aria-current");
     await user.click(trigger);
 
     expect(screen.getByRole("link", { name: "Segurança" })).toBeVisible();
@@ -129,5 +131,20 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("heading", { name: "Boas-vindas" })).toBeVisible();
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+  });
+
+  it("provides a skip target and keeps long account identities in a resilient text wrapper", () => {
+    const email = "uma-conta-com-um-endereco-extremamente-longo@example-property-management.com";
+    render(
+      <MemoryRouter>
+        <AppShell currentUser={{ email }}>
+          <h1>Painel</h1>
+        </AppShell>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("link", { name: "Pular para o conteúdo principal" })).toHaveAttribute("href", "#main-content");
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+    expect(screen.getByText(email)).toHaveClass("topbar-user-email");
   });
 });

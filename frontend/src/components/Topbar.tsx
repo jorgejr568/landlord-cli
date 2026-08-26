@@ -16,6 +16,8 @@ export function Topbar({ currentPath, currentUser, onLogout, pendingInviteCount 
   const accountTriggerRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const resolvedCurrentPath = currentPath ?? location.pathname;
+  const billingsActive = resolvedCurrentPath.startsWith("/billings");
+  const organizationsActive = resolvedCurrentPath.startsWith("/organizations");
 
   useEffect(() => {
     setIsAccountMenuOpen(false);
@@ -68,13 +70,15 @@ export function Topbar({ currentPath, currentUser, onLogout, pendingInviteCount 
         </button>
         <div className={`topbar-menu${isMobileMenuOpen ? " open" : ""}`}>
           <Link
-            className={`topbar-link${resolvedCurrentPath.startsWith("/billings") ? " is-active" : ""}`}
+            aria-current={billingsActive ? "page" : undefined}
+            className={`topbar-link${billingsActive ? " is-active" : ""}`}
             to="/billings/"
           >
             Minhas Cobranças
           </Link>
           <Link
-            className={`topbar-link${resolvedCurrentPath.startsWith("/organizations") ? " is-active" : ""}`}
+            aria-current={organizationsActive ? "page" : undefined}
+            className={`topbar-link${organizationsActive ? " is-active" : ""}`}
             to="/organizations/"
           >
             Organizações
@@ -88,15 +92,15 @@ export function Topbar({ currentPath, currentUser, onLogout, pendingInviteCount 
               type="button"
             >
               <CircleUserRound aria-hidden="true" className="topbar-icon" size={18} />
-              {currentUser.email}
+              <span className="topbar-user-email" title={currentUser.email}>{currentUser.email}</span>
             </button>
             <div className="topbar-dropdown-menu">
-              <Link className="topbar-dropdown-item" to="/invites/">
+              <Link aria-current={resolvedCurrentPath.startsWith("/invites") ? "page" : undefined} className="topbar-dropdown-item" to="/invites/">
                 Convites
                 {pendingInviteCount > 0 ? <span className="topbar-badge">{pendingInviteCount}</span> : null}
               </Link>
-              <Link className="topbar-dropdown-item" to="/themes/user">Tema</Link>
-              <Link className="topbar-dropdown-item" to="/security">Segurança</Link>
+              <Link aria-current={resolvedCurrentPath.startsWith("/themes") ? "page" : undefined} className="topbar-dropdown-item" to="/themes/user">Tema</Link>
+              <Link aria-current={resolvedCurrentPath.startsWith("/security") ? "page" : undefined} className="topbar-dropdown-item" to="/security">Segurança</Link>
               <div className="topbar-dropdown-divider" />
               <button className="topbar-dropdown-item topbar-dropdown-item--danger" onClick={onLogout} type="button">
                 Sair

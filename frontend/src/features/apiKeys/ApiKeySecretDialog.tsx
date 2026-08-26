@@ -73,7 +73,7 @@ export function ApiKeySecretDialog({ onClose, open, secret }: ApiKeySecretDialog
 
   return (
     <div className="modal-overlay">
-      <div aria-labelledby="api-key-secret-title" aria-modal="true" className="modal" role="dialog">
+      <div aria-labelledby="api-key-secret-title" aria-modal="true" className="modal api-key-secret-dialog" role="dialog">
         <div className="modal__head">
           <span aria-hidden="true" className="modal__icon modal__icon--primary">
             <CheckCircle2 size={20} />
@@ -81,16 +81,16 @@ export function ApiKeySecretDialog({ onClose, open, secret }: ApiKeySecretDialog
           <h2 className="modal__title" id="api-key-secret-title">Chave de integração criada</h2>
         </div>
         <div className="modal__body">
-          <div className="mfa-enforcement-banner" style={{ background: "#fff8e1", borderColor: "#f9a825" }}>
+          <div className="api-key-secret__notice" role="note">
             Esta chave será exibida apenas uma vez. Guarde-a agora.
           </div>
-          <div className="secret-key">{secret}</div>
-          <button aria-describedby={copyFailed ? "api-key-copy-error" : undefined} className="btn btn--sm" onClick={() => void copySecret()} ref={copyRef} style={{ marginTop: "0.75rem" }} type="button">
-            <Copy aria-hidden="true" size={15} style={{ marginRight: "0.35rem", verticalAlign: "text-bottom" }} />
+          <div className="secret-key api-key-secret__value">{secret}</div>
+          <button aria-describedby={copyFailed ? "api-key-copy-error" : undefined} className="btn btn--sm api-key-secret__copy" onClick={() => void copySecret()} ref={copyRef} type="button">
+            <Copy aria-hidden="true" size={15} />
             {copied ? "Copiada!" : "Copiar chave"}
           </button>
           {copyFailed ? <div className="toast toast--danger mt-2" id="api-key-copy-error" role="alert">Não foi possível copiar a chave. Selecione e copie manualmente.</div> : null}
-          <label style={{ alignItems: "flex-start", display: "flex", gap: "0.55rem", marginTop: "1rem" }}>
+          <label className="api-key-secret__acknowledgement">
             <input
               checked={acknowledged}
               onChange={(event) => setAcknowledged(event.target.checked)}

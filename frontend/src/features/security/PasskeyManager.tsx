@@ -79,7 +79,7 @@ export function PasskeyManager({ onDelete, onRegister, onSessionRevoked, organiz
         ) : <p className="security-auth-method__empty">Nenhuma passkey cadastrada.</p>}
         <form className="security-passkey-form" onSubmit={(event) => { event.preventDefault(); void register(); }}>
           <div className="field"><label className="field-label" htmlFor="passkey-name">Nome da passkey</label><input autoComplete="off" className="field-input" id="passkey-name" name="passkey_name" onChange={(event) => setName(limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Notebook…" ref={inputRef} value={name} /></div>
-          <button className="btn btn--primary btn--sm" disabled={loading} type="submit"><KeyRound aria-hidden="true" size={15} />Adicionar Passkey</button>
+          <button className="btn btn--primary btn--sm" disabled={loading} type="submit"><KeyRound aria-hidden="true" size={15} />Adicionar passkey</button>
         </form>
       <ConfirmDialog acceptLabel="Remover passkey" body="Você precisará entrar novamente após remover esta passkey." onClose={() => setTarget(null)} onConfirm={() => void remove()} open={target !== null} title="Remover esta passkey?" />
     </article>

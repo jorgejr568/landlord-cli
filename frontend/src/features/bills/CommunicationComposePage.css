@@ -139,9 +139,8 @@
 .communication-compose-form .wizard--with-aside {
   display: grid;
   grid-template-columns: 190px minmax(430px, 1fr) minmax(310px, 360px);
-  height: clamp(540px, calc(100dvh - 380px), 650px);
   gap: 0;
-  overflow: clip;
+  overflow: visible;
   border: var(--bw-bold) solid var(--ink);
   border-radius: 16px;
   background: var(--surface);
@@ -160,7 +159,7 @@
 }
 
 .communication-compose-form .wizard__rail {
-  overflow-y: auto;
+  overflow: visible;
   border-right: var(--bw) solid var(--ink);
   background: var(--paper-2);
 }
@@ -229,7 +228,7 @@
 
 .communication-compose-form .wizard__content {
   flex: 1;
-  overflow-y: auto;
+  overflow: visible;
   padding: 1.4rem 1.5rem 1.6rem;
 }
 
@@ -245,7 +244,7 @@
 }
 
 .communication-compose-form .wizard__aside {
-  overflow-y: auto;
+  overflow: visible;
   background: var(--paper-2);
 }
 
@@ -542,7 +541,7 @@
   .communication-compose-form .wizard__stage {
     grid-column: 1;
     height: auto;
-    min-height: 580px;
+    min-height: 0;
   }
 
   .communication-compose-form .wizard__aside {

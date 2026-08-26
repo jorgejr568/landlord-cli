@@ -1332,7 +1332,7 @@ it.each(["resolve", "reject"] as const)("discards a pending send that %s after a
   renderAt(<><CommunicationComposePage /><ComposeRouteSwitch /></>, "/billings/billing-public-uuid/bills/bill-public-uuid/communications/compose?type=bill_ready", "/billings/:billingUuid/bills/:billUuid/communications/compose");
   await composeGoToReview();
   await user.click(screen.getByRole("button", { name: "Enviar fatura" }));
-  expect(screen.getByRole("button", { name: "Enviando..." })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Enviando…" })).toBeDisabled();
   fireEvent.submit(document.getElementById("comm-form")!);
   expect(sendCalls).toBe(1);
   await user.click(screen.getByRole("button", { name: "Trocar comunicação" }));
