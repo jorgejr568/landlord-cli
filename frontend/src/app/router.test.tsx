@@ -88,7 +88,7 @@ it("renders the public support page inside the public shell", async () => {
   const view = render(<RouterProvider router={router} />);
 
   expect(
-    await screen.findByRole("heading", { level: 2, name: "Suporte" })
+    await screen.findByRole("heading", { level: 1, name: "Como podemos ajudar?" })
   ).toBeVisible();
   expect(screen.getByRole("main")).toHaveClass("wrapper", "main-content");
 
