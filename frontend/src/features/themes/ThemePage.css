@@ -461,8 +461,8 @@
 }
 
 .theme-contrast.is-warning .theme-contrast__icon { background: var(--overdue); }
-.theme-contrast strong,
-.theme-contrast span { display: block; }
+.theme-contrast__copy > strong,
+.theme-contrast__copy > span { display: block; }
 .theme-contrast strong { font-size: 0.78rem; }
 .theme-contrast div > span { font-size: 0.72rem; line-height: 1.4; margin-top: 0.12rem; }
 

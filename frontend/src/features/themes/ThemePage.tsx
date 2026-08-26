@@ -681,7 +681,7 @@ export function ThemePage({ backUrl, ownerLabel, target, targetUuid }: ThemePage
                     ? <TriangleAlert aria-hidden="true" size={15} />
                     : <Check aria-hidden="true" size={15} />}
                 </span>
-                <div>
+                <div className="theme-contrast__copy">
                   <strong>{ratio < 4.5 ? "Contraste insuficiente" : "Contraste aprovado"}</strong>
                   <span>
                     {ratio < 4.5

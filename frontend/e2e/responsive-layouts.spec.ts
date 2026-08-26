@@ -68,6 +68,35 @@ test("status menu items retain a visible keyboard focus ring", async ({ page }) 
   expect(Number.parseFloat(focusStyle.outlineWidth)).toBeGreaterThanOrEqual(2);
 });
 
+test("theme contrast icon remains centered inside its status circle", async ({ page }) => {
+  const css = readFileSync(new URL("../src/features/themes/ThemePage.css", import.meta.url), "utf8");
+  await page.setContent(`
+    <style>${css}</style>
+    <div class="theme-contrast">
+      <span class="theme-contrast__icon">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <path d="m5 12 4 4L19 6"></path>
+        </svg>
+      </span>
+      <div class="theme-contrast__copy">
+        <strong>Contraste aprovado</strong><span>5,2:1 entre a cor primária e o texto.</span>
+      </div>
+    </div>
+  `);
+
+  const alignment = await page.locator(".theme-contrast__icon").evaluate((element) => {
+    const circle = element.getBoundingClientRect();
+    const icon = element.querySelector("svg")!.getBoundingClientRect();
+    return {
+      x: icon.x + icon.width / 2 - (circle.x + circle.width / 2),
+      y: icon.y + icon.height / 2 - (circle.y + circle.height / 2)
+    };
+  });
+
+  expect(Math.abs(alignment.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(alignment.y)).toBeLessThanOrEqual(0.5);
+});
+
 test("bill action menu escapes the invoice shell without leaving the viewport", async ({ page }) => {
   const css = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
   await page.setViewportSize({ height: 710, width: 1120 });
