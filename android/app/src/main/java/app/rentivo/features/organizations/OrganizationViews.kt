@@ -71,7 +71,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.rentivo.R
 import app.rentivo.app.AppNotice
@@ -422,7 +421,7 @@ fun OrganizationFormView(
     val trimmedCity = city.trim()
     // Mirrors BillingFormView's PIX validation: a blank key means no PIX at all, but once a key is
     // present the recipient name/city are required, and must respect the server's column limits
-    // (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city` maxLength 15)
+    // (`OrganizationUpdateRequest.pix_merchant_name` and `pix_merchant_city` are both maxLength 255)
     // so the follow-up PATCH in `createOrganization`/`updateOrganization` can't 422 on data the form
     // already accepted.
     pixValidationMessage = OrganizationDraft.pixValidationMessage(
@@ -517,9 +516,6 @@ fun OrganizationFormView(
               placeholder = "Cidade",
               value = city,
               onValueChange = { city = it },
-              keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Characters,
-              ),
             )
           },
         ),
