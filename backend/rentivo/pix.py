@@ -31,6 +31,14 @@ def validate_pix_key(key: str) -> str:
         raise ValueError("Chave PIX vazia")
     raw = key.strip()
 
+    # The payload is encoded as ASCII when its CRC is computed, and a PIX key
+    # cannot be sanitized (dropping characters would address a different key),
+    # so reject non-ASCII keys here instead of failing at generation time. The
+    # email pattern accepts any non-space character and ``\d``/``str.isdigit``
+    # accept non-ASCII digits, so this is not implied by the patterns below.
+    if not raw.isascii():
+        raise ValueError("Chave PIX inválida. Use apenas caracteres ASCII (sem acentos ou emojis).")
+
     digits_only = re.sub(r"[.\-/\s()]", "", raw)
     if digits_only.isdigit():
         if len(digits_only) == 11:
@@ -106,6 +114,18 @@ def _strip_accents(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _sanitize_recipient_field(text: str, limit: int) -> str:
+    """Render a PIX recipient field as truncated ASCII uppercase.
+
+    ``_strip_accents`` only removes combining marks, so characters without a
+    canonical decomposition (em dash, curly quotes, ``Ø``, emoji) survive it and
+    would raise ``UnicodeEncodeError`` in :func:`_crc16_ccitt`. Drop them before
+    truncating, so removed characters do not consume the field's budget.
+    """
+    ascii_text = _strip_accents(text).upper().encode("ascii", "ignore").decode("ascii")
+    return ascii_text[:limit]
+
+
 def generate_pix_payload(
     *,
     pix_key: str,
@@ -126,9 +146,19 @@ def generate_pix_payload(
     Returns:
         The complete BR Code payload string with CRC16.
     """
-    # PIX recipient fields are rendered in accent-free uppercase only at generation time.
-    name = _strip_accents(merchant_name).upper()[:25]
-    city = _strip_accents(merchant_city).upper()[:15]
+    # PIX recipient fields are rendered in accent-free ASCII uppercase only at generation time.
+    name = _sanitize_recipient_field(merchant_name, 25)
+    city = _sanitize_recipient_field(merchant_city, 15)
+
+    # Key and txid are copied verbatim, so they must already be ASCII: the CRC
+    # encodes the payload as ASCII, and a raised ValueError here is clearer than
+    # the UnicodeEncodeError callers would otherwise see. ``validate_pix_key``
+    # enforces this for keys entering the system; this also covers stored keys
+    # that predate that check.
+    if not pix_key.isascii():
+        raise ValueError("Chave PIX inválida. Use apenas caracteres ASCII (sem acentos ou emojis).")
+    if not txid.isascii():
+        raise ValueError("Identificador da transação PIX deve usar apenas caracteres ASCII.")
 
     # Merchant Account Information (tag 26)
     mai = _tlv("00", "br.gov.bcb.pix") + _tlv("01", pix_key)

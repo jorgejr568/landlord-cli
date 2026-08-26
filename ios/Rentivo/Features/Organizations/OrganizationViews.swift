@@ -405,7 +405,6 @@ struct OrganizationFormView: View {
             errorMessage: pixCityError,
             accessibilityIdentifier: "organization.form.pix.city"
           )
-            .textInputAutocapitalization(.characters)
             .focused($focusedField, equals: .city)
             .accessibilityFocused($accessibilityFocusedField, equals: .city)
         } else {
@@ -499,8 +498,8 @@ struct OrganizationFormView: View {
     if currentPixKeyInput.validationMessage != nil {
       return .pixKey
     }
-    if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 25 { return .merchantName }
-    if normalizedCity.isEmpty || normalizedCity.unicodeScalars.count > 15 { return .city }
+    if normalizedName.isEmpty || normalizedName.unicodeScalars.count > 255 { return .merchantName }
+    if normalizedCity.isEmpty || normalizedCity.unicodeScalars.count > 255 { return .city }
     return .pixKey
   }
 
@@ -621,8 +620,8 @@ struct OrganizationFormView: View {
     guard pixValidationMessage != nil, pixKeyError == nil else { return nil }
     let value = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     if value.isEmpty { return "Informe o nome do recebedor." }
-    if value.unicodeScalars.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
+    if value.unicodeScalars.count > 255 {
+      return "O nome do recebedor deve ter até 255 caracteres."
     }
     return nil
   }
@@ -633,8 +632,8 @@ struct OrganizationFormView: View {
     }
     let value = city.trimmingCharacters(in: .whitespacesAndNewlines)
     if value.isEmpty { return "Informe a cidade do recebedor." }
-    if value.unicodeScalars.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
+    if value.unicodeScalars.count > 255 {
+      return "A cidade do recebedor deve ter até 255 caracteres."
     }
     return nil
   }

@@ -179,12 +179,11 @@ it("requires a complete personal PIX configuration and exposes the API limits", 
   const key = screen.getByLabelText("Chave PIX");
   const name = screen.getByLabelText("Nome do recebedor");
   const city = screen.getByLabelText("Cidade do recebedor");
-  expect(screen.getByText("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.")).toBeVisible();
-  expect(screen.getByText("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.")).toBeVisible();
-  fireEvent.change(name, { target: { value: "😀".repeat(26) } });
-  fireEvent.change(city, { target: { value: "😀".repeat(16) } });
-  expect(name).toHaveValue("😀".repeat(25));
-  expect(city).toHaveValue("😀".repeat(15));
+  expect(screen.getByText("Digite o nome completo.")).toBeVisible();
+  fireEvent.change(name, { target: { value: "😀".repeat(256) } });
+  fireEvent.change(city, { target: { value: "😀".repeat(256) } });
+  expect(name).toHaveValue("😀".repeat(255));
+  expect(city).toHaveValue("😀".repeat(255));
   await user.clear(key);
   await user.clear(name);
   await user.clear(city);
@@ -239,7 +238,7 @@ it("links every PIX control to stable hint and validation error semantics", asyn
   const city = screen.getByLabelText("Cidade do recebedor");
   expect(key).toHaveAttribute("aria-describedby", "pix_key-hint");
   expect(name).toHaveAttribute("aria-describedby", "pix_merchant_name-hint");
-  expect(city).toHaveAttribute("aria-describedby", "pix_merchant_city-hint");
+  expect(city).not.toHaveAttribute("aria-describedby");
 
   await user.clear(key);
   await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));

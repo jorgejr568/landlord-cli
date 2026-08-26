@@ -174,8 +174,8 @@ import Testing
       )
     ],
     pixOverride: PixConfiguration(
-      key: "ana@example.com", merchantName: String(repeating: "m", count: 26),
-      merchantCity: String(repeating: "c", count: 16)
+      key: "ana@example.com", merchantName: String(repeating: "m", count: 256),
+      merchantCity: String(repeating: "c", count: 256)
     ),
     recipients: [
       BillingRecipient(
@@ -404,24 +404,27 @@ import Testing
   let combiningCharacter = "e\u{301}"
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "ana@example.com", merchantName: String(repeating: "😀", count: 25), city: String(repeating: "😀", count: 15)
+      key: "ana@example.com", merchantName: String(repeating: "😀", count: 255),
+      city: String(repeating: "😀", count: 255)
     ) == nil
   )
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 13), city: "RECIFE"
-    ) == "O nome do recebedor deve ter até 25 caracteres."
+      key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 128),
+      city: "RECIFE"
+    ) == "O nome do recebedor deve ter até 255 caracteres."
   )
   #expect(
     OrganizationDraft.pixValidationMessage(
-      key: "ana@example.com", merchantName: "ANA", city: String(repeating: combiningCharacter, count: 8)
-    ) == "A cidade do recebedor deve ter até 15 caracteres."
+      key: "ana@example.com", merchantName: "ANA",
+      city: String(repeating: combiningCharacter, count: 128)
+    ) == "A cidade do recebedor deve ter até 255 caracteres."
   )
   #expect(
     OrganizationDraft(
       name: "Imobiliária",
       pix: PixConfiguration(
-        key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 13),
+        key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 128),
         merchantCity: "RECIFE"
       )
     ).isValid == false

@@ -590,7 +590,6 @@ private fun PixSection(
       label = "Cidade do recebedor",
       value = merchantCity,
       onValueChange = onMerchantCityChange,
-      capitalization = KeyboardCapitalization.Characters,
       modifier = Modifier.testTag("billing.form.pix.merchantCity"),
     )
   }

@@ -515,7 +515,6 @@ fun ProfilePixView(onBack: () -> Unit) {
               value = form.merchantCity,
               onValueChange = { form = form.copy(merchantCity = it) },
               enabled = !isDemoViewerLocked,
-              keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
             )
           },
         ),

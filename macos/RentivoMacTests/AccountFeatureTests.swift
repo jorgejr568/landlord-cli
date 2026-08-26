@@ -44,10 +44,10 @@ struct AccountProfilePIXTests {
     form.merchantCity = "SALVADOR"
     #expect(form.isSavable)
     #expect(form.configuration?.isComplete == true)
-    form.merchantName = String(repeating: "N", count: 26)
+    form.merchantName = String(repeating: "N", count: 256)
     #expect(form.isSavable == false)
     form.merchantName = "JORGE JUNIOR"
-    form.merchantCity = String(repeating: "C", count: 16)
+    form.merchantCity = String(repeating: "C", count: 256)
     #expect(form.isSavable == false)
   }
 

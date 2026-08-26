@@ -10,7 +10,7 @@ import Testing
     #expect(
       BillingWizardFocusRules.pixTarget(
         key: "chave",
-        merchantName: String(repeating: "A", count: 26),
+        merchantName: String(repeating: "A", count: 256),
         merchantCity: "RECIFE"
       ) == .merchantName
     )
@@ -18,7 +18,7 @@ import Testing
       BillingWizardFocusRules.pixTarget(
         key: "chave",
         merchantName: "ANA",
-        merchantCity: String(repeating: "R", count: 16)
+        merchantCity: String(repeating: "R", count: 256)
       ) == .merchantCity
     )
   }

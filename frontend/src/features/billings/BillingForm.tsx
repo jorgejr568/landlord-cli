@@ -6,7 +6,7 @@ import { FieldError } from "../../components/FieldError";
 import { FormWizard, WizardReviewRow, WizardSummary, type WizardStep } from "../../components/FormWizard";
 import { ThemedSelect } from "../../components/ThemedSelect";
 import { DirtyFormGuard } from "../../forms/useDirtyFormGuard";
-import { PIX_MERCHANT_CITY_GUIDANCE, PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
+import { PIX_MERCHANT_NAME_GUIDANCE } from "../../forms/pixGuidance";
 import { validateContacts, validateMoney, validatePix, validateText } from "../../forms/validators";
 import { formatBrl, MAX_PERSISTED_CENTAVOS, parseBrl } from "../../lib/format";
 import { shouldAutoFocus } from "../../lib/autofocus";
@@ -369,8 +369,8 @@ export function BillingForm({ cancelTo, error, fieldErrors, lockedContacts, mode
           <FieldError id="pix-key-error" message={allFieldErrors.pix_key} />
         </div>
         <div className="form-grid">
-          <div className="field"><label className="field__label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_name ? "pix-name-error" : "pix-name-hint"} autoComplete="off" className="input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", limitApiCharacters(event.target.value, 25))} placeholder="Ex.: Maria da Silva…" type="text" value={form.pixMerchantName} /><span className="field__hint" id="pix-name-hint">{PIX_MERCHANT_NAME_GUIDANCE}</span><FieldError id="pix-name-error" message={allFieldErrors.pix_merchant_name} /></div>
-          <div className="field"><label className="field__label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_city ? "pix-city-error" : "pix-city-hint"} autoComplete="off" className="input mono" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", limitApiCharacters(event.target.value, 15))} placeholder="Ex.: São Paulo…" spellCheck={false} type="text" value={form.pixMerchantCity} /><span className="field__hint" id="pix-city-hint">{PIX_MERCHANT_CITY_GUIDANCE}</span><FieldError id="pix-city-error" message={allFieldErrors.pix_merchant_city} /></div>
+          <div className="field"><label className="field__label" htmlFor="pix_merchant_name">Nome do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_name ? "pix-name-error" : "pix-name-hint"} autoComplete="off" className="input" id="pix_merchant_name" name="pix_merchant_name" onChange={(event) => setField("pixMerchantName", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: Maria da Silva…" type="text" value={form.pixMerchantName} /><span className="field__hint" id="pix-name-hint">{PIX_MERCHANT_NAME_GUIDANCE}</span><FieldError id="pix-name-error" message={allFieldErrors.pix_merchant_name} /></div>
+          <div className="field"><label className="field__label" htmlFor="pix_merchant_city">Cidade do recebedor</label><input aria-describedby={allFieldErrors.pix_merchant_city ? "pix-city-error" : undefined} autoComplete="off" className="input mono" id="pix_merchant_city" name="pix_merchant_city" onChange={(event) => setField("pixMerchantCity", limitApiCharacters(event.target.value, 255))} placeholder="Ex.: São Paulo…" spellCheck={false} type="text" value={form.pixMerchantCity} /><FieldError id="pix-city-error" message={allFieldErrors.pix_merchant_city} /></div>
         </div>
       </> : <div className="billing-pix-inherited" role="status"><strong>PIX do proprietário selecionado</strong><span>A cobrança usa a chave já cadastrada no perfil do proprietário.</span></div>}
     </>

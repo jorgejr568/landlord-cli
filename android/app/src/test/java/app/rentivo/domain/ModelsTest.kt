@@ -184,10 +184,10 @@ class ModelsTest {
     form.merchantCity = "RECIFE"
     assertTrue(form.isSavable)
 
-    form.merchantName = "N".repeat(26)
+    form.merchantName = "N".repeat(256)
     assertFalse(form.isSavable)
     form.merchantName = "ANA"
-    form.merchantCity = "C".repeat(16)
+    form.merchantCity = "C".repeat(256)
     assertFalse(form.isSavable)
   }
 
@@ -299,24 +299,24 @@ class ModelsTest {
     assertNull(
       OrganizationDraft.pixValidationMessage(
         key = "pix",
-        merchantName = "😀".repeat(25),
-        city = "😀".repeat(15),
+        merchantName = "😀".repeat(255),
+        city = "😀".repeat(255),
       ),
     )
     assertEquals(
-      "O nome do recebedor deve ter até 25 caracteres.",
+      "O nome do recebedor deve ter até 255 caracteres.",
       OrganizationDraft.pixValidationMessage(
         key = "pix",
-        merchantName = combiningCharacter.repeat(13),
+        merchantName = combiningCharacter.repeat(128),
         city = "RECIFE",
       ),
     )
     assertEquals(
-      "A cidade do recebedor deve ter até 15 caracteres.",
+      "A cidade do recebedor deve ter até 255 caracteres.",
       OrganizationDraft.pixValidationMessage(
         key = "pix",
         merchantName = "ANA",
-        city = combiningCharacter.repeat(8),
+        city = combiningCharacter.repeat(128),
       ),
     )
     assertFalse(
@@ -324,7 +324,7 @@ class ModelsTest {
         name = "Imobiliária",
         pix = PixConfiguration(
           key = "pix",
-          merchantName = combiningCharacter.repeat(13),
+          merchantName = combiningCharacter.repeat(128),
           merchantCity = "RECIFE",
         ),
       ).isValid,

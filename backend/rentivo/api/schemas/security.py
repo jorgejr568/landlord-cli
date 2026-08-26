@@ -31,8 +31,8 @@ class CurrentProfileResponse(_StrictModel):
 
 class PixUpdateRequest(_StrictModel):
     pix_key: str | None = ""
-    pix_merchant_name: str | None = Field(default="", max_length=25)
-    pix_merchant_city: str | None = Field(default="", max_length=15)
+    pix_merchant_name: str | None = Field(default="", max_length=255)
+    pix_merchant_city: str | None = Field(default="", max_length=255)
 
     @field_validator("pix_key", "pix_merchant_name", "pix_merchant_city", mode="before")
     @classmethod

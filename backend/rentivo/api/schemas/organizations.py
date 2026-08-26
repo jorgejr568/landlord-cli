@@ -24,8 +24,8 @@ def _nonblank(value: str, message: str) -> str:
 class OrganizationCreateRequest(_StrictModel):
     name: str = Field(max_length=255)
     pix_key: str = ""
-    pix_merchant_name: str = Field(default="", max_length=25)
-    pix_merchant_city: str = Field(default="", max_length=15)
+    pix_merchant_name: str = Field(default="", max_length=255)
+    pix_merchant_city: str = Field(default="", max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -58,8 +58,8 @@ class OrganizationCreateRequest(_StrictModel):
 class OrganizationUpdateRequest(_StrictModel):
     name: str | None = Field(default=None, max_length=255)
     pix_key: str | None = None
-    pix_merchant_name: str | None = Field(default=None, max_length=25)
-    pix_merchant_city: str | None = Field(default=None, max_length=15)
+    pix_merchant_name: str | None = Field(default=None, max_length=255)
+    pix_merchant_city: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="before")
     @classmethod

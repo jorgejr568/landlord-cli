@@ -375,7 +375,6 @@ struct ProfilePixView: View {
           isAccessibilityFocused: accessibilityFocusBinding(.city),
           accessibilityIdentifier: "profile.pix.city"
         )
-          .textInputAutocapitalization(.characters)
           .disabled(isDemoViewerLocked || !profileLoaded)
           .onChange(of: form.merchantCity) {
             if cityValidationMessage != nil { validateRecipientFields() }
@@ -463,7 +462,7 @@ struct ProfilePixView: View {
     if pixKeyInput.validationMessage != nil {
       step = .key
       scheduleFocus(.key)
-    } else if name.isEmpty || name.unicodeScalars.count > 25 {
+    } else if name.isEmpty || name.unicodeScalars.count > 255 {
       step = .recipient
       scheduleFocus(.merchantName)
     } else {
@@ -583,12 +582,12 @@ struct ProfilePixView: View {
     let city = form.merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
     merchantNameValidationMessage = name.isEmpty
       ? "Informe o nome do recebedor."
-      : (name.unicodeScalars.count > 25
-        ? "O nome do recebedor deve ter até 25 caracteres." : nil)
+      : (name.unicodeScalars.count > 255
+        ? "O nome do recebedor deve ter até 255 caracteres." : nil)
     cityValidationMessage = city.isEmpty
       ? "Informe a cidade do recebedor."
-      : (city.unicodeScalars.count > 15
-        ? "A cidade do recebedor deve ter até 15 caracteres." : nil)
+      : (city.unicodeScalars.count > 255
+        ? "A cidade do recebedor deve ter até 255 caracteres." : nil)
   }
 
   private func removePix() async {

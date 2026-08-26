@@ -168,10 +168,9 @@ it("preserves the create form structure and filters owners by capability instead
   expect(screen.queryByLabelText("Descrição do item 2")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("radio", { name: /^Usar PIX exclusivo/ }));
-  expect(screen.getByText("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.")).toBeVisible();
-  expect(screen.getByText("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.")).toBeVisible();
-  expect(screen.getByLabelText("Nome do recebedor")).toHaveAccessibleDescription("Digite o nome completo. Usaremos os primeiros 25 caracteres; o corte não afeta o pagamento.");
-  expect(screen.getByLabelText("Cidade do recebedor")).toHaveAccessibleDescription("Digite normalmente, com acentos. No PIX, “São Paulo” vira “SAO PAULO”.");
+  expect(screen.getByText("Digite o nome completo.")).toBeVisible();
+  expect(screen.getByLabelText("Nome do recebedor")).toHaveAccessibleDescription("Digite o nome completo.");
+  expect(screen.getByLabelText("Cidade do recebedor")).not.toHaveAttribute("aria-describedby");
   await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
   await user.type(screen.getByLabelText("Nome do recebedor"), "MARIA");
   await user.type(screen.getByLabelText("Cidade do recebedor"), "SALVADOR");
@@ -271,7 +270,7 @@ it("blocks invalid required, money, PIX, recipient, and reply-to values locally"
   const onSubmit = vi.fn();
   const values = emptyBillingValues();
   values.description = "x".repeat(2001);
-  values.pixMerchantName = "M".repeat(26);
+  values.pixMerchantName = "M".repeat(256);
   renderForm(<BillingForm error="" fieldErrors={{}} mode="create" onSubmit={onSubmit} organizations={[]} saving={false} values={values} />);
 
   fireEvent.submit(document.getElementById("billing-form")!);
@@ -290,7 +289,7 @@ it("blocks invalid required, money, PIX, recipient, and reply-to values locally"
   await user.type(screen.getByLabelText("Valor do item 1 (R$)"), "1.000,00");
   await user.click(screen.getByRole("button", { name: "Continuar" }));
   await user.click(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.getByText("Informe no máximo 25 caracteres.")).toBeVisible();
+  expect(screen.getByText("Informe no máximo 255 caracteres.")).toBeVisible();
   expect(screen.getByText("Informe a chave PIX.")).toBeVisible();
   expect(screen.getByText("Informe a cidade do recebedor.")).toBeVisible();
   await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");

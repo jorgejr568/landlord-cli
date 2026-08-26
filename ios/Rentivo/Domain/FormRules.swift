@@ -240,12 +240,12 @@ public enum PixFormRules {
     }
     if let message = input.validationMessage { return .invalid(message) }
     guard !name.isEmpty else { return .invalid("Informe o nome do recebedor.") }
-    guard name.unicodeScalars.count <= 25 else {
-      return .invalid("O nome do recebedor deve ter até 25 caracteres.")
+    guard name.unicodeScalars.count <= 255 else {
+      return .invalid("O nome do recebedor deve ter até 255 caracteres.")
     }
     guard !city.isEmpty else { return .invalid("Informe a cidade do recebedor.") }
-    guard city.unicodeScalars.count <= 15 else {
-      return .invalid("A cidade do recebedor deve ter até 15 caracteres.")
+    guard city.unicodeScalars.count <= 255 else {
+      return .invalid("A cidade do recebedor deve ter até 255 caracteres.")
     }
     guard let normalizedKey = input.normalizedValue else {
       return .invalid("Esta chave não corresponde ao tipo selecionado.")

@@ -26,37 +26,37 @@ struct OrganizationFormValidationTests {
 
   @Test("recipient name and city respect the server's column limits")
   func recipientFieldsRespectServerColumnLimits() {
-    // The follow-up PATCH caps `pix_merchant_name` at 25 and `pix_merchant_city` at 15, so the
-    // form has to reject over-long values rather than let the request 422.
+    // The follow-up PATCH caps `pix_merchant_name` and `pix_merchant_city` at 255, so the form
+    // has to reject over-long values rather than let the request 422.
     #expect(
       OrganizationFormValidation.pixMessage(
-        key: "ana@example.com", merchantName: String(repeating: "A", count: 25),
-        city: String(repeating: "B", count: 15)
+        key: "ana@example.com", merchantName: String(repeating: "A", count: 255),
+        city: String(repeating: "B", count: 255)
       ) == nil
     )
     #expect(
       OrganizationFormValidation.pixMessage(
-        key: "ana@example.com", merchantName: String(repeating: "A", count: 26),
+        key: "ana@example.com", merchantName: String(repeating: "A", count: 256),
         city: "SALVADOR"
-      ) == "O nome do recebedor deve ter até 25 caracteres."
+      ) == "O nome do recebedor deve ter até 255 caracteres."
     )
     #expect(
       OrganizationFormValidation.pixMessage(
-        key: "ana@example.com", merchantName: "ANA", city: String(repeating: "B", count: 16)
-      ) == "A cidade do recebedor deve ter até 15 caracteres."
+        key: "ana@example.com", merchantName: "ANA", city: String(repeating: "B", count: 256)
+      ) == "A cidade do recebedor deve ter até 255 caracteres."
     )
     let combiningCharacter = "e\u{301}"
     #expect(
       OrganizationFormValidation.pixMessage(
-        key: "ana@example.com", merchantName: String(repeating: "😀", count: 25),
-        city: String(repeating: "😀", count: 15)
+        key: "ana@example.com", merchantName: String(repeating: "😀", count: 255),
+        city: String(repeating: "😀", count: 255)
       ) == nil
     )
     #expect(
       OrganizationFormValidation.pixMessage(
-        key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 13),
+        key: "ana@example.com", merchantName: String(repeating: combiningCharacter, count: 128),
         city: "SALVADOR"
-      ) == "O nome do recebedor deve ter até 25 caracteres."
+      ) == "O nome do recebedor deve ter até 255 caracteres."
     )
   }
 

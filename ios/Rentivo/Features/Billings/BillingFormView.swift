@@ -88,12 +88,12 @@ enum BillingWizardFocusRules {
     if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .key }
 
     let normalizedMerchantName = merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
-    if normalizedMerchantName.isEmpty || normalizedMerchantName.unicodeScalars.count > 25 {
+    if normalizedMerchantName.isEmpty || normalizedMerchantName.unicodeScalars.count > 255 {
       return .merchantName
     }
 
     let normalizedMerchantCity = merchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
-    if normalizedMerchantCity.isEmpty || normalizedMerchantCity.unicodeScalars.count > 15 {
+    if normalizedMerchantCity.isEmpty || normalizedMerchantCity.unicodeScalars.count > 255 {
       return .merchantCity
     }
     return .key
@@ -450,7 +450,6 @@ struct BillingFormView: View {
           )
             .focused($focusedField, equals: .pixMerchantCity)
             .accessibilityFocused($accessibilityFocusedField, equals: .pixMerchantCity)
-            .textInputAutocapitalization(.characters)
         } else {
           Label("Herdando o PIX do responsável", systemImage: "arrow.triangle.branch")
             .foregroundStyle(RentivoColors.secondaryInk)
@@ -977,8 +976,8 @@ struct BillingFormView: View {
       || pixRecipientRequiredMessage != nil else { return nil }
     let value = pixMerchantName.trimmingCharacters(in: .whitespacesAndNewlines)
     if value.isEmpty { return "Informe o nome do recebedor." }
-    if value.unicodeScalars.count > 25 {
-      return "O nome do recebedor deve ter até 25 caracteres."
+    if value.unicodeScalars.count > 255 {
+      return "O nome do recebedor deve ter até 255 caracteres."
     }
     return nil
   }
@@ -989,8 +988,8 @@ struct BillingFormView: View {
     else { return nil }
     let value = pixMerchantCity.trimmingCharacters(in: .whitespacesAndNewlines)
     if value.isEmpty { return "Informe a cidade do recebedor." }
-    if value.unicodeScalars.count > 15 {
-      return "A cidade do recebedor deve ter até 15 caracteres."
+    if value.unicodeScalars.count > 255 {
+      return "A cidade do recebedor deve ter até 255 caracteres."
     }
     return nil
   }

@@ -12,8 +12,8 @@ private struct OrganizationListItem: Identifiable, Sendable {
 enum OrganizationFormValidation {
   /// Mirrors BillingFormView's PIX validation: a blank key means no PIX at all, but once a key
   /// is present the recipient name/city are required, and must respect the server's column
-  /// limits (`OrganizationUpdateRequest.pix_merchant_name` maxLength 25, `pix_merchant_city`
-  /// maxLength 15) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
+  /// limits (`OrganizationUpdateRequest.pix_merchant_name` and `pix_merchant_city` are both
+  /// maxLength 255) so the follow-up PATCH in `createOrganization`/`updateOrganization` can't
   /// 422 on data the form already accepted. Returns `nil` when the section is valid.
   static func pixMessage(key: String, merchantName: String, city: String) -> String? {
     OrganizationDraft.pixValidationMessage(
