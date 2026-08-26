@@ -96,10 +96,12 @@ test("populated detail and theme grids collapse to one column on mobile", async 
   expect(toolbarBox!.y).toBeGreaterThanOrEqual(identityBox!.y + identityBox!.height - 1);
 
   await page.goto("/organizations/org-responsive");
+  await page.getByRole("tab", { name: "Equipe 1" }).click();
+  await expect(page.getByRole("heading", { name: "Pessoas e convites" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Membros" })).toBeVisible();
-  await expectSingleColumn(page, ".organization-detail-grid");
+  await expectSingleColumn(page, ".organization-team__body--managed");
 
   await page.goto("/themes/user");
-  await expect(page.getByRole("heading", { name: "Cores" })).toBeVisible();
-  await expectSingleColumn(page, ".theme-color-grid");
+  await expect(page.getByRole("heading", { name: "Paleta" })).toBeVisible();
+  await expectSingleColumn(page, ".theme-color-list");
 });

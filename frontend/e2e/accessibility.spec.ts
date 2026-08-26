@@ -83,7 +83,8 @@ test("security exposes navigation and main landmarks without unlabeled controls"
   await installApiMocks(page);
   await page.goto("/security");
 
-  await expect(page.getByRole("navigation")).toHaveCount(1);
+  await expect(page.getByRole("navigation")).toHaveCount(2);
+  await expect(page.getByRole("navigation", { name: "Atalhos de segurança" })).toHaveCount(1);
   await expect(page.getByRole("main")).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Segurança" })).toBeVisible();
   await expectAccessibleFundamentals(page);

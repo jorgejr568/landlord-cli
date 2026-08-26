@@ -57,7 +57,9 @@ test("a fresh account has complete authenticated destination pages", async ({ is
 
   await navigatePrimary(page, isMobile, "Organizações", "/organizations/");
   await expect(page.getByRole("heading", { level: 1, name: "Organizações" })).toBeVisible();
-  await expect(page.getByText("Você não faz parte de nenhuma organização.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Organize sua operação em equipe" })
+  ).toBeVisible();
   const createOrganization = page.getByRole("link", { name: "Criar organização" });
   await expect(createOrganization).toHaveAttribute("href", "/organizations/create");
   await createOrganization.click();
@@ -69,15 +71,17 @@ test("a fresh account has complete authenticated destination pages", async ({ is
   } else {
     await navigateAccount(page, "Convites", "/invites/");
   }
-  await expect(page.getByRole("heading", { level: 1, name: "Convites Pendentes" })).toBeVisible();
-  await expect(page.getByText("Nenhum convite pendente.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Convites" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Nenhum convite pendente." })
+  ).toBeVisible();
 
   if (isMobile) await page.goto("/themes/user");
   else await navigateAccount(page, "Tema", "/themes/user");
   await expect(page.getByRole("heading", { level: 1, name: "Meu Tema" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Fontes" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Cores" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Pré-visualização" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Tipografia" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Paleta" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Prévia da fatura" })).toBeVisible();
   await expect(page.getByLabel("Fonte do Cabeçalho")).toHaveValue("Montserrat");
   await expect(page.getByLabel("Fonte do Texto")).toHaveValue("Montserrat");
   await expect(page.getByRole("link", { name: "Voltar" })).toHaveAttribute("href", "/billings/");
