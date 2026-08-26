@@ -95,6 +95,8 @@ class TestInvoicePDF:
         )
 
         payment_page = pypdf.PdfReader(io.BytesIO(result)).pages[1].extract_text()
+        assert payment_page.splitlines()[0].startswith("FATURA")
+        assert "rentivo" not in payment_page.splitlines()[0].lower()
         assert "FATURA" in payment_page
         assert "Apartamento Aurora" in payment_page
         assert "Março/2025" in payment_page
@@ -151,6 +153,15 @@ class TestInvoicePDF:
 
         text = "\n".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages)
         assert "rentivo" in text
+
+    def test_invoice_masthead_opens_with_the_document_title_not_a_product_lockup(self):
+        """The customer document must not lead with the app logo and wordmark."""
+        result = InvoicePDF().generate(self._make_bill(), "Apt 101")
+
+        first_page_lines = pypdf.PdfReader(io.BytesIO(result)).pages[0].extract_text().splitlines()
+
+        assert first_page_lines[0].startswith("FATURA")
+        assert "rentivo" not in first_page_lines[0].lower()
 
     def test_generate_pix_no_key_no_payload(self):
         """Cover branches 362->383 and 383->exit: pix page without key or payload."""
@@ -220,6 +231,7 @@ class TestInvoicePDF:
 
         page_text = [page.extract_text() for page in pypdf.PdfReader(io.BytesIO(result)).pages]
         assert len(page_text) == 2
+        assert all(text.splitlines()[0].startswith("FATURA") for text in page_text)
         assert all("Apartamento Aurora" in text for text in page_text)
         assert all("Março/2025" in text for text in page_text)
 
@@ -402,6 +414,30 @@ class TestInvoicePDF:
 
         assert page_rows == [(first, [first.description], True)]
         assert pending_rows == [(final, [final.description], True)]
+
+    def test_wrapped_row_moves_whole_after_an_earlier_row_uses_the_page(self):
+        """A wrapped row starts on the next page when the current one already has content."""
+        first = BillLineItem(
+            description="Primeiro item",
+            amount=10000,
+            item_type=ItemType.FIXED,
+            sort_order=0,
+        )
+        wrapped = BillLineItem(
+            description="Item com descrição extensa",
+            amount=20000,
+            item_type=ItemType.VARIABLE,
+            sort_order=1,
+        )
+        pending_rows = [
+            (first, [first.description], True),
+            (wrapped, [f"Linha {index}" for index in range(5)], True),
+        ]
+
+        page_rows = InvoicePDF()._take_table_page(pending_rows, available_h=25)
+
+        assert page_rows == [(first, [first.description], True)]
+        assert pending_rows == [(wrapped, [f"Linha {index}" for index in range(5)], True)]
 
     def test_long_notes_repeat_observations_container_on_branded_pages(self):
         """Regression: automatic note overflow created a page without invoice furniture."""

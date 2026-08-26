@@ -79,7 +79,12 @@ class InvoicePDF:
         c = doc.colors
         page_w = doc.page_w
         x = pdf.l_margin
-        draw_document_header(doc, title="FATURA", subtitle="Documento de cobran\u00e7a")
+        draw_document_header(
+            doc,
+            title="FATURA",
+            subtitle="Documento de cobran\u00e7a",
+            show_wordmark=False,
+        )
 
         fields = [("COBRAN\u00c7A", billing_name), ("REFER\u00caNCIA", format_month(reference_month))]
         if due_date:
@@ -101,14 +106,9 @@ class InvoicePDF:
         metadata_y = pdf.get_y()
         metadata_h = max(27.0, max(len(lines) for lines in value_lines) * 5.5 + 17.0)
         pdf.set_fill_color(*c["secondary"])
-        pdf.rect(x, metadata_y, page_w, metadata_h, style="F")
         pdf.set_draw_color(*c["border_color"])
         pdf.set_line_width(0.65)
-        pdf.line(x, metadata_y, x + page_w, metadata_y)
-        pdf.line(x, metadata_y + metadata_h, x + page_w, metadata_y + metadata_h)
-        pdf.set_draw_color(*c["primary"])
-        pdf.set_line_width(1.8)
-        pdf.line(x, metadata_y, x, metadata_y + metadata_h)
+        pdf.rect(x, metadata_y, page_w, metadata_h, style="DF")
 
         field_x = x
         for index, ((label, value), field_w) in enumerate(zip(fields, widths, strict=True)):
@@ -168,6 +168,7 @@ class InvoicePDF:
             doc,
             title="FATURA",
             subtitle=f"{billing_name}  ·  {format_month(reference_month)}  ·  Itens - continuação",
+            show_wordmark=False,
         )
 
     def _take_table_page(
@@ -277,11 +278,7 @@ class InvoicePDF:
         pdf.rect(table_x, table_y, page_w, header_h, style="F")
         pdf.set_draw_color(*c["border_color"])
         pdf.set_line_width(0.65)
-        pdf.line(table_x, table_y, table_x + page_w, table_y)
-        pdf.line(table_x, table_y + table_h, table_x + page_w, table_y + table_h)
-        pdf.set_draw_color(*c["primary"])
-        pdf.set_line_width(1.8)
-        pdf.line(table_x, table_y, table_x, table_y + table_h)
+        pdf.rect(table_x, table_y, page_w, table_h)
         pdf.set_xy(table_x, table_y)
         pdf.set_font(doc.text_font_sb, "", 8)
         pdf.set_text_color(*c["text_color"])
@@ -294,7 +291,7 @@ class InvoicePDF:
             row_h = self._table_row_height(description_lines)
             pdf.set_draw_color(*c["border_color"])
             pdf.set_line_width(0.25)
-            pdf.line(table_x + 4, row_y, table_x + page_w - 4, row_y)
+            pdf.line(table_x, row_y, table_x + page_w, row_y)
 
             text_h = len(description_lines) * 5
             pdf.set_xy(table_x + 5, row_y + (row_h - text_h) / 2)
@@ -374,10 +371,9 @@ class InvoicePDF:
             lines = lines[max_lines:]
             notes_h = max(20.0, len(page_lines) * 5.5 + 10)
             pdf.set_fill_color(*c["primary_light"])
-            pdf.rect(x, y, page_w, notes_h, style="F")
-            pdf.set_draw_color(*c["primary"])
-            pdf.set_line_width(1.8)
-            pdf.line(x, y, x, y + notes_h)
+            pdf.set_draw_color(*c["border_color"])
+            pdf.set_line_width(0.65)
+            pdf.rect(x, y, page_w, notes_h, style="DF")
             pdf.set_xy(x + 8, y + 5)
             pdf.set_text_color(*c["text_color"])
             pdf.set_font(doc.text_font, "", 9.5)
@@ -391,6 +387,7 @@ class InvoicePDF:
                     doc,
                     title="FATURA",
                     subtitle=f"{billing_name}  ·  {format_month(reference_month)}  ·  Observações - continuação",
+                    show_wordmark=False,
                 )
                 continuation = True
 
@@ -426,7 +423,12 @@ class InvoicePDF:
         page_w = doc.page_w
         x = pdf.l_margin
         reference = format_month(reference_month)
-        draw_document_header(doc, title="FATURA", subtitle=f"{billing_name}  ·  {reference}")
+        draw_document_header(
+            doc,
+            title="FATURA",
+            subtitle=f"{billing_name}  ·  {reference}",
+            show_wordmark=False,
+        )
 
         pdf.set_font(doc.header_font, "B", 16)
         pdf.set_text_color(*c["text_color"])
@@ -436,50 +438,49 @@ class InvoicePDF:
         pdf.cell(page_w * 0.38, 8, "Pagamento seguro pelo seu banco", align="R", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
-        qr_panel = 72.0
+        panel_h = 76.0
+        qr_col_w = 78.0
         qr_y = pdf.get_y()
         pdf.set_draw_color(*c["border_color"])
         pdf.set_line_width(0.65)
-        pdf.line(x, qr_y, x + page_w, qr_y)
-        pdf.line(x, qr_y + qr_panel, x + page_w, qr_y + qr_panel)
-        pdf.set_draw_color(*c["primary"])
-        pdf.set_line_width(1.8)
-        pdf.line(x, qr_y, x, qr_y + qr_panel)
+        pdf.rect(x, qr_y, page_w, panel_h)
+        pdf.line(x + qr_col_w, qr_y, x + qr_col_w, qr_y + panel_h)
         qr_size = 56.0
-        qr_x = x + (qr_panel - qr_size) / 2
+        qr_x = x + (qr_col_w - qr_size) / 2
         buf = BytesIO(qrcode_png)
-        pdf.image(buf, x=qr_x, y=qr_y + (qr_panel - qr_size) / 2, w=qr_size, h=qr_size)
+        pdf.image(buf, x=qr_x, y=qr_y + (panel_h - qr_size) / 2, w=qr_size, h=qr_size)
 
-        aside_x = x + qr_panel + 10
-        aside_w = page_w - qr_panel - 10
-        amount_h = 28.0
-        pdf.set_draw_color(*c["border_color"])
-        pdf.set_line_width(0.45)
-        pdf.line(aside_x - 5, qr_y, aside_x - 5, qr_y + qr_panel)
+        aside_x = x + qr_col_w
+        aside_w = page_w - qr_col_w
+        aside_pad = 9.0
+        content_x = aside_x + aside_pad
+        content_w = aside_w - (aside_pad * 2)
+        amount_h = 27.0
         pdf.set_fill_color(*c["primary"])
-        pdf.rect(aside_x, qr_y, aside_w, amount_h, style="F")
-        pdf.set_xy(aside_x + 7, qr_y + 5)
+        pdf.rect(content_x, qr_y + aside_pad, content_w, amount_h, style="F")
+        pdf.set_xy(content_x + 7, qr_y + aside_pad + 5)
         pdf.set_font(doc.text_font_sb, "", 7.5)
         pdf.set_text_color(*c["text_contrast"])
-        pdf.cell(aside_w - 14, 5, "VALOR A PAGAR")
-        pdf.set_xy(aside_x + 7, qr_y + 12)
+        pdf.cell(content_w - 14, 5, "VALOR A PAGAR")
+        pdf.set_xy(content_x + 7, qr_y + aside_pad + 12)
         pdf.set_font(doc.header_font, "B", 17)
-        pdf.cell(aside_w - 14, 10, format_brl(total_amount))
+        pdf.cell(content_w - 14, 10, format_brl(total_amount))
 
-        pdf.set_xy(aside_x + 2, qr_y + amount_h + 9)
+        instructions_y = qr_y + aside_pad + amount_h + 8
+        pdf.set_xy(content_x, instructions_y)
         pdf.set_font(doc.header_font, "B", 10.5)
         pdf.set_text_color(*c["text_color"])
-        pdf.cell(aside_w - 2, 6, "COMO PAGAR")
-        pdf.set_xy(aside_x + 2, qr_y + amount_h + 18)
+        pdf.cell(content_w, 6, "COMO PAGAR")
+        pdf.set_xy(content_x, instructions_y + 9)
         pdf.set_font(doc.text_font, "", 8.5)
         pdf.set_text_color(*c["muted_text"])
         pdf.multi_cell(
-            aside_w - 2,
+            content_w,
             5.5,
             "1. Abra o aplicativo do seu banco.\n2. Escolha pagar com PIX.\n3. Escaneie o QR Code ao lado.",
         )
 
-        pdf.set_y(qr_y + qr_panel + 15)
+        pdf.set_y(qr_y + panel_h + 15)
 
         # PIX key info card
         if pix_key:
@@ -491,10 +492,9 @@ class InvoicePDF:
             key_y = pdf.get_y()
             key_h = 16
             pdf.set_fill_color(*c["primary_light"])
-            pdf.rect(x, key_y, page_w, key_h, style="F")
-            pdf.set_draw_color(*c["primary"])
-            pdf.set_line_width(1.8)
-            pdf.line(x, key_y, x, key_y + key_h)
+            pdf.set_draw_color(*c["border_color"])
+            pdf.set_line_width(0.65)
+            pdf.rect(x, key_y, page_w, key_h, style="DF")
             pdf.set_xy(x + 7, key_y + 3.5)
             pdf.set_font(doc.text_font, "B", 11)
             pdf.set_text_color(*c["text_color"])
@@ -525,10 +525,9 @@ class InvoicePDF:
             text_h = len(result) * 4
             payload_h = text_h + 10
             pdf.set_fill_color(*c["primary_light"])
-            pdf.rect(x, payload_y, page_w, payload_h, style="F")
-            pdf.set_draw_color(*c["primary"])
-            pdf.set_line_width(1.8)
-            pdf.line(x, payload_y, x, payload_y + payload_h)
+            pdf.set_draw_color(*c["border_color"])
+            pdf.set_line_width(0.65)
+            pdf.rect(x, payload_y, page_w, payload_h, style="DF")
 
             pdf.set_xy(x + 7, payload_y + 5)
             pdf.set_font(doc.text_font, "", 7)

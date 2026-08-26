@@ -104,30 +104,38 @@ def draw_wordmark(doc: PdfDocument, x: float, y: float, *, inverted: bool = Fals
     pdf.set_line_width(0.2)
 
 
-def draw_document_header(doc: PdfDocument, *, title: str, subtitle: str) -> None:
+def draw_document_header(
+    doc: PdfDocument,
+    *,
+    title: str,
+    subtitle: str,
+    show_wordmark: bool = True,
+) -> None:
     """Draw the shared flat Rentivo masthead and advance below it."""
     pdf = doc.pdf
     c = doc.colors
     x = pdf.l_margin
     y = pdf.get_y()
-    header_h = 34.0
+    header_h = 34.0 if show_wordmark else 29.0
 
     pdf.set_fill_color(*c["secondary_dark"])
     pdf.rect(x, y, doc.page_w, header_h, style="F")
-    pdf.set_draw_color(*c["primary"])
-    pdf.set_line_width(2.2)
-    pdf.line(x, y + 2.2, x + doc.page_w, y + 2.2)
-    pdf.set_line_width(0.2)
 
-    draw_wordmark(doc, x + 7, y + 6.5, inverted=True)
+    if show_wordmark:
+        draw_wordmark(doc, x + 7, y + 6.5, inverted=True)
+        title_y = y + 18
+        subtitle_y = y + 20
+    else:
+        title_y = y + 8.5
+        subtitle_y = y + 11
 
-    pdf.set_xy(x + 7, y + 18)
+    pdf.set_xy(x + 8, title_y)
     pdf.set_font(doc.header_font, "B", 19)
     pdf.set_text_color(*c["text_contrast"])
     pdf.cell(doc.page_w * 0.5, 10, title)
 
     subtitle_w = doc.page_w * 0.45
-    pdf.set_xy(x + doc.page_w * 0.48, y + 20)
+    pdf.set_xy(x + doc.page_w * 0.48, subtitle_y)
     pdf.set_font(doc.text_font, "", 8.5)
     pdf.set_text_color(218, 220, 225)
     pdf.cell(subtitle_w, 5, _fit_single_line(pdf, subtitle, subtitle_w), align="R")
@@ -201,8 +209,8 @@ def draw_footer(
     if disable_page_break:
         pdf.set_auto_page_break(False)
     pdf.set_y(offset)
-    pdf.set_draw_color(*c["primary"])
-    pdf.set_line_width(0.8)
+    pdf.set_draw_color(*c["border_color"])
+    pdf.set_line_width(0.45)
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.l_margin + doc.page_w, y)
     pdf.ln(gap)
