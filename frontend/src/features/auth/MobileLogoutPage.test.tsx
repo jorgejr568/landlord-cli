@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -30,11 +30,29 @@ describe("MobileLogoutPage", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Saindo do Rentivo" })).toBeVisible();
+    const handoff = screen.getByRole("region", { name: "Saída segura" });
+    expect(handoff).toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByText("Encerrando a sessão deste navegador…")).toHaveAttribute(
+      "role",
+      "status"
+    );
+    const progress = screen.getByRole("list", { name: "Progresso da saída" });
+    expect(within(progress).getByText("Encerrar no navegador").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step"
+    );
     expect(openMobileAuthorizationCallback).not.toHaveBeenCalled();
 
     await act(async () => resolveLogout(new Response(null, { status: 204 })));
 
-    expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeVisible();
+    const completeHeading = await screen.findByRole("heading", { name: "Sessão encerrada" });
+    expect(completeHeading).toBeVisible();
+    expect(completeHeading).toHaveFocus();
+    expect(handoff).toHaveAttribute("aria-busy", "false");
+    expect(within(progress).getByText("Voltar ao app").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step"
+    );
     expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
     expect(openMobileAuthorizationCallback).toHaveBeenCalledWith(
       "rentivo://auth/logout?state=native%20state"
@@ -102,11 +120,11 @@ describe("MobileLogoutPage", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Não foi possível encerrar a sessão no site."
+      "Sua sessão continua ativa neste navegador. Confira sua conexão e tente outra vez."
     );
     expect(openMobileAuthorizationCallback).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await user.click(screen.getByRole("button", { name: "Tentar sair novamente" }));
 
     expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeVisible();
     expect(openMobileAuthorizationCallback).toHaveBeenCalledOnce();
@@ -125,7 +143,7 @@ describe("MobileLogoutPage", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Não foi possível encerrar a sessão no site."
+      "Sua sessão continua ativa neste navegador. Confira sua conexão e tente outra vez."
     );
     expect(openMobileAuthorizationCallback).not.toHaveBeenCalled();
   });
@@ -183,7 +201,7 @@ describe("MobileLogoutPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível verificar a sessão do site."
     );
-    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await user.click(screen.getByRole("button", { name: "Verificar novamente" }));
 
     expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeVisible();
     expect(sessionAttempts).toBe(2);
@@ -194,7 +212,7 @@ describe("MobileLogoutPage", () => {
     const view = renderAuth(<MobileLogoutPage />, { path: "/mobile-logout" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Não foi possível validar a solicitação do aplicativo."
+      "Volte ao app Rentivo e inicie a saída novamente."
     );
     expect(openMobileAuthorizationCallback).not.toHaveBeenCalled();
 
