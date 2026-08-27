@@ -159,23 +159,21 @@
 }
 
 .billing-overview__open a {
-  min-height: 40px;
-  padding: 0.45rem 0.55rem;
-  border: 1.5px solid transparent;
+  min-height: 36px;
+  padding: 0.35rem 0.55rem;
+  border: 1.5px solid var(--ink);
   border-radius: var(--billing-control-radius);
+  background: var(--surface);
 }
 
 .billing-overview__open a:hover,
 .billing-overview__open a:focus-visible {
-  border-color: var(--ink);
-  background: var(--surface);
+  background: var(--accent-pale);
   color: var(--ink);
-  box-shadow: var(--sh-sm);
 }
 
 .billing-overview__open a:active {
-  transform: translate(1px, 1px);
-  box-shadow: none;
+  background: var(--accent-soft);
 }
 
 .billing-overview__empty-copy {

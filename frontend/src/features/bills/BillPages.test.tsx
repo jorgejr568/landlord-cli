@@ -70,7 +70,7 @@ afterEach(() => {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+  return <output data-state={JSON.stringify(location.state)} data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function ComposeRouteSwitch() {
@@ -156,6 +156,24 @@ it("renders invoice detail, item types, QR/PDF/recibo links, capabilities, and r
   await waitFor(() => expect(document.title).toBe("Fatura Julho/2026 - Rentivo"));
   view.unmount();
   expect(document.title).toBe("Anterior");
+});
+
+it("shows redirected update feedback before the bill workspace", async () => {
+  installFetch(detailHandlers());
+  render(
+    <MemoryRouter initialEntries={[{
+      pathname: "/billings/billing-public-uuid/bills/bill-public-uuid",
+      state: { notice: "Fatura atualizada com sucesso." }
+    }]}>
+      <Routes>
+        <Route element={<BillDetailPage />} path="/billings/:billingUuid/bills/:billUuid" />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  const workspace = await screen.findByRole("article", { name: "Fatura de Julho/2026" });
+  const feedback = (await screen.findByText("Fatura atualizada com sucesso.")).closest("[role='status']")!;
+  expect(feedback.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 it("presents invoice details as one workspace with compact actions and switchable records", async () => {
@@ -463,7 +481,7 @@ it("keeps legacy draft download and communication options visible but disabled f
   expect(screen.getByText("Enviar recibo")).toHaveAttribute("title", "O recibo fica disponível quando a fatura está paga.");
 });
 
-it("edits line items and extras, regenerates, deletes, and forwards mutation analytics", async () => {
+it("edits line items and extras then returns to the bill with success feedback", async () => {
   const user = userEvent.setup();
   let patchBody: unknown;
   installFetch({
@@ -472,9 +490,7 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
       patchBody = JSON.parse(String(init?.body));
       return jsonResponse({ ...bill, notes: "Atualizado" }, 200, { "X-Rentivo-Analytics-Event": "rentivo_bill_edited" });
     },
-    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse({ ...bill, pdf_render_status: "pending" }, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" }),
     "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/receipts": () => jsonResponse({ attached: 1, items: [{ content_type: "application/pdf", created_at: null, file_size: 3, filename: "edit.pdf", sort_order: 0, uuid: "01J00000000000000000000003" }], skipped: 0, total_bytes: 3 }, 201, { "X-Rentivo-Analytics-Event": "rentivo_receipt_uploaded" }),
-    "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => new Response(null, { headers: { "X-Rentivo-Analytics-Event": "rentivo_bill_deleted" }, status: 204 })
   });
   renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
 
@@ -502,15 +518,32 @@ it("edits line items and extras, regenerates, deletes, and forwards mutation ana
     ],
     notes: "Atualizado"
   }));
+  await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/billings/billing-public-uuid/bills/bill-public-uuid"));
+  const location = screen.getByTestId("location");
+  expect(JSON.parse(location.dataset.state ?? "null")).toEqual({ notice: "Fatura atualizada com sucesso." });
+  expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(2);
+});
 
+it("regenerates and deletes from the bill editor", async () => {
+  const user = userEvent.setup();
+  installFetch({
+    ...detailHandlers(),
+    "POST /api/v1/billings/billing-public-uuid/bills/bill-public-uuid/regenerate": () => jsonResponse({ ...bill, pdf_render_status: "pending" }, 202, { "X-Rentivo-Analytics-Event": "rentivo_bill_regenerated" }),
+    "DELETE /api/v1/billings/billing-public-uuid/bills/bill-public-uuid": () => new Response(null, { headers: { "X-Rentivo-Analytics-Event": "rentivo_bill_deleted" }, status: 204 })
+  });
+  renderAt(<BillEditPage />, "/billings/billing-public-uuid/bills/bill-public-uuid/edit", "/billings/:billingUuid/bills/:billUuid/edit");
+
+  await screen.findByRole("heading", { name: "Editar fatura" });
   await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Regenerar PDF" }));
   expect(await screen.findByText("O PDF será regenerado em segundo plano.")).toBeVisible();
+
   await user.click(screen.getByRole("button", { name: "Ações da fatura" }));
   await user.click(screen.getByRole("button", { name: "Excluir fatura" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Excluir fatura" }));
+
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/billings/billing-public-uuid"));
-  expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(4);
+  expect(analytics.pushAnalyticsFromResponse).toHaveBeenCalledTimes(2);
 });
 
 it("presents invoice editing as one workspace with a live summary and disclosed records", async () => {
