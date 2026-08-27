@@ -12,7 +12,7 @@ from io import BytesIO
 import qrcode
 from qrcode.image.pil import PilImage
 
-from rentivo.pix_keys import PIX_KEY_PATTERNS
+from rentivo.pix_keys import PIX_KEY_PATTERNS, is_valid_brazilian_phone, is_valid_cpf
 
 
 def validate_pix_key(key: str) -> str:
@@ -20,8 +20,8 @@ def validate_pix_key(key: str) -> str:
 
     - CPF/CNPJ/phone: strips common separators (., -, /, space, parentheses).
       10-digit numerics are treated as Brazilian landlines and prefixed with +55.
-      **11-digit numerics are ambiguous**: they match CPF and are returned as CPF.
-      Users registering a mobile phone must include the +55 country code.
+      11-digit numerics use their CPF check digits first. An invalid CPF with a
+      valid Brazilian area code is normalized as a phone with the +55 prefix.
     - email: lowercased.
     - evp: lowercased.
 
@@ -42,15 +42,21 @@ def validate_pix_key(key: str) -> str:
     digits_only = re.sub(r"[.\-/\s()]", "", raw)
     if digits_only.isdigit():
         if len(digits_only) == 11:
-            return digits_only  # CPF (11-digit mobiles are ambiguous; treated as CPF)
+            if is_valid_cpf(digits_only):
+                return digits_only
+            normalized_phone = f"+55{digits_only}"
+            if is_valid_brazilian_phone(normalized_phone):
+                return normalized_phone
         if len(digits_only) == 14:
             return digits_only  # CNPJ
         if len(digits_only) == 10:
-            return f"+55{digits_only}"  # assume Brazilian landline
+            normalized_phone = f"+55{digits_only}"
+            if is_valid_brazilian_phone(normalized_phone):
+                return normalized_phone
 
     if raw.startswith("+") and re.sub(r"[\s()-]", "", raw).replace("+", "", 1).isdigit():
         normalized = "+" + re.sub(r"[\s()\-]", "", raw[1:])
-        if PIX_KEY_PATTERNS["phone"].match(normalized):
+        if is_valid_brazilian_phone(normalized):
             return normalized
 
     if "@" in raw:
