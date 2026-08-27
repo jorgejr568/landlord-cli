@@ -41,7 +41,7 @@ class TestClassifyPixKey:
 
 class TestValidatePixKey:
     def test_cpf_strips_punctuation(self):
-        assert validate_pix_key("123.456.789-01") == "12345678901"
+        assert validate_pix_key("529.982.247-25") == "52998224725"
 
     def test_cnpj_strips_punctuation(self):
         assert validate_pix_key("12.345.678/0001-90") == "12345678000190"
@@ -53,10 +53,92 @@ class TestValidatePixKey:
     def test_phone_with_country_code(self):
         assert validate_pix_key("+5511987654321") == "+5511987654321"
 
-    def test_eleven_digits_treated_as_cpf(self):
-        # 11 digits is ambiguous; CPF wins. Users wanting a mobile phone must
-        # include the +55 country code.
-        assert validate_pix_key("11987654321") == "11987654321"
+    def test_valid_cpf_wins_over_phone_inference(self):
+        assert validate_pix_key("111.444.777-35") == "11144477735"
+
+    def test_invalid_cpf_with_valid_area_code_becomes_phone(self):
+        assert validate_pix_key("11987654321") == "+5511987654321"
+
+    @pytest.mark.parametrize(
+        "area_code",
+        [
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "21",
+            "22",
+            "24",
+            "27",
+            "28",
+            "31",
+            "32",
+            "33",
+            "34",
+            "35",
+            "37",
+            "38",
+            "41",
+            "42",
+            "43",
+            "44",
+            "45",
+            "46",
+            "47",
+            "48",
+            "49",
+            "51",
+            "53",
+            "54",
+            "55",
+            "61",
+            "62",
+            "63",
+            "64",
+            "65",
+            "66",
+            "67",
+            "68",
+            "69",
+            "71",
+            "73",
+            "74",
+            "75",
+            "77",
+            "79",
+            "81",
+            "82",
+            "83",
+            "84",
+            "85",
+            "86",
+            "87",
+            "88",
+            "89",
+            "91",
+            "92",
+            "93",
+            "94",
+            "95",
+            "96",
+            "97",
+            "98",
+            "99",
+        ],
+    )
+    def test_phone_accepts_every_brazilian_area_code(self, area_code):
+        key = f"+55{area_code}912345678"
+        assert validate_pix_key(key) == key
+
+    @pytest.mark.parametrize("key", ["20987654321", "+5520912345678", "2033334444"])
+    def test_phone_rejects_unknown_area_code(self, key):
+        with pytest.raises(ValueError, match="Chave PIX inválida"):
+            validate_pix_key(key)
 
     def test_email_lowercased(self):
         assert validate_pix_key("User@Example.com") == "user@example.com"

@@ -13,7 +13,7 @@ vi.mock("./webauthn", () => ({ createPasskey: vi.fn() }));
 const summary: components["schemas"]["SecuritySummaryResponse"] = {
   mfa: { organization_enforced: false, setup_required: false },
   passkeys: [],
-  profile: { email: "user@example.com", pix_key: "pix", pix_merchant_city: "SP", pix_merchant_name: "User" },
+  profile: { email: "user@example.com", pix_key: "pix@example.com", pix_merchant_city: "SP", pix_merchant_name: "User" },
   totp: { enabled: true, recovery_codes_remaining: 8 }
 };
 
@@ -146,7 +146,7 @@ it("updates PIX and changes the password atomically", async () => {
   });
   await screen.findByRole("heading", { name: "Segurança" });
   await user.clear(screen.getByLabelText("Chave PIX"));
-  await user.type(screen.getByLabelText("Chave PIX"), "nova-chave");
+  await user.type(screen.getByLabelText("Chave PIX"), "nova@example.com");
   await user.clear(screen.getByLabelText("Nome do recebedor"));
   await user.type(screen.getByLabelText("Nome do recebedor"), "Novo Nome");
   await user.clear(screen.getByLabelText("Cidade do recebedor"));
@@ -215,7 +215,7 @@ it("focuses each incomplete PIX field before calling the API", async () => {
   await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Informe a chave PIX.")).toBeVisible();
   expect(screen.getByLabelText("Chave PIX")).toHaveFocus();
-  await user.type(screen.getByLabelText("Chave PIX"), "pix");
+  await user.type(screen.getByLabelText("Chave PIX"), "pix@example.com");
   await user.clear(screen.getByLabelText("Nome do recebedor"));
   await user.click(screen.getByRole("button", { name: "Salvar dados PIX" }));
   expect(await screen.findByText("Informe o nome do recebedor.")).toBeVisible();

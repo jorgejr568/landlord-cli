@@ -192,7 +192,7 @@ it("renders field and form errors, focuses normalized controls and supports edit
     description: "Inquilino",
     items: [{ amount: "1.000,00", description: "Aluguel", id: "item-a", itemType: "fixed" }],
     name: "Casa",
-    pixKey: "chave",
+    pixKey: "pix@example.com",
     pixMerchantCity: "SALVADOR",
     pixMerchantName: "MARIA",
     recipients: [{ email: "maria@example.com", id: "recipient-a", name: "Maria" }],
