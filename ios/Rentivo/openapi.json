@@ -5572,23 +5572,6 @@
         "summary": "Apple App Site Association"
       }
     },
-    "/.well-known/assetlinks.json": {
-      "get": {
-        "description": "Digital Asset Links manifest that associates the site with the Android app.\n\nServed at the document root (not under ``/api``) because that is the only\nplace Android Credential Manager and password managers look. Without a\nconfigured signing-cert fingerprint there is nothing truthful to publish, so\nthe path simply does not exist.",
-        "operationId": "android_asset_links__well_known_assetlinks_json_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Android Asset Links"
-      }
-    },
     "/api/v1/api-keys": {
       "get": {
         "operationId": "list_api_keys_api_v1_api_keys_get",

@@ -73,7 +73,7 @@ git commit -qm 'ios change'
 actual=$(paths_changed "$BASE")
 [[ "$actual" == "true" ]] || fail "ios change reported $actual"
 
-# The macOS jobs' steps live in a composite action, and the release workflow's
+# The iOS jobs' steps live in a composite action, and the release workflow's
 # verify job runs the OpenAPI sync script; both must trigger the iOS jobs.
 BASE=$(git rev-parse HEAD)
 mkdir -p .github/actions/ios-unit-tests

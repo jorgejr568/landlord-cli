@@ -33,8 +33,7 @@ conventions live at the top level; operational procedures live under
 
 | Document | Answers |
 |---|---|
-| [`mobile.md`](mobile.md) | How are the iOS and Android apps structured, how do they stay on contract, and how does sign-in work? |
-| [`macos.md`](macos.md) | How does the macOS app reuse `RentivoCore`, where does it diverge from iOS, and how is it packaged? |
+| [`mobile.md`](mobile.md) | How is the iOS app structured, how does it stay on contract, and how does sign-in work? |
 | [`app-store/app-privacy.md`](app-store/app-privacy.md) | What do we answer on the App Store Connect App Privacy questionnaire? |
 
 ## Security and compliance

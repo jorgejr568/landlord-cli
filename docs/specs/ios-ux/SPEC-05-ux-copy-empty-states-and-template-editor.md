@@ -98,7 +98,7 @@ Não existe o papel `Gestor` no contrato. `InviteMemberView` mostra os três nom
 - Redesenhar o sistema visual de toast definido em SPEC-03.
 - Adicionar um novo editor WYSIWYG ou uma dependência de Markdown.
 - Alterar papéis, capabilities ou autorização do backend.
-- Aplicar as mesmas mudanças ao Android, macOS ou web nesta entrega.
+- Aplicar as mesmas mudanças à web nesta entrega.
 
 ## Arquivos afetados
 
@@ -132,8 +132,8 @@ Antes de liberar o contador `N de 4.096 caracteres`, o contrato de envio e salva
 Uma mudança desse contrato exige revisar, no mínimo:
 
 - `backend/rentivo/api/schemas/billings.py` e seus testes de limite;
-- `frontend/openapi.json`, `ios/Rentivo/openapi.json` e `android/app/openapi.json`, se descrição/schema mudar;
-- os clientes web/Android que hoje validam bytes, para que não existam limites conflitantes.
+- `frontend/openapi.json` e `ios/Rentivo/openapi.json`, se descrição/schema mudar;
+- o cliente web, para que não existam limites conflitantes.
 
 ### Testes e documentação
 
@@ -607,8 +607,7 @@ As tabelas de empty state, toast e error mapping acima fazem parte desta fonte d
 - `make ios-test` para Domain/Data.
 - Rodar o target Xcode `RentivoTests` no simulador, como a action de CI, para testes app-only de DesignSystem/Features.
 - Rodar `RentivoUITests/BillOperationsWizardUITests`, `RentivoUITests/OrganizationAccountWizardUITests` e `RentivoUITests/EmptyStateCopyUITests` em simulador determinístico com `--ui-testing`.
-- `make macos-test` quando `ios/Rentivo/Domain/` mudar, conforme a regra do repositório para `RentivoCore` compartilhado.
-- Se a dependência backend de caracteres entrar no mesmo conjunto de mudanças: testes específicos de comunicação do backend, `make test`, sync/check dos OpenAPI móveis e checks dos clientes que também validam o limite.
+- Se a dependência backend de caracteres entrar no mesmo conjunto de mudanças: testes específicos de comunicação do backend, `make test`, sync/check do OpenAPI iOS e checks do cliente web que também valida o limite.
 
 ## Sequenciamento recomendado
 

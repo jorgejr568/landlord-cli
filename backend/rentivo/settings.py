@@ -41,16 +41,6 @@ class Settings(BaseSettings):
     # registered for webauthn_rp_id. Empty hides the file entirely.
     apple_team_id: str = ""
 
-    # Android application ID and the SHA-256 fingerprints of its signing
-    # certificates. Published in /.well-known/assetlinks.json so Android
-    # Credential Manager (and password managers such as 1Password) associate the
-    # site's saved logins and passkeys with the app. The fingerprints are a
-    # comma-separated list (the release/upload signing cert from Play Console);
-    # empty hides the file entirely, so Android passkeys stay a follow-up until
-    # the real fingerprint is configured.
-    android_package_name: str = "app.rentivo"
-    android_cert_fingerprints: str = ""
-
     # Canonical public origin (no trailing slash) used for robots.txt / sitemap.xml / OG tags.
     # Leave empty to derive from the incoming request at runtime.
     public_url: str = ""
@@ -397,16 +387,6 @@ class Settings(BaseSettings):
             if not name.startswith("__Host-"):
                 raise ValueError("Authentication cookie names must use the __Host- prefix")
         return self
-
-    @property
-    def android_cert_fingerprint_list(self) -> list[str]:
-        """SHA-256 signing-cert fingerprints published in assetlinks.json.
-
-        Parsed from the comma-separated ``RENTIVO_ANDROID_CERT_FINGERPRINTS``
-        env var; blank entries are dropped. Empty means the Digital Asset Links
-        file is not published.
-        """
-        return [fingerprint.strip() for fingerprint in self.android_cert_fingerprints.split(",") if fingerprint.strip()]
 
     def get_secret_key(self) -> str:
         if self.secret_key == _INSECURE_DEFAULT_KEY:

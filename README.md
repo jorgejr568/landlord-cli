@@ -18,8 +18,7 @@ Built for Brazilian landlords: tenant-facing output is in **PT-BR**, with
 - Recurring billing templates and one-click monthly bill generation
 - PDF invoices, PIX QR codes, receipt attachments, and payment receipts
 - React/Vite browser application backed by the versioned FastAPI API
-- Native iOS and macOS (SwiftUI) and Android (Jetpack Compose) apps on the same
-  contract
+- Native iOS app on the same versioned contract
 - API-key authentication with scopes and per-organization grants
 - One-day hidden login keys for browser sessions, revoked on logout
 - TOTP MFA, passkeys (WebAuthn), Google login, and password recovery
@@ -47,9 +46,8 @@ readiness and frontend health.
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), Python 3.14 (see
 `.python-version`; uv provisions it), Node.js 22+, npm, Docker, and Docker
-Compose. Optional, for mobile work: a full Xcode installation for iOS (Swift
-Testing is unavailable under CommandLineTools alone), and JDK 21 plus an
-Android SDK for Android.
+Compose. Optional, for iOS work: a full Xcode installation (Swift Testing is
+unavailable under CommandLineTools alone).
 
 ```bash
 git clone https://github.com/jorgejr568/rentivo.git
@@ -95,53 +93,6 @@ currently in `ios/Rentivo.xcodeproj/project.pbxproj`. See the
 [iOS release runbook](docs/runbooks/ios-release.md) for the procedure and
 triage.
 
-## Android app
-
-`android/` is a single-module Gradle project (`:app`, application ID
-`app.rentivo`) written in Kotlin with Jetpack Compose, targeting minSdk 26 and
-compile/target SDK 35. The build declares no JDK toolchain pin; CI runs on JDK
-21 (Temurin), so use the same to stay aligned. An Android SDK is located
-through `android/local.properties` or `ANDROID_HOME`. Open `android/` in
-Android Studio to run it in an emulator.
-
-```bash
-make android-build           # ./gradlew assembleDebug
-make android-test            # ./gradlew testDebugUnitTest (JVM only, no emulator)
-make android-openapi-check   # verify android/app/openapi.json matches frontend/openapi.json
-```
-
-The release gate runs `assembleDebug`, `testDebugUnitTest`, and `lintDebug` on
-`ubuntu-latest`, path-gated by `scripts/android-ci.sh`. There is no Android
-release automation yet; unlike iOS, store builds are produced by hand.
-
-Both mobile apps hand-write their wire DTOs. The committed `openapi.json`
-copies are reference contracts kept byte-identical to `frontend/openapi.json`
-by `make ios-openapi-check` and `make android-openapi-check`, not build inputs.
-See the [mobile apps guide](docs/mobile.md).
-
-## macOS app
-
-`macos/Rentivo` is a native SwiftUI client for the Mac (bundle
-`br.com.rentivo.macos`, macOS 14 minimum, Swift 6). It is not a third port of
-the Domain and Data layers: `macos/Rentivo.xcodeproj` links the same
-`RentivoCore` package from `ios/` through a local package reference, so only the
-app layer — shell, design system, features — is macOS-authored. It therefore
-keeps no `openapi.json` copy of its own and needs no contract sync step. Open
-`macos/Rentivo.xcodeproj` in Xcode to run it.
-
-```bash
-make macos-build       # ad-hoc signed Debug build
-make macos-test        # RentivoMacTests on platform=macOS (requires full Xcode)
-make macos-dmg         # drag-to-Applications installer in dist/
-make macos-app-icon    # regenerate the icon set from the iOS artwork
-```
-
-The macOS job runs on `macos-15`, path-gated by `scripts/macos-ci.sh` — which
-also watches the `RentivoCore` sources under `ios/`, since a change there
-changes this app. There is no macOS release automation: the DMG is the
-distribution artifact, and it is not Developer ID signed or notarized. See the
-[macOS app guide](docs/macos.md).
-
 ## Production configuration
 
 Production uses separate database interpolation and application environment
@@ -177,11 +128,8 @@ complete-gate-tested immutable SHA and image digests. Local `stack-build` and
 | `make test` / `test-cov` | Run backend tests / explicit coverage report |
 | `make scripts-test` | Run the standalone CI helper script tests |
 | `make openapi-export` / `openapi-generate` | Refresh API snapshot / generated types |
-| `make openapi-check` | Verify committed OpenAPI artifacts are current |
 | `make ios-test` | Run the `RentivoCore` Swift package suite (requires full Xcode) |
 | `make ios-openapi-sync` / `ios-openapi-check` | Refresh / verify the iOS contract copy |
-| `make android-build` / `android-test` | Assemble the debug APK / run JVM unit tests |
-| `make android-openapi-sync` / `android-openapi-check` | Refresh / verify the Android contract copy |
 | `make e2e` / `e2e-update` | Run Playwright / update reviewed baselines |
 | `make jaeger-up` / `jaeger-down` | Start / stop the observability profile |
 | `make temporal-up` / `temporal-down` | Start / stop the Temporal profile |
@@ -209,8 +157,7 @@ origins, local storage/email, and reversible encryption. See the generated
 ## Architecture
 
 The repository is a uv workspace with independently packaged backend and
-frontend applications, plus a Swift Package Manager package shared by the iOS
-and macOS apps and a Gradle project for the Android app.
+frontend applications, plus a Swift Package Manager package for the iOS app.
 
 ```text
 backend/
@@ -241,19 +188,6 @@ ios/
   Rentivo.xcodeproj   Xcode app project
   RentivoTests/       Shared tests: RentivoCore package suite and the Xcode-hosted target
   RentivoUITests/     Xcode UI tests
-macos/
-  Config/             App Info.plist and sandbox entitlements
-  Rentivo/            SwiftUI app layer: App/, DesignSystem/, Features/, Resources/
-  Rentivo.xcodeproj   Xcode app project; links RentivoCore from ../ios
-  RentivoMacTests/    macOS app-layer unit tests
-android/
-  app/src/main/java/app/rentivo/
-    domain/           Models, money, and validation
-    data/             Repositories, mock store, and file store
-    data/api/         Live API client, wire DTOs, and credential storage
-    app/              Activity, root navigation, and app model
-    designsystem/     Compose theme and shared components
-    features/         Auth, home, bills, billings, organizations, account
 scripts/               CI helpers and contract sync scripts
 docs/                  Guides, runbooks, and generated references
 infra/proxy/           Nginx edge configuration
@@ -266,8 +200,7 @@ infra/proxy/           Nginx edge configuration
 | [Documentation index](docs/README.md) | Map of every document in `docs/` |
 | [Configuration](docs/configuration.md) | Environment variables and validation rules |
 | [Development](docs/development.md) | Local and Compose development workflows |
-| [Mobile apps](docs/mobile.md) | iOS/Android architecture, contract sync, and auth handoff |
-| [macOS app](docs/macos.md) | macOS app layer, `RentivoCore` reuse, DMG packaging, and CI gating |
+| [iOS app](docs/mobile.md) | iOS architecture, contract sync, and auth handoff |
 | [Job drivers](docs/jobs.md) | Database and optional Temporal job execution |
 | [Observability](docs/observability.md) | Logging, traces, profiles, and production signals |
 | [Production release](docs/runbooks/production-release.md) | Big-bang deployment and recovery runbook |
@@ -283,8 +216,6 @@ infra/proxy/           Nginx edge configuration
 |---|---|
 | Frontend | React, Vite, TypeScript |
 | iOS app | Swift, SwiftUI, Swift Package Manager (RentivoCore) |
-| macOS app | Swift, SwiftUI/AppKit, linking the same RentivoCore package |
-| Android app | Kotlin, Jetpack Compose, Gradle |
 | Backend API | FastAPI, Uvicorn |
 | Database | MariaDB 11, SQLAlchemy Core |
 | Migrations | Alembic |

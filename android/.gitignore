@@ -1,8 +1,0 @@
-.gradle/
-build/
-.kotlin/
-local.properties
-.cxx/
-*.apk
-*.aab
-captures/

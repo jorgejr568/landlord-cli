@@ -23,31 +23,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/.well-known/assetlinks.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Android Asset Links
-         * @description Digital Asset Links manifest that associates the site with the Android app.
-         *
-         *     Served at the document root (not under ``/api``) because that is the only
-         *     place Android Credential Manager and password managers look. Without a
-         *     configured signing-cert fingerprint there is nothing truthful to publish, so
-         *     the path simply does not exist.
-         */
-        get: operations["android_asset_links__well_known_assetlinks_json_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -3442,26 +3417,6 @@ export interface components {
 export type $defs = Record<string, never>;
 export interface operations {
     apple_app_site_association__well_known_apple_app_site_association_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    android_asset_links__well_known_assetlinks_json_get: {
         parameters: {
             query?: never;
             header?: never;

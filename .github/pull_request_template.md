@@ -20,15 +20,14 @@ Always:
 Only if the area is touched — mark **N/A** otherwise:
 
 - [ ] Frontend: `make frontend-check` / `make e2e`
-- [ ] API schema: `make openapi-check`, `make ios-openapi-check`, `make android-openapi-check`
+- [ ] API schema: `make openapi-check`, `make ios-openapi-check`
 - [ ] `scripts/`: `make scripts-test`
 - [ ] `ios/`: `make ios-test`
-- [ ] `android/`: `make android-test`
 
 ## Screenshots / recordings
 <!-- Delete section if no UI changes. Otherwise paste before/after.
-     Three UI surfaces exist: React (browser), SwiftUI (iOS), Compose (Android).
-     For iOS/Android changes attach simulator/emulator captures. -->
+     Two UI surfaces exist: React (browser) and SwiftUI (iOS).
+     For iOS changes attach simulator captures. -->
 
 ## Config / deployment notes
 <!-- Env vars added, migrations needed, feature flags, rollout order. Write "None" if nothing. -->

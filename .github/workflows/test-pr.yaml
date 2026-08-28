@@ -19,8 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
-      macos: ${{ steps.filter.outputs.macos }}
-      android: ${{ steps.filter.outputs.android }}
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
@@ -39,12 +37,6 @@ jobs:
           ios="$(./scripts/ios-ci.sh paths-changed "${BASE_SHA:-}")"
           echo "iOS-relevant changes: $ios"
           echo "ios=$ios" >> "$GITHUB_OUTPUT"
-          macos="$(./scripts/macos-ci.sh paths-changed "${BASE_SHA:-}")"
-          echo "macOS-relevant changes: $macos"
-          echo "macos=$macos" >> "$GITHUB_OUTPUT"
-          android="$(./scripts/android-ci.sh paths-changed "${BASE_SHA:-}")"
-          echo "Android-relevant changes: $android"
-          echo "android=$android" >> "$GITHUB_OUTPUT"
           echo "Changed release gate areas:"
           # Path filtering only holds for a pull request, where the base commit
           # is the branch point of the whole change. On workflow_call, dispatch,
@@ -73,10 +65,6 @@ jobs:
         run: uv sync --all-extras --frozen
       - name: Run iOS CI helper shell tests
         run: ./scripts/tests/ios-ci-test.sh
-      - name: Run macOS CI helper shell tests
-        run: ./scripts/tests/macos-ci-test.sh
-      - name: Run Android CI helper shell tests
-        run: ./scripts/tests/android-ci-test.sh
       - name: Run changed-area helper shell tests
         run: ./scripts/tests/ci-changed-areas-test.sh
       - name: Run App Store Connect script tests
@@ -182,26 +170,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/ios-unit-tests
-
-  macos:
-    name: macOS app build and tests
-    runs-on: macos-15
-    needs: changes
-    if: needs.changes.outputs.macos == 'true'
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/macos-app-tests
-
-  android:
-    name: Android build, unit tests, and lint
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.android == 'true'
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/android-unit-tests
 
   e2e:
     name: mocked frontend E2E, accessibility, and visual parity
@@ -1039,7 +1007,7 @@ jobs:
   release-gate:
     name: complete-release-gate
     runs-on: ubuntu-latest
-    needs: [changes, scripts, backend, frontend, ios, macos, android, e2e, migrations, compose-config, functional-stack, production-startup, security-scan]
+    needs: [changes, scripts, backend, frontend, ios, e2e, migrations, compose-config, functional-stack, production-startup, security-scan]
     if: always()
     steps:
       # Path filtering may skip any gate job whose inputs did not change, but

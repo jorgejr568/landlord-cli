@@ -51,21 +51,5 @@ Notes:
   SDK to the mobile binary.
 - **Tracking (ATT):** answer **No** — no data is used to track users across
   other companies' apps or websites; no AdSupport/ATT prompt needed.
-- The login step opens `rentivo.com.br` in an in-app browser session
-  (`ASWebAuthenticationSession`). If GTM page-analytics on `/login` is ever
-  considered in-scope collection, add Usage Data → Product Interaction
-  (Analytics, not linked). Current declaration treats the binary itself as
-  the boundary, which matches Apple's guidance for web-login flows.
 - Keep this file in sync with `frontend/src/features/legal/PrivacyPolicyPage.tsx`
   whenever data practices change.
-- **Android:** `android/` is a 1:1 port of this app with the same two uploads
-  (`ActivityResultContracts.OpenDocument()` in
-  `android/app/src/main/java/app/rentivo/features/bills/BillViews.kt` and
-  `android/app/src/main/java/app/rentivo/features/bills/BillingOperationsViews.kt`,
-  hitting the same endpoints), so it will need an equivalent Google Play
-  **Data Safety** declaration covering the same data — including the uploaded
-  files — with the same no-tracking answer. Play uses its own taxonomy and asks
-  separately about collection versus sharing, so it is a translation of these
-  answers rather than a copy. Nothing is due yet: there is no Play listing and
-  no Android release automation — `android/` appears in `.github/workflows/`
-  only as the PR-gate `android` job.
