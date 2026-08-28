@@ -11,7 +11,7 @@ afterEach(() => {
   window.history.pushState({}, "", "/");
 });
 
-it("keeps an accessible page-loading message visible until a lazy route is ready", async () => {
+it("shows an accessible skeleton until a lazy route is ready", async () => {
   let finishLoading!: () => void;
   const LazyPage = lazy(
     () =>
@@ -28,13 +28,37 @@ it("keeps an accessible page-loading message visible until a lazy route is ready
     </MemoryRouter>
   );
 
-  expect(screen.getByRole("status")).toHaveTextContent("Carregando página...");
+  const loading = screen.getByRole("status");
+  expect(loading).toHaveTextContent("Carregando página...");
+  expect(loading).toHaveAttribute("aria-busy", "true");
+  expect(loading).toHaveClass("route-skeleton", "route-skeleton--landing");
+  expect(loading.querySelectorAll("[aria-hidden='true']").length).toBeGreaterThan(2);
   expect(screen.queryByRole("heading", { name: "Página carregada" })).not.toBeInTheDocument();
 
   await act(async () => finishLoading());
 
   expect(await screen.findByRole("heading", { name: "Página carregada" })).toBeVisible();
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
+it.each([
+  ["/login", "route-skeleton--auth"],
+  ["/billings/", "route-skeleton--collection"],
+  ["/billings/billing-1", "route-skeleton--detail"]
+])("matches the lazy skeleton to the %s route shape", (pathname, expectedClass) => {
+  const PendingPage = lazy(
+    () => new Promise<{ default: () => React.JSX.Element }>(() => undefined)
+  );
+
+  render(
+    <MemoryRouter initialEntries={[pathname]}>
+      <RouteLoadBoundary>
+        <PendingPage />
+      </RouteLoadBoundary>
+    </MemoryRouter>
+  );
+
+  expect(screen.getByRole("status")).toHaveClass("route-skeleton", expectedClass);
 });
 
 it("preserves loaded page state when only the search parameters change", async () => {

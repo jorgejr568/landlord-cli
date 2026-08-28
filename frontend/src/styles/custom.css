@@ -941,6 +941,65 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     to { opacity: 0.9; }
 }
 
+/* Immediate, dependency-free approximation shown while a lazy route chunk loads. */
+.route-skeleton { width: 100%; min-height: min(560px, 70vh); padding: clamp(0.5rem, 2vw, 1.5rem) 0; }
+.route-skeleton__block {
+    display: block;
+    border-radius: 7px;
+    background: var(--n-300);
+    animation: route-skeleton-pulse 0.9s ease-in-out infinite alternate;
+}
+.route-skeleton__eyebrow { width: 6.5rem; height: 0.75rem; margin-bottom: 0.85rem; }
+.route-skeleton__title { height: clamp(1.8rem, 4vw, 2.7rem); margin-bottom: 0.65rem; }
+.route-skeleton__title--wide { width: min(32rem, 90%); }
+.route-skeleton__title--medium { width: min(22rem, 72%); }
+.route-skeleton__line { height: 0.8rem; margin-top: 0.55rem; }
+.route-skeleton__line--wide { width: min(28rem, 88%); }
+.route-skeleton__line--medium { width: min(20rem, 64%); }
+.route-skeleton__button { width: 9rem; height: 2.65rem; margin-top: 1.4rem; }
+.route-skeleton__button--full { width: 100%; }
+.route-skeleton__landing {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.85fr);
+    align-items: center;
+    gap: clamp(2rem, 6vw, 5rem);
+    min-height: 480px;
+}
+.route-skeleton__landing-copy { padding-block: 2rem; }
+.route-skeleton__preview,
+.route-skeleton__auth-card,
+.route-skeleton__panel,
+.route-skeleton__rows {
+    border: var(--bw-bold) solid var(--ink);
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: var(--sh);
+}
+.route-skeleton__preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; padding: 1.25rem; }
+.route-skeleton__preview-head { grid-column: 1 / -1; width: 46%; height: 1.4rem; }
+.route-skeleton__preview-card { height: 7rem; }
+.route-skeleton__preview-row { grid-column: 1 / -1; height: 4rem; }
+.route-skeleton__auth-card { width: min(100%, 31rem); margin: 3rem auto; padding: clamp(1.5rem, 5vw, 2.5rem); }
+.route-skeleton__fields { display: grid; gap: 1rem; margin-top: 1.8rem; }
+.route-skeleton__field { height: 4.3rem; }
+.route-skeleton__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+.route-skeleton__head > div { flex: 1; }
+.route-skeleton__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1.8rem 0; }
+.route-skeleton__metric { height: 7rem; border: var(--bw) solid var(--line); }
+.route-skeleton__rows { padding: 0 1.25rem; }
+.route-skeleton__row { height: 4.6rem; border-radius: 0; border-bottom: 1px solid var(--line); background: transparent; }
+.route-skeleton__row:last-child { border-bottom: 0; }
+.route-skeleton__breadcrumb { width: 10rem; height: 0.8rem; margin-bottom: 1.5rem; }
+.route-skeleton__detail-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 0.7fr); gap: 1.5rem; margin-top: 2rem; }
+.route-skeleton__panel { padding: 1.25rem; }
+.route-skeleton__panel-title { width: 42%; height: 1.35rem; margin-bottom: 1rem; }
+.route-skeleton__panel--aside .route-skeleton__line { width: 100%; }
+
+@keyframes route-skeleton-pulse {
+    from { opacity: 0.42; }
+    to { opacity: 0.78; }
+}
+
 @media (max-width: 860px) {
     .billing-overview__summary { grid-template-columns: minmax(0, 1fr); }
     .billing-overview__summary-title { border-right: 0; border-bottom: var(--bw) solid var(--ink); }
@@ -950,6 +1009,14 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
 }
 
 @media (max-width: 680px) {
+    .route-skeleton__landing,
+    .route-skeleton__detail-grid { grid-template-columns: minmax(0, 1fr); }
+    .route-skeleton__landing { gap: 0; min-height: 0; }
+    .route-skeleton__landing-copy { padding-top: 1rem; }
+    .route-skeleton__preview { display: none; }
+    .route-skeleton__metrics { grid-template-columns: minmax(0, 1fr); }
+    .route-skeleton__metrics .route-skeleton__metric:not(:first-child) { display: none; }
+    .route-skeleton__head > .route-skeleton__button { display: none; }
     .billing-overview { gap: 1rem; }
     .billing-overview__head { align-items: flex-start; }
     .billing-overview__head > div:first-child { min-width: 0; width: 100%; }
@@ -1004,7 +1071,8 @@ body::before { content: ""; display: block; height: 4px; background: var(--accen
     .billing-overview__summary,
     .billing-overview__empty,
     .billing-overview__ledger,
-    .skeleton-block { animation: none; }
+    .skeleton-block,
+    .route-skeleton__block { animation: none; }
     .billing-overview__open svg { transition: none; }
 }
 

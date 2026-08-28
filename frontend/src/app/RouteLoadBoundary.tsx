@@ -1,7 +1,7 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { useLocation } from "react-router";
 
-import { LoadingState } from "../components/PageState";
+import { RouteSkeleton } from "./RouteSkeleton";
 
 interface RouteLoadBoundaryProps {
   children: ReactNode;
@@ -47,7 +47,7 @@ export function RouteLoadBoundary({ children }: RouteLoadBoundaryProps) {
 
   return (
     <RouteChunkErrorBoundary key={location.pathname}>
-      <Suspense fallback={<LoadingState label="Carregando página..." />}>
+      <Suspense fallback={<RouteSkeleton pathname={location.pathname} />}>
         {children}
       </Suspense>
     </RouteChunkErrorBoundary>
