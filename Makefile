@@ -181,53 +181,11 @@ ios-run:
 		ios/.build/ios-run/Build/Products/Debug-iphonesimulator/Rentivo.app
 	xcrun simctl launch "$(IOS_SIM_DEVICE)" $(IOS_APP_BUNDLE_ID)
 
-# The macOS app is ad-hoc signed for local builds; `macos-dmg` packages the
-# drag-to-Applications installer into dist/.
-MACOS_XCODEBUILD := xcodebuild -project macos/Rentivo.xcodeproj -scheme Rentivo
-
-.PHONY: macos-build macos-run macos-test macos-dmg macos-app-icon
-macos-build:
-	$(MACOS_XCODEBUILD) -configuration Debug build CODE_SIGN_IDENTITY=-
-
-# Builds and launches the Debug app. The product lands in Xcode's default
-# DerivedData (a hashed path), so the location is read back from the build
-# settings rather than hardcoded. `open -n` starts a fresh instance so the
-# just-built binary runs even when an older copy is already open.
-macos-run: macos-build
-	open -n "$$($(MACOS_XCODEBUILD) -configuration Debug -showBuildSettings 2>/dev/null | sed -n 's/^ *BUILT_PRODUCTS_DIR = //p' | head -1)/Rentivo.app"
-
-macos-test:
-	$(MACOS_XCODEBUILD) -destination 'platform=macOS' -only-testing:RentivoMacTests test CODE_SIGNING_ALLOWED=NO
-	$(MACOS_XCODEBUILD) -destination 'platform=macOS' -only-testing:RentivoMacUITests test
-
-macos-dmg:
-	./scripts/macos-dmg.sh
-
-macos-app-icon:
-	./scripts/macos-app-icon.sh
-
-# Gradle needs a JDK 21 toolchain on PATH or in JAVA_HOME, and the Android SDK
-# location in android/local.properties (or ANDROID_HOME).
-.PHONY: android-openapi-sync android-openapi-check android-build android-test
-android-openapi-sync:
-	./scripts/sync-android-openapi.sh sync
-
-android-openapi-check:
-	./scripts/sync-android-openapi.sh check
-
-android-build:
-	cd android && ./gradlew assembleDebug
-
-android-test:
-	cd android && ./gradlew testDebugUnitTest
-
 # Standalone CI scripts: outside backend/pyproject.toml's testpaths, so neither
 # `make test` nor the pre-commit hook reaches them.
 .PHONY: scripts-test
 scripts-test:
 	./scripts/tests/ios-ci-test.sh
-	./scripts/tests/macos-ci-test.sh
-	./scripts/tests/android-ci-test.sh
 	./scripts/tests/ci-changed-areas-test.sh
 	$(PYTEST) scripts/tests/test_asc_builds.py -q
 

@@ -4,7 +4,7 @@
 
 Only the latest release (and `main`) receives security fixes.
 
-The iOS app ships on its own version track, tagged `ios/v<MARKETING_VERSION>` (for example `ios/v1.2`); only its latest App Store release is supported. The Android app has no release channel yet, so it is supported only as source on `main`.
+The iOS app ships on its own version track, tagged `ios/v<MARKETING_VERSION>` (for example `ios/v1.2`); only its latest App Store release is supported.
 
 ## Reporting a vulnerability
 

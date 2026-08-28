@@ -17,10 +17,7 @@ forward fix, or a matching verified database restore — never the pre-cutover
 legacy images.
 
 Platforms release on independent tracks. This runbook covers the web stack;
-`docs/runbooks/ios-release.md` covers the iOS app. The Android app has no
-release automation at all: `android/` appears in `.github/workflows/` only as
-the PR-gate `android` job, so there is no publishing, signing, or store-upload
-workflow to run for it yet.
+`docs/runbooks/ios-release.md` covers the iOS app.
 
 ## Ownership and release record
 
@@ -63,23 +60,20 @@ Complete every item before announcing the maintenance window:
    `frontend`, `docker`, or `scripts` jobs on a release run; a skip there means
    something is wrong, not that the area was untouched.
 
-   The two mobile jobs are the one legitimate exception. `ios` (macOS,
-   `RentivoCore` plus the Xcode-hosted `RentivoTests`) and `android` (Ubuntu,
-   `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and the OpenAPI copy
-   check) are both blockers in the `release-gate` job's `needs` list, but their
-   filters — `scripts/ios-ci.sh paths-changed` and
-   `scripts/android-ci.sh paths-changed` — are computed unconditionally, for
-   every event. Their base is `github.event.pull_request.base.sha` on a
+   The iOS job is the one legitimate exception. It runs `RentivoCore` plus the
+   Xcode-hosted `RentivoTests` and is a blocker in the `release-gate` job's
+   `needs` list, but its `scripts/ios-ci.sh paths-changed` filter is computed
+   unconditionally for every event. Its base is
+   `github.event.pull_request.base.sha` on a
    `pull_request` event and `github.event.before` otherwise, chosen by the
    `BASE_SHA` expression on the `changes` job's filter step. On a `deploy.yml`
    run that base is the real previous tip of `main`, so a deployment whose
-   commits touched neither `ios/` nor `android/` (nor `frontend/openapi.json`,
-   which the Android filter also watches) will legitimately show both jobs
-   skipped, and `release-gate` counts a skip as passing. Confirm the skip
+   commits did not touch iOS inputs will legitimately show the job skipped,
+   and `release-gate` counts a skip as passing. Confirm the skip
    matches the diff rather than assuming it. On a `release.yml` tag run the
    base is unusable
-   (all zeros for a new tag), and both helpers deliberately report `true` in
-   that case, so both mobile jobs run in full on every tag.
+   (all zeros for a new tag), and the helper deliberately reports `true` in
+   that case, so the iOS job runs in full on every tag.
 
    Production images are built and published without a blocking vulnerability
    scan, and frontend dependency auditing is not part of the gate either; see

@@ -3,8 +3,8 @@
 # Source with RENTIVO_IOS_CI_LIB_ONLY=1 to load the functions without dispatching.
 set -euo pipefail
 
-# Paths whose changes require the macOS iOS jobs to run. This must cover every
-# input to those jobs, including the composite action that holds their steps
+# Paths whose changes require the iOS jobs to run. This must cover every input
+# to those jobs, including the composite action that holds their steps
 # and the OpenAPI sync script the release workflow verifies with.
 IOS_PATH_PATTERN='^(ios/|\.github/actions/ios-unit-tests/|scripts/(ios-ci|sync-ios-openapi)\.sh$|scripts/tests/ios-ci-test\.sh$|\.github/workflows/(ios-release\.yml|test-pr\.yaml)$)'
 

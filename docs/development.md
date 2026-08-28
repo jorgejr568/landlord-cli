@@ -9,15 +9,10 @@ MariaDB. Nginx is the single browser entrypoint in the default Compose topology.
 - Node.js 22+ and npm
 - Docker and Docker Compose
 
-Optional, and only needed for the native apps:
+Optional, and only needed for the native iOS app:
 
-- A full Xcode install for `make ios-test` and the `macos-*` targets. Swift
-  Testing, used by the iOS suite, is not available in Xcode Command Line Tools
-  alone.
-- JDK 21 plus the Android SDK for the `android-*` targets. The build declares
-  no Gradle toolchain, so nothing pins the JDK — 21 is the version CI runs.
-  Gradle also needs an SDK location from `android/local.properties`
-  (gitignored) or `ANDROID_HOME`.
+- A full Xcode install for `make ios-test`. Swift Testing, used by the iOS
+  suite, is not available in Xcode Command Line Tools alone.
 
 ```bash
 git clone https://github.com/jorgejr568/rentivo.git
@@ -128,11 +123,8 @@ make openapi-check           # non-mutating CI freshness check
 
 Do not hand-edit generated OpenAPI types.
 
-`frontend/openapi.json` is the source of two further committed copies, one per
-mobile app. Refresh them in the same change with `make ios-openapi-sync` and
-`make android-openapi-sync`; see the iOS and Android sections below. There is no
-third copy for macOS — that app links the `RentivoCore` package instead of
-carrying its own contract.
+`frontend/openapi.json` is the source of the committed iOS copy. Refresh it in
+the same change with `make ios-openapi-sync`; see the iOS section below.
 
 ## iOS development
 
@@ -165,75 +157,6 @@ Refresh the iOS copy in the same change as the frontend snapshot; it is a
 reference contract, not a build input
 ([mobile.md](mobile.md#api-contract-sync)). Architecture and the authentication
 handoff are described in [mobile.md](mobile.md).
-
-## macOS development
-
-The macOS app lives in `macos/Rentivo` and does **not** duplicate the Domain and
-Data layers: `macos/Rentivo.xcodeproj` links the `RentivoCore` package from
-`ios/` through a local package reference (`../ios`), so only `App/`,
-`DesignSystem/`, `Features/`, and `Resources/` are macOS-authored. Xcode is
-required.
-
-```bash
-open macos/Rentivo.xcodeproj   # run the app
-make macos-build               # Debug build, ad-hoc signed
-make macos-test                # RentivoMacTests on a platform=macOS destination
-make macos-dmg                 # drag-to-Applications installer in dist/
-make macos-app-icon            # regenerate the icon set from the iOS artwork
-```
-
-`make macos-test` covers the macOS app layer only; the layers below it belong to
-`make ios-test`. Because both apps build from the same package, a change under
-`ios/Rentivo/Domain` or `ios/Rentivo/Data` should run both — and it triggers the
-macOS CI job, which is path-gated by `scripts/macos-ci.sh paths-changed`.
-
-There is no `macos-openapi-*` target and no macOS release workflow. Packaging,
-demo-mode launch arguments, and the platform adaptations (sidebar navigation,
-Finder drag-and-drop receipts, save-panel downloads) are described in
-[macos.md](macos.md).
-
-## Android development
-
-The Android app is a Gradle project rooted at `android/` with a single `:app`
-module under the `app.rentivo` package, built with Jetpack Compose. It targets
-`minSdk` 26 and `compileSdk`/`targetSdk` 35, and compiles to JVM target 17.
-Gradle itself is wrapper 8.13 with AGP 8.7.3 and Kotlin 2.1.20; the build
-declares no toolchain, so run it on **JDK 21** to match CI. Gradle also needs
-the Android SDK location, taken from `android/local.properties` (gitignored, so
-create it locally) or from `ANDROID_HOME`.
-
-```bash
-make android-build           # cd android && ./gradlew assembleDebug
-make android-test            # cd android && ./gradlew testDebugUnitTest
-```
-
-The unit tests are pure JVM code — 30 test classes covering the domain and data
-layers. There is no `androidTest` source set, so no emulator or connected
-device is involved.
-
-`make android-test` is weaker than CI: the CI composite action
-(`.github/actions/android-unit-tests/action.yml`) also runs `:app:lintDebug`,
-which has no Make target — run it directly from `android/` before pushing if
-you want the same coverage locally. The Android job is path-gated by
-`scripts/android-ci.sh paths-changed`; [mobile.md](mobile.md#android) lists what
-triggers it.
-
-The app keeps its own copy of the API contract at `android/app/openapi.json`,
-byte-identical to `frontend/openapi.json`:
-
-```bash
-make android-openapi-sync     # copy frontend/openapi.json into android/app
-make android-openapi-check    # non-mutating CI freshness check
-```
-
-As on iOS, that copy is a reference contract rather than a build input — the
-wire DTOs are hand-written in
-`android/app/src/main/java/app/rentivo/data/api/RemoteDTOs.kt`
-([mobile.md](mobile.md#api-contract-sync)). See [mobile.md](mobile.md) for the
-shared mobile architecture.
-
-There is no release automation for Android yet — unlike iOS, no workflow
-builds, signs, or uploads a release artifact.
 
 ## End-to-end and visual tests
 
@@ -308,14 +231,12 @@ make e2e
 make scripts-test            # if scripts/ or the CI script tests changed
 make ios-openapi-check       # if the API schema changed
 make ios-test                # if ios/ changed; requires full Xcode
-make android-openapi-check   # if the API schema changed
-make android-test            # if android/ changed; JVM only, no emulator
 ```
 
 Backend and authored frontend code enforce 100% coverage. Backend tests run in
 parallel and normally use isolated SQLite databases. `make install` registers
-pre-commit hooks for formatting, lint, and the full test suite. The iOS and
-Android suites have no coverage gate configured.
+pre-commit hooks for formatting, lint, and the full test suite. The iOS suite
+has no coverage gate configured.
 
 ## Jobs and worker
 
