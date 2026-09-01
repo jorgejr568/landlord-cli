@@ -220,6 +220,13 @@ def test_runtime_dockerfiles_do_not_scaffold_the_legacy_package():
         assert "backend/rentivo/__init__.py" in contents
 
 
+def test_api_image_trusts_forwarded_headers_from_private_network_proxies():
+    dockerfile = API_DOCKERFILE.read_text()
+
+    assert 'FORWARDED_ALLOW_IPS="127.0.0.1,10.0.1.36"' in dockerfile
+    assert "--forwarded-allow-ips" not in dockerfile
+
+
 def test_development_override_targets_backend_and_frontend_services():
     override = _yaml(DEV_COMPOSE_FILE)["services"]
 
